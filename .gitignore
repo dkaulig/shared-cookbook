@@ -1,0 +1,56 @@
+# Secrets & local env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDE
+.vs/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.turbo/
+.next/
+.cache/
+*.tsbuildinfo
+
+# .NET / Backend
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+[Dd]ebug/
+[Rr]elease/
+
+# Python / Extractor
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Docker / Runtime
+*.log
+logs/
+volumes/
+data/
+
+# Coverage
+coverage/
+.coverage
+htmlcov/
