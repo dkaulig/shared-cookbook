@@ -5,9 +5,11 @@ namespace FamilienKochbuch.Api.Tests.Infrastructure;
 
 /// <summary>
 /// In-memory <see cref="IPhotoStorage"/> for integration tests. Stores the
-/// byte payload per URL so assertions can round-trip. Returns
-/// <c>fake://&lt;guid&gt;.&lt;ext&gt;</c> URLs that survive upload → DB →
-/// JSON-response serialization without any SeaweedFS container.
+/// byte payload per path so assertions can round-trip; emits deterministic
+/// signed-shape URLs from <see cref="GetPublicUrl"/> without touching the
+/// real signing service. Matches the new post-migration contract:
+/// <see cref="UploadAsync"/> returns the bare path, <see cref="DeleteAsync"/>
+/// accepts either a path or a signed URL.
 /// </summary>
 public class FakePhotoStorage : IPhotoStorage
 {
@@ -31,16 +33,27 @@ public class FakePhotoStorage : IPhotoStorage
             "image/webp" => ".webp",
             _ => Path.GetExtension(originalFileName),
         };
-        var url = $"fake://{Guid.NewGuid():N}{extension}";
-        Uploads[url] = (bytes, contentType);
-        return url;
+        var path = $"{SeaweedFsPhotoStorage.PathPrefix}/{Guid.NewGuid():N}{extension}";
+        Uploads[path] = (bytes, contentType);
+        return path;
     }
 
-    public Task DeleteAsync(string url, CancellationToken ct = default)
+    public Task DeleteAsync(string pathOrUrl, CancellationToken ct = default)
     {
-        Uploads.TryRemove(url, out _);
-        Deleted.Add(url);
+        var path = SeaweedFsPhotoStorage.NormalizeToPath(pathOrUrl);
+        Uploads.TryRemove(path, out _);
+        Deleted.Add(path);
         return Task.CompletedTask;
+    }
+
+    /// <summary>Produces a deterministic, signature-shaped URL so tests can assert
+    /// that endpoints run their output through <see cref="GetPublicUrl"/>.
+    /// The values are fixed (not a real HMAC) because the fake is
+    /// intentionally decoupled from <c>ImageSigningService</c>.</summary>
+    public string GetPublicUrl(string path)
+    {
+        var normalized = SeaweedFsPhotoStorage.NormalizeToPath(path);
+        return $"/api/photos/{normalized}?sig=fake-sig&exp=9999999999";
     }
 
     public void Clear()

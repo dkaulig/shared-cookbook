@@ -1,7 +1,5 @@
 using System.Text;
 using System.Threading.RateLimiting;
-using Amazon.Runtime;
-using Amazon.S3;
 using FamilienKochbuch.Api.Endpoints;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
@@ -72,27 +70,15 @@ builder.Services.AddScoped<IRecipeSearchService, PostgresRecipeSearchService>();
 
 // ── Photo URL signing (HMAC over path+exp, keyed off Jwt:SigningKey) ──
 builder.Services.AddSingleton<ImageSigningService>();
+builder.Services.AddSingleton<IPhotoUrlSigner, PhotoUrlSigner>();
 
-// ── Named HTTP client for the SeaweedFS filer (proxy + upload path) ──
-builder.Services.AddHttpClient(PhotoProxyEndpointsConstants.FilerClientName);
-
-// ── Photo storage (SeaweedFS via S3-compatible gateway) ──────────────
-builder.Services.Configure<PhotoStorageOptions>(builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
-if (!builder.Environment.IsEnvironment("Testing"))
-{
-    builder.Services.AddSingleton<IAmazonS3>(sp =>
-    {
-        var opts = sp.GetRequiredService<IOptions<PhotoStorageOptions>>().Value;
-        var config = new AmazonS3Config
-        {
-            ServiceURL = opts.Endpoint,
-            ForcePathStyle = true, // SeaweedFS requires path-style addressing.
-        };
-        var creds = new BasicAWSCredentials(opts.AccessKey, opts.SecretKey);
-        return new AmazonS3Client(creds, config);
-    });
-    builder.Services.AddScoped<IPhotoStorage, SeaweedFsPhotoStorage>();
-}
+// ── SeaweedFS filer HTTP client + photo storage (plain HTTP, no S3) ──
+// The named client is shared by the photo-proxy endpoint and the upload
+// path so both sides go through a single HttpClient config point.
+builder.Services.AddHttpClient(SeaweedFsPhotoStorage.FilerHttpClientName);
+builder.Services.Configure<PhotoStorageOptions>(
+    builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
+builder.Services.AddScoped<IPhotoStorage, SeaweedFsPhotoStorage>();
 
 // ── Auth (JWT Bearer) ─────────────────────────────────────────────────
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -196,12 +182,6 @@ if (!app.Environment.IsEnvironment("Testing"))
     await db.Database.MigrateAsync();
     var seeder = scope.ServiceProvider.GetRequiredService<SeedDataService>();
     await seeder.SeedAsync();
-
-    // Ensure the SeaweedFS bucket exists — idempotent, best-effort.
-    var s3 = scope.ServiceProvider.GetRequiredService<IAmazonS3>();
-    var photoOpts = scope.ServiceProvider.GetRequiredService<IOptions<PhotoStorageOptions>>().Value;
-    var photoLog = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    await SeaweedFsPhotoStorage.EnsureBucketAsync(s3, photoOpts, photoLog);
 }
 
 app.Run();

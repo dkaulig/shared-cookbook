@@ -1,5 +1,7 @@
 using System.Globalization;
 using FamilienKochbuch.Api.Services;
+using FamilienKochbuch.Infrastructure.Services;
+using Microsoft.Extensions.Options;
 
 namespace FamilienKochbuch.Api.Endpoints;
 
@@ -18,7 +20,7 @@ public static class PhotoProxyEndpoints
             string path,
             HttpContext ctx,
             IHttpClientFactory httpFactory,
-            IConfiguration config,
+            IOptions<PhotoStorageOptions> storageOptions,
             ImageSigningService signing) =>
         {
             var sig = ctx.Request.Query["sig"].FirstOrDefault();
@@ -29,8 +31,8 @@ public static class PhotoProxyEndpoints
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
-            var filerUrl = (config["SeaweedFS:FilerUrl"] ?? "http://seaweedfs:8333").TrimEnd('/');
-            var client = httpFactory.CreateClient(PhotoProxyEndpointsConstants.FilerClientName);
+            var filerUrl = storageOptions.Value.FilerUrl.TrimEnd('/');
+            var client = httpFactory.CreateClient(SeaweedFsPhotoStorage.FilerHttpClientName);
             try
             {
                 using var response = await client.GetAsync($"{filerUrl}/{path}");
@@ -55,11 +57,4 @@ public static class PhotoProxyEndpoints
         .AllowAnonymous()
         .WithTags("Photos");
     }
-}
-
-/// <summary>Shared constants so tests can pin the same named-client key.</summary>
-public static class PhotoProxyEndpointsConstants
-{
-    /// <summary>Named <see cref="IHttpClientFactory"/> client used to reach the SeaweedFS filer.</summary>
-    public const string FilerClientName = "seaweedfs-filer";
 }
