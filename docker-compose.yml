@@ -45,6 +45,13 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: "Host=postgres;Database=familien_kochbuch;Username=app;Password=dev"
       ConnectionStrings__Redis: "redis:6379"
+      # Seeded admin (first boot only). Falls back to SeedDataService's
+      # compiled defaults + a loud warning when unset.
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@familien-kochbuch.local}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-ChangeMe!Admin2026}"
+      # JWT signing key — MUST be set in production via the .env file.
+      JWT_SIGNING_KEY: "${JWT_SIGNING_KEY:-dev-only-signing-key-replace-via-JWT_SIGNING_KEY-env-var}"
+      App__FrontendBaseUrl: "${APP_FRONTEND_BASE_URL:-http://localhost}"
     depends_on:
       postgres:
         condition: service_healthy
