@@ -17,7 +17,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 | # | Slice | State | Agent ID | Started | Completed | Notes |
 |---|---|---|---|---|---|---|
-| S0 | Monorepo Skeleton & Tooling | pending | — | — | — | — |
+| S0 | Monorepo Skeleton & Tooling | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched by orchestrator |
 | S1 | Auth Foundation | pending | — | — | — | — |
 | S2 | Groups & Memberships | pending | — | — | — | — |
 | S3 | Recipes (Core CRUD) | pending | — | — | — | — |
