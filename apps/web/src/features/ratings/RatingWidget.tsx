@@ -1,20 +1,26 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { Star } from 'lucide-react'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import { useDeleteRating, useRatings, useUpsertRating } from './hooks'
 
 /**
- * Star + comment widget shown on the recipe detail page. Displays the
- * group-wide aggregate (avg + count) plus the current user's own entry
- * with edit/delete affordances. German labels per PRD §4.8 / §4.3.
+ * DS5 rating card (restyled from the S4 functional widget). Mirrors
+ * `.rating-card` in `docs/mockups/warme-kueche-recipe-detail.html`:
  *
- * Semantics:
- *  - Stars are a 1..5 toggle group. Clicking the same star keeps the
- *    value; clicking a different star replaces it.
- *  - Submit upserts (create-or-update) with the selected stars + comment.
- *  - Delete removes the current user's rating (idempotent server-side).
+ *   - Cormorant-Garamond "Deine Bewertung" headline + muted sub-line
+ *   - Aggregate amber pill in the top-right (Star + 4,8)
+ *   - 5-star picker with 28 px icons
+ *   - Textarea with amber focus ring
+ *   - Ghost "Löschen" + primary "Speichern" footer buttons
+ *
+ * Behavioural contract (preserved verbatim from the S4 tests):
+ *   - Starts on 1..5 toggle; clicking the same star keeps the value.
+ *   - Submit upserts (create-or-update) with the selected stars + comment.
+ *   - Delete removes the current user's rating (idempotent server-side).
  */
 export function RatingWidget({ recipeId }: { recipeId: string }) {
   const ratings = useRatings(recipeId)
@@ -22,12 +28,14 @@ export function RatingWidget({ recipeId }: { recipeId: string }) {
 
   if (ratings.isLoading || !aggregate) {
     return (
-      <section className="space-y-3 rounded-md bg-background p-4 ring-1 ring-border">
-        <header className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-stone-900">Bewertungen</h2>
-          <span className="text-sm text-stone-500">Lade …</span>
+      <div className="rounded-[18px] border border-border bg-card px-5 py-4 shadow-[0_1px_2px_rgba(28,25,23,0.04)]">
+        <header className="flex items-baseline justify-between gap-3">
+          <h3 className="font-serif text-[20px] font-semibold leading-tight text-foreground">
+            Deine Bewertung
+          </h3>
+          <span className="text-[13px] text-[hsl(var(--muted-foreground))]">Lade …</span>
         </header>
-      </section>
+      </div>
     )
   }
 
@@ -98,74 +106,104 @@ function RatingForm({
     }
   }
 
+  const countSuffix = aggregateCount === 1 ? 'Person' : 'Personen'
+
   return (
-    <section className="space-y-3 rounded-md bg-background p-4 ring-1 ring-border">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold text-stone-900">Bewertungen</h2>
-        {aggregateCount > 0 ? (
-          <p className="text-sm text-stone-700">
-            Ø <span className="font-semibold">{formatAvg(aggregateAvg)}</span>{' '}
-            ({aggregateCount} {aggregateCount === 1 ? 'Bewertung' : 'Bewertungen'})
-          </p>
-        ) : (
-          <p className="text-sm text-stone-500">Noch keine Bewertung.</p>
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-[18px] border border-border bg-card px-5 py-4 shadow-[0_1px_2px_rgba(28,25,23,0.04)]"
+      noValidate
+    >
+      <header className="mb-3.5 flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          <h3 className="font-serif text-[20px] font-semibold leading-tight text-foreground">
+            Deine Bewertung
+          </h3>
+          {aggregateCount > 0 ? (
+            <p className="text-[12.5px] text-[hsl(var(--muted-foreground))]">
+              Wie war's? {aggregateCount} {countSuffix} aus der Familie haben schon bewertet.
+            </p>
+          ) : (
+            <p className="text-[12.5px] text-[hsl(var(--muted-foreground))]">
+              Noch keine Bewertung. Sei die erste Person mit einem Eindruck.
+            </p>
+          )}
+        </div>
+        {aggregateCount > 0 && aggregateAvg != null && (
+          <span className="flex items-baseline gap-1 font-bold text-[hsl(var(--star,var(--primary)))] [font-variant-numeric:tabular-nums]">
+            <Star className="h-[18px] w-[18px] fill-current" aria-hidden="true" />
+            <span className="text-[22px]">{formatAvg(aggregateAvg)}</span>
+            <span className="text-[13px] font-medium text-[hsl(var(--muted-foreground))]">
+              ({aggregateCount})
+            </span>
+          </span>
         )}
       </header>
 
-      <form onSubmit={handleSubmit} className="space-y-3" noValidate>
-        <div className="space-y-1.5">
-          <Label>Deine Bewertung</Label>
-          <div className="flex gap-1" role="group" aria-label="Sterne-Auswahl">
-            {[1, 2, 3, 4, 5].map((value) => {
-              const active = stars >= value
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setStars(value)}
-                  aria-pressed={stars === value}
-                  aria-label={`${value} Sterne`}
-                  className={
-                    'text-2xl leading-none transition-transform hover:scale-110 ' +
-                    (active ? 'text-amber-500' : 'text-stone-300')
-                  }
-                >
-                  ★
-                </button>
-              )
-            })}
-          </div>
-        </div>
+      <div className="mb-3 flex gap-1" role="group" aria-label="Sterne-Auswahl">
+        {[1, 2, 3, 4, 5].map((value) => {
+          const active = stars >= value
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setStars(value)}
+              aria-pressed={stars === value}
+              aria-label={`${value} Sterne`}
+              className={cn(
+                'p-1 transition-colors active:scale-[1.15]',
+                active
+                  ? 'text-[hsl(var(--star,var(--primary)))]'
+                  : 'text-[hsl(var(--input))] hover:text-[hsl(var(--star,var(--primary)))]',
+              )}
+            >
+              <Star className="h-7 w-7 fill-current" aria-hidden="true" />
+            </button>
+          )
+        })}
+      </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="rating-comment">Kommentar (optional)</Label>
-          <textarea
-            id="rating-comment"
-            className="min-h-[70px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            maxLength={2000}
-          />
-        </div>
-
-        {error && (
-          <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
-            {error}
-          </p>
+      <Label htmlFor="rating-comment" className="sr-only">
+        Kommentar
+      </Label>
+      <textarea
+        id="rating-comment"
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        maxLength={2000}
+        placeholder="Optional: Notiz für beim nächsten Mal — was hat besonders gut geklappt?"
+        className={cn(
+          'w-full min-h-[64px] resize-y rounded-[10px] border border-[hsl(var(--input))] bg-background px-3 py-2.5',
+          'text-[14px] leading-[1.5] text-foreground',
+          'focus:border-[hsl(var(--primary))] focus:outline-none focus:ring-4 focus:ring-[hsl(var(--primary)/0.25)]',
         )}
+      />
 
-        <div className="flex items-center justify-end gap-2">
-          {hasRated && (
-            <Button type="button" variant="ghost" onClick={handleDelete} disabled={deleteMutation.isPending}>
-              Löschen
-            </Button>
-          )}
-          <Button type="submit" disabled={upsert.isPending || stars < 1}>
-            {upsert.isPending ? 'Speichern…' : 'Speichern'}
+      {error && (
+        <p
+          role="alert"
+          className="mt-2 rounded-[10px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-[13px] text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
+        >
+          {error}
+        </p>
+      )}
+
+      <footer className="mt-2.5 flex items-center justify-end gap-2">
+        {hasRated && (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+          >
+            Löschen
           </Button>
-        </div>
-      </form>
-    </section>
+        )}
+        <Button type="submit" disabled={upsert.isPending || stars < 1}>
+          {upsert.isPending ? 'Speichern…' : 'Speichern'}
+        </Button>
+      </footer>
+    </form>
   )
 }
 
