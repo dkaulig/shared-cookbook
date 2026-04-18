@@ -1859,3 +1859,35 @@ includes video-to-recipe extraction (`yt-dlp` + Whisper + Azure OpenAI),
 an AI chat for recipe authoring, and photo-to-recipe OCR. None of the
 Phase-2 features touch the Phase-1 critical path; S0–S7 deliver a
 standalone, production-ready family cookbook.
+
+### Phase 1.5 — Design Implementation (addendum)
+
+The Phase 1.5 Design Implementation slices (DS1–DS7) completed on
+2026-04-18. Seven visual-fidelity slices brought every React page up
+to the Warme-Küche mockup standard without touching the 427-test
+behavioural baseline.
+
+| # | Slice | Impl commits | Tests added |
+|---|---|---:|---:|
+| DS1 | Theme Foundation | 19 | +28 web |
+| DS2 | Auth Flow | 13 | +22 web |
+| DS3 | Home & Navigation Shell | 21 | +53 web |
+| DS4 | Group Detail | 18 | +60 web |
+| DS5 | Recipe Detail | 21 | +50 web + 5 API |
+| DS6 | Recipe Form | 16 | +42 web |
+| DS7 | Polish + PWA | 14 | +8 web |
+| **Total Phase 1.5** | — | **122** | **+263 web + 5 API** |
+
+**Combined totals (Phase 1 + Phase 1.5):**
+
+| Target | Phase 1 | Phase 1.5 delta | DS7 total |
+|---|---:|---:|---:|
+| `dotnet test` | 427 | +5 | 432 |
+| `pnpm -C apps/web test --run` | 179 | +263 | 442 |
+| `pnpm -C packages/shared test --run` | 32 | 0 | 32 |
+| **Total** | **638** | **+268** | **906** |
+
+See `docs/design-implementation-progress.md` for the full per-slice
+review transcript, deviations, and the final Phase 1.5 summary block.
+Screenshots of the five key pages land in `docs/screenshots/` and are
+embedded in the README "UI Stand (Phase 1.5 — Warme-Küche)" section.
