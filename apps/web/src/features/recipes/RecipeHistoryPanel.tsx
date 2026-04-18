@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { ChevronDown, GitFork, Pencil, Sparkles } from 'lucide-react'
 import type { RecipeChangeType, RecipeSnapshot } from '@familien-kochbuch/shared'
-import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useRecipeRevision, useRecipeRevisions } from './hooks'
 import { formatRelativeDe } from './relativeTime'
 import { RecipeRevisionDiffModal } from './RecipeRevisionDiffModal'
@@ -18,16 +19,16 @@ const CHANGE_TYPE_LABEL: Record<RecipeChangeType, string> = {
   Forked: 'Geforkt',
 }
 
-const CHANGE_TYPE_BADGE: Record<RecipeChangeType, string> = {
-  Created: 'bg-emerald-100 text-emerald-800',
-  Edited: 'bg-sky-100 text-sky-800',
-  Forked: 'bg-violet-100 text-violet-800',
-}
-
 /**
- * S6 "Letzte Änderungen" panel — collapsible card on the recipe detail
- * page. Shows up to five revisions newest-first; clicking a row opens
- * the diff modal against the current recipe state.
+ * DS5 "Letzte Änderungen" card (S6 logic, restyled shell). The revision
+ * list + diff-modal plumbing is unchanged; only the surrounding visual
+ * grammar moves to match `.history-card` in
+ * `docs/mockups/warme-kueche-recipe-detail.html`:
+ *
+ *   - collapsible card with a hoverable header row (chevron rotates 180°)
+ *   - change-type icons colored by type (Created=green, Edited=amber,
+ *     Forked=purple)
+ *   - rows are inline grid: 28px icon · 1fr body · auto relative-time
  */
 export function RecipeHistoryPanel({ recipeId, current }: RecipeHistoryPanelProps) {
   const [open, setOpen] = useState(false)
@@ -37,92 +38,88 @@ export function RecipeHistoryPanel({ recipeId, current }: RecipeHistoryPanelProp
   const items = revisions.data ?? []
 
   return (
-    <section className="mt-8 rounded-md bg-background p-4 ring-1 ring-border">
-      <header className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-stone-900">Letzte Änderungen</h2>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setOpen((prev) => !prev)}
-          aria-expanded={open}
-        >
-          {open ? 'Einklappen' : `Anzeigen (${items.length})`}
-        </Button>
-      </header>
+    <section className="overflow-hidden rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)]">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={open ? 'Einklappen' : `Anzeigen (${items.length})`}
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-[hsl(var(--muted))]"
+      >
+        <div className="flex items-center gap-2.5">
+          <h3 className="font-serif text-[18px] font-semibold leading-none text-foreground">
+            Letzte Änderungen
+          </h3>
+          <span className="rounded-full bg-[hsl(var(--secondary))] px-[7px] py-[2px] text-[11px] font-semibold text-[hsl(var(--primary))]">
+            {items.length}
+          </span>
+        </div>
+        <ChevronDown
+          className={cn(
+            'h-[18px] w-[18px] text-[hsl(var(--muted-foreground))] transition-transform duration-200',
+            open && 'rotate-180',
+          )}
+          aria-hidden="true"
+        />
+      </button>
 
       {open && (
-        <div className="mt-4">
+        <div className="border-t border-[hsl(var(--border)/0.55)] py-1.5">
           {revisions.isLoading && (
-            <p className="text-sm text-stone-500">Lade Änderungen …</p>
+            <p className="px-5 py-3 text-[13px] text-[hsl(var(--muted-foreground))]">
+              Lade Änderungen …
+            </p>
           )}
           {revisions.isError && (
-            <p role="alert" className="text-sm text-red-700">
+            <p
+              role="alert"
+              className="px-5 py-3 text-[13px] text-[hsl(var(--destructive))]"
+            >
               Änderungen konnten nicht geladen werden.
             </p>
           )}
           {!revisions.isLoading && !revisions.isError && items.length === 0 && (
-            <p className="text-sm text-stone-500">Noch keine Änderungen erfasst.</p>
+            <p className="px-5 py-3 text-[13px] text-[hsl(var(--muted-foreground))]">
+              Noch keine Änderungen erfasst.
+            </p>
           )}
-          <ul className="space-y-2">
-            {items.map((rev) => (
-              <li key={rev.id}>
+          <ul>
+            {items.map((rev, index) => (
+              <li
+                key={rev.id}
+                className={cn(
+                  'px-5',
+                  index > 0 && 'border-t border-[hsl(var(--border)/0.55)]',
+                )}
+              >
                 <button
                   type="button"
                   onClick={() => setActiveRevisionId(rev.id)}
-                  className="flex w-full flex-col gap-1 rounded-md border border-stone-200 px-3 py-2 text-left text-sm hover:bg-stone-50"
+                  aria-label={`${CHANGE_TYPE_LABEL[rev.changeType]} – ${rev.changedBy.displayName}`}
+                  className="grid w-full grid-cols-[28px_1fr_auto] items-center gap-3 py-2.5 text-left text-[13px]"
                 >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-stone-900">{rev.changedBy.displayName}</span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs ${CHANGE_TYPE_BADGE[rev.changeType]}`}
-                    >
-                      {CHANGE_TYPE_LABEL[rev.changeType]}
-                    </span>
-                  </span>
-                  <span className="text-xs text-stone-500">
+                  <ChangeIcon changeType={rev.changeType} />
+                  <div className="leading-[1.4]">
+                    <div className="text-foreground">
+                      <strong className="font-semibold">
+                        {rev.changedBy.displayName}
+                      </strong>{' '}
+                      · {CHANGE_TYPE_LABEL[rev.changeType]}
+                    </div>
+                    {rev.diffSummary && (
+                      <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
+                        {rev.diffSummary}
+                      </div>
+                    )}
+                  </div>
+                  <div className="whitespace-nowrap text-[12px] text-[hsl(var(--muted-foreground))]">
                     {formatRelativeDe(rev.createdAt)}
-                  </span>
-                  {rev.diffSummary && (
-                    <span className="text-sm text-stone-700">{rev.diffSummary}</span>
-                  )}
+                  </div>
                 </button>
               </li>
             ))}
           </ul>
         </div>
-      )}
-
-      {!open && items.length > 0 && (
-        // Keep summaries clickable even when the panel is collapsed — the
-        // header chip already shows the count, but we expose the latest
-        // entry inline so the most relevant info is one tap away.
-        <ul className="mt-3 space-y-2">
-          {items.slice(0, 1).map((rev) => (
-            <li key={rev.id}>
-              <button
-                type="button"
-                onClick={() => setActiveRevisionId(rev.id)}
-                className="flex w-full flex-col gap-1 rounded-md border border-stone-200 px-3 py-2 text-left text-sm hover:bg-stone-50"
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-stone-900">{rev.changedBy.displayName}</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs ${CHANGE_TYPE_BADGE[rev.changeType]}`}
-                  >
-                    {CHANGE_TYPE_LABEL[rev.changeType]}
-                  </span>
-                </span>
-                <span className="text-xs text-stone-500">
-                  {formatRelativeDe(rev.createdAt)}
-                </span>
-                {rev.diffSummary && (
-                  <span className="text-sm text-stone-700">{rev.diffSummary}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
       )}
 
       {activeRevisionId && (
@@ -134,6 +131,35 @@ export function RecipeHistoryPanel({ recipeId, current }: RecipeHistoryPanelProp
         />
       )}
     </section>
+  )
+}
+
+function ChangeIcon({ changeType }: { changeType: RecipeChangeType }) {
+  const styles: Record<RecipeChangeType, { bg: string; fg: string }> = {
+    Created: { bg: 'bg-[hsl(142_71%_90%)]', fg: 'text-[hsl(142_71%_29%)]' },
+    Edited: {
+      bg: 'bg-[hsl(var(--secondary))]',
+      fg: 'text-[hsl(var(--primary))]',
+    },
+    Forked: { bg: 'bg-[hsl(260_89%_94%)]', fg: 'text-[hsl(262_83%_53%)]' },
+  }
+  const Icon = changeType === 'Forked'
+    ? GitFork
+    : changeType === 'Created'
+      ? Sparkles
+      : Pencil
+  const style = styles[changeType]
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'grid h-7 w-7 flex-shrink-0 place-items-center rounded-full',
+        style.bg,
+        style.fg,
+      )}
+    >
+      <Icon className="h-[14px] w-[14px]" strokeWidth={2} />
+    </span>
   )
 }
 
