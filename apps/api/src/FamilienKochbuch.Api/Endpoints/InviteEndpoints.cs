@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
@@ -22,7 +23,6 @@ public static class InviteEndpoints
     public record CreateInviteRequest(string? Email = null);
     public record CreateInviteResponse(Guid Id, string Token, string InviteUrl, DateTimeOffset ExpiresAt);
     public record InvitePreviewResponse(bool Valid, DateTimeOffset ExpiresAt, string? InviterDisplayName);
-    public record ErrorResponse(string Code, string Message);
 
     public static void MapInviteEndpoints(this WebApplication app)
     {
@@ -68,7 +68,7 @@ public static class InviteEndpoints
     {
         var invite = await db.AppInvites.SingleOrDefaultAsync(i => i.Token == token, ct);
         if (invite is null)
-            return Results.NotFound(new ErrorResponse("invite_not_found", "Einladung wurde nicht gefunden."));
+            return FamilienResults.NotFound("invite_not_found", "Einladung wurde nicht gefunden.");
 
         var creator = await db.Users
             .Where(u => u.Id == invite.CreatedByUserId)

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
@@ -130,8 +131,6 @@ public static class RecipeEndpoints
     public record RemovePhotoRequest(string Url);
 
     public record ForkRecipeRequest(Guid TargetGroupId);
-
-    public record ErrorResponse(string Code, string Message);
 
     // ── Endpoint wiring ─────────────────────────────────────────────
 
@@ -265,7 +264,7 @@ public static class RecipeEndpoints
 
         // Validate tag ids — must be global or scoped to this group.
         if (!await AreTagIdsValidForGroupAsync(db, body.TagIds, groupId, ct))
-            return Results.BadRequest(new ErrorResponse("invalid_tag", "Ein oder mehrere Tags sind unbekannt oder gehören nicht zur Gruppe."));
+            return FamilienResults.BadRequest("invalid_tag", "Ein oder mehrere Tags sind unbekannt oder gehören nicht zur Gruppe.");
 
         Recipe recipe;
         try
@@ -311,7 +310,7 @@ public static class RecipeEndpoints
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
         // S6: record the initial Created revision so the history panel
@@ -463,7 +462,7 @@ public static class RecipeEndpoints
         if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
 
         if (!await AreTagIdsValidForGroupAsync(db, body.TagIds, recipe.GroupId, ct))
-            return Results.BadRequest(new ErrorResponse("invalid_tag", "Ein oder mehrere Tags sind unbekannt oder gehören nicht zur Gruppe."));
+            return FamilienResults.BadRequest("invalid_tag", "Ein oder mehrere Tags sind unbekannt oder gehören nicht zur Gruppe.");
 
         try
         {
@@ -507,7 +506,7 @@ public static class RecipeEndpoints
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
         // Reload to project the detail DTO from fresh state.
@@ -561,22 +560,22 @@ public static class RecipeEndpoints
         if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
 
         if (file is null || file.Length == 0)
-            return Results.BadRequest(new ErrorResponse("file_missing", "Es wurde keine Datei übermittelt."));
+            return FamilienResults.BadRequest("file_missing", "Es wurde keine Datei übermittelt.");
 
         if (file.Length > MaxPhotoBytes)
-            return Results.BadRequest(new ErrorResponse(
+            return FamilienResults.BadRequest(
                 "file_too_large",
-                $"Das Foto überschreitet das Limit von {MaxPhotoBytes / (1024 * 1024)} MB."));
+                $"Das Foto überschreitet das Limit von {MaxPhotoBytes / (1024 * 1024)} MB.");
 
         if (!AllowedPhotoContentTypes.Contains(file.ContentType ?? string.Empty))
-            return Results.BadRequest(new ErrorResponse(
+            return FamilienResults.BadRequest(
                 "unsupported_media_type",
-                "Nur JPEG-, PNG- und WebP-Bilder sind zulässig."));
+                "Nur JPEG-, PNG- und WebP-Bilder sind zulässig.");
 
         if (recipe.Photos.Count >= Recipe.MaxPhotos)
-            return Results.BadRequest(new ErrorResponse(
+            return FamilienResults.BadRequest(
                 "photo_limit_reached",
-                $"Ein Rezept darf höchstens {Recipe.MaxPhotos} Fotos haben."));
+                $"Ein Rezept darf höchstens {Recipe.MaxPhotos} Fotos haben.");
 
         string path;
         await using (var stream = file.OpenReadStream())
@@ -618,13 +617,13 @@ public static class RecipeEndpoints
         if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
 
         if (string.IsNullOrWhiteSpace(body.Url))
-            return Results.BadRequest(new ErrorResponse("invalid_input", "url ist erforderlich."));
+            return FamilienResults.BadRequest("invalid_input", "url ist erforderlich.");
 
         // Clients may echo back either the signed URL they received or the
         // bare path; normalize before removing so both shapes work.
         var targetPath = SeaweedFsPhotoStorage.NormalizeToPath(body.Url);
         if (string.IsNullOrWhiteSpace(targetPath))
-            return Results.BadRequest(new ErrorResponse("invalid_input", "url ist erforderlich."));
+            return FamilienResults.BadRequest("invalid_input", "url ist erforderlich.");
 
         var removed = recipe.RemovePhoto(targetPath);
         if (!removed)
@@ -665,7 +664,7 @@ public static class RecipeEndpoints
         var logger = loggerFactory.CreateLogger("FamilienKochbuch.Api.RecipeFork");
 
         if (body.TargetGroupId == Guid.Empty)
-            return Results.BadRequest(new ErrorResponse("invalid_input", "targetGroupId ist erforderlich."));
+            return FamilienResults.BadRequest("invalid_input", "targetGroupId ist erforderlich.");
 
         var source = await LoadRecipeWithChildrenAsync(db, id, ct);
         if (source is null) return Results.NotFound();
@@ -778,7 +777,7 @@ public static class RecipeEndpoints
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
         // S6 follow-up from S5: emit a Created revision on the fork itself
@@ -852,8 +851,8 @@ public static class RecipeEndpoints
         if (!await IsGroupMemberAsync(db, groupId, userId, ct)) return Results.Forbid();
 
         if (!Enum.TryParse<TagCategory>(body.Category, ignoreCase: false, out var category))
-            return Results.BadRequest(new ErrorResponse("invalid_category",
-                "Kategorie ist unbekannt."));
+            return FamilienResults.BadRequest("invalid_category",
+                "Kategorie ist unbekannt.");
 
         // Per PRD §4.2 "Custom" is the intended free-form bucket. Custom tags
         // always land in that bucket regardless of what the client sends so
@@ -868,7 +867,7 @@ public static class RecipeEndpoints
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
         // Duplicate-before-save check so the response is a clean 400 rather
@@ -876,8 +875,8 @@ public static class RecipeEndpoints
         var duplicate = await db.Tags.AnyAsync(t =>
             t.GroupId == groupId && t.Category == newTag.Category && t.Name == newTag.Name, ct);
         if (duplicate)
-            return Results.BadRequest(new ErrorResponse("tag_exists",
-                "Ein Tag mit diesem Namen existiert bereits in dieser Gruppe."));
+            return FamilienResults.BadRequest("tag_exists",
+                "Ein Tag mit diesem Namen existiert bereits in dieser Gruppe.");
 
         db.Tags.Add(newTag);
         await db.SaveChangesAsync(ct);
@@ -912,8 +911,8 @@ public static class RecipeEndpoints
         // Global tags are managed via the seed migration — endpoint can't
         // touch them. Protect that boundary explicitly.
         if (tag.GroupId is null)
-            return Results.BadRequest(new ErrorResponse("global_tag_protected",
-                "Globale Tags können nicht gelöscht werden."));
+            return FamilienResults.BadRequest("global_tag_protected",
+                "Globale Tags können nicht gelöscht werden.");
 
         if (tag.GroupId != groupId)
             return Results.NotFound();

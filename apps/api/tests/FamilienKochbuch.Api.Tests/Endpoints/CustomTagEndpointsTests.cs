@@ -149,7 +149,7 @@ public class CustomTagEndpointsTests : IClassFixture<FamilienKochbuchWebApplicat
         var second = await _client.PostAsJsonAsync($"/api/groups/{groupId}/tags",
             new RecipeEndpoints.CreateTagRequest("Kinderfreundlich", "Custom"));
         Assert.Equal(HttpStatusCode.BadRequest, second.StatusCode);
-        var err = (await second.Content.ReadFromJsonAsync<RecipeEndpoints.ErrorResponse>())!;
+        var err = (await second.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>())!;
         Assert.Equal("tag_exists", err.Code);
     }
 
@@ -291,7 +291,7 @@ public class CustomTagEndpointsTests : IClassFixture<FamilienKochbuchWebApplicat
 
         var del = await _client.DeleteAsync($"/api/groups/{groupId}/tags/{globalTagId}");
         Assert.Equal(HttpStatusCode.BadRequest, del.StatusCode);
-        var err = (await del.Content.ReadFromJsonAsync<RecipeEndpoints.ErrorResponse>())!;
+        var err = (await del.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>())!;
         Assert.Equal("global_tag_protected", err.Code);
     }
 
