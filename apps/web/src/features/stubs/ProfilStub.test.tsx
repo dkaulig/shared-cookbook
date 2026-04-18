@@ -49,9 +49,10 @@ describe('<ProfilStub />', () => {
     expect(heading.className).toMatch(/font-serif/)
   })
 
-  it('shows the signed-in display name', () => {
+  it('shows the signed-in display name and email', () => {
     renderPage()
     expect(screen.getByText(/david/i)).toBeInTheDocument()
+    expect(screen.getByText(/david@kaulig\.de/i)).toBeInTheDocument()
   })
 
   it('shows the Abmelden button and clears auth state when clicked', async () => {
@@ -67,8 +68,15 @@ describe('<ProfilStub />', () => {
     })
   })
 
-  it('lists future features as "Bald verfügbar"', () => {
+  it('opens the InviteDialog when "Jemanden einladen" is clicked', async () => {
     renderPage()
-    expect(screen.getByText(/bald verfügbar/i)).toBeInTheDocument()
+    const user = userEvent.setup()
+
+    expect(screen.queryByRole('dialog', { name: /jemanden einladen/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /jemanden einladen/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: /jemanden einladen/i })
+    expect(dialog).toBeInTheDocument()
   })
 })
