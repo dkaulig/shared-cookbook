@@ -63,10 +63,11 @@ describe('RecipeDetailPage', () => {
     render(withProviders('/groups/g1/recipes/r1'))
     expect(await screen.findByRole('heading', { name: /Spätzle/ })).toBeInTheDocument()
     expect(screen.getByText('Mit Käse überbacken')).toBeInTheDocument()
-    expect(screen.getByText(/Mehl/)).toBeInTheDocument()
-    expect(screen.getByText(/Salz/)).toBeInTheDocument()
-    expect(screen.getByText(/Mehl in eine Schüssel geben/)).toBeInTheDocument()
-    expect(screen.getByText(/deftig/)).toBeInTheDocument()
+    // Ingredient name rendered inside ingredient list — assert exact text.
+    expect(screen.getByText('Salz')).toBeInTheDocument()
+    expect(screen.getAllByText(/Mehl/)).not.toHaveLength(0)
+    expect(screen.getByText('Mehl in eine Schüssel geben.')).toBeInTheDocument()
+    expect(screen.getByText('deftig')).toBeInTheDocument()
   })
 
   it('renders a link to the source URL when present', async () => {
