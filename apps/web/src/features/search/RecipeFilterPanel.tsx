@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Plus, Star, X } from 'lucide-react'
 import type {
@@ -12,7 +12,7 @@ import { useGroupTags } from '@/features/recipes/hooks'
 import { useGroupMembers } from '@/features/groups/hooks'
 import { CreateTagDialog } from '@/features/tagManagement/CreateTagDialog'
 import { readFiltersFromSearchParams, writeFiltersToSearchParams } from './urlState'
-import { applyFilterPreset, isFilterPreset } from './presets'
+import { usePresetConsumer } from './usePresetConsumer'
 
 /**
  * DS4 Recipe-filter panel.
@@ -71,21 +71,14 @@ export function RecipeFilterPanel({ groupId }: { groupId: string }) {
   const filters = readFiltersFromSearchParams(params)
   const [showCreateTag, setShowCreateTag] = useState(false)
 
-  // Preset consumption — apply once per `?preset=` value, then strip the
-  // param so navigating away + back doesn't re-fire. We key the "already
-  // consumed" flag on the tag pool being loaded so the preset can land
-  // its tag-name lookups.
-  const presetParam = params.get('preset')
-  useEffect(() => {
-    if (!presetParam || !isFilterPreset(presetParam)) return
-    if (!tagsQuery.isSuccess) return
-
-    const tagPool = tagsQuery.data
-    const next = applyFilterPreset(filters, presetParam, tagPool)
-    const nextParams = writeFiltersToSearchParams(next)
-    setParams(nextParams, { replace: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per preset+tags ready
-  }, [presetParam, tagsQuery.isSuccess])
+  // Presets are consumed at the GroupDetailPage level (so they fire
+  // even when the panel is still collapsed), but keeping the hook
+  // wired up here too is a safety net for standalone panel usage.
+  usePresetConsumer({
+    tags: tagsQuery.data,
+    tagsReady: tagsQuery.isSuccess,
+    onRandomRequest: () => undefined,
+  })
 
   function update(partial: Partial<RecipeSearchParams>) {
     const merged = { ...filters, ...partial }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ListOrdered, Plus, Settings } from 'lucide-react'
 import type { ApiError, RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
@@ -14,6 +14,7 @@ import {
   readFiltersFromSearchParams,
   writeFiltersToSearchParams,
 } from '@/features/search/urlState'
+import { usePresetConsumer } from '@/features/search/usePresetConsumer'
 import { GroupDetailHeader } from './GroupDetailHeader'
 import { GroupFilterBar } from './GroupFilterBar'
 import { useGroup } from './hooks'
@@ -76,6 +77,35 @@ export function GroupDetailPage() {
   const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters])
   const sortLabel = SORT_LABELS[filters.sort ?? 'newest']
 
+  const handleRandom = useCallback(async () => {
+    if (!groupId) return
+    setRandomError(null)
+    setRandomPending(true)
+    try {
+      const currentFilters = readFiltersFromSearchParams(searchParams)
+      const res = await fetchRandomRecipe(groupId, currentFilters)
+      if (res.recipeId) {
+        navigate(`/groups/${groupId}/recipes/${res.recipeId}`)
+      } else {
+        setRandomError('Kein Rezept passt zu den aktuellen Filtern.')
+      }
+    } catch (err) {
+      const apiErr = err as ApiError
+      setRandomError(apiErr.message || 'Zufalls-Auswahl fehlgeschlagen.')
+    } finally {
+      setRandomPending(false)
+    }
+  }, [groupId, navigate, searchParams])
+
+  // Preset consumer runs at the page level so it fires even when the
+  // filter panel is still collapsed (the common case after arriving
+  // from the Home quick-filter chips).
+  usePresetConsumer({
+    tags: tagsQuery.data,
+    tagsReady: tagsQuery.isSuccess,
+    onRandomRequest: handleRandom,
+  })
+
   if (!groupId) return <Navigate to="/groups" replace />
 
   if (detail.isLoading) {
@@ -110,24 +140,6 @@ export function GroupDetailPage() {
   const totalRecipes = search.data?.total ?? 0
   const items = search.data?.items ?? []
   const tags = tagsQuery.data ?? []
-
-  async function handleRandom() {
-    setRandomError(null)
-    setRandomPending(true)
-    try {
-      const res = await fetchRandomRecipe(groupId, filters)
-      if (res.recipeId) {
-        navigate(`/groups/${groupId}/recipes/${res.recipeId}`)
-      } else {
-        setRandomError('Kein Rezept passt zu den aktuellen Filtern.')
-      }
-    } catch (err) {
-      const apiErr = err as ApiError
-      setRandomError(apiErr.message || 'Zufalls-Auswahl fehlgeschlagen.')
-    } finally {
-      setRandomPending(false)
-    }
-  }
 
   const hasFiltersOrQuery = activeFilterCount > 0 || !!filters.q
   const recipesLabel = totalRecipes === 1 ? 'Rezept' : 'Rezepte'
