@@ -108,7 +108,6 @@ export function RecipeDetailPage() {
 
   async function handleDelete() {
     setDeleteError(null)
-    // eslint-disable-next-line no-alert -- intentional confirmation prompt
     if (!confirm('Rezept wirklich löschen?')) return
     try {
       await deleteMutation.mutateAsync(recipeId)

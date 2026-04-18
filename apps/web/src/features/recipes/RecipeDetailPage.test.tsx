@@ -118,7 +118,7 @@ describe('RecipeDetailPage', () => {
     // text (not an <input>), alongside a 'Personen' sub-caption.
     await screen.findByRole('heading', { name: /Spätzle/ })
     const stepper = screen.getByRole('group', { name: /Portionen-Stepper/i })
-    expect(stepper).toHaveTextContent(/^[−\-]?4/)
+    expect(stepper).toHaveTextContent(/^[−-]?4/)
     expect(stepper).toHaveTextContent(/Personen/i)
   })
 
