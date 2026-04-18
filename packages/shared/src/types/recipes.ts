@@ -107,3 +107,7 @@ export interface UploadPhotoResponse {
 export interface RemovePhotoRequest {
   url: string
 }
+
+export interface ForkRecipeRequest {
+  targetGroupId: string
+}
