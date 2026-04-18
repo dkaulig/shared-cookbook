@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -79,13 +79,11 @@ describe('RecipeFilterPanel', () => {
   it('moving the min-rating slider updates the URL', async () => {
     renderPanel()
     const slider = await screen.findByLabelText(/Mindest-Bewertung/i)
-    const user = userEvent.setup()
-    await user.click(slider)
-    await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}')
+    fireEvent.change(slider, { target: { value: '4' } })
 
     await waitFor(() => {
       const loc = screen.getByTestId('location-probe').textContent ?? ''
-      expect(loc).toContain('minRating=')
+      expect(loc).toContain('minRating=4')
     })
   })
 

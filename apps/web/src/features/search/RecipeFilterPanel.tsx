@@ -1,16 +1,61 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import type { ApiError, RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Plus, Star, X } from 'lucide-react'
+import type {
+  RecipeSearchParams,
+  SearchSort,
+  TagCategory,
+  TagDto,
+} from '@familien-kochbuch/shared'
+import { cn } from '@/lib/utils'
 import { useGroupTags } from '@/features/recipes/hooks'
 import { useGroupMembers } from '@/features/groups/hooks'
 import { CreateTagDialog } from '@/features/tagManagement/CreateTagDialog'
-import { fetchRandomRecipe } from './searchApi'
 import { readFiltersFromSearchParams, writeFiltersToSearchParams } from './urlState'
+import { applyFilterPreset, isFilterPreset } from './presets'
 
-const CATEGORY_ORDER = ['Mahlzeit', 'Saison', 'Typ', 'Aufwand', 'Diaet', 'Kueche', 'Custom'] as const
+/**
+ * DS4 Recipe-filter panel.
+ *
+ * Mirrors `.filter-panel` + `.active-filters` sections of
+ * `docs/mockups/warme-kueche-group-detail.html`:
+ *   1. Active-filter chips row (above the panel) — shows every applied
+ *      filter with a × remove button plus "Filter zurücksetzen".
+ *   2. Tag groups — one sub-row per category, chips toggle selection.
+ *      A dashed "Eigenen Tag erstellen" button opens the existing
+ *      CreateTagDialog in the Custom row.
+ *   3. Min-rating range slider (0–5).
+ *   4. Max-prep-time range slider (10–240 min).
+ *   5. Creator + sort dropdowns on a shared row.
+ *
+ * Filter state round-trips through URL search params
+ * (`?q=…&tags=…&minRating=…&…`). The component consumes a `?preset=`
+ * param once on entry — maps it to concrete filters via
+ * `applyFilterPreset`, then clears the param so refresh/back doesn't
+ * re-apply.
+ *
+ * Zufall (random pick) has moved up to `<GroupFilterBar />` at the page
+ * level in DS4; this panel is now filter-only.
+ */
+const CATEGORY_ORDER: readonly TagCategory[] = [
+  'Mahlzeit',
+  'Saison',
+  'Typ',
+  'Aufwand',
+  'Diaet',
+  'Kueche',
+  'Custom',
+]
+
+const CATEGORY_LABEL: Record<TagCategory, string> = {
+  Mahlzeit: 'Mahlzeit',
+  Saison: 'Saison',
+  Typ: 'Typ',
+  Aufwand: 'Aufwand',
+  Diaet: 'Diät',
+  Kueche: 'Küche',
+  Custom: 'Custom',
+}
 
 const SORT_LABELS: Record<SearchSort, string> = {
   newest: 'Neueste',
@@ -18,39 +63,29 @@ const SORT_LABELS: Record<SearchSort, string> = {
   last_cooked: 'Zuletzt gekocht',
 }
 
-/**
- * Filter sidebar/panel used on top of the recipe list. Persists every
- * filter change into URL search-params (`?q=…&tags=…&…`) so the UI is
- * shareable and survives reload. Also hosts the "Zufall"-Button that
- * picks a random recipe matching the current filter set.
- */
 export function RecipeFilterPanel({ groupId }: { groupId: string }) {
   const [params, setParams] = useSearchParams()
-  const navigate = useNavigate()
   const tagsQuery = useGroupTags(groupId)
   const membersQuery = useGroupMembers(groupId)
 
   const filters = readFiltersFromSearchParams(params)
-
-  // Debounce the text search so typing "Nudeln" doesn't slam the URL six
-  // times in a row. 300 ms per PRD brief. The visible value tracks input
-  // eagerly; the URL lags.
-  const [qInput, setQInput] = useState(filters.q ?? '')
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      const next = { ...filters, q: qInput.trim() === '' ? undefined : qInput }
-      const nextParams = writeFiltersToSearchParams(next)
-      if (nextParams.toString() !== params.toString()) {
-        setParams(nextParams, { replace: true })
-      }
-    }, 300)
-    return () => clearTimeout(handle)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only qInput drives the debounce
-  }, [qInput])
-
-  const [randomError, setRandomError] = useState<string | null>(null)
-  const [randomPending, setRandomPending] = useState(false)
   const [showCreateTag, setShowCreateTag] = useState(false)
+
+  // Preset consumption — apply once per `?preset=` value, then strip the
+  // param so navigating away + back doesn't re-fire. We key the "already
+  // consumed" flag on the tag pool being loaded so the preset can land
+  // its tag-name lookups.
+  const presetParam = params.get('preset')
+  useEffect(() => {
+    if (!presetParam || !isFilterPreset(presetParam)) return
+    if (!tagsQuery.isSuccess) return
+
+    const tagPool = tagsQuery.data
+    const next = applyFilterPreset(filters, presetParam, tagPool)
+    const nextParams = writeFiltersToSearchParams(next)
+    setParams(nextParams, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per preset+tags ready
+  }, [presetParam, tagsQuery.isSuccess])
 
   function update(partial: Partial<RecipeSearchParams>) {
     const merged = { ...filters, ...partial }
@@ -63,182 +98,298 @@ export function RecipeFilterPanel({ groupId }: { groupId: string }) {
     update({ tags: next.length === 0 ? undefined : next })
   }
 
-  async function handleRandom() {
-    setRandomError(null)
-    setRandomPending(true)
-    try {
-      const res = await fetchRandomRecipe(groupId, filters)
-      if (res.recipeId) {
-        navigate(`/groups/${groupId}/recipes/${res.recipeId}`)
-      } else {
-        setRandomError('Kein Rezept passt zu den aktuellen Filtern.')
-      }
-    } catch (err) {
-      const apiErr = err as ApiError
-      setRandomError(apiErr.message || 'Zufalls-Auswahl fehlgeschlagen.')
-    } finally {
-      setRandomPending(false)
+  function removeTag(id: string) {
+    const current = filters.tags ?? []
+    const next = current.filter((t) => t !== id)
+    update({ tags: next.length === 0 ? undefined : next })
+  }
+
+  function clearAllFilters() {
+    // Keep `q` (users often want to clear chips but keep the text they
+    // typed). If/when feedback says otherwise we flip this.
+    setParams(
+      writeFiltersToSearchParams(filters.q ? { q: filters.q } : {}),
+      { replace: true },
+    )
+  }
+
+  const tagsByCategory = useMemo(() => {
+    const map = new Map<TagCategory, TagDto[]>()
+    for (const tag of tagsQuery.data ?? []) {
+      if (!map.has(tag.category)) map.set(tag.category, [])
+      map.get(tag.category)!.push(tag)
+    }
+    return map
+  }, [tagsQuery.data])
+
+  const selectedTagIds = new Set(filters.tags ?? [])
+  const activeChips: ActiveChip[] = []
+  for (const tagId of filters.tags ?? []) {
+    const tag = (tagsQuery.data ?? []).find((t) => t.id === tagId)
+    if (!tag) continue
+    activeChips.push({
+      key: `tag-${tagId}`,
+      label: tag.name,
+      remove: () => removeTag(tagId),
+    })
+  }
+  if (filters.minRating != null) {
+    activeChips.push({
+      key: 'min-rating',
+      label: `≥ ${filters.minRating} Sterne`,
+      remove: () => update({ minRating: undefined }),
+    })
+  }
+  if (filters.maxPrepTime != null) {
+    activeChips.push({
+      key: 'max-prep',
+      label: `≤ ${filters.maxPrepTime} Min`,
+      remove: () => update({ maxPrepTime: undefined }),
+    })
+  }
+  if (filters.createdBy) {
+    const member = (membersQuery.data ?? []).find((m) => m.userId === filters.createdBy)
+    if (member) {
+      activeChips.push({
+        key: `by-${filters.createdBy}`,
+        label: `von ${member.displayName}`,
+        remove: () => update({ createdBy: undefined }),
+      })
     }
   }
 
-  const tagsByCategory = new Map<string, typeof tagsQuery.data>()
-  for (const tag of tagsQuery.data ?? []) {
-    if (!tagsByCategory.has(tag.category)) tagsByCategory.set(tag.category, [])
-    tagsByCategory.get(tag.category)!.push(tag)
-  }
-
   return (
-    <section className="space-y-4 rounded-md bg-background p-4 ring-1 ring-border">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold text-stone-900">Filter</h2>
-        <Button type="button" onClick={handleRandom} disabled={randomPending}>
-          {randomPending ? 'Würfle…' : 'Zufall'}
-        </Button>
-      </div>
-
-      {randomError && (
-        <p role="alert" className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200">
-          {randomError}
-        </p>
+    <div className="space-y-3">
+      {/* Active-filter chip row */}
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {activeChips.map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--primary)/0.08)] px-2.5 py-1 pl-[11px] text-[13px] font-medium text-primary"
+            >
+              {chip.label}
+              <button
+                type="button"
+                aria-label={`${chip.label} entfernen`}
+                onClick={chip.remove}
+                className="grid place-items-center opacity-80 hover:opacity-100"
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="px-2 py-1 text-[13px] text-[hsl(var(--muted-foreground))] hover:text-destructive"
+          >
+            Filter zurücksetzen
+          </button>
+        </div>
       )}
 
-      <div className="space-y-1.5">
-        <Label htmlFor="recipe-search">Suche</Label>
-        <Input
-          id="recipe-search"
-          type="search"
-          value={qInput}
-          onChange={(e) => setQInput(e.target.value)}
-          placeholder="Titel, Zutat, Beschreibung"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label>Tags</Label>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setShowCreateTag(true)}
-          >
-            + Eigenen Tag erstellen
-          </Button>
-        </div>
-        {tagsQuery.isLoading ? (
-          <p className="text-xs text-stone-500">Lade Tags …</p>
-        ) : (
-          <div className="space-y-2">
-            {CATEGORY_ORDER.filter((c) => tagsByCategory.has(c)).map((category) => (
-              <div key={category}>
-                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                  {category}
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {(tagsByCategory.get(category) ?? []).map((tag) => {
-                    const selected = (filters.tags ?? []).includes(tag.id)
-                    return (
-                      <button
-                        key={tag.id}
-                        type="button"
-                        onClick={() => toggleTag(tag.id)}
-                        aria-pressed={selected}
-                        className={
-                          'rounded-full border px-3 py-1 text-xs transition-colors ' +
-                          (selected
-                            ? 'border-stone-900 bg-stone-900 text-white'
-                            : 'border-stone-300 bg-white text-stone-700 hover:bg-stone-100')
-                        }
-                      >
-                        {tag.name}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* Expanded filter panel */}
+      <section
+        className={cn(
+          'space-y-[18px] rounded-[18px] border border-border bg-card p-5 pb-[18px]',
+          'shadow-[0_1px_2px_rgba(28,25,23,0.04)]',
         )}
-      </div>
+      >
+        {/* Tag groups */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-bold uppercase tracking-[0.06em] text-[hsl(var(--muted-foreground))]">
+              Tags
+            </span>
+            {selectedTagIds.size > 0 && (
+              <span className="text-[12px] font-semibold text-primary">
+                {selectedTagIds.size} ausgewählt
+              </span>
+            )}
+          </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="min-rating">Mindest-Sterne</Label>
-          <input
-            id="min-rating"
-            type="range"
-            min={0}
-            max={5}
-            step={1}
-            value={filters.minRating ?? 0}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              update({ minRating: n === 0 ? undefined : n })
-            }}
-            className="w-full"
-          />
-          <p className="text-xs text-stone-500">
-            {filters.minRating ? `${filters.minRating}+ Sterne` : 'Kein Filter'}
-          </p>
+          {tagsQuery.isLoading ? (
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">Lade Tags …</p>
+          ) : (
+            <div className="space-y-2.5">
+              {CATEGORY_ORDER.filter((c) => tagsByCategory.has(c)).map((category) => (
+                <div key={category}>
+                  <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.04em] text-[hsl(var(--muted-foreground))]">
+                    {CATEGORY_LABEL[category]}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(tagsByCategory.get(category) ?? []).map((tag) => {
+                      const selected = selectedTagIds.has(tag.id)
+                      return (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => toggleTag(tag.id)}
+                          aria-pressed={selected}
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded-full border px-2.5 py-[5px] text-[13px] transition-colors',
+                            selected
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-[hsl(var(--input))] bg-transparent text-[hsl(var(--muted-foreground))] hover:border-primary hover:text-primary',
+                          )}
+                        >
+                          {tag.name}
+                        </button>
+                      )
+                    })}
+                    {category === 'Custom' && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateTag(true)}
+                        className="inline-flex items-center gap-1 rounded-full border border-dashed border-[hsl(var(--input))] bg-transparent px-2.5 py-[5px] text-[13px] text-[hsl(var(--muted-foreground))] transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)] hover:text-primary"
+                      >
+                        <Plus className="h-3 w-3" aria-hidden="true" />
+                        Eigenen Tag erstellen
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {!tagsByCategory.has('Custom') && (
+                <div>
+                  <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.04em] text-[hsl(var(--muted-foreground))]">
+                    Custom
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateTag(true)}
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-[hsl(var(--input))] bg-transparent px-2.5 py-[5px] text-[13px] text-[hsl(var(--muted-foreground))] transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)] hover:text-primary"
+                  >
+                    <Plus className="h-3 w-3" aria-hidden="true" />
+                    Eigenen Tag erstellen
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="max-prep">Max. Zeit (Min.)</Label>
-          <input
-            id="max-prep"
-            type="range"
-            min={0}
-            max={240}
-            step={5}
-            value={filters.maxPrepTime ?? 0}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              update({ maxPrepTime: n === 0 ? undefined : n })
-            }}
-            className="w-full"
-          />
-          <p className="text-xs text-stone-500">
-            {filters.maxPrepTime ? `≤ ${filters.maxPrepTime} Min.` : 'Kein Filter'}
-          </p>
-        </div>
+        {/* Min rating */}
+        <FilterGroupDivider>
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-bold uppercase tracking-[0.06em] text-[hsl(var(--muted-foreground))]">
+              Mindest-Bewertung
+            </span>
+            <span className="text-[12px] font-semibold text-primary">
+              {filters.minRating ? `ab ${filters.minRating} Sternen` : 'egal'}
+            </span>
+          </div>
+          <div className="mt-2.5 flex items-center gap-2.5">
+            <input
+              id="min-rating"
+              type="range"
+              min={0}
+              max={5}
+              step={1}
+              value={filters.minRating ?? 0}
+              onChange={(e) => {
+                const n = Number(e.target.value)
+                update({ minRating: n === 0 ? undefined : n })
+              }}
+              aria-label="Mindest-Bewertung"
+              className="h-[3px] flex-1 rounded-full bg-[hsl(var(--input))] accent-primary"
+            />
+            <span className="inline-flex items-center gap-[3px] font-bold text-[hsl(var(--star,38_92%_44%))]">
+              <Star className="h-4 w-4 fill-current" style={{ color: '#d97706' }} aria-hidden="true" />
+              <span style={{ color: '#d97706' }}>{filters.minRating ?? 0}</span>
+            </span>
+          </div>
+        </FilterGroupDivider>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="creator">Ersteller</Label>
-          <select
-            id="creator"
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
-            value={filters.createdBy ?? ''}
-            onChange={(e) => update({ createdBy: e.target.value === '' ? undefined : e.target.value })}
-          >
-            <option value="">Alle</option>
-            {(membersQuery.data ?? []).map((m) => (
-              <option key={m.userId} value={m.userId}>
-                {m.displayName}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+        {/* Max prep time */}
+        <FilterGroupDivider>
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-bold uppercase tracking-[0.06em] text-[hsl(var(--muted-foreground))]">
+              Maximale Zubereitung
+            </span>
+            <span className="text-[12px] font-semibold text-primary">
+              {filters.maxPrepTime ? `bis ${filters.maxPrepTime} Min` : 'egal'}
+            </span>
+          </div>
+          <div className="mt-2.5 flex items-center gap-2.5">
+            <input
+              id="max-prep"
+              type="range"
+              min={10}
+              max={240}
+              step={5}
+              value={filters.maxPrepTime ?? 10}
+              onChange={(e) => {
+                const n = Number(e.target.value)
+                update({ maxPrepTime: n <= 10 ? undefined : n })
+              }}
+              aria-label="Maximale Zubereitung"
+              className="h-[3px] flex-1 rounded-full bg-[hsl(var(--input))] accent-primary"
+            />
+            <span className="min-w-[50px] text-right text-sm font-bold tabular-nums text-foreground">
+              {filters.maxPrepTime ? `${filters.maxPrepTime} Min` : '—'}
+            </span>
+          </div>
+        </FilterGroupDivider>
+
+        {/* Creator + Sort */}
+        <FilterGroupDivider>
+          <div className="text-[12px] font-bold uppercase tracking-[0.06em] text-[hsl(var(--muted-foreground))]">
+            Ersteller &amp; Sortierung
+          </div>
+          <div className="mt-2.5 flex flex-wrap gap-2.5">
+            <label className="sr-only" htmlFor="creator">Ersteller</label>
+            <select
+              id="creator"
+              aria-label="Ersteller"
+              value={filters.createdBy ?? ''}
+              onChange={(e) => update({ createdBy: e.target.value === '' ? undefined : e.target.value })}
+              className="rounded-[10px] border border-[hsl(var(--input))] bg-background px-3.5 py-2.5 pr-8 text-sm text-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[hsl(var(--primary)/0.25)]"
+            >
+              <option value="">Alle Mitglieder</option>
+              {(membersQuery.data ?? []).map((m) => (
+                <option key={m.userId} value={m.userId}>
+                  {m.displayName}
+                </option>
+              ))}
+            </select>
+
+            <label className="sr-only" htmlFor="sort">Sortierung</label>
+            <select
+              id="sort"
+              aria-label="Sortierung"
+              value={filters.sort ?? 'newest'}
+              onChange={(e) => update({ sort: e.target.value as SearchSort })}
+              className="rounded-[10px] border border-[hsl(var(--input))] bg-background px-3.5 py-2.5 pr-8 text-sm text-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[hsl(var(--primary)/0.25)]"
+            >
+              {(Object.entries(SORT_LABELS) as [SearchSort, string][]).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {value === 'newest' ? 'Sortieren: Neueste' : label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </FilterGroupDivider>
+      </section>
 
       {showCreateTag && (
         <CreateTagDialog groupId={groupId} onClose={() => setShowCreateTag(false)} />
       )}
-
-      <div className="space-y-1.5">
-        <Label htmlFor="sort">Sortierung</Label>
-        <select
-          id="sort"
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
-          value={filters.sort ?? 'newest'}
-          onChange={(e) => update({ sort: e.target.value as SearchSort })}
-        >
-          {(Object.entries(SORT_LABELS) as [SearchSort, string][]).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-    </section>
+    </div>
   )
+}
+
+function FilterGroupDivider({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border-t border-dashed border-border pt-[18px]">
+      {children}
+    </div>
+  )
+}
+
+interface ActiveChip {
+  key: string
+  label: string
+  remove: () => void
 }
