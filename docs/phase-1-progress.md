@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S0 fix pass #1 complete → in_review)
+**Last updated:** 2026-04-18 (S0 re-review passed → done)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -17,7 +17,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 | # | Slice | State | Agent ID | Started | Completed | Notes |
 |---|---|---|---|---|---|---|
-| S0 | Monorepo Skeleton & Tooling | in_review | general-purpose (fix agent) | 2026-04-18 | — | Fix pass #1 landed: real Domain/Infrastructure smoke assertions, shadcn/ui initialized (components.json + Button primitive), HealthEndpoints aligned to hoppr convention. Awaiting re-review. |
+| S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
 | S1 | Auth Foundation | pending | — | — | — | — |
 | S2 | Groups & Memberships | pending | — | — | — | — |
 | S3 | Recipes (Core CRUD) | pending | — | — | — | — |
@@ -41,9 +41,9 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 ## Last orchestrator tick
 
-- **Wake-up time:** 2026-04-18 (S0 fix pass #1 complete)
-- **Action taken:** S0 fix agent resolved all three blocking review findings plus the documented convention deviation. All commits pushed to `origin/main` in TDD order (failing test → implementation). State flipped `fix_needed` → `in_review`.
-- **Next action:** dispatch review agent (general-purpose, has Bash) against commits `be4ecbc..HEAD` to re-verify the fixes and the full S0 acceptance criteria.
+- **Wake-up time:** 2026-04-18 (S0 re-review complete)
+- **Action taken:** independent re-reviewer (general-purpose) verified fix pass #1 against `24bfcc6..HEAD`. All commands executed locally, all TDD orderings confirmed, all acceptance criteria green. S0 flipped `in_review` → `done`.
+- **Next action:** dispatch S1 (Auth Foundation) implementation agent.
 
 ## Blockers / pauses
 
@@ -82,6 +82,34 @@ All three review findings addressed via 6 commits on `origin/main` (`00f6470..6e
 - `docker compose up --build -d` → all 6 services up; `curl http://localhost/api/health` → `{"status":"ok","timestamp":"2026-04-18T08:30:18.2457566+00:00"}`; `curl http://localhost/` → SPA HTML with `<title>Familien-Kochbuch</title>`. Stack torn down cleanly with `docker compose down`.
 - `git status` → clean.
 - `git log origin/main..HEAD` → empty (everything pushed).
+
+**S0 — Re-review (2026-04-18) → pass**
+
+Independent re-reviewer (general-purpose agent, has Bash) executed every verification command on commit range `24bfcc6..HEAD` (excluding orchestrator/docs/review commits `e1eccee`, `efa78ab`, `be4ecbc`). Nothing trusted — everything re-run.
+
+Command results:
+
+- `git log --oneline 24bfcc6..HEAD` → 21 commits. TDD order verified for all 5 spot-checks:
+  - `/api/health`: test `450420c` precedes feat `3587c85` ✓
+  - App + health badge: test `16253f8` precedes feat `17fcc24` ✓
+  - Domain marker: test `00f6470` precedes feat `837033f` ✓
+  - Infrastructure marker: test `0415520` precedes feat `3a4ef6c` ✓
+  - shadcn Button + `cn()`: test `39fb403` precedes feat `6e9e9c1` ✓
+- `dotnet test apps/api/FamilienKochbuch.sln` → 6/6 pass (1 Domain marker, 1 Infrastructure marker, 4 Api contract). 0 failures, 0 skipped.
+- `grep -rn "Assert\.True(true)" apps/api/tests/` → 0 matches.
+- `cd apps/web && pnpm test --run` → 14/14 pass (3 App + 4 `cn` + 7 Button). 3 test files.
+- `pnpm lint` (root) → clean (0 errors, 0 warnings).
+- `grep -rn "TODO\|FIXME\|HACK\|XXX" …` (scoped to slice source + tests, `.cs`/`.ts`/`.tsx`) → 0 matches.
+- `grep -rn "@ts-ignore\|@ts-expect-error\|eslint-disable\|SuppressMessage\|pragma warning disable" apps/ packages/` → 0 matches. The `System.Security.Cryptography.Xml 10.0.6` pin in `FamilienKochbuch.Infrastructure.csproj` is a package pin with named CVEs, not a suppression, and is expected.
+- `apps/web/components.json` → present, matches spec verbatim: `style: "new-york"`, `baseColor: "neutral"`, `rsc: false`, `tsx: true`, `iconLibrary: "lucide"`, full alias map.
+- `apps/web/src/components/ui/button.tsx` → present.
+- `apps/web/src/lib/utils.ts` → present, uses `twMerge(clsx(inputs))` (line 10).
+- `docker compose up --build -d` → all 6 services started. Explicit healthchecks reached healthy within ~35 s: postgres, redis, api. web/caddy/seaweedfs have no healthcheck defined but all stayed in `Up` state throughout. `curl -s http://localhost/api/health` returned `{"status":"ok","timestamp":"2026-04-18T08:33:34.1263302+00:00"}`. `curl -s -o /dev/null -w "%{http_code}" http://localhost/` returned `200`. `curl -s http://localhost/ | grep -i "familien-kochbuch"` matched `<title>Familien-Kochbuch</title>`.
+- `docker compose down` → clean teardown, all containers + network removed.
+- Convention parity: `HealthEndpoints.MapHealthEndpoints(this WebApplication app)` now matches hoppr's `VersionEndpoints.MapVersionEndpoints(this WebApplication app)` exactly (signature, void return, `.WithTags(...)`, `.AllowAnonymous()`).
+- Smoke-test bodies re-read: `DomainMarker_Name_Matches_Assembly_Name` and `InfrastructureMarker_Name_Matches_Assembly_Name` both assert marker constant equality AND assembly name — real project-reference wiring exercised, not vacuous.
+
+Every acceptance criterion from the S0 spec is green. All three review-#1 blocking findings confirmed resolved. State flipped `in_review` → `done`.
 
 ## Deviations from PRD
 
