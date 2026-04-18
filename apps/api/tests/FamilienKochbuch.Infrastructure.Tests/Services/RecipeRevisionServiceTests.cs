@@ -1,0 +1,263 @@
+using System.Text.Json;
+using FamilienKochbuch.Domain.Entities;
+using FamilienKochbuch.Domain.Enums;
+using FamilienKochbuch.Infrastructure.Persistence;
+using FamilienKochbuch.Infrastructure.Services;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Xunit;
+
+namespace FamilienKochbuch.Infrastructure.Tests.Services;
+
+/// <summary>
+/// Unit tests for the S6 <see cref="RecipeRevisionService"/>: it snapshots
+/// the current recipe state into JSON, computes a German diff summary
+/// against the previous revision (if any), prunes to the last five rows
+/// per recipe, and refuses to record no-op edits. Backed by SQLite
+/// in-memory for fidelity; the snapshot shape is contract-tested directly.
+/// </summary>
+public class RecipeRevisionServiceTests : IAsyncLifetime
+{
+    private SqliteConnection _connection = null!;
+    private AppDbContext _db = null!;
+    private RecipeRevisionService _service = null!;
+    private Guid _userId;
+    private Guid _groupId;
+    private DateTimeOffset _now = new(2026, 4, 18, 12, 0, 0, TimeSpan.Zero);
+
+    public async Task InitializeAsync()
+    {
+        _connection = new SqliteConnection("DataSource=:memory:");
+        await _connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(_connection)
+            .Options;
+        _db = new AppDbContext(options);
+        await _db.Database.EnsureCreatedAsync();
+
+        var user = new User { Role = UserRole.User };
+        user.SetDisplayName("Tester");
+        user.SetEmail("svc@example.com");
+        var group = new Group("Familie", null, _now);
+        _db.Users.Add(user);
+        _db.Groups.Add(group);
+        await _db.SaveChangesAsync();
+
+        _userId = user.Id;
+        _groupId = group.Id;
+
+        _service = new RecipeRevisionService(_db);
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _db.DisposeAsync();
+        await _connection.DisposeAsync();
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────
+
+    private async Task<Recipe> CreateRecipeAsync(
+        string title = "Spätzle",
+        int defaultServings = 4,
+        int difficulty = 1,
+        Action<Recipe>? configure = null)
+    {
+        var recipe = new Recipe(
+            groupId: _groupId,
+            createdByUserId: _userId,
+            title: title,
+            description: "Beschreibung",
+            defaultServings: defaultServings,
+            prepTimeMinutes: 30,
+            difficulty: difficulty,
+            sourceUrl: null,
+            sourceType: RecipeSourceType.Manual,
+            forkOfRecipeId: null,
+            createdAt: _now);
+
+        recipe.Ingredients.Add(new Ingredient(recipe.Id, 0, 500m, "g", "Mehl", null, true));
+        recipe.Ingredients.Add(new Ingredient(recipe.Id, 1, 3m, "Stück", "Eier", null, true));
+        recipe.Steps.Add(new RecipeStep(recipe.Id, 0, "Mehl vermengen."));
+        recipe.Steps.Add(new RecipeStep(recipe.Id, 1, "Eier zugeben."));
+
+        configure?.Invoke(recipe);
+
+        _db.Recipes.Add(recipe);
+        await _db.SaveChangesAsync();
+        return recipe;
+    }
+
+    private async Task<Recipe> ReloadAsync(Guid id) =>
+        (await _db.Recipes
+            .Include(r => r.Ingredients)
+            .Include(r => r.Steps)
+            .Include(r => r.RecipeTags)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == id))!;
+
+    // ── RecordAsync inserts ────────────────────────────────────────────
+
+    [Fact]
+    public async Task RecordAsync_Inserts_Created_Revision_With_Snapshot()
+    {
+        var recipe = await CreateRecipeAsync("Pizza");
+
+        await _service.RecordAsync(recipe.Id, _userId, RecipeChangeType.Created, _now, default);
+
+        var rows = await _db.RecipeRevisions.AsNoTracking()
+            .Where(r => r.RecipeId == recipe.Id)
+            .ToListAsync();
+        var revision = Assert.Single(rows);
+        Assert.Equal(RecipeChangeType.Created, revision.ChangeType);
+        Assert.Equal(_userId, revision.ChangedByUserId);
+        Assert.False(string.IsNullOrWhiteSpace(revision.SnapshotJson));
+
+        var snapshot = JsonSerializer.Deserialize<JsonElement>(revision.SnapshotJson);
+        Assert.Equal("Pizza", snapshot.GetProperty("title").GetString());
+        Assert.Equal(4, snapshot.GetProperty("defaultServings").GetInt32());
+        Assert.Equal(2, snapshot.GetProperty("ingredients").GetArrayLength());
+        Assert.Equal(2, snapshot.GetProperty("steps").GetArrayLength());
+        Assert.Equal(0, snapshot.GetProperty("tagIds").GetArrayLength());
+    }
+
+    // ── Pruning ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RecordAsync_Prunes_To_Last_Five_After_Sixth_Insert()
+    {
+        var recipe = await CreateRecipeAsync("Auflauf");
+
+        for (var i = 0; i < 6; i++)
+        {
+            // Each insert is one tick later so ordering is deterministic.
+            await _service.RecordAsync(
+                recipe.Id, _userId,
+                i == 0 ? RecipeChangeType.Created : RecipeChangeType.Edited,
+                _now.AddMinutes(i),
+                default);
+        }
+
+        var rows = await _db.RecipeRevisions.AsNoTracking()
+            .Where(r => r.RecipeId == recipe.Id)
+            .OrderBy(r => r.CreatedAt)
+            .ToListAsync();
+
+        Assert.Equal(5, rows.Count);
+        // Oldest (the Created one at minute 0) should be gone — we kept
+        // the five most-recent.
+        Assert.All(rows, r => Assert.NotEqual(_now, r.CreatedAt));
+        Assert.Equal(_now.AddMinutes(1), rows.First().CreatedAt);
+        Assert.Equal(_now.AddMinutes(5), rows.Last().CreatedAt);
+    }
+
+    // ── No-op detection ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RecordAsync_Skips_Insert_When_Snapshot_Identical_To_Previous()
+    {
+        var recipe = await CreateRecipeAsync("Stabil");
+
+        // Initial Created revision.
+        await _service.RecordAsync(recipe.Id, _userId, RecipeChangeType.Created, _now, default);
+        // Second call without any underlying change → must not insert.
+        await _service.RecordAsync(recipe.Id, _userId, RecipeChangeType.Edited, _now.AddMinutes(1), default);
+
+        var count = await _db.RecipeRevisions.CountAsync(r => r.RecipeId == recipe.Id);
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task RecordAsync_Always_Inserts_For_Created_Even_If_No_Prior()
+    {
+        var recipe = await CreateRecipeAsync("Anlegen");
+
+        await _service.RecordAsync(recipe.Id, _userId, RecipeChangeType.Created, _now, default);
+
+        Assert.Equal(1, await _db.RecipeRevisions.CountAsync(r => r.RecipeId == recipe.Id));
+    }
+
+    // ── DiffSummary content ────────────────────────────────────────────
+
+    [Fact]
+    public async Task RecordAsync_Edited_Summary_Mentions_Title_And_Counts()
+    {
+        var recipe = await CreateRecipeAsync("Erste");
+        await _service.RecordAsync(recipe.Id, _userId, RecipeChangeType.Created, _now, default);
+
+        // Mutate the recipe: title change, add 1 ingredient, drop 1 step.
+        var tracked = await _db.Recipes
+            .Include(r => r.Ingredients)
+            .Include(r => r.Steps)
+            .FirstAsync(r => r.Id == recipe.Id);
+        tracked.UpdateMetadata(
+            title: "Zweite",
+            description: tracked.Description,
+            defaultServings: tracked.DefaultServings,
+            prepTimeMinutes: tracked.PrepTimeMinutes,
+            difficulty: tracked.Difficulty,
+            sourceUrl: tracked.SourceUrl,
+            sourceType: tracked.SourceType,
+            updatedAt: _now.AddMinutes(1));
+        tracked.Ingredients.Add(new Ingredient(tracked.Id, 2, 100m, "g", "Salz", null, true));
+        var firstStep = tracked.Steps.OrderBy(s => s.Position).First();
+        tracked.Steps.Remove(firstStep);
+        _db.RecipeSteps.Remove(firstStep);
+        await _db.SaveChangesAsync();
+
+        await _service.RecordAsync(recipe.Id, _userId, RecipeChangeType.Edited, _now.AddMinutes(2), default);
+
+        var latest = await _db.RecipeRevisions.AsNoTracking()
+            .Where(r => r.RecipeId == recipe.Id)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstAsync();
+
+        Assert.Equal(RecipeChangeType.Edited, latest.ChangeType);
+        Assert.False(string.IsNullOrWhiteSpace(latest.DiffSummary));
+        Assert.Contains("Titel", latest.DiffSummary!);
+        Assert.Contains("Zutat", latest.DiffSummary);
+        Assert.Contains("Schritt", latest.DiffSummary);
+    }
+
+    [Fact]
+    public async Task RecordAsync_Forked_Summary_Mentions_Source_Group_When_Provided()
+    {
+        var recipe = await CreateRecipeAsync("Fork");
+
+        await _service.RecordAsync(
+            recipe.Id, _userId, RecipeChangeType.Forked, _now,
+            sourceDescription: "Geforkt aus Gruppe Familie", ct: default);
+
+        var revision = await _db.RecipeRevisions.AsNoTracking()
+            .SingleAsync(r => r.RecipeId == recipe.Id);
+        Assert.Equal(RecipeChangeType.Forked, revision.ChangeType);
+        Assert.Equal("Geforkt aus Gruppe Familie", revision.DiffSummary);
+    }
+
+    // ── GetLastAsync ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetLastAsync_Returns_Newest_First_Limited_To_Take()
+    {
+        var recipe = await CreateRecipeAsync("Liste");
+
+        // Insert raw revisions to control timestamps without touching the
+        // pruning path.
+        for (var i = 0; i < 4; i++)
+        {
+            _db.RecipeRevisions.Add(new RecipeRevision(
+                recipe.Id, _userId,
+                i == 0 ? RecipeChangeType.Created : RecipeChangeType.Edited,
+                $"{{\"v\":{i}}}", null, _now.AddMinutes(i)));
+        }
+        await _db.SaveChangesAsync();
+
+        var rows = await _service.GetLastAsync(recipe.Id, take: 3, default);
+
+        Assert.Equal(3, rows.Count);
+        Assert.Equal(_now.AddMinutes(3), rows[0].CreatedAt);
+        Assert.Equal(_now.AddMinutes(2), rows[1].CreatedAt);
+        Assert.Equal(_now.AddMinutes(1), rows[2].CreatedAt);
+    }
+}
