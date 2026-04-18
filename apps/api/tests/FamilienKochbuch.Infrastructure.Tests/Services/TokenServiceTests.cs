@@ -84,11 +84,13 @@ public class TokenServiceTests : IAsyncLifetime
         Assert.NotNull(result.Jti);
         Assert.Equal(_clock.GetUtcNow().AddMinutes(15), result.ExpiresAt);
 
-        var principal = new JwtSecurityTokenHandler()
-            .ValidateToken(result.Token, ValidationParams(), out var validated);
+        // Disable the default Sub → nameidentifier rewrite so tests can check raw claims.
+        var handler = new JwtSecurityTokenHandler();
+        handler.InboundClaimTypeMap.Clear();
+        var principal = handler.ValidateToken(result.Token, ValidationParams(), out var validated);
         var jwt = (JwtSecurityToken)validated;
 
-        Assert.Equal(_user.Id.ToString(), principal.FindFirst("sub")?.Value);
+        Assert.Equal(_user.Id.ToString(), principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value);
         Assert.Equal("User", principal.FindFirst("role")?.Value);
         Assert.Equal(result.Jti, jwt.Id);
         Assert.Equal(Jwt.Issuer, jwt.Issuer);
@@ -119,7 +121,9 @@ public class TokenServiceTests : IAsyncLifetime
 
         Assert.NotNull(result);
         Assert.NotEqual(raw, result!.NewRawToken);
-        var tokens = await _db.RefreshTokens.OrderBy(t => t.IssuedAt).ToListAsync();
+        // SQLite can't ORDER BY DateTimeOffset — sort in memory after ToList.
+        var allTokens = await _db.RefreshTokens.ToListAsync();
+        var tokens = allTokens.OrderBy(t => t.IssuedAt).ToList();
         Assert.Equal(2, tokens.Count);
 
         var old = tokens[0];
