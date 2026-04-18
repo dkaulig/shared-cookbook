@@ -7,7 +7,10 @@ describe('cn()', () => {
   })
 
   it('filters falsy values via clsx', () => {
-    expect(cn('foo', false && 'hidden', null, undefined, 'bar')).toBe('foo bar')
+    const showHidden = false
+    expect(cn('foo', showHidden && 'hidden', null, undefined, 'bar')).toBe(
+      'foo bar',
+    )
   })
 
   it('merges conflicting Tailwind utilities via tailwind-merge (last wins)', () => {
