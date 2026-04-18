@@ -6,6 +6,7 @@ import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useGroup } from '@/features/groups/hooks'
 import { useDeleteRecipe, useRecipe } from './hooks'
 import { RecipePortionScaler } from './RecipePortionScaler'
+import { ForkRecipeDialog } from './ForkRecipeDialog'
 
 const DIFFICULTY_LABEL: Record<number, string> = {
   1: 'einfach',
@@ -19,7 +20,10 @@ const DIFFICULTY_LABEL: Record<number, string> = {
  * steps, tag chips, and the source-URL link if present. The scaler
  * (S5) reads the owning group's `defaultServings` so the "umrechnen"
  * shortcut is wired; while the group fetch is in flight we fall back to
- * the recipe's own default to render immediately.
+ * the recipe's own default to render immediately. When the recipe is a
+ * fork (`forkOfRecipeId != null`) a banner links back to the original
+ * (resolving to 403 if the user isn't in the origin group — acceptable
+ * per PRD §4.7).
  */
 export function RecipeDetailPage() {
   const params = useParams<{ groupId: string; recipeId: string }>()
@@ -31,6 +35,7 @@ export function RecipeDetailPage() {
   const deleteMutation = useDeleteRecipe(groupId)
 
   const [error, setError] = useState<string | null>(null)
+  const [forkDialogOpen, setForkDialogOpen] = useState(false)
 
   if (!recipeId) return <Navigate to={`/groups/${groupId}`} replace />
 
@@ -75,6 +80,20 @@ export function RecipeDetailPage() {
         </Link>
       </nav>
 
+      {recipe.forkOfRecipeId && (
+        <p className="mb-4 rounded-md bg-stone-50 px-3 py-2 text-sm text-stone-700 ring-1 ring-stone-200">
+          Dieses Rezept wurde aus{' '}
+          <Link
+            to={`/recipes/${recipe.forkOfRecipeId}`}
+            className="underline"
+            title="Zum Original (Zugriff hängt von Gruppenmitgliedschaft ab)"
+          >
+            diesem Original
+          </Link>{' '}
+          geforkt.
+        </p>
+      )}
+
       {recipe.photos.length > 0 && (
         <img
           src={recipe.photos[0]}
@@ -92,6 +111,9 @@ export function RecipeDetailPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={() => setForkDialogOpen(true)}>
+            In andere Gruppe kopieren
+          </Button>
           <Button type="button" variant="outline" onClick={() => navigate(`/groups/${groupId}/recipes/${recipe.id}/edit`)}>
             Bearbeiten
           </Button>
@@ -160,6 +182,14 @@ export function RecipeDetailPage() {
       )}
 
       <RatingWidget recipeId={recipe.id} />
+
+      {forkDialogOpen && (
+        <ForkRecipeDialog
+          recipeId={recipe.id}
+          sourceGroupId={recipe.groupId}
+          onClose={() => setForkDialogOpen(false)}
+        />
+      )}
     </main>
   )
 }
