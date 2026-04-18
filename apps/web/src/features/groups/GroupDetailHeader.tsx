@@ -1,6 +1,9 @@
-import { BookOpen, Users } from 'lucide-react'
+import { useState } from 'react'
+import { BookOpen, Pencil, Users } from 'lucide-react'
 import type { GroupDetail } from '@familien-kochbuch/shared'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { EditGroupDialog } from './EditGroupDialog'
 import { getGroupAvatarGradient } from './groupAvatarGradient'
 
 /**
@@ -28,6 +31,8 @@ export function GroupDetailHeader({
   const swatch = getGroupAvatarGradient(group.id)
   const portionsLabel = group.defaultServings === 1 ? 'Portion' : 'Portionen'
   const recipesLabel = recipeCount === 1 ? 'Rezept' : 'Rezepte'
+  const isAdmin = group.myRole === 'Admin'
+  const [showEditDialog, setShowEditDialog] = useState(false)
 
   // Avatar stack: first three members inline, remainder collapsed into a
   // "+N" chip so a 10-person group doesn't push the row off the page.
@@ -67,9 +72,22 @@ export function GroupDetailHeader({
       </div>
 
       <div className="px-1.5 pt-3.5">
-        <h1 className="m-0 mb-1 font-serif text-[clamp(24px,5.5vw,32px)] font-semibold leading-[1.1] tracking-[-0.015em]">
-          {group.name}
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h1 className="m-0 mb-1 font-serif text-[clamp(24px,5.5vw,32px)] font-semibold leading-[1.1] tracking-[-0.015em]">
+            {group.name}
+          </h1>
+          {isAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowEditDialog(true)}
+            >
+              <Pencil className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Gruppe bearbeiten
+            </Button>
+          )}
+        </div>
         {group.description && (
           <p className="text-[13px] leading-[1.4] text-[hsl(var(--muted-foreground))]">
             {group.description}
@@ -115,6 +133,17 @@ export function GroupDetailHeader({
           </strong>
         </span>
       </div>
+
+      {showEditDialog && (
+        <EditGroupDialog
+          groupId={group.id}
+          initialName={group.name}
+          initialDescription={group.description ?? ''}
+          initialDefaultServings={group.defaultServings}
+          initialCoverImageUrl={group.coverImageUrl ?? ''}
+          onClose={() => setShowEditDialog(false)}
+        />
+      )}
     </section>
   )
 }
