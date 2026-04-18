@@ -44,7 +44,7 @@ In `RecipeFormPage.tsx` `handleSubmit`:
 - Call `uploadRecipePhoto(id, file)` — reuse the same low-level API path that `useUploadRecipePhoto` uses; extract it into a pure `uploadRecipePhoto` function in `recipePhotoApi.ts` so both the hook and the form submit can share it.
 - If a photo upload fails, capture the first failure message, continue attempting the remaining files (so partial success is maximised), then surface: "Rezept gespeichert, aber X von Y Fotos konnten nicht hochgeladen werden: [first error]. Du kannst sie auf der Rezept-Seite nachtragen."
 - If all succeed: navigate to the detail page as today.
-- If all fail: still navigate (the recipe itself was saved); the user sees the error on the detail page's photo section.
+- If all fail: **deviation (2026-04-18, documented by reviewer fix-pass):** the plan's original "still navigate" was pragmatic-but-worse UX. Impl keeps the user on the form regardless of partial-vs-total failure so the banner is actually readable. Detail-page retry path is still mentioned in the banner text and one click reachable via the page's back-nav. Accepted: stay on form for any `failures.length > 0`, test covers both the partial and the total cases.
 
 ### 3. Submit-button state during the upload phase
 

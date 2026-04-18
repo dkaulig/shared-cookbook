@@ -719,6 +719,70 @@ describe('RecipeFormPage (create)', () => {
     })
   })
 
+  // UX1-PU follow-up — total-failure case must also keep the user on the
+  // form (not navigate away) so the banner stays readable. Documented
+  // deviation from the plan's initial "still navigate" wording; see
+  // docs/plans/2026-04-18-ux1-pu-photo-upload-create.md §2.
+  it('keeps user on form with banner when ALL staged photos fail (recipe still saved)', async () => {
+    const user = userEvent.setup()
+    let recipeCreated = false
+    let photoCallCount = 0
+    server.use(
+      http.post('/api/groups/g1/recipes', () => {
+        recipeCreated = true
+        return HttpResponse.json(
+          {
+            id: 'r-allfail',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+      http.post('/api/recipes/r-allfail/photos', () => {
+        photoCallCount += 1
+        return HttpResponse.json(
+          { code: 'photo_too_large', message: 'Bild darf maximal 5 MB groß sein.' },
+          { status: 413 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    const input = screen.getAllByTestId('photo-upload-input')[0] as HTMLInputElement
+    await user.upload(input, new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
+    await user.upload(input, new File(['b'], 'b.jpg', { type: 'image/jpeg' }))
+
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    // Recipe was saved.
+    await waitFor(() => expect(recipeCreated).toBe(true))
+    // Both upload attempts fired (we don't short-circuit on the first failure).
+    await waitFor(() => expect(photoCallCount).toBe(2))
+    // Banner announces the full failure count — both photos failed.
+    await waitFor(() => {
+      const banner = screen.getByRole('alert')
+      expect(banner).toHaveTextContent(/2 von 2 Fotos konnten nicht hochgeladen werden/i)
+    })
+    // The user stays on the form (no navigation away) so the banner is
+    // readable. Hallmark: the form's submit button is still in the DOM.
+    expect(screen.getByRole('button', { name: /Rezept speichern/i })).toBeInTheDocument()
+  })
+
   it('transitions submit button label Speichern → Fotos hochladen … while staged photos upload', async () => {
     const user = userEvent.setup()
     let resolveRecipe!: () => void
