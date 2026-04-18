@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import type { ApiError } from '@familien-kochbuch/shared'
+import type { ApiError, RecipeDetailDto, RecipeSnapshot } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useGroup } from '@/features/groups/hooks'
 import { useDeleteRecipe, useRecipe } from './hooks'
 import { RecipePortionScaler } from './RecipePortionScaler'
 import { ForkRecipeDialog } from './ForkRecipeDialog'
+import { RecipeHistoryPanel } from './RecipeHistoryPanel'
 
 const DIFFICULTY_LABEL: Record<number, string> = {
   1: 'einfach',
@@ -36,6 +37,12 @@ export function RecipeDetailPage() {
 
   const [error, setError] = useState<string | null>(null)
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
+  // Computed before any conditional return so the hook order stays
+  // stable across re-renders (loading → loaded → error transitions).
+  const currentSnapshot = useMemo(
+    () => (detail.data ? toSnapshot(detail.data) : null),
+    [detail.data],
+  )
 
   if (!recipeId) return <Navigate to={`/groups/${groupId}`} replace />
 
@@ -43,7 +50,7 @@ export function RecipeDetailPage() {
     return <main className="mx-auto max-w-3xl px-6 py-10 text-stone-500">Lade Rezept …</main>
   }
 
-  if (detail.isError || !detail.data) {
+  if (detail.isError || !detail.data || !currentSnapshot) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-10">
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
@@ -183,6 +190,8 @@ export function RecipeDetailPage() {
 
       <RatingWidget recipeId={recipe.id} />
 
+      <RecipeHistoryPanel recipeId={recipe.id} current={currentSnapshot} />
+
       {forkDialogOpen && (
         <ForkRecipeDialog
           recipeId={recipe.id}
@@ -192,4 +201,40 @@ export function RecipeDetailPage() {
       )}
     </main>
   )
+}
+
+/**
+ * Project a `RecipeDetailDto` onto the snapshot shape the history panel
+ * + diff modal consume. Mirrors the .NET `RecipeRevisionService.RecipeSnapshot`
+ * contract — keeps the comparison apples-to-apples regardless of how the
+ * detail DTO evolves.
+ */
+function toSnapshot(recipe: RecipeDetailDto): RecipeSnapshot {
+  return {
+    title: recipe.title,
+    description: recipe.description ?? null,
+    defaultServings: recipe.defaultServings,
+    prepTimeMinutes: recipe.prepTimeMinutes ?? null,
+    difficulty: recipe.difficulty as 1 | 2 | 3,
+    sourceUrl: recipe.sourceUrl ?? null,
+    ingredients: recipe.ingredients
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((i) => ({
+        position: i.position,
+        quantity: i.quantity ?? null,
+        unit: i.unit,
+        name: i.name,
+        note: i.note ?? null,
+        scalable: i.scalable,
+      })),
+    steps: recipe.steps
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((s) => ({ position: s.position, content: s.content })),
+    tagIds: recipe.tags
+      .map((t) => t.id)
+      .slice()
+      .sort(),
+  }
 }

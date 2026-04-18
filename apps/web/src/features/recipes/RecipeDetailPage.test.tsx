@@ -58,6 +58,10 @@ beforeEach(() => {
         members: [],
       }),
     ),
+    // S6: the history panel fires a revisions request on mount; default
+    // to an empty list so the rest of the detail-page assertions stay
+    // focused on the slices they own.
+    http.get('/api/recipes/r1/revisions', () => HttpResponse.json([])),
   )
 })
 

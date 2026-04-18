@@ -50,8 +50,10 @@ describe('RecipeRevisionDiffModal', () => {
       />,
     )
 
-    expect(screen.getByText('Spätzle alt')).toBeInTheDocument()
-    expect(screen.getByText('Spätzle neu')).toBeInTheDocument()
+    // Each title appears in two places: the snapshot column header AND
+    // the metadata diff row that shows the change inline.
+    expect(screen.getAllByText('Spätzle alt').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Spätzle neu').length).toBeGreaterThan(0)
   })
 
   it('marks ingredient lines that differ between snapshots', () => {

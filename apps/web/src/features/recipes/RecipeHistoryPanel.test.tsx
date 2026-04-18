@@ -74,15 +74,20 @@ function withProviders(node: ReactNode): ReactNode {
 
 describe('RecipeHistoryPanel', () => {
   it('renders the German title and an empty hint when there are no revisions', async () => {
+    const user = userEvent.setup()
     server.use(http.get('/api/recipes/r1/revisions', () => HttpResponse.json([])))
 
     render(withProviders(<RecipeHistoryPanel recipeId="r1" current={currentRecipe} />))
 
     expect(await screen.findByText(/Letzte Änderungen/i)).toBeInTheDocument()
+    // Panel is collapsed by default — open it before asserting on the
+    // empty-state hint (which only renders when the panel is open).
+    await user.click(await screen.findByRole('button', { name: /Anzeigen/i }))
     expect(await screen.findByText(/Noch keine Änderungen erfasst/i)).toBeInTheDocument()
   })
 
   it('renders one row per revision with display name and change-type label', async () => {
+    const user = userEvent.setup()
     server.use(
       http.get('/api/recipes/r1/revisions', () =>
         HttpResponse.json([editedRevision, baseRevision]),
@@ -90,6 +95,8 @@ describe('RecipeHistoryPanel', () => {
     )
 
     render(withProviders(<RecipeHistoryPanel recipeId="r1" current={currentRecipe} />))
+
+    await user.click(await screen.findByRole('button', { name: /Anzeigen/i }))
 
     expect(await screen.findAllByText('Autor')).toHaveLength(2)
     expect(screen.getByText(/Bearbeitet/)).toBeInTheDocument()
@@ -106,6 +113,7 @@ describe('RecipeHistoryPanel', () => {
 
     render(withProviders(<RecipeHistoryPanel recipeId="r1" current={currentRecipe} />))
 
+    await user.click(await screen.findByRole('button', { name: /Anzeigen/i }))
     const row = await screen.findByRole('button', { name: /Angelegt/ })
     await user.click(row)
 
@@ -113,8 +121,10 @@ describe('RecipeHistoryPanel', () => {
     expect(
       await screen.findByRole('heading', { name: /Versionsvergleich/i }),
     ).toBeInTheDocument()
-    // Snapshot title from the stub renders alongside the current title.
-    expect(screen.getByText(/Spätzle \(neu\)/)).toBeInTheDocument()
+    // Snapshot title from the stub renders alongside the current title —
+    // both show up multiple times (snapshot column header + metadata
+    // diff row), so use getAllByText.
+    expect(screen.getAllByText(/Spätzle \(neu\)/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/Spätzle/).length).toBeGreaterThan(1)
   })
 })
