@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S3 fix pass #1 → in_review)
+**Last updated:** 2026-04-18 (S3 re-review → done)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -20,7 +20,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
-| S3 | Recipes (Core CRUD) | in_review | general-purpose (fix agent) | 2026-04-18 | — | Fix pass #1 (2026-04-18): drag-drop reorder wired on both ingredient and step rows via `@dnd-kit` with KeyboardSensor + PointerSensor (accessible out of the box); dead `Recipe.MarkUpdated` dropped. 246/246 .NET + 95/95 web tests pass, lint clean, docker health green. Awaiting re-review. See Review outcomes → S3 — Fix pass #1 (2026-04-18). |
+| S3 | Recipes (Core CRUD) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Re-review after fix pass #1 passed — drag-drop reorder live-verified via tests + source readthrough, 246/246 .NET + 95/95 web tests, lint clean, full docker E2E curl flow (login → tags → create → GET → PUT reorder persists → 3 photos + Caddy fetch + 4th rejected → photo delete → recipe delete 204 → GET 404 → non-member 403) all confirmed with own eyes. See Review outcomes → S3 — Re-review (2026-04-18). |
 | S4 | Tags + Ratings + Search | pending | — | — | — | — |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
 | S6 | Version History (light) | pending | — | — | — | — |
@@ -748,3 +748,99 @@ Five commits on top of `421f67b` (review commit):
 - `TreatWarningsAsErrors=true` and TypeScript `strict: true` unchanged.
 
 **S3 flipped `fix_needed` → `in_review`.** Re-reviewer should re-run the anti-shortcut checklist and spot-check the UI live in a browser (Docker up, navigate to `/groups/:id/recipes/new`, confirm the `GripVertical` handles render and both mouse-drag and keyboard-reorder work).
+
+## Review outcomes → S3 — Re-review (2026-04-18) → pass
+
+Independent re-reviewer (general-purpose agent, has Bash) executed every verification command from the review brief on commit range `bc57c57..HEAD` (27 non-review commits; fix-pass commits `f03f7f4..d1455e0`). Nothing trusted — everything re-run locally.
+
+### Fix-pass commits (verified by subject + TDD order)
+
+- `f03f7f4 test(web): add failing ingredient-reorder test for RecipeFormPage`
+- `0359ca2 feat(web): wire dnd-kit reorder on ingredient rows`
+- `278376c test(web): add failing step-reorder test for RecipeFormPage`
+- `f0e4683 feat(web): wire dnd-kit reorder on step rows`
+- `e80cbde refactor(domain): remove dead Recipe.MarkUpdated method`
+- `d1455e0 docs(progress): flip S3 to in_review with fix pass #1 entry`
+
+### TDD ordering — fix pass
+
+- **Ingredient reorder:** test `f03f7f4` precedes feat `0359ca2` ✓
+- **Step reorder:** test `278376c` precedes feat `f0e4683` ✓
+- **Dead-code refactor:** `e80cbde` is a standalone commit with only `Recipe.MarkUpdated` removal + dropped self-referential test (one `RecipeTests.MarkUpdated_Advances_UpdatedAt`). Not bundled with new features. ✓
+
+### Static checks
+
+- `grep -rn "Assert\.True(true)\|Assert\.True(false)" apps/api/tests/` → 0 matches.
+- `grep -rn "\[Skip\|Skip=\|\.Skip(" apps/api/tests/ --include="*.cs"` → 0 matches.
+- `grep -rn "it\.skip\|it\.todo\|describe\.skip\|\.only(\|xit\|xdescribe" apps/web/src/ packages/` → 0 real matches (same `exit` substring false-positive in `packages/*/package.json` as in prior reviews).
+- `grep -rn "TODO\|FIXME\|HACK\|XXX" apps/ packages/ --include="*.cs" --include="*.ts" --include="*.tsx"` → 0 matches.
+- `grep -rn "@ts-ignore\|@ts-expect-error\|eslint-disable\|SuppressMessage\|pragma warning disable" apps/ packages/ --include="*.cs" --include="*.ts" --include="*.tsx"` → 5 matches, all pre-existing and accepted:
+  - `Migrations/20260418084257_InitialAuth.Designer.cs:21` (EF-generated, S1)
+  - `Migrations/20260418092758_AddGroups.Designer.cs:21` (EF-generated, S2)
+  - `Migrations/20260418101312_AddRecipes.Designer.cs:21` (EF-generated, S3)
+  - `Migrations/AppDbContextModelSnapshot.cs:18` (EF-generated)
+  - `apps/web/src/features/auth/useSession.ts:67` (inline-justified `-- intentionally once on mount`)
+  - **No NEW suppressions introduced by the fix pass.**
+- `grep -rn "NotImplementedException" apps/ packages/ --include="*.cs"` → 0 hits in production code.
+- `grep -rn "MarkUpdated" apps/api/` → **0 hits** (dead-code removal confirmed).
+
+### Reorder UI verification (source readthrough of `apps/web/src/features/recipes/RecipeFormPage.tsx`)
+
+- `DndContext` wiring: **two** contexts, one scoping the `<ul>` of ingredients (lines 381–407) and a separate one scoping the `<ol>` of steps (lines 429–455). Each uses `collisionDetection={closestCenter}`. ✓
+- `SortableContext` with `verticalListSortingStrategy`: both contexts ✓ (lines 386–389 and 434–437).
+- `useSortable` per row with stable id: `SortableIngredientRow` and `SortableStepRow` each call `useSortable({ id: row.key })` where `row.key = crypto.randomUUID()` assigned once in `emptyIngredient()` / `emptyStep()` factories, or loaded from `IngredientDto.id` / `RecipeStepDto.id` in edit mode. **IDs are stable across renders (uuid, not array index) — preferred pattern, no tradeoff needed.** ✓
+- Sensors: shared `useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))` (lines 181–184) wired into both contexts. ✓
+- Drag handles: `GripVertical` (lucide-react) inside `<button type="button">` with `aria-label="Zutat verschieben"` / `"Schritt verschieben"` and `data-testid="ingredient-drag-handle-{index}"` / `"step-drag-handle-{index}"` (lines 557–566 and 698–707). `{...attributes} {...listeners}` spread carries both pointer and keyboard activations. ✓
+- `onDragEnd`: both handlers use `arrayMove(prev, oldIndex, newIndex)` on local state keyed by `row.key`, ignoring drags where `active.id === over.id`. ✓
+- Submit renumber: `handleSubmit` maps `usableIngredients` and `usableSteps` with `.map((row, idx) => ({ position: idx, ... }))` (lines 239–254) — positions always renumbered `0..n-1` in the POST/PUT payload regardless of local key order. ✓
+
+### Reorder test verification (source readthrough of `apps/web/src/features/recipes/RecipeFormPage.test.tsx`)
+
+- **Two new reorder tests present** — one for ingredients (`reorders ingredient rows via keyboard sensor and persists the new order on submit`, lines 139–218) and one for steps (`reorders step rows via keyboard sensor and persists the new order on submit`, lines 220–291).
+- Both tests use the **keyboard path**: build 3 distinguishable rows, focus `getByTestId('ingredient-drag-handle-0')` (or step), `fireEvent.keyDown(firstHandle, { key: ' ', code: 'Space' })` to activate, flush KeyboardSensor's deferred listener registration via `await act(async () => { await new Promise((r) => setTimeout(r, 0)) })`, then `fireEvent.keyDown(document.activeElement, { key: 'ArrowDown', code: 'ArrowDown' })` to move, then `Space` again to drop.
+- **Substantive assertions**:
+  1. Visual DOM order after reorder: `screen.getAllByLabelText(/Zutat \d+ Name/i).map((el) => el.value)` equals `['Zucker', 'Mehl', 'Salz']` (ingredient test, line 205) and `['Zwei', 'Eins', 'Drei']` (step test, line 279).
+  2. Captured POST payload order: `capturedPayload.ingredients.map((i) => i.name)` equals `['Zucker', 'Mehl', 'Salz']` (line 212–215) and `capturedPayload.steps.map((s) => s.content)` equals `['Zwei', 'Eins', 'Drei']` (line 285–289).
+  3. **Positions renumbered 0..n-1**: `capturedPayload.ingredients.map((i) => i.position)` → `[0, 1, 2]` (line 217) and `capturedPayload.steps.map((s) => s.position)` → `[0, 1, 2]` (line 290).
+- jsdom's all-zero rects are patched in `beforeEach` to give synthetic vertical layout (lines 27–51), required for `sortableKeyboardCoordinates` to correctly compute neighbours.
+
+### Runtime
+
+- `dotnet test apps/api/FamilienKochbuch.sln` → **246/246 pass** (132 Domain + 34 Infrastructure + 80 Api). 0 skipped. Argon2 did not flake on this run.
+- `cd apps/web && pnpm test --run` → **95/95 pass** across **21 test files**. 0 failed. Exceeds ≥95 threshold.
+- `pnpm lint` → clean (0 errors, 0 warnings).
+- `docker compose up --build -d` → all 6 services started. API became `healthy` in ~1 s on warm cache. Postgres + Redis healthy within 16 s. `curl -s http://localhost/api/health` → `{"status":"ok","timestamp":"2026-04-18T11:05:36.5015282+00:00"}`.
+
+### E2E curl flow (full, end-to-end on live docker stack)
+
+1. **Login admin** (`admin@familien-kochbuch.local` / `ChangeMe!Admin2026`): `200`, HS256 JWT with `role=Admin`, refresh cookie set.
+2. **`GET /api/groups/`**: returns 5 groups including `Private Sammlung` id `6dc80a0e-6cae-469e-bf64-22097463d4a0` with `isPrivateCollection=true`.
+3. **`GET /api/groups/{private-id}/tags`**: **30 tags** returned (spot-check: `a0000004-*` Aufwand trio as seeded).
+4. **`POST /api/groups/{private-id}/recipes`** with 3 ingredients (A, B, C at positions 0, 1, 2), 2 steps, 2 tag IDs: `201`, new id `2369bf8d-2f59-4d51-9b67-9ca9d83af7b3`. Response body's `ingredients` preserves order [A, B, C] at positions [0, 1, 2], `tags` has 2 entries.
+5. **`GET /api/recipes/{id}`**: returns ingredients `[('A', 0), ('B', 1), ('C', 2)]` ✓.
+6. **`PUT /api/recipes/{id}`** with ingredients in new order [B, A, C] at renumbered positions [0, 1, 2]: `200`. Subsequent `GET` returns `[('B', 0), ('A', 1), ('C', 2)]` ✓ — server persists the new order exactly as the client renumbered it.
+7. **`POST /api/recipes/{id}/photos`** with 1×1 PNG (python-generated, 69 bytes): `200` + `{"url":"http://localhost/photos/recipe-photos/692a317167fc4716a2523363a679248a.png"}`. Fetching that URL via Caddy → `200` (binary PNG served).
+8. **Upload photos 2 and 3**: both `200` with distinct URLs.
+9. **Upload photo 4**: **`400 {"code":"photo_limit_reached","message":"Ein Rezept darf höchstens 3 Fotos haben."}`** ✓.
+10. **`DELETE /api/recipes/{id}/photos`** with photo #1 URL: `204`. Follow-up `GET` shows `photos` array now has 2 URLs, photo #1 removed ✓.
+11. **`DELETE /api/recipes/{id}`**: `204`. Follow-up `GET` → `404` (soft-delete hides from member queries) ✓.
+12. **Non-member check**: created fresh invite via `POST /api/invites/app/`, signed up new user `s3rereview@example.com` via `POST /api/auth/signup?token=...` (`200`, `role=User`). As that user, `POST /api/groups/{admin's Private Sammlung}/recipes` → **`403`** ✓. Auth gate holds — non-members cannot write to other users' private collections.
+13. `docker compose down` → clean teardown.
+
+### Security / invariants regression (all still enforced)
+
+- **Ingredient null-quantity ⇒ scalable=false:** Domain ctor invariant intact (`Ingredient.cs`). Tested by `IngredientTests.QuantityNull_Requires_ScalableFalse` and passes in `dotnet test`.
+- **4th photo limit:** Verified LIVE against real SeaweedFS via the curl flow step 9 — returns 400 `photo_limit_reached` as spec'd.
+- **Wiki-style editing:** `RecipeEndpoints.cs` authorization is `IsGroupMemberAsync` only, no creator-check. PUT, DELETE, and photo endpoints all member-gated. Non-member gets 403 (step 12 proves this live).
+
+### Deviation assessments (final)
+
+- **Photos as JSON text (S3 #3):** **Accept.** Unchanged since review #1; EF `ValueConverter` keeps the DTO round-trip byte-identical, bounded to 3 photos, portable across SQLite/Postgres. No user-visible impact.
+- **Unique-index NULLS DISTINCT on Tags (S3 #4):** **Accept.** Unchanged; seed uses stable GUIDs, test `Group_Scoped_Tag_Uniqueness_Prevents_Duplicate_Within_Group` covers the branch that actually bites at runtime.
+- **Drag-drop reorder (S3 #5, was "partial"):** **NOW WIRED — accept.** Both lists use `@dnd-kit/core` + `@dnd-kit/sortable` + `@dnd-kit/utilities` with shared `PointerSensor` + `KeyboardSensor` sensors (accessibility out of the box), German `aria-label`s, lucide `GripVertical` handles, stable uuid row-keys, `arrayMove` on dragend, and submit-time position renumbering. Both paths test-covered with substantive payload assertions. No lingering UX gap.
+
+### Verdict
+
+All 246 .NET + 95 web tests pass. Lint clean. Docker stack healthy. Every acceptance criterion in the S3 spec is met — including the previously-failing drag-drop deliverable, now wired cleanly with accessibility in mind. Full E2E curl flow including tag listing, CRUD, photo upload + Caddy fetch + 4th-photo rejection + photo delete + recipe soft-delete + non-member 403 all confirmed against the live stack. TDD order clean for both fix-pass feature pairs. Dead-code refactor is a standalone single-purpose commit as expected. No new regressions; no new suppressions; no new TODOs.
+
+**S3 flipped `in_review` → `done`.**
