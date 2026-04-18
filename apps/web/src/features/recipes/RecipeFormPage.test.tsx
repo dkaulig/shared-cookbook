@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { server } from '@/test/msw/server'
@@ -23,6 +23,32 @@ beforeEach(() => {
       ]),
     ),
   )
+
+  // jsdom returns all-zero rects by default, which breaks @dnd-kit's
+  // keyboard coordinate getter (it filters droppables by rect.top delta).
+  // Give every element a synthetic vertical layout based on its DOM index
+  // among its siblings of the same tag, so ArrowDown/ArrowUp find the
+  // expected neighbour row.
+  const ROW_HEIGHT = 60
+  Element.prototype.getBoundingClientRect = function () {
+    const parent = this.parentElement
+    const siblings = parent ? Array.from(parent.children) : [this]
+    const index = siblings.indexOf(this as Element)
+    const top = Math.max(index, 0) * ROW_HEIGHT
+    return {
+      x: 0,
+      y: top,
+      top,
+      left: 0,
+      right: 200,
+      bottom: top + ROW_HEIGHT,
+      width: 200,
+      height: ROW_HEIGHT,
+      toJSON() {
+        return this
+      },
+    } as DOMRect
+  }
 })
 
 function withProviders(initialPath: string): ReactNode {
@@ -157,8 +183,19 @@ describe('RecipeFormPage (create)', () => {
     const firstHandle = screen.getByTestId('ingredient-drag-handle-0')
     firstHandle.focus()
     fireEvent.keyDown(firstHandle, { key: ' ', code: 'Space' })
-    fireEvent.keyDown(firstHandle, { key: 'ArrowDown', code: 'ArrowDown' })
-    fireEvent.keyDown(firstHandle, { key: ' ', code: 'Space' })
+    // KeyboardSensor registers its `keydown` listener on ownerDocument via
+    // setTimeout(0); flush microtasks + timers before dispatching the move.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    fireEvent.keyDown(document.activeElement ?? firstHandle, {
+      key: 'ArrowDown',
+      code: 'ArrowDown',
+    })
+    fireEvent.keyDown(document.activeElement ?? firstHandle, {
+      key: ' ',
+      code: 'Space',
+    })
 
     // Visually the inputs should now reflect the new order.
     await waitFor(() => {

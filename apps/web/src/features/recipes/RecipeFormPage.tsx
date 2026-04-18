@@ -10,6 +10,24 @@ import type {
   TagCategory,
   TagDto,
 } from '@familien-kochbuch/shared'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent } from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -158,6 +176,13 @@ function RecipeFormInner({
     return grouped
   }, [tagsQuery.data])
 
+  // One shared sensor config for both the ingredient and the step DndContext.
+  // PointerSensor covers mouse/touch; KeyboardSensor keeps reorder accessible.
+  const dndSensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
   function updateIngredient(index: number, updater: (row: IngredientRow) => IngredientRow) {
     setIngredients((prev) => prev.map((row, i) => (i === index ? updater(row) : row)))
   }
@@ -168,6 +193,17 @@ function RecipeFormInner({
 
   function toggleTag(id: string) {
     setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
+  }
+
+  function handleIngredientDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setIngredients((prev) => {
+      const oldIndex = prev.findIndex((r) => r.key === active.id)
+      const newIndex = prev.findIndex((r) => r.key === over.id)
+      if (oldIndex < 0 || newIndex < 0) return prev
+      return arrayMove(prev, oldIndex, newIndex)
+    })
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -331,111 +367,33 @@ function RecipeFormInner({
               + Zutat hinzufügen
             </Button>
           </div>
-          <ul className="space-y-3">
-            {ingredients.map((row, index) => (
-              <li
-                key={row.key}
-                className="grid grid-cols-[80px_120px_1fr_auto] gap-2 rounded-md bg-stone-50 p-3"
-              >
-                <div>
-                  <Label htmlFor={`ing-qty-${index}`} className="text-xs text-stone-600">
-                    Menge
-                  </Label>
-                  <Input
-                    id={`ing-qty-${index}`}
-                    type="text"
-                    inputMode="decimal"
-                    disabled={row.quantityNull}
-                    value={row.quantity}
-                    onChange={(e) => updateIngredient(index, (r) => ({ ...r, quantity: e.target.value }))}
-                    aria-label={`Zutat ${index + 1} Menge`}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor={`ing-unit-${index}`} className="text-xs text-stone-600">
-                    Einheit
-                  </Label>
-                  <select
-                    id={`ing-unit-${index}`}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
-                    value={row.unit}
-                    onChange={(e) => updateIngredient(index, (r) => ({ ...r, unit: e.target.value }))}
-                    aria-label={`Zutat ${index + 1} Einheit`}
-                  >
-                    <option value="">—</option>
-                    {UNITS.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label htmlFor={`ing-name-${index}`} className="text-xs text-stone-600">
-                    Zutat
-                  </Label>
-                  <Input
-                    id={`ing-name-${index}`}
-                    type="text"
-                    value={row.name}
-                    onChange={(e) => updateIngredient(index, (r) => ({ ...r, name: e.target.value }))}
-                    aria-label={`Zutat ${index + 1} Name`}
-                  />
-                  <div className="mt-1 flex items-center gap-4 text-xs text-stone-600">
-                    <label className="flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={row.scalable}
-                        disabled={row.quantityNull}
-                        onChange={(e) =>
-                          updateIngredient(index, (r) => ({ ...r, scalable: e.target.checked }))
-                        }
-                      />
-                      skalierbar
-                    </label>
-                    <label className="flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={row.quantityNull}
-                        onChange={(e) =>
-                          updateIngredient(index, (r) => ({
-                            ...r,
-                            quantityNull: e.target.checked,
-                            scalable: e.target.checked ? false : r.scalable,
-                            quantity: e.target.checked ? '' : r.quantity,
-                          }))
-                        }
-                      />
-                      nach Geschmack
-                    </label>
-                    <Input
-                      type="text"
-                      placeholder="Notiz"
-                      className="h-7 max-w-[160px] text-xs"
-                      value={row.note}
-                      onChange={(e) => updateIngredient(index, (r) => ({ ...r, note: e.target.value }))}
-                      aria-label={`Zutat ${index + 1} Notiz`}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleIngredientDragEnd}
+          >
+            <SortableContext
+              items={ingredients.map((r) => r.key)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="space-y-3">
+                {ingredients.map((row, index) => (
+                  <SortableIngredientRow
+                    key={row.key}
+                    row={row}
+                    index={index}
+                    canRemove={ingredients.length > 1}
+                    onUpdate={updateIngredient}
+                    onRemove={() =>
                       setIngredients((prev) =>
                         prev.length > 1 ? prev.filter((_, i) => i !== index) : prev,
                       )
                     }
-                    aria-label="Zutat entfernen"
-                  >
-                    ✕
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
         </section>
 
         {/* Steps */}
@@ -542,5 +500,151 @@ function RecipeFormInner({
         </div>
       </form>
     </main>
+  )
+}
+
+/**
+ * A single ingredient row that participates in the surrounding `DndContext`
+ * via `useSortable`. The `GripVertical` button is the drag handle — it wires
+ * the listeners/attributes from dnd-kit, including keyboard activation
+ * (Space → ArrowUp/Down → Space) so reorder is accessible.
+ */
+function SortableIngredientRow({
+  row,
+  index,
+  canRemove,
+  onUpdate,
+  onRemove,
+}: {
+  row: IngredientRow
+  index: number
+  canRemove: boolean
+  onUpdate: (index: number, updater: (row: IngredientRow) => IngredientRow) => void
+  onRemove: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.key })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  }
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className="grid grid-cols-[auto_80px_120px_1fr_auto] gap-2 rounded-md bg-stone-50 p-3"
+    >
+      <div className="flex items-start pt-5">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          data-testid={`ingredient-drag-handle-${index}`}
+          aria-label="Zutat verschieben"
+          className="cursor-grab rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      </div>
+      <div>
+        <Label htmlFor={`ing-qty-${index}`} className="text-xs text-stone-600">
+          Menge
+        </Label>
+        <Input
+          id={`ing-qty-${index}`}
+          type="text"
+          inputMode="decimal"
+          disabled={row.quantityNull}
+          value={row.quantity}
+          onChange={(e) => onUpdate(index, (r) => ({ ...r, quantity: e.target.value }))}
+          aria-label={`Zutat ${index + 1} Menge`}
+        />
+      </div>
+      <div>
+        <Label htmlFor={`ing-unit-${index}`} className="text-xs text-stone-600">
+          Einheit
+        </Label>
+        <select
+          id={`ing-unit-${index}`}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+          value={row.unit}
+          onChange={(e) => onUpdate(index, (r) => ({ ...r, unit: e.target.value }))}
+          aria-label={`Zutat ${index + 1} Einheit`}
+        >
+          <option value="">—</option>
+          {UNITS.map((u) => (
+            <option key={u} value={u}>
+              {u}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label htmlFor={`ing-name-${index}`} className="text-xs text-stone-600">
+          Zutat
+        </Label>
+        <Input
+          id={`ing-name-${index}`}
+          type="text"
+          value={row.name}
+          onChange={(e) => onUpdate(index, (r) => ({ ...r, name: e.target.value }))}
+          aria-label={`Zutat ${index + 1} Name`}
+        />
+        <div className="mt-1 flex items-center gap-4 text-xs text-stone-600">
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={row.scalable}
+              disabled={row.quantityNull}
+              onChange={(e) => onUpdate(index, (r) => ({ ...r, scalable: e.target.checked }))}
+            />
+            skalierbar
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={row.quantityNull}
+              onChange={(e) =>
+                onUpdate(index, (r) => ({
+                  ...r,
+                  quantityNull: e.target.checked,
+                  scalable: e.target.checked ? false : r.scalable,
+                  quantity: e.target.checked ? '' : r.quantity,
+                }))
+              }
+            />
+            nach Geschmack
+          </label>
+          <Input
+            type="text"
+            placeholder="Notiz"
+            className="h-7 max-w-[160px] text-xs"
+            value={row.note}
+            onChange={(e) => onUpdate(index, (r) => ({ ...r, note: e.target.value }))}
+            aria-label={`Zutat ${index + 1} Notiz`}
+          />
+        </div>
+      </div>
+      <div className="flex items-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={onRemove}
+          disabled={!canRemove}
+          aria-label="Zutat entfernen"
+        >
+          ✕
+        </Button>
+      </div>
+    </li>
   )
 }
