@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
@@ -94,8 +94,9 @@ describe('<ReceivedInvitesBanner />', () => {
     const user = userEvent.setup()
     await user.click(acceptButton)
 
-    // Wait for banner row to disappear after refetch.
-    await waitForElementToBeRemoved(() => screen.queryByText(/Familie/))
+    await waitFor(() => {
+      expect(screen.queryByText(/Familie/)).toBeNull()
+    })
   })
 
   it('hides the invite row after decline', async () => {
@@ -130,6 +131,8 @@ describe('<ReceivedInvitesBanner />', () => {
     const user = userEvent.setup()
     await user.click(declineButton)
 
-    await waitForElementToBeRemoved(() => screen.queryByText(/Freunde/))
+    await waitFor(() => {
+      expect(screen.queryByText(/Freunde/)).toBeNull()
+    })
   })
 })
