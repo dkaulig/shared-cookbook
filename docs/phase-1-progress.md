@@ -40,6 +40,8 @@ _(none yet)_
 
 _(none yet)_
 
+**Review standard:** Every review applies `docs/reviewing/anti-shortcut-checklist.md`. Reviewers execute verification commands themselves; they do not rely on the agent's claims.
+
 ## Deviations from PRD
 
 _(none yet)_
