@@ -9,9 +9,16 @@ Re-exports are added as each implementation chunk lands.
 from __future__ import annotations
 
 from extractor.llm.errors import LLM_ERROR_CODES, LLMErrorCode, LLMProviderError
+from extractor.llm.mock import MockLLMProvider, NullProvider
+from extractor.llm.provider import ChatMessage, LLMProvider, VisionInput
 
 __all__ = [
     "LLM_ERROR_CODES",
+    "ChatMessage",
     "LLMErrorCode",
+    "LLMProvider",
     "LLMProviderError",
+    "MockLLMProvider",
+    "NullProvider",
+    "VisionInput",
 ]
