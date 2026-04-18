@@ -27,6 +27,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RecipeStep> RecipeSteps => Set<RecipeStep>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
+    public DbSet<Rating> Ratings => Set<Rating>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -241,6 +242,37 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 .OnDelete(DeleteBehavior.Cascade);
             // Recipe ↔ RecipeTag cascade is set on the Recipe entity above
             // to keep the aggregate root as the single source of truth.
+        });
+
+        // ── Ratings ─────────────────────────────────────────────────────
+
+        builder.Entity<Rating>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Comment).HasMaxLength(Rating.CommentMaxLength);
+
+            // One rating per user per recipe. Upserts at the service layer
+            // translate re-submissions into an UPDATE of the existing row.
+            e.HasIndex(r => new { r.RecipeId, r.UserId }).IsUnique();
+            // Extra index for aggregate reads (avg/count per recipe) — the
+            // composite index above covers (RecipeId, UserId) for point
+            // lookups, but aggregate queries scan by RecipeId only.
+            e.HasIndex(r => r.RecipeId);
+
+            e.HasOne<Recipe>()
+                .WithMany()
+                .HasForeignKey(r => r.RecipeId)
+                // If the parent recipe is hard-deleted, rating rows go with
+                // it. Soft-deletes leave ratings untouched (no cascade).
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(r => r.UserId)
+                // If a user is removed, their ratings go too — preserves the
+                // aggregate's meaning ("avg of current members") without
+                // leaving ghost rows.
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 
