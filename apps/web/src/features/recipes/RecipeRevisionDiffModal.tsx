@@ -237,17 +237,17 @@ function buildIngredientDiff(
   const previousLines: DiffLine[] = []
   const currentLines: DiffLine[] = []
   for (let i = 0; i < min; i++) {
-    const p = previous[i]
-    const c = current[i]
+    const p = previous[i]!
+    const c = current[i]!
     const same = ingredientsEqual(p, c)
     previousLines.push({ label: formatIngredient(p), changed: !same })
     currentLines.push({ label: formatIngredient(c), changed: !same })
   }
   for (let i = min; i < previous.length; i++) {
-    previousLines.push({ label: formatIngredient(previous[i]), changed: true })
+    previousLines.push({ label: formatIngredient(previous[i]!), changed: true })
   }
   for (let i = min; i < current.length; i++) {
-    currentLines.push({ label: formatIngredient(current[i]), changed: true })
+    currentLines.push({ label: formatIngredient(current[i]!), changed: true })
   }
   return { previous: previousLines, current: currentLines }
 }
@@ -260,15 +260,17 @@ function buildStepDiff(
   const previousLines: DiffLine[] = []
   const currentLines: DiffLine[] = []
   for (let i = 0; i < min; i++) {
-    const same = previous[i].content === current[i].content
-    previousLines.push({ label: previous[i].content, changed: !same })
-    currentLines.push({ label: current[i].content, changed: !same })
+    const p = previous[i]!
+    const c = current[i]!
+    const same = p.content === c.content
+    previousLines.push({ label: p.content, changed: !same })
+    currentLines.push({ label: c.content, changed: !same })
   }
   for (let i = min; i < previous.length; i++) {
-    previousLines.push({ label: previous[i].content, changed: true })
+    previousLines.push({ label: previous[i]!.content, changed: true })
   }
   for (let i = min; i < current.length; i++) {
-    currentLines.push({ label: current[i].content, changed: true })
+    currentLines.push({ label: current[i]!.content, changed: true })
   }
   return { previous: previousLines, current: currentLines }
 }
