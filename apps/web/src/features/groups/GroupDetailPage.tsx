@@ -56,19 +56,30 @@ export function GroupDetailPage() {
 
   // Debounced search input — tracks user keystrokes locally, then
   // commits to the URL after 300 ms so typing doesn't slam the backend.
+  // Critical: the initial mount must NOT fire (it would wipe the
+  // `?preset=…` param before `usePresetConsumer` gets its chance). We
+  // track a `hasUserTyped` flag that only flips true on the first real
+  // `setSearchInput` call from the `<GroupFilterBar />`.
   const [searchInput, setSearchInput] = useState(filters.q ?? '')
+  const [hasUserTyped, setHasUserTyped] = useState(false)
+  const onSearchChange = useCallback((next: string) => {
+    setHasUserTyped(true)
+    setSearchInput(next)
+  }, [])
   useEffect(() => {
+    if (!hasUserTyped) return
     const handle = setTimeout(() => {
       const trimmed = searchInput.trim()
-      const next: RecipeSearchParams = { ...filters, q: trimmed === '' ? undefined : trimmed }
+      const current = readFiltersFromSearchParams(searchParams)
+      const next: RecipeSearchParams = { ...current, q: trimmed === '' ? undefined : trimmed }
       const nextParams = writeFiltersToSearchParams(next)
       if (nextParams.toString() !== searchParams.toString()) {
         setSearchParams(nextParams, { replace: true })
       }
     }, 300)
     return () => clearTimeout(handle)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only searchInput drives the debounce
-  }, [searchInput])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only searchInput/hasUserTyped drive the debounce
+  }, [searchInput, hasUserTyped])
 
   const [filterPanelOpen, setFilterPanelOpen] = useState(false)
   const [randomPending, setRandomPending] = useState(false)
@@ -192,7 +203,7 @@ export function GroupDetailPage() {
       <div className="px-5 pt-6 md:px-8 md:pt-7">
         <GroupFilterBar
           searchQuery={searchInput}
-          onSearchChange={setSearchInput}
+          onSearchChange={onSearchChange}
           activeFilterCount={activeFilterCount}
           isFilterOpen={filterPanelOpen}
           onToggleFilter={() => setFilterPanelOpen((v) => !v)}
