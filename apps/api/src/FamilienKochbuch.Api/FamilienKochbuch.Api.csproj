@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>FamilienKochbuch.Api</RootNamespace>
+    <AssemblyName>FamilienKochbuch.Api</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FamilienKochbuch.Domain\FamilienKochbuch.Domain.csproj" />
+    <ProjectReference Include="..\FamilienKochbuch.Infrastructure\FamilienKochbuch.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="FamilienKochbuch.Api.Tests" />
+  </ItemGroup>
+</Project>
