@@ -6,13 +6,13 @@ namespace FamilienKochbuch.Api.Endpoints;
 /// </summary>
 public static class HealthEndpoints
 {
-    public static IEndpointRouteBuilder MapHealthEndpoints(this IEndpointRouteBuilder app)
+    public static void MapHealthEndpoints(this WebApplication app)
     {
         app.MapGet("/api/health", () => Results.Ok(new HealthResponse(
-            Status: "ok",
-            Timestamp: DateTimeOffset.UtcNow.ToString("o"))));
-
-        return app;
+                Status: "ok",
+                Timestamp: DateTimeOffset.UtcNow.ToString("o"))))
+            .WithTags("Health")
+            .AllowAnonymous();
     }
 
     /// <summary>
