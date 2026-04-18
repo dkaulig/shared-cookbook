@@ -37,8 +37,9 @@ describe('<LoginPage />', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: /was kochen wir heute\?/i }),
     ).toBeInTheDocument()
+    // The shadcn CardTitle renders as <h3> (DS1 default).
     expect(
-      screen.getByRole('heading', { level: 2, name: /^anmelden$/i }),
+      screen.getByRole('heading', { level: 3, name: /^anmelden$/i }),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^anmelden$/i })).toBeInTheDocument()
   })
