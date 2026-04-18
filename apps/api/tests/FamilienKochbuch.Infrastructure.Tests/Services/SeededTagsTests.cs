@@ -105,4 +105,85 @@ public class SeededTagsTests : IAsyncLifetime
             .CountAsync(t => t.Category == TagCategory.Custom && t.GroupId == null);
         Assert.Equal(0, customCount);
     }
+
+    // GR1 — AddKomponenteTagCategory migration seeds exactly seven global
+    // tags under the new Komponente category so users can mark isolated
+    // sub-recipes (Pizzateig, Tomatensauce, Dressings …). The seed is
+    // idempotent — re-running the migration produces the same rows —
+    // because each row has a stable GUID.
+
+    [Fact]
+    public async Task Seven_Komponente_Tags_Seeded()
+    {
+        var count = await _db.Tags
+            .Where(t => t.Category == TagCategory.Komponente && t.GroupId == null)
+            .CountAsync();
+
+        Assert.Equal(7, count);
+    }
+
+    [Fact]
+    public async Task Komponente_Tag_Names_Match_GR1_Spec()
+    {
+        string[] expected =
+        [
+            "Grundrezept",
+            "Teig",
+            "Sauce",
+            "Glasur",
+            "Dressing",
+            "Beilage",
+            "Topping",
+        ];
+
+        var seededNames = await _db.Tags
+            .Where(t => t.Category == TagCategory.Komponente && t.GroupId == null)
+            .Select(t => t.Name)
+            .OrderBy(n => n)
+            .ToListAsync();
+
+        Assert.Equal(expected.OrderBy(n => n), seededNames);
+    }
+
+    [Fact]
+    public async Task Komponente_Seed_Uses_Stable_Guids()
+    {
+        // Stable GUIDs stamped by the AddKomponenteTagCategory migration.
+        // Pinned here so future "regenerate migration" mistakes that
+        // swap to Guid.NewGuid() are caught — stable ids are what makes
+        // re-running the seed idempotent on an already-seeded DB.
+        var expected = new Dictionary<string, Guid>
+        {
+            ["Grundrezept"] = Guid.Parse("a0000007-0000-0000-0000-000000000001"),
+            ["Teig"] = Guid.Parse("a0000007-0000-0000-0000-000000000002"),
+            ["Sauce"] = Guid.Parse("a0000007-0000-0000-0000-000000000003"),
+            ["Glasur"] = Guid.Parse("a0000007-0000-0000-0000-000000000004"),
+            ["Dressing"] = Guid.Parse("a0000007-0000-0000-0000-000000000005"),
+            ["Beilage"] = Guid.Parse("a0000007-0000-0000-0000-000000000006"),
+            ["Topping"] = Guid.Parse("a0000007-0000-0000-0000-000000000007"),
+        };
+
+        var seeded = await _db.Tags
+            .Where(t => t.Category == TagCategory.Komponente && t.GroupId == null)
+            .ToDictionaryAsync(t => t.Name, t => t.Id);
+
+        foreach (var (name, id) in expected)
+        {
+            Assert.True(seeded.ContainsKey(name), $"Missing Komponente seed '{name}'.");
+            Assert.Equal(id, seeded[name]);
+        }
+    }
+
+    [Fact]
+    public async Task At_Least_37_Global_Tags_Seeded_After_GR1()
+    {
+        // 30 pre-GR1 seeds + 7 Komponente seeds = 37. The existing
+        // "at least 30" test keeps working too, but we pin the post-GR1
+        // floor so a future drop of the Komponente seed is caught.
+        var count = await _db.Tags
+            .Where(t => t.GroupId == null && t.CreatedByUserId == null)
+            .CountAsync();
+
+        Assert.True(count >= 37, $"Expected at least 37 global tags after GR1, got {count}.");
+    }
 }
