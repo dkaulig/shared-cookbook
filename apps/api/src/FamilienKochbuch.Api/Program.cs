@@ -7,6 +7,7 @@ using FamilienKochbuch.Infrastructure.Identity;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -73,6 +74,10 @@ builder.Services.AddScoped<PhotoPathMigrationService>();
 // ── Photo URL signing (HMAC over path+exp, keyed off Jwt:SigningKey) ──
 builder.Services.AddSingleton<ImageSigningService>();
 builder.Services.AddSingleton<IPhotoUrlSigner, PhotoUrlSigner>();
+
+// ── Global exception handler: unhandled → uniform 500 + ErrorResponse ──
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
 
 // ── SeaweedFS filer HTTP client + photo storage (plain HTTP, no S3) ──
 // The named client is shared by the photo-proxy endpoint and the upload
@@ -161,6 +166,7 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
 });
 
+app.UseExceptionHandler();
 app.UseSerilogRequestLogging();
 app.UseCors(CorsPolicy);
 app.UseRateLimiter();

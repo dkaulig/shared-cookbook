@@ -22,7 +22,9 @@ public class GlobalExceptionHandlerTests
     {
         var ctx = BuildContext(new InvalidOperationException("boom for test"));
 
-        var handled = await GlobalExceptionHandler.TryHandleAsync(ctx, ctx.Features.Get<IExceptionHandlerFeature>()!.Error, CancellationToken.None);
+        var handler = new GlobalExceptionHandler(NullLogger<GlobalExceptionHandler>.Instance);
+        var handled = await handler.TryHandleAsync(ctx,
+            ctx.Features.Get<IExceptionHandlerFeature>()!.Error, CancellationToken.None);
 
         Assert.True(handled);
         Assert.Equal(StatusCodes.Status500InternalServerError, ctx.Response.StatusCode);
@@ -41,7 +43,9 @@ public class GlobalExceptionHandlerTests
         var secret = "exception-message-we-do-not-want-to-leak";
         var ctx = BuildContext(new InvalidOperationException(secret));
 
-        await GlobalExceptionHandler.TryHandleAsync(ctx, ctx.Features.Get<IExceptionHandlerFeature>()!.Error, CancellationToken.None);
+        var handler = new GlobalExceptionHandler(NullLogger<GlobalExceptionHandler>.Instance);
+        await handler.TryHandleAsync(ctx,
+            ctx.Features.Get<IExceptionHandlerFeature>()!.Error, CancellationToken.None);
 
         ctx.Response.Body.Position = 0;
         using var reader = new StreamReader(ctx.Response.Body);
