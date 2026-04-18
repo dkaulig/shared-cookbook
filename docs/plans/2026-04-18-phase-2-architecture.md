@@ -12,32 +12,45 @@ Phase 2 is big enough that orchestrating it as a single slice would be reckless.
 
 ## High-level architecture
 
-Three user-facing AI paths all funnel into the **same review-before-save UX**, so the human stays in the loop. The heavy lifting sits in a **new Python microservice** next to the existing .NET API.
+Three user-facing AI paths all funnel into the **same review-before-save UX**, so the human stays in the loop. Heavy lifting sits in a new **Python microservice** next to the existing .NET API. The job queue lives in **.NET via Hangfire** so retries, monitoring, and the dashboard land in familiar territory.
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  React web app  │ ──► │  .NET API       │ ──► │  Python extractor│
-│  (unchanged)    │     │  (proxy + auth) │     │  (FastAPI)       │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                          │
-                                                          ├─► yt-dlp (video dl)
-                                                          ├─► faster-whisper (transcript)
-                                                          ├─► recipe-scrapers (blog JSON-LD)
-                                                          ├─► Azure OpenAI (structuring + chat + vision)
-                                                          └─► SeaweedFS (photo assets)
-                                ▲
-                                │
-                        ┌───────┴────────┐
-                        │  Redis queue   │ ◄── job broker (arq/RQ)
-                        │  + status      │     both services read/write
-                        └────────────────┘
+┌─────────────────┐     ┌─────────────────┐            ┌──────────────────┐
+│  React web app  │ ──► │  .NET API       │            │ Python extractor │
+│  (unchanged)    │     │  - Hangfire job │ ─────HTTP► │ (FastAPI, sync)  │
+│                 │     │  - proxy + auth │ ◄──result─ │ stateless        │
+└─────────────────┘     └─────────────────┘            └──────────────────┘
+                                  │                               │
+                                  │                               ├─► yt-dlp
+                                  ▼                               ├─► faster-whisper
+                         ┌─────────────────┐                      ├─► recipe-scrapers
+                         │  Postgres       │                      ├─► Azure OpenAI
+                         │  (app + hangfire│                      └─► SeaweedFS (via .NET proxy)
+                         │   schema)       │
+                         └─────────────────┘
 ```
 
 **Design rules**
 - API keys for Azure OpenAI live **only** in the Python service. Frontend never sees them. .NET never sees them.
-- The .NET API remains the single authentication boundary. The Python service trusts a signed service-to-service header (HMAC of `user_id + timestamp`) that .NET injects on proxied calls. No public Python endpoint.
-- Long-running work (video DL, transcription, LLM calls) runs as **background jobs** with a polling API. No WebSocket / SSE requirement for v1 — polling every 2s is fine for the 30–120s extract window.
-- The Review UI reuses the existing `RecipeFormPage` (DS6 slice) — Phase 2 prefills the form with extracted data rather than introducing a new form.
+- The .NET API is the single authentication boundary + orchestrator. Hangfire manages jobs (retry policy, dashboard, scheduled retries).
+- The Python service is a **stateless synchronous HTTP worker** — it holds no queue, no state. Hangfire calls a Python endpoint and waits (30–120 s for video; 5–15 s for photos).
+- Service-to-service auth: HMAC-signed header (`X-Extractor-Signature: HMAC(user_id + timestamp + body-hash, shared-secret)`) → Python verifies. See `EXTRACTOR_SHARED_SECRET` env var.
+- No direct browser → Python call. All traffic through .NET.
+- The Review UI reuses the existing `RecipeFormPage` (DS6 slice) — Phase 2 pre-fills the form with extracted data rather than introducing a new form.
+
+### Hangfire storage
+
+- **Provider:** `Hangfire.PostgreSql` (MIT-licensed community package, free — unlike the Redis provider which requires Hangfire Pro).
+- **Database:** same Postgres instance as the app, dedicated `hangfire` schema. Connection string sets `SearchPath=hangfire,public` so EF Core and Hangfire don't collide.
+- **Dashboard:** `/api/hangfire` (behind `RequireAuthorization("Admin")` — admins only). Gives you retry inspection, manual re-enqueue, failure logs.
+- **Backup:** covered by the single Postgres dump that already backs up the app data. No separate backup pipeline.
+
+### Whisper model
+
+- **Model:** `large-v3` (≈3 GB download, best accuracy on German speech + noisy audio).
+- **Download:** baked into the Python Dockerfile via a build-stage `download_model.py` step so the image is self-sufficient. Pulls from HuggingFace repo `Systran/faster-whisper-large-v3` at build time, not runtime.
+- **Image size impact:** Python image grows to ~3.5 GB. Acceptable — the VPS pull runs once per deploy.
+- **Run mode:** CPU int8-quantized via CTranslate2 (no GPU on the Hetzner VPS). Rough throughput: 1 min audio → 30–60 s transcription on the VPS's x86 cores.
 
 ## Sub-slice decomposition
 
@@ -112,18 +125,24 @@ Slices are ordered by dependency. Each is a stand-alone deliverable with its own
 
 **Est.:** 2–3h.
 
-### P2-5 — Background job queue + status API
+### P2-5 — Hangfire job orchestration + status API (.NET-side)
 
-**Goal:** Move P2-2 from synchronous to background. Status-poll API for the frontend.
+**Goal:** All long-running work is a Hangfire job in .NET. Python stays synchronous. Frontend polls via `.NET`.
 
-- Use **arq** (async Redis queue, integrates cleanly with FastAPI + asyncio).
-- Job states: `queued`, `running`, `done`, `error` + `progress` 0–100.
-- `GET /jobs/{id}` → returns state + optional result + optional error message.
-- Retry policy: 3 attempts for transient errors (network, 5xx from Azure); no retry for hard failures (invalid URL, private video).
-- Dead-letter log via structured logging (no separate DB).
-- Tests use a fake Redis (`fakeredis`) + synchronous job runner.
+- Add `Hangfire` + `Hangfire.PostgreSql` NuGet packages.
+- Migration: create `hangfire` schema in Postgres; Hangfire creates its own tables idempotently on boot.
+- Job types:
+  - `ExtractRecipeFromUrlJob(userId, groupId, url)` — calls `POST {PYTHON}/extract/url`, persists result in a new `RecipeImport` entity (Postgres table) with status + result JSON.
+  - `ExtractRecipeFromPhotosJob(userId, groupId, photoUrls[])` — same shape.
+  - `ChatTurnJob(userId, sessionId, userMessage)` — may be skipped from Hangfire if chat stays synchronous (< 5 s). Decision in P2-4.
+- `RecipeImport` entity: `Id`, `UserId`, `GroupId`, `Source` (url/photos/chat), `Status` (queued/running/done/error), `Progress` (0–100), `ResultJson` (nullable), `ErrorMessage` (nullable), `CreatedAt`, `CompletedAt`. EF Core migration.
+- Status API: `GET /api/imports/{importId}` returns the current state of `RecipeImport`. Frontend polls every 2 s.
+- Retry policy: Hangfire's built-in `AutomaticRetryAttribute` — 3 attempts for transient (5xx, network); `DisableAutomaticRetry` for known hard failures (private video, 4xx from Python).
+- Progress updates: the Hangfire job streams progress hints through `Progress` column as it goes (start: 10, video-dl done: 40, transcript done: 70, LLM done: 95, save: 100).
+- Dashboard: `/api/hangfire` mounted behind admin-only authorization.
+- Tests: integration tests with `Hangfire.InMemory` backend; assert job enqueue, retry, failure paths.
 
-**Est.:** 2–3h.
+**Est.:** 3–4h (slightly more than the old arq plan, because we also add the `RecipeImport` persistence layer — but Python side becomes simpler).
 
 ### P2-6 — .NET ↔ Python bridge endpoints
 
