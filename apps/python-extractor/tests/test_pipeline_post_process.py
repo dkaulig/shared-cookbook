@@ -208,3 +208,34 @@ def test_post_process_overall_confidence_high_when_clean() -> None:
         fallback_thumbnail=None,
     )
     assert result["confidence"]["overall"] == "high"
+
+
+def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
+    """Plan §2.5 post-process: step positions must be 1..N in input order
+    even when the LLM returns gapped (1, 3, 5) or mis-ordered values.
+    Prevents the frontend from seeing "Schritt 3" with no "Schritt 2"
+    above it, or duplicate positions that collide in keyed React lists."""
+    payload = {
+        "title": "Rezept",
+        "servings": 2,
+        "ingredients": [
+            {"name": "Mehl", "quantity": "250", "unit": "g", "confidence": "high"},
+        ],
+        "steps": [
+            {"position": 3, "content": "Dritter Schritt laut LLM.", "confidence": "high"},
+            {"position": 1, "content": "Erster Schritt laut LLM.", "confidence": "high"},
+            {"position": 7, "content": "Schritt mit Riesen-Sprung.", "confidence": "high"},
+        ],
+        "tags": [],
+    }
+    result = post_process(payload, original_url="https://x", fallback_thumbnail=None)
+    positions = [step["position"] for step in result["recipe"]["steps"]]
+    # Order of iteration is preserved (input order); positions re-assigned 1..N.
+    assert positions == [1, 2, 3]
+    # Content pinned to input order too — a sort-by-position would break this.
+    contents = [step["content"] for step in result["recipe"]["steps"]]
+    assert contents == [
+        "Dritter Schritt laut LLM.",
+        "Erster Schritt laut LLM.",
+        "Schritt mit Riesen-Sprung.",
+    ]

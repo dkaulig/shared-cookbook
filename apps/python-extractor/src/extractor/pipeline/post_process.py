@@ -76,6 +76,14 @@ def post_process(
         step = _normalise_step(raw)
         if step is not None:
             steps.append(step)
+    # Reviewer-mandated normalisation: positions must be 1..N in input
+    # order even when the LLM returns gaps ([1, 3, 5]) or mis-ordered
+    # values ([3, 1, 2]). The frontend uses `position` as a React key
+    # and a display label; gaps produce missing "Schritt 2" headers and
+    # duplicates collide in keyed lists. Input order is authoritative —
+    # the LLM's position field is advisory only.
+    for index, step in enumerate(steps, start=1):
+        step["position"] = index
 
     tags = _normalise_tags(llm_output.get("tags") or [])
 
