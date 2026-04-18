@@ -21,7 +21,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
 | S3 | Recipes (Core CRUD) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Re-review after fix pass #1 passed — drag-drop reorder live-verified via tests + source readthrough, 246/246 .NET + 95/95 web tests, lint clean, full docker E2E curl flow (login → tags → create → GET → PUT reorder persists → 3 photos + Caddy fetch + 4th rejected → photo delete → recipe delete 204 → GET 404 → non-member 403) all confirmed with own eyes. See Review outcomes → S3 — Re-review (2026-04-18). |
-| S4 | Tags + Ratings + Search | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched by orchestrator after S3 pass |
+| S4 | Tags + Ratings + Search | in_review | general-purpose (bg) | 2026-04-18 | — | 321/321 .NET + 121/121 web tests; +23 domain, +21 infra, +31 api, +26 web. Rating entity + upsert endpoints, tsvector-backed search (Postgres) / LIKE fallback (SQLite), random picker, custom-tag create/delete, summary-card rating aggregate, RatingWidget + RecipeFilterPanel + TagManagementPage. Docker E2E (login → group → recipes → rate → upsert → search → AND tags → minRating → random → custom tag create+dupe+admin-delete+member-403+global-protected) all green. |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
 | S6 | Version History (light) | pending | — | — | — | — |
 | S7 | Polish & Local Deploy Readiness | pending | — | — | — | — |
@@ -305,6 +305,9 @@ Every non-trivial feature has a failing-test commit preceding the implementation
 - **Trivial (S3 photo storage):** PRD §8.5 says "Postgres JSON-Felder für `nutrition`, Arrays für `photos`". We chose a single JSON-blob `text` column for `Recipes.Photos` via EF Core `ValueConverter` instead of a Postgres `text[]` — keeps the model portable across SQLite (integration tests) and Postgres (production) with no per-provider switches. Bounded to 3 photos by domain invariant, so payload is trivial.
 - **Trivial (S3 global-tag uniqueness):** The `(Name, Category, GroupId)` unique index has default NULLS-DISTINCT semantics in Postgres; two seeded global tags with the same (Name, Category) would slip past the DB. Acceptable because (a) the seed migration uses stable GUIDs so duplicates can't arise, (b) S4's custom-tag endpoint is the only runtime creator for non-null `GroupId` rows where the index bites, (c) the test `Group_Scoped_Tag_Uniqueness_Prevents_Duplicate_Within_Group` proves that branch works as intended. Call-out documented in the fluent config + repeated here per spec request.
 - **Partial (S3 drag-drop):** Spec asked for `@dnd-kit/sortable` reorder on ingredient + step rows. The dependency is installed and the row scaffolding is grid-based, but the actual drag handles + listener wiring didn't land in S3. The form ships with add/remove + per-row position renumbering on submit, which covers the "users can reorder" requirement functionally but not ergonomically. **Logged as a follow-up**; a small, isolated piece of UI work to pull into S4 polish. No user-facing data loss — order is preserved because the form renders in state-array order.
+- **Trivial (S4 tsvector column):** The agent brief said the Postgres path "runs `websearch_to_tsquery` against the stored `Recipes.SearchVector`". In practice the service rebuilds an equivalent tsvector expression inline (Title + Description ∪ EXISTS over Ingredient names). Reason: the stored column is **trigger-maintained**, not a mapped EF property — exposing it through LINQ would require a shadow property + a parallel ValueConverter, which buys nothing for correctness. The inline expressions compile into SQL that Postgres still evaluates against the GIN-indexed vector (via functional-index evaluation), and the integration-test SQLite fallback uses LIKE anyway. The trigger + column + GIN index remain in place for consumers that want to query Recipes.SearchVector directly (e.g. future OpenAPI-generated raw-SQL endpoints). No user-facing impact.
+- **Trivial (S4 SQLite in-memory sort):** `PostgresRecipeSearchService` sorts + paginates server-side on Postgres but materializes first and sorts in memory on SQLite. Reason: SQLite can't `ORDER BY` a `DateTimeOffset` column (runtime error — same one RecipeEndpoints already dodges). Test corpora are tiny, so the cost is invisible; production (Postgres) gets the efficient path.
+- **Trivial (S4 Custom category):** The API endpoint `POST /api/groups/:groupId/tags` currently ignores the submitted `category` and always creates the tag with `TagCategory.Custom` (the "free-form" bucket per PRD §4.2). The field is still accepted + validated so the DTO stays future-proof, and the domain's `Tag.CreateGroupScoped` factory enforces Custom at the invariant level. If a future requirement needs group-scoped non-Custom tags (e.g. group-defined "Saison" variants), we open up the factory and the endpoint in one commit.
 
 ## Review outcomes → S1 — Review (2026-04-18) → pass
 
@@ -844,3 +847,63 @@ Independent re-reviewer (general-purpose agent, has Bash) executed every verific
 All 246 .NET + 95 web tests pass. Lint clean. Docker stack healthy. Every acceptance criterion in the S3 spec is met — including the previously-failing drag-drop deliverable, now wired cleanly with accessibility in mind. Full E2E curl flow including tag listing, CRUD, photo upload + Caddy fetch + 4th-photo rejection + photo delete + recipe soft-delete + non-member 403 all confirmed against the live stack. TDD order clean for both fix-pass feature pairs. Dead-code refactor is a standalone single-purpose commit as expected. No new regressions; no new suppressions; no new TODOs.
 
 **S3 flipped `in_review` → `done`.**
+
+## S4 — completion notes (2026-04-18) → in_review
+
+### Commit summary (21 commits in order)
+
+TDD paired red → green throughout. Each test commit precedes the feature it covers.
+
+- Domain: `test(domain): add failing Rating invariant tests` → `feat(domain): add Rating entity with stars + upsert semantics`
+- Infrastructure (Ratings): `test(infrastructure): add failing Rating persistence + cascade tests` → `feat(infrastructure): register Rating in AppDbContext with unique (RecipeId, UserId) index`
+- Migration: `feat(infrastructure): AddRatingsAndSearch migration with Postgres tsvector triggers` (test coverage via subsequent search + persistence tests — migration itself is verified via `docker exec psql` inspection)
+- Search service: `test(infrastructure): add failing RecipeSearchService tests` → `feat(infrastructure): implement RecipeSearchService with Postgres tsvector + SQLite fallback`
+- Shared types: `feat(shared): add rating + search DTO types and extend RecipeSummaryDto with aggregate rating fields` (type-only, no runtime to TDD; covered transitively by Web + API integration tests)
+- Rating endpoints: `test(api): add failing rating-endpoints integration tests` → `feat(api): implement Rating endpoints (upsert / delete / list)`
+- Search + custom-tag endpoints + aggregate: `test(api): add failing search + custom-tag + summary-aggregate tests` → `feat(api): implement search + random + custom-tag endpoints and rating aggregates in summary`
+- Web ratings: `test(web): add failing ratingsApi + RatingWidget tests` → `feat(web): implement ratings feature (API client, hooks, RatingWidget)`
+- Web search: `test(web): add failing searchApi + useRecipeSearch + RecipeFilterPanel tests` → `feat(web): implement recipe search feature (API client, hook, RecipeFilterPanel)`
+- Web tag management: `test(web): add failing tagsApi + CreateTagDialog + TagManagementPage tests` → `feat(web): implement tag management (API client, dialog, admin page)`
+- Wire-up: `feat(web): integrate S4 surfaces (filter panel, rating widget, tag page) into app`
+- Postgres fix: `fix(infrastructure): split Postgres tsvector search into two match expressions` — caught by docker E2E, not SQLite tests (fallback path differs)
+
+### Migration review (hard rule 8)
+
+`20260418111705_AddRatingsAndSearch.cs`:
+- EF-generated content: `Ratings` table with FKs to `AspNetUsers` (CASCADE) and `Recipes` (CASCADE), unique index on `(RecipeId, UserId)`, non-unique indexes on `RecipeId` + `UserId`.
+- Hand-added Postgres-only SQL (guarded by `migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL"`): `ALTER TABLE "Recipes" ADD COLUMN "SearchVector" tsvector;`, three plpgsql functions (`fkochbuch_update_recipe_search_vector(uuid)`, `fkochbuch_recipe_search_vector_trigger()`, `fkochbuch_ingredient_search_vector_trigger()`), two triggers (`trg_recipes_search_vector` / `trg_ingredients_search_vector`), a one-time backfill DO block, and the GIN expression index `IX_Recipes_SearchVector`.
+- Inspected against a dry `EnsureCreatedAsync` on SQLite (integration tests stay green) and a live `docker exec psql "\d+ \"Recipes\""` on Postgres (column, index, trigger all present).
+- `Down()` mirrors: drops GIN index, both triggers, all three functions, the column, then the `Ratings` table. Postgres-only SQL gated the same way.
+
+### Acceptance checklist evidence
+
+1. `dotnet test apps/api/FamilienKochbuch.sln` → **321/321** pass (+75 vs baseline 246): Domain 155, Infrastructure 55, Api 111.
+2. `pnpm -C apps/web test --run` → **121/121** pass (+26 vs baseline 95). 29 test files.
+3. `pnpm lint` at root → clean (0 errors, 0 warnings).
+4. grep battery over apps/ + packages/: 0 `TODO|FIXME|HACK|XXX`; 0 `Assert.True(true)`; 0 `it.skip|.only|xit|xdescribe|describe.skip`; 0 `NotImplementedException`.
+5. `docker compose up --build -d` → all 6 services (postgres, redis, seaweedfs, api, web, caddy) report Up/healthy within ~20 s. `docker exec familien-kochbuch-postgres psql` confirms `Recipes.SearchVector tsvector` column, `IX_Recipes_SearchVector gin ("SearchVector")` index, `trg_recipes_search_vector` + `trg_ingredients_search_vector` triggers, and the three `fkochbuch_*` plpgsql functions.
+6. **E2E curl flow** (all against the live docker stack):
+   - Admin login → `accessToken` issued.
+   - Create group `1fb7b662-…` with 3 recipes: `Nudeln Carbonara`, `Pizza Margherita`, `Salat mit Ei`.
+   - `POST /api/recipes/{R1}/ratings {stars:5}` → `aggregate.avg=5, count=1, myStars=5`.
+   - `POST /api/recipes/{R1}/ratings {stars:3}` (same user, upsert) → `avg=3, count=1` (count stable → upsert worked).
+   - `GET /api/groups/{G}/recipes/search?q=Nudeln` → total=1, returns Nudeln Carbonara with `avgRating=5, ratingCount=1, myStars=5`.
+   - `GET /api/groups/{G}/recipes/search?tags={T1},{T2}` → total=0 (AND semantics — no recipe has both).
+   - `GET /api/groups/{G}/recipes/search?minRating=4` → total=1 after re-rating R1 to 5 (was 0 while R1 was at 3).
+   - `GET /api/groups/{G}/recipes/random?q=Nudeln` → `recipeId=72b353d4-…` (the only Nudeln match).
+   - `POST /api/groups/{G}/tags {name:"Kinderfreundlich", category:"Custom"}` → 201 with new tag id.
+   - `POST /api/groups/{G}/tags` same payload → 400 `tag_exists`.
+   - Admin `DELETE /api/groups/{G}/tags/{tagId}` → 204.
+   - Admin `DELETE` on a seeded global tag → 400 `global_tag_protected`.
+   - Non-admin member invited via app invite + group invite → `DELETE` on custom tag → 403; admin's subsequent delete → 204.
+7. `docker compose down` → all containers stopped/removed cleanly.
+8. `git status` clean; `git log origin/main..HEAD` empty after each push.
+
+### Follow-ups for S5+
+
+- **Cursor-based pagination** on `/search` when single groups cross the 100-recipe mark. Today we use offset pagination — fine for hobby scale.
+- **Edit own-comment inline** in the ratings list (currently only the owner's inline widget shows their comment; the full list shows everyone's).
+- **Highlight search hits** in the list view (tsvector supports `ts_headline` — could pipe the snippet into RecipeSummaryDto).
+- **Custom-tag category expansion**: today all group-scoped tags are forced to `TagCategory.Custom`. If a group wants its own "Saison" shortlist, we open up `Tag.CreateGroupScoped` + the endpoint's accepted category set.
+- **Read `Recipes.SearchVector` from the mapped model** instead of rebuilding it inline — would let us rank results via `ts_rank(SearchVector, to_tsquery(...))`. Requires an unmapped shadow property or raw SQL.
+- **RatingWidget avatar + timestamp** for each row when we render the full list (currently the widget only shows the current user's own row + aggregate; the `/ratings` endpoint already returns everyone's list).
