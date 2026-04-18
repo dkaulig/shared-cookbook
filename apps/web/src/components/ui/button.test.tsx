@@ -17,6 +17,24 @@ describe('<Button />', () => {
     expect(button.className).toMatch(/bg-primary/)
   })
 
+  it('uses the Warme-Küche amber hover on the default variant', () => {
+    // Mockup: hover state switches from amber-700 (#B45309) to amber-800
+    // (#92400E). DS1 routes that through the --primary-hover CSS var so
+    // dark-mode can override it cleanly.
+    render(<Button>Speichern</Button>)
+    const button = screen.getByRole('button', { name: 'Speichern' })
+    expect(button.className).toMatch(/hover:bg-\[var\(--primary-hover\)\]/)
+  })
+
+  it('carries the amber shadow + tap-scale motion on the default variant', () => {
+    // Matches `button.primary` in warme-kueche-login.html — soft amber
+    // glow beneath + 99% scale on :active.
+    render(<Button>Speichern</Button>)
+    const button = screen.getByRole('button', { name: 'Speichern' })
+    expect(button.className).toMatch(/shadow-/)
+    expect(button.className).toMatch(/active:scale-\[0\.99\]/)
+  })
+
   it('supports the destructive variant', () => {
     render(<Button variant="destructive">Löschen</Button>)
     const button = screen.getByRole('button', { name: 'Löschen' })
