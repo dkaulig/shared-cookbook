@@ -100,4 +100,21 @@ public class PrivateCollectionServiceTests : IAsyncLifetime
         await Assert.ThrowsAsync<ArgumentException>(() =>
             _service.EnsurePrivateCollectionAsync(Guid.Empty));
     }
+
+    [Fact]
+    public async Task EnsurePrivateCollectionAsync_Called_For_User_Who_Has_A_Deleted_Group_Still_Creates_One()
+    {
+        // Regression guard: the only private group for the user is soft-deletable
+        // nowhere in the domain, so once present it stays. But if a future
+        // migration ever removed it, the idempotence check must still create it.
+        await _service.EnsurePrivateCollectionAsync(_user.Id);
+        _db.Groups.RemoveRange(_db.Groups);
+        _db.GroupMemberships.RemoveRange(_db.GroupMemberships);
+        await _db.SaveChangesAsync();
+
+        await _service.EnsurePrivateCollectionAsync(_user.Id);
+
+        var count = await _db.Groups.CountAsync(g => g.IsPrivateCollection);
+        Assert.Equal(1, count);
+    }
 }
