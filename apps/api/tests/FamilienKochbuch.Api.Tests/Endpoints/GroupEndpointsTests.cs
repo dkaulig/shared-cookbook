@@ -728,6 +728,133 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
         Assert.Equal(1, count);
     }
 
+    // ── GET /api/groups/{id}/invites (GM1 — admin-only listing) ────
+
+    [Fact]
+    public async Task ListGroupInvites_As_Admin_Returns_200_With_Pending_Invites()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("lg-a@example.com", "Alice");
+        var (bobId, _) = await SignupAndLoginAsync("lg-b@example.com", "Bob");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Familie", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var invite = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(bobId));
+        invite.EnsureSuccessStatusCode();
+
+        var listRes = await clientA.GetAsync($"/api/groups/{group.Id}/invites");
+        Assert.Equal(HttpStatusCode.OK, listRes.StatusCode);
+        var list = (await listRes.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteListItemDto[]>())!;
+        Assert.Single(list);
+        Assert.Equal(bobId, list[0].InvitedUserId);
+        Assert.Equal("Bob", list[0].InvitedUserDisplayName);
+        Assert.Equal("Pending", list[0].Status);
+    }
+
+    [Fact]
+    public async Task ListGroupInvites_As_Member_Returns_403()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("lgm-a@example.com", "Alice");
+        var (bobId, bTok) = await SignupAndLoginAsync("lgm-b@example.com", "Bob");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Familie", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+        await AddMembershipAsync(group.Id, bobId, GroupRole.Member);
+
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var listRes = await clientB.GetAsync($"/api/groups/{group.Id}/invites");
+        Assert.Equal(HttpStatusCode.Forbidden, listRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListGroupInvites_Requires_Authentication()
+    {
+        var res = await _client.GetAsync($"/api/groups/{Guid.NewGuid()}/invites");
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListGroupInvites_Non_Member_Returns_403()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("lgo-a@example.com", "Alice");
+        var (_, bTok) = await SignupAndLoginAsync("lgo-b@example.com", "Bob");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Familie", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var res = await clientB.GetAsync($"/api/groups/{group.Id}/invites");
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListGroupInvites_Group_Not_Found_Returns_404()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("lgn-a@example.com", "Alice");
+        AuthorizeClient(_client, aTok);
+        var res = await _client.GetAsync($"/api/groups/{Guid.NewGuid()}/invites");
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListGroupInvites_Excludes_Accepted_And_Declined_Invites()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("lgc-a@example.com", "Alice");
+        var (bobId, bTok) = await SignupAndLoginAsync("lgc-b@example.com", "Bob");
+        var (charlieId, cTok) = await SignupAndLoginAsync("lgc-c@example.com", "Charlie");
+        var (dianaId, _) = await SignupAndLoginAsync("lgc-d@example.com", "Diana");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Familie", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        // Bob: will accept.
+        var inviteBob = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(bobId));
+        var inviteBobBody = (await inviteBob.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteDto>())!;
+
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var accept = await clientB.PostAsync($"/api/groups/invites/{inviteBobBody.Id}/accept", content: null);
+        accept.EnsureSuccessStatusCode();
+
+        // Charlie: will decline.
+        var inviteCharlie = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(charlieId));
+        var inviteCharlieBody = (await inviteCharlie.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteDto>())!;
+
+        using var clientC = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientC, cTok);
+        var decline = await clientC.PostAsync($"/api/groups/invites/{inviteCharlieBody.Id}/decline", content: null);
+        decline.EnsureSuccessStatusCode();
+
+        // Diana: stays pending.
+        var inviteDiana = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(dianaId));
+        inviteDiana.EnsureSuccessStatusCode();
+
+        var listRes = await clientA.GetAsync($"/api/groups/{group.Id}/invites");
+        Assert.Equal(HttpStatusCode.OK, listRes.StatusCode);
+        var list = (await listRes.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteListItemDto[]>())!;
+        Assert.Single(list);
+        Assert.Equal(dianaId, list[0].InvitedUserId);
+        Assert.All(list, item => Assert.Equal("Pending", item.Status));
+    }
+
     // ── internal helper ─────────────────────────────────────────────
 
     private async Task AddMembershipAsync(Guid groupId, Guid userId, GroupRole role)
