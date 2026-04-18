@@ -67,6 +67,7 @@ builder.Services.AddScoped<SeedDataService>();
 builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
 builder.Services.AddScoped<IPrivateCollectionService, PrivateCollectionService>();
 builder.Services.AddScoped<IRecipeSearchService, PostgresRecipeSearchService>();
+builder.Services.AddScoped<PhotoPathMigrationService>();
 
 // ── Photo URL signing (HMAC over path+exp, keyed off Jwt:SigningKey) ──
 builder.Services.AddSingleton<ImageSigningService>();
@@ -182,6 +183,11 @@ if (!app.Environment.IsEnvironment("Testing"))
     await db.Database.MigrateAsync();
     var seeder = scope.ServiceProvider.GetRequiredService<SeedDataService>();
     await seeder.SeedAsync();
+
+    // Idempotent fixup: rewrite any S3-era photo URLs in Recipes.Photos
+    // to the new bare-path format. No-op on fresh installs.
+    var photoMigration = scope.ServiceProvider.GetRequiredService<PhotoPathMigrationService>();
+    await photoMigration.NormalizePhotoPathsAsync();
 }
 
 app.Run();
