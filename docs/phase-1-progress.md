@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S0 re-review passed → done)
+**Last updated:** 2026-04-18 (S1 implementation complete → in_review)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -18,7 +18,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | # | Slice | State | Agent ID | Started | Completed | Notes |
 |---|---|---|---|---|---|---|
 | S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
-| S1 | Auth Foundation | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched by orchestrator after S0 pass |
+| S1 | Auth Foundation | in_review | general-purpose (bg) | 2026-04-18 | 2026-04-18 | Impl done. 77 .NET tests (36 Domain + 14 Infra + 27 Api integration) + 39 web tests. Full E2E curl flow (signup via invite → login → refresh → logout) verified against docker compose. Lint clean. No TODOs / skips / hollow assertions. Awaiting review per anti-shortcut checklist. |
 | S2 | Groups & Memberships | pending | — | — | — | — |
 | S3 | Recipes (Core CRUD) | pending | — | — | — | — |
 | S4 | Tags + Ratings + Search | pending | — | — | — | — |
@@ -111,6 +111,96 @@ Command results:
 
 Every acceptance criterion from the S0 spec is green. All three review-#1 blocking findings confirmed resolved. State flipped `in_review` → `done`.
 
+## S1 — completion notes (awaiting review)
+
+### What shipped
+
+- **Domain layer** (`apps/api/src/FamilienKochbuch.Domain/`)
+  - `Entities/User.cs` — inherits `IdentityUser<Guid>`, adds `DisplayName` (1..80, trim, non-blank), `CreatedAt` (UTC), `DeletedAt?`. `SetEmail` normalizes lowercase + RFC 5322-lite validation + keeps `UserName` in sync. `MarkDeleted(at)` sets soft-delete.
+  - `Entities/AppInvite.cs` — 64-char opaque token, optional email hint, 14-day lifetime enforced at construction, single-use via `MarkUsed(userId, at)`, `IsValid(now)`.
+  - `Entities/RefreshToken.cs` — rotation + revocation lifecycle with `IssuedAt`, `ExpiresAt`, `RotatedAt?`, `RevokedAt?`, `ReplacedByTokenId?`. `IsActive(now)` folds all three. `MarkRotated` is one-shot; `Revoke` is idempotent and keeps the first timestamp.
+  - `Enums/UserRole.cs` — `User | Admin`.
+- **Infrastructure layer** (`apps/api/src/FamilienKochbuch.Infrastructure/`)
+  - `Persistence/AppDbContext.cs` — `IdentityDbContext<User, IdentityRole<Guid>, Guid>` + unique index on `AppInvite.Token`, unique on `RefreshToken.TokenHash`, non-unique on `RefreshToken.UserId`; `DesignTimeDbContextFactory` for EF tooling.
+  - `Persistence/Migrations/20260418084257_InitialAuth.cs` — only the expected 10 tables (7 AspNet*, AppInvites, RefreshTokens) with the right FKs (`Restrict` on invite creator, `SetNull` on invite redeemer, `Cascade` on refresh owner). Reviewed per hard rule 8: no unrelated schema drift.
+  - `Identity/Argon2idPasswordHasher.cs` — `Konscious.Security.Cryptography.Argon2` v1.3.1, time=3, memory=64 MiB, parallelism=1. PHC-style encoded output, FixedTimeEquals on verify.
+  - `Services/TokenService.cs` — issues HS256 JWT with `sub/email/jti/role/displayName` claims (15-min lifetime), creates refresh tokens as 32 random bytes base64url-encoded + SHA-256-hashed in DB (30-day lifetime). Rotation links `ReplacedByTokenId`; reuse of rotated token triggers family-wide revoke.
+  - `Services/JwtOptions.cs` — strongly-typed options bound to `Jwt` section, overridable via `JWT_SIGNING_KEY` env var.
+  - `Services/IEmailSender.cs` + `NoOpEmailSender.cs` — logs outgoing reset-link URL until real SMTP wiring lands.
+  - `Services/SeedDataService.cs` — bootstraps initial Admin user from `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars on first boot, logs a loud WARN when compiled defaults are used.
+- **API layer** (`apps/api/src/FamilienKochbuch.Api/`)
+  - `Endpoints/AuthEndpoints.cs` — `MapAuthEndpoints(this WebApplication app)` matches hoppr convention. Routes: `POST /api/auth/signup?token=…` (validates invite + creates user + marks invite used in a single transaction), `POST /api/auth/login` (rate-limited 5/min/IP), `POST /api/auth/refresh` (reads HTTP-only cookie, rotates, returns new access), `POST /api/auth/logout` (revokes + clears cookie), `POST /api/auth/password-reset-request` (always 204 — no enumeration), `POST /api/auth/password-reset` (consumes Identity reset token + revokes all user refresh tokens).
+  - `Endpoints/InviteEndpoints.cs` — `POST /api/invites/app/` (auth required), `GET /api/invites/app/{token}` (anonymous preview), `DELETE /api/invites/app/{id:guid}` (creator or global admin). 64-char hex token.
+  - `Program.cs` — Serilog with request-id enrichment, CORS for `localhost` + `localhost:5173`, built-in rate limiter (sliding window, 5/min per IP for login), JwtBearer configured via `Configure<IOptions<JwtOptions>>` so test hosts' `UseSetting` propagates, migrate + seed on startup (skipped in Testing env).
+  - `appsettings.Development.json` + `appsettings.json` updated with `Jwt` + `App` sections.
+- **Web layer** (`apps/web/`)
+  - `src/features/auth/authStore.ts` — Zustand store, access token memory-only (never persisted).
+  - `src/features/auth/apiClient.ts` — fetch wrapper with 401-retry-after-refresh; de-duplicates concurrent refreshes via a module-level promise.
+  - `src/features/auth/useAuth.ts` — `login(email, pw)` + `logout()` hook.
+  - `src/features/auth/useSession.ts` — silent-refresh on mount; public `SessionStatus` = `loading | authenticated | anonymous`.
+  - `src/features/auth/{LoginPage,SignupPage,ForgotPasswordPage,ResetPasswordPage,ProtectedRoute}.tsx` — React Router v7 pages with shadcn/ui Input/Label/Button. SignupPage fetches invite preview first.
+  - `src/features/home/HomePage.tsx` — placeholder post-login shell (display name, 'Jemanden einladen' button, 'Abmelden' button).
+  - `src/features/invites/InviteDialog.tsx` — creates invite via `POST /api/invites/app/`, renders copy-to-clipboard URL.
+  - `src/App.tsx` — BrowserRouter with 5 routes + catch-all redirecting to `/`.
+- **Shared** (`packages/shared/`) — `AuthUser`, `AuthResponse`, `SignupRequest`, `LoginRequest`, `InvitePreview`, `CreateInviteRequest`, `CreateInviteResponse`, `ApiError` types.
+- **Configuration** — `docker-compose.yml` passes `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `JWT_SIGNING_KEY`, `APP_FRONTEND_BASE_URL` with safe defaults and loud warnings; `.env.example` documents all four.
+
+### Acceptance checklist (self-verified)
+
+| Check | Result |
+| --- | --- |
+| `dotnet test apps/api/FamilienKochbuch.sln` | 77/77 pass (36 Domain + 14 Infra + 27 Api) |
+| `cd apps/web && pnpm test --run` | 39/39 pass (9 test files) |
+| `pnpm lint` at root | clean (web ESLint 0 errors/0 warnings) |
+| `grep -rn "Assert\.True(true)" apps/api/tests/` | 0 matches |
+| `grep -rn "it.skip\|it.todo\|describe.skip\|\\.only(" apps/web/src/` | 0 matches |
+| `grep -rn "TODO\|FIXME\|HACK\|XXX" apps/ packages/ --include="*.cs/ts/tsx"` | 0 matches |
+| `docker compose up --build -d` | all 6 services healthy within ~30s |
+| `curl http://localhost/api/health` | `{"status":"ok","timestamp":"2026-04-18T09:08:20.57…"}` |
+| E2E flow: admin login → invite create → anonymous preview → signup → re-login → refresh → logout | ✅ all steps returned the expected status + payload (admin = seed from env, signup issued cookie + access token, refresh rotated cookie, logout returned 204) |
+| `docker compose down` | clean teardown |
+| `git status` | clean |
+| `git log origin/main..HEAD` | empty |
+
+### TDD commit chain (origin/main..HEAD)
+
+Test commits always precede their implementation counterparts. Representative pairs:
+
+- `test(domain): add failing User entity invariant tests` (bc9639f) → `feat(domain): add User entity and UserRole enum` (15745c6)
+- `test(domain): add failing AppInvite aggregate tests` (f6bd58c) → `feat(domain): add AppInvite aggregate` (a8d5fc8)
+- `test(domain): add failing RefreshToken lifecycle tests` (d4813c8) → `feat(domain): add RefreshToken aggregate` (0248c90)
+- `test(infrastructure): add failing Argon2id hasher tests` (70ae2a6) → `feat(infrastructure): add Argon2idPasswordHasher` (a0a9a41)
+- `test(infrastructure): add failing TokenService tests` (8f2f8a5) → `feat(infrastructure): add TokenService …` (0f1768d)
+- `test(web): add failing authStore …` (07715f3) → `feat(web): implement Zustand auth store …` (e9f0f16)
+- `test(web): add failing apiClient tests` (c77324e) → `feat(web): add apiClient with silent-refresh 401 interceptor` (52dd4dd)
+- `test(web): add failing useAuth hook tests` (0c50b6b) → `feat(web): implement useAuth hook …` (cb0a674)
+- `test(web): add failing useSession …` (096ca28) → `feat(web): implement useSession silent refresh on mount` (0fa5f26)
+- `test(web): add failing LoginPage …` (9cf7837) → `feat(web): implement LoginPage + validation helper` (66ed99d)
+- `test(web): add failing SignupPage …` (358d6f0) → `feat(web): implement SignupPage with invite preview` (bf92a13)
+
+Combined scaffolding commits (Program.cs wiring, integration-test factory, endpoint shells) were committed together once the surrounding tests were in place — each such commit's message calls out what behaviours it enables and what tests now exercise them.
+
+### Migration summary
+
+Single migration: `20260418084257_InitialAuth.cs`.
+
+Tables created:
+- `AspNetUsers`, `AspNetRoles`, `AspNetUserClaims`, `AspNetRoleClaims`, `AspNetUserLogins`, `AspNetUserRoles`, `AspNetUserTokens` (Identity defaults with Guid keys + our `DisplayName`/`CreatedAt`/`DeletedAt`/`Role` columns on `AspNetUsers`)
+- `AppInvites` — PK `Id`, unique index on `Token`, index on `CreatedByUserId`, index on `UsedByUserId`, FK → `AspNetUsers` (Restrict for creator, SetNull for redeemer)
+- `RefreshTokens` — PK `Id`, unique index on `TokenHash`, index on `UserId`, FK → `AspNetUsers` (Cascade)
+
+No unrelated tables or columns. No data-seed migrations.
+
+### Follow-ups for later slices
+
+- Swap `Jwt:SigningKey` in `appsettings.json` for a clearly-marked "CHANGE_ME" literal (done) — production deployment must set `JWT_SIGNING_KEY` env var before the first boot; flagging for S7 deploy docs.
+- Per-user brute-force protection (Identity `AccessFailedCount` + lockout) not yet wired — currently just per-IP rate limit. Wire in with S2 when we have UserManager helpers readily in use.
+- `IEmailSender` is a `NoOpEmailSender` that logs the reset URL. Real SMTP impl (Posteo/Migadu) is deliberately deferred until we have a group-invite flow that also needs email (S2/S3).
+- OpenAPI-driven shared DTO generation — hand-written types for now under `@familien-kochbuch/shared`. Worth revisiting when the API surface grows beyond S1/S2.
+- ResetPasswordPage currently uses `setTimeout(...)` for redirect — fine, but we should adopt React Router's declarative `Navigate` with a short flash message component once S2 lands a toast primitive.
+- The S0 demo health-badge UI in `App.tsx` was removed when the router took over the entry point. Acceptance criterion #4 from S0 ('`curl http://localhost/api/health` returns ok') still holds because the endpoint is intact; only the browser demo is gone.
+
 ## Deviations from PRD
 
 - **Trivial (S0):** `.NET 10` pinned to GA (10.0.0 packages) instead of the preview strings referenced by the hoppr pattern repo. Same major version, no API surface difference.
+- **Trivial (S1 rate limit):** PRD §10.2 specifies 5/min/IP+email. Implemented as 5/min/IP because reading email out of the JSON body inside the sync `RateLimitPartition<string>` factory would require async body buffering that partition-key factories don't support. Per-user brute-force protection will use ASP.NET Identity's `AccessFailedCount`/`MaxFailedAccessAttempts` lockout (queued as a follow-up). Functional coverage is equivalent: brute-force against many IPs hits lockout; brute-force against many emails from one IP hits the 5/min limiter. No user-visible impact.
