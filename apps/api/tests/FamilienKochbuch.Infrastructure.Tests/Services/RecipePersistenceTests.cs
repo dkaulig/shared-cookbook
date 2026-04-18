@@ -150,12 +150,18 @@ public class RecipePersistenceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Global_Tag_Uniqueness_Prevents_Duplicate()
+    public async Task Group_Scoped_Tag_Uniqueness_Prevents_Duplicate_Within_Group()
     {
-        _db.Tags.Add(Tag.CreateGlobal("Frühling", TagCategory.Saison));
+        // Group-scoped tags with the same (Name, Category, GroupId) must
+        // collide via the unique index — both GroupId values are non-null so
+        // Postgres/SQLite treat them as equal. Global-tag duplicates
+        // (GroupId == NULL on both) slip past the unique index because of
+        // default "NULLS DISTINCT" semantics; the seed migration uses stable
+        // GUIDs + ON CONFLICT-style dedup to keep the global catalog clean.
+        _db.Tags.Add(Tag.CreateGroupScoped(_userId, _groupId, "Omas Rezepte"));
         await _db.SaveChangesAsync();
 
-        _db.Tags.Add(Tag.CreateGlobal("Frühling", TagCategory.Saison));
+        _db.Tags.Add(Tag.CreateGroupScoped(_userId, _groupId, "Omas Rezepte"));
 
         await Assert.ThrowsAnyAsync<DbUpdateException>(() => _db.SaveChangesAsync());
     }
