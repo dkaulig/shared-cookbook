@@ -73,6 +73,9 @@ builder.Services.AddScoped<IRecipeSearchService, PostgresRecipeSearchService>();
 // ── Photo URL signing (HMAC over path+exp, keyed off Jwt:SigningKey) ──
 builder.Services.AddSingleton<ImageSigningService>();
 
+// ── Named HTTP client for the SeaweedFS filer (proxy + upload path) ──
+builder.Services.AddHttpClient(PhotoProxyEndpointsConstants.FilerClientName);
+
 // ── Photo storage (SeaweedFS via S3-compatible gateway) ──────────────
 builder.Services.Configure<PhotoStorageOptions>(builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
 if (!builder.Environment.IsEnvironment("Testing"))
@@ -183,6 +186,7 @@ app.MapGroupEndpoints();
 app.MapRecipeEndpoints();
 app.MapRatingEndpoints();
 app.MapSearchEndpoints();
+app.MapPhotoProxyEndpoints();
 
 // ── Migrate + seed on startup (skipped in Testing environment) ────────
 if (!app.Environment.IsEnvironment("Testing"))
