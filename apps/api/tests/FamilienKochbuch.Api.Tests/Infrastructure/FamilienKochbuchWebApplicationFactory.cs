@@ -41,6 +41,10 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
         builder.UseSetting("App:FrontendBaseUrl", "http://localhost");
         builder.UseSetting("ADMIN_EMAIL", "admin@test.local");
         builder.UseSetting("ADMIN_PASSWORD", "AdminPassword123!");
+        // BF1 #2 — pin a person-shaped display name so revision-author
+        // assertions can exercise the projection without colliding with
+        // the legacy "Admin" role-label default.
+        builder.UseSetting("ADMIN_DISPLAY_NAME", "Test Familie");
 
         builder.ConfigureServices(services =>
         {
