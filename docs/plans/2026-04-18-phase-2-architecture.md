@@ -118,10 +118,12 @@ Slices are ordered by dependency. Each is a stand-alone deliverable with its own
 
 **Goal:** Conversational rezept-erfinden endpoint + session store.
 
-- `POST /chat` with `session_id` + `messages` — stateless from the service's POV; session persisted in Redis with 24h TTL.
+- `POST /chat` with `session_id` + `messages` — stateless from the service's POV; session persisted in Postgres (or Redis with 24h TTL — decide at P2-4 kickoff based on volume expectations).
 - `POST /chat/{session}/to-recipe` — calls structuring LLM with the full chat history + a "convert to recipe" prompt → structured JSON.
-- Streaming response (SSE) is v1.1 polish — not in P2-4. Synchronous chat turn is fine; typical response < 5s.
+- Streaming response (SSE) is v1.1 polish — not in P2-4. Synchronous chat turn is fine; typical response < 5 s.
 - Tests with `MockProvider` scripted dialogue.
+
+**Reference implementation** (user-provided, 2026-04-18): the user's **hoppr** mobile web app already ships a mature chat surface (many bugs ironed out in production). At P2-4 kickoff, the impl agent should be pointed at hoppr's chat code as a reference for UX polish (message list rendering, optimistic sends, scroll-to-bottom behaviour, error-retry affordances, session persistence patterns). Treat it as the design North-Star, not as code to copy — licensing + repo boundaries stay intact. User will provide either the hoppr repo path or screenshots/feature list at dispatch time.
 
 **Est.:** 2–3h.
 
