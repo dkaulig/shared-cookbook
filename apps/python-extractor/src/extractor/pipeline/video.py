@@ -37,11 +37,20 @@ logger = logging.getLogger("extractor.pipeline.video")
 ExtractionErrorCode = Literal[
     "source_unavailable",
     "transcription_failed",
+    "invalid_input",
 ]
 """Discriminator for :class:`ExtractionError`.
 
 Names stay stable across slices — the .NET side (P2-5 / P2-6) branches
 on them to decide retry vs user-visible error.
+
+- ``source_unavailable`` — yt-dlp download failed (private video,
+  deleted post, geo-blocked, 404). Maps to HTTP 422.
+- ``transcription_failed`` — Whisper model error. Maps to HTTP 500.
+- ``invalid_input`` — caller-supplied payload failed a pipeline-level
+  validation rule (e.g. 0 or >10 photos for the P2-3 Vision path).
+  Maps to HTTP 422. Kept on the shared ``ExtractionError`` class so
+  endpoint handlers only need one ``except`` clause across slices.
 """
 
 
