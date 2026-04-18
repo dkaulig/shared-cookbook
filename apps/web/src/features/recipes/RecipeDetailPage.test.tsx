@@ -118,10 +118,9 @@ describe('RecipeDetailPage', () => {
       ),
     )
     render(withProviders('/groups/g1/recipes/r1'))
-    expect(
-      await screen.findByText(/Dieses Rezept wurde aus .* geforkt\./i),
-    ).toBeInTheDocument()
-    const link = screen.getByRole('link', { name: /Original/i })
+    expect(await screen.findByText(/Dieses Rezept wurde aus/i)).toBeInTheDocument()
+    expect(screen.getByText(/geforkt\./i)).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /diesem Original/i })
     expect(link.getAttribute('href')).toMatch(/\/recipes\/r-original$/)
   })
 
