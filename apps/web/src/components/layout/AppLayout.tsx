@@ -23,9 +23,20 @@ export function AppLayout() {
   // DS5: the recipe detail page has its own floating top bar that
   // overlays the hero photo — suppress the shared TopNav there so we
   // don't end up with two stacked top chrome strips.
+  // DS6: the recipe form (create + edit) ships its own sticky top
+  // bar (<RecipeFormTopNav />) with the X-cancel + serif title +
+  // draft tagline. Suppress the shared TopNav on both form routes.
   const recipeDetailMatch = useMatch('/groups/:groupId/recipes/:recipeId')
   const recipeEditMatch = useMatch('/groups/:groupId/recipes/:recipeId/edit')
-  const hideTopNav = recipeDetailMatch != null && recipeEditMatch == null
+  const recipeNewMatch = useMatch('/groups/:groupId/recipes/new')
+  // Detail route matches both `/recipes/r1` and `/recipes/new`; we must
+  // distinguish by looking at the matched `recipeId` param. We treat the
+  // literal "new" as the form-create route, not a detail view.
+  const isRecipeDetail = recipeDetailMatch != null && recipeDetailMatch.params.recipeId !== 'new'
+  const hideTopNav =
+    (isRecipeDetail && recipeEditMatch == null) ||
+    recipeEditMatch != null ||
+    recipeNewMatch != null
 
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
