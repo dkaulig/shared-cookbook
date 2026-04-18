@@ -217,4 +217,76 @@ describe('RecipeFormPage (create)', () => {
     expect(capturedPayload!.ingredients.map((i) => i.position)).toEqual([0, 1, 2])
   })
 
+  it('reorders step rows via keyboard sensor and persists the new order on submit', async () => {
+    const user = userEvent.setup()
+    let capturedPayload: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        capturedPayload = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-reordered-steps',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+
+    // Build 3 step rows with distinguishable content [Eins, Zwei, Drei].
+    await user.type(screen.getByLabelText(/^Schritt 1$/i), 'Eins')
+    await user.click(screen.getByRole('button', { name: /Schritt hinzufügen/i }))
+    await user.type(screen.getByLabelText(/^Schritt 2$/i), 'Zwei')
+    await user.click(screen.getByRole('button', { name: /Schritt hinzufügen/i }))
+    await user.type(screen.getByLabelText(/^Schritt 3$/i), 'Drei')
+
+    // Reorder: move step 1 down by one → [Zwei, Eins, Drei].
+    const firstStepHandle = screen.getByTestId('step-drag-handle-0')
+    firstStepHandle.focus()
+    fireEvent.keyDown(firstStepHandle, { key: ' ', code: 'Space' })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    fireEvent.keyDown(document.activeElement ?? firstStepHandle, {
+      key: 'ArrowDown',
+      code: 'ArrowDown',
+    })
+    fireEvent.keyDown(document.activeElement ?? firstStepHandle, {
+      key: ' ',
+      code: 'Space',
+    })
+
+    await waitFor(() => {
+      const values = screen
+        .getAllByLabelText(/^Schritt \d+$/i)
+        .map((el) => (el as HTMLTextAreaElement).value)
+      expect(values).toEqual(['Zwei', 'Eins', 'Drei'])
+    })
+
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    await waitFor(() => expect(capturedPayload).not.toBeNull())
+    expect(capturedPayload!.steps.map((s) => s.content)).toEqual([
+      'Zwei',
+      'Eins',
+      'Drei',
+    ])
+    expect(capturedPayload!.steps.map((s) => s.position)).toEqual([0, 1, 2])
+  })
 })
