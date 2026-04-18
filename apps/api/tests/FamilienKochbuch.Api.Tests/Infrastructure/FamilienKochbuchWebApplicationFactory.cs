@@ -20,8 +20,11 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
 {
     private SqliteConnection? _connection;
 
-    public FakeTimeProvider Clock { get; } =
-        new(startDateTime: new DateTimeOffset(2026, 4, 17, 12, 0, 0, TimeSpan.Zero));
+    // Seed at real "now" so JwtBearer's lifetime validation (which runs
+    // against real system time and cannot be intercepted via TimeProvider)
+    // still sees non-expired tokens. FakeTimeProvider advances drive the
+    // rotation/expiry assertions forward explicitly via Clock.Advance().
+    public FakeTimeProvider Clock { get; } = new(startDateTime: DateTimeOffset.UtcNow);
 
     public FakeEmailSender Email { get; } = new();
 
@@ -64,6 +67,19 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
         await db.Database.EnsureCreatedAsync();
         var seeder = scope.ServiceProvider.GetRequiredService<SeedDataService>();
         await seeder.SeedAsync();
+    }
+
+    /// <summary>
+    /// Creates a client with the per-test rate-limit disable header set.
+    /// Tests that specifically exercise the rate limiter should call
+    /// <see cref="WebApplicationFactory{TEntryPoint}.CreateClient()"/> directly.
+    /// </summary>
+    public HttpClient CreateRateLimitBypassingClient(
+        Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions? options = null)
+    {
+        var client = options is null ? CreateClient() : CreateClient(options);
+        client.DefaultRequestHeaders.Add("X-Test-Disable-RateLimit", "true");
+        return client;
     }
 
     public new async Task DisposeAsync()
