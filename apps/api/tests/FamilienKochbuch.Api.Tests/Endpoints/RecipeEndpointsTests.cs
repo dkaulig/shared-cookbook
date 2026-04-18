@@ -327,6 +327,28 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
     }
 
     [Fact]
+    public async Task ListGroupRecipes_Summary_Includes_Rating_Aggregates()
+    {
+        var (_, token) = await SignupAndLoginAsync("lr@ex.com", "LR");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Bewertet"));
+        var recipe = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        await _client.PostAsJsonAsync($"/api/recipes/{recipe.Id}/ratings",
+            new RatingEndpoints.UpsertRatingRequest(5, null));
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes");
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+
+        var summary = Assert.Single(body.Items);
+        Assert.Equal(5.0, summary.AvgRating);
+        Assert.Equal(1, summary.RatingCount);
+        Assert.Equal(5, summary.MyStars);
+    }
+
+    [Fact]
     public async Task ListGroupRecipes_403_For_Non_Member()
     {
         var (_, aTok) = await SignupAndLoginAsync("la@ex.com", "A");
