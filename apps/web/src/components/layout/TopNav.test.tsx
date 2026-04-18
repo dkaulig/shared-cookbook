@@ -46,14 +46,19 @@ describe('<TopNav />', () => {
     expect(banner.querySelector('svg')).not.toBeNull()
   })
 
-  it('exposes the Suchen and Benachrichtigungen controls with aria-labels', () => {
+  // BF1 #4 — search has no real implementation yet; the icon shouldn't
+  // navigate to /groups any more. Render it as a disabled button with an
+  // explanatory tooltip so the user still gets a hint that search is on
+  // the way without being teleported into the groups list.
+  it('renders the Suchen icon as a disabled button with a "bald verfügbar" tooltip', () => {
     server.use(http.get('/api/groups/invites', () => HttpResponse.json([])))
     renderTopNav()
 
-    // Suchen routes to /groups (list view) for now; Benachrichtigungen
-    // is a button that will open a notifications tray in DS7.
-    expect(screen.getByRole('link', { name: /suchen/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /benachrichtigungen/i })).toBeInTheDocument()
+    const search = screen.getByRole('button', { name: /suche \(bald verfügbar\)/i })
+    expect(search).toBeDisabled()
+    expect(search).toHaveAttribute('title', 'Suche kommt bald')
+    // Belt-and-braces: confirm the old NavLink was removed.
+    expect(screen.queryByRole('link', { name: /suchen/i })).toBeNull()
   })
 
   it('shows the avatar initial pulled from useAuth().user.displayName', () => {
@@ -62,17 +67,17 @@ describe('<TopNav />', () => {
     expect(screen.getByLabelText(/dein profil/i)).toHaveTextContent('D')
   })
 
-  it('hides the bell badge when there are no pending invites', async () => {
+  // BF1 #5 — the notification bell has no backend yet and only adds
+  // visual noise. Remove it entirely; it'll come back when notifications
+  // ship in Phase 2.
+  it('does not render a Benachrichtigungen control', () => {
     server.use(http.get('/api/groups/invites', () => HttpResponse.json([])))
     renderTopNav()
-
-    await waitFor(() => {
-      const bell = screen.getByRole('button', { name: /benachrichtigungen/i })
-      expect(bell.querySelector('[data-testid="invites-dot"]')).toBeNull()
-    })
+    expect(screen.queryByRole('button', { name: /benachrichtigungen/i })).toBeNull()
+    expect(screen.queryByTestId('invites-dot')).toBeNull()
   })
 
-  it('shows the red bell badge when there is at least one pending invite', async () => {
+  it('still renders even when received-invites would have been non-empty (no bell to hang badges on)', async () => {
     server.use(
       http.get('/api/groups/invites', () =>
         HttpResponse.json([
@@ -86,11 +91,11 @@ describe('<TopNav />', () => {
         ]),
       ),
     )
-
     renderTopNav()
     await waitFor(() => {
-      const bell = screen.getByRole('button', { name: /benachrichtigungen/i })
-      expect(bell.querySelector('[data-testid="invites-dot"]')).not.toBeNull()
+      // Brand still present and reachable.
+      expect(screen.getByRole('banner')).toHaveTextContent('Familien-Kochbuch')
+      expect(screen.queryByTestId('invites-dot')).toBeNull()
     })
   })
 })
