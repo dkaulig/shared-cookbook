@@ -64,7 +64,8 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
 
   async function handleRemove(member: GroupMember) {
     setActionError(null)
-    // eslint-disable-next-line no-alert -- matches the pattern used in TagManagementPage; no custom modal framework in the app yet.
+    // window.confirm matches the pattern used in TagManagementPage; no custom
+    // modal framework in the app yet.
     if (!window.confirm(`${member.displayName} aus ${group.name} entfernen?`)) return
     try {
       await removeMember.mutateAsync(member.userId)
@@ -76,7 +77,6 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
 
   async function handleRevoke(inviteId: string, displayName: string) {
     setActionError(null)
-    // eslint-disable-next-line no-alert -- see handleRemove.
     if (!window.confirm(`Einladung für ${displayName} zurückziehen?`)) return
     try {
       await revokeInvite.mutateAsync(inviteId)
