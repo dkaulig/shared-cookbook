@@ -250,30 +250,6 @@ public class RecipeTests
     }
 
     [Fact]
-    public void MarkUpdated_Advances_UpdatedAt()
-    {
-        var created = DateTimeOffset.UtcNow;
-        var recipe = new Recipe(
-            groupId: Guid.NewGuid(),
-            createdByUserId: Guid.NewGuid(),
-            title: "ok",
-            description: null,
-            defaultServings: 4,
-            prepTimeMinutes: null,
-            difficulty: 1,
-            sourceUrl: null,
-            sourceType: RecipeSourceType.Manual,
-            forkOfRecipeId: null,
-            createdAt: created);
-
-        var later = created.AddMinutes(5);
-        recipe.MarkUpdated(later);
-
-        Assert.Equal(later, recipe.UpdatedAt);
-        Assert.Equal(created, recipe.CreatedAt);
-    }
-
-    [Fact]
     public void SoftDelete_Sets_DeletedAt()
     {
         var recipe = NewRecipe();

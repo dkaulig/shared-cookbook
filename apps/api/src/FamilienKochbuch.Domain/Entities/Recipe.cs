@@ -139,8 +139,6 @@ public class Recipe
         return Photos.Remove(url.Trim());
     }
 
-    public void MarkUpdated(DateTimeOffset at) => UpdatedAt = at;
-
     public void MarkCooked(DateTimeOffset at) => LastCookedAt = at;
 
     public void SoftDelete(DateTimeOffset at) => DeletedAt = at;
