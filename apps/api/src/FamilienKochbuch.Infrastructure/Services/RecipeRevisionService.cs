@@ -84,7 +84,24 @@ public class RecipeRevisionService(AppDbContext db) : IRecipeRevisionService
         }
         else if (changeType == RecipeChangeType.Created && previous is null)
         {
-            diffSummary = "Rezept angelegt";
+            // Forks pass an explicit sourceDescription ("Geforkt aus
+            // Gruppe X: Title") — preserve it. Plain creates fall back
+            // to the generic German label.
+            diffSummary = string.IsNullOrWhiteSpace(sourceDescription)
+                ? "Rezept angelegt"
+                : sourceDescription;
+        }
+
+        // Guarantee a strictly monotonic CreatedAt per recipe so the
+        // history panel renders in the order events actually happened —
+        // test clocks (FakeTimeProvider) don't auto-advance, and even
+        // production system clocks may collide on burst traffic. We bump
+        // by one tick whenever the candidate timestamp is not strictly
+        // greater than the previous revision's.
+        var effectiveNow = now;
+        if (previous is not null && effectiveNow <= previous.CreatedAt)
+        {
+            effectiveNow = previous.CreatedAt.AddTicks(1);
         }
 
         var revision = new RecipeRevision(
@@ -93,7 +110,7 @@ public class RecipeRevisionService(AppDbContext db) : IRecipeRevisionService
             changeType: changeType,
             snapshotJson: snapshotJson,
             diffSummary: diffSummary,
-            createdAt: now);
+            createdAt: effectiveNow);
 
         db.RecipeRevisions.Add(revision);
 
