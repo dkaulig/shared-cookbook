@@ -28,6 +28,7 @@ export type {
 } from './groups.ts'
 export type {
   CreateRecipeRequest,
+  ForkRecipeRequest,
   IngredientDto,
   RecipeDetailDto,
   RecipeSourceType,
