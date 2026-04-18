@@ -1,5 +1,6 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { NotFoundPage } from '@/components/NotFoundPage'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthLayout } from '@/features/auth/AuthLayout'
 import { LoginPage } from '@/features/auth/LoginPage'
@@ -66,7 +67,13 @@ export default function App() {
             <Route path="/profil" element={<ProfilStub />} />
           </Route>
 
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/*
+            DS7: the catch-all now renders a real 404 page. Previously
+            it silently redirected to `/`, which hid typos in deep-links
+            that had been shared in chat. A dedicated page tells the
+            user something went wrong and offers a clear route home.
+          */}
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </BrowserRouter>
     </ErrorBoundary>
