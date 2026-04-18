@@ -26,7 +26,13 @@ public class SeedDataService(
     {
         var anyUser = await db.Users.AnyAsync(ct);
         if (anyUser)
+        {
+            // Back-fill Private Sammlung for any pre-existing user (idempotent).
+            // Needed when a DB created before S2 is reused — the auto-create
+            // hook on signup/seed only fires for new users.
+            await BackfillPrivateCollectionsAsync(ct);
             return;
+        }
 
         var email = config["ADMIN_EMAIL"];
         var password = config["ADMIN_PASSWORD"];
@@ -67,5 +73,12 @@ public class SeedDataService(
         await privateCollections.EnsurePrivateCollectionAsync(admin.Id, ct);
 
         logger.LogInformation("Seeded initial Admin user {Email}", email);
+    }
+
+    private async Task BackfillPrivateCollectionsAsync(CancellationToken ct)
+    {
+        var userIds = await db.Users.Select(u => u.Id).ToListAsync(ct);
+        foreach (var uid in userIds)
+            await privateCollections.EnsurePrivateCollectionAsync(uid, ct);
     }
 }
