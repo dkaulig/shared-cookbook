@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { PhotoUploadGrid } from './PhotoUploadGrid'
@@ -112,5 +112,117 @@ describe('<PhotoUploadGrid />', () => {
     )
     await user.click(screen.getAllByRole('button', { name: /Foto entfernen/i })[0])
     await waitFor(() => expect(removed).toBe(true))
+  })
+})
+
+// ── UX1-PU staged mode ───────────────────────────────────────────────
+//
+// In create mode the recipe doesn't exist yet, so there's no recipeId to
+// attach uploads to. The staged mode keeps File objects in parent state,
+// renders blob-URL previews, enforces the same MIME + 3-photo caps as
+// live mode, and revokes object URLs on unmount / remove to keep the
+// browser's blob-URL registry clean.
+
+describe('<PhotoUploadGrid mode="staged" />', () => {
+  function StagedHarness({ initial = [] as File[] }: { initial?: File[] }) {
+    const [files, setFiles] = useState<File[]>(initial)
+    return (
+      <>
+        <div data-testid="staged-count">{files.length}</div>
+        <PhotoUploadGrid mode="staged" files={files} onFilesChange={setFiles} />
+      </>
+    )
+  }
+
+  it('renders three drop-zone slots when no files are staged yet', () => {
+    render(withProviders(<StagedHarness />))
+    expect(
+      screen.getAllByRole('button', { name: /Foto hochladen/i }),
+    ).toHaveLength(3)
+  })
+
+  it('appends a selected file to the staged list and shows a preview thumbnail', async () => {
+    const createSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock/1')
+    const user = userEvent.setup()
+    render(withProviders(<StagedHarness />))
+    const input = screen.getAllByTestId('photo-upload-input')[0] as HTMLInputElement
+    const file = new File(['x'], 'a.jpg', { type: 'image/jpeg' })
+    await user.upload(input, file)
+    expect(screen.getByTestId('staged-count')).toHaveTextContent('1')
+    expect(screen.getAllByAltText(/Rezept-Foto/i)).toHaveLength(1)
+    expect(createSpy).toHaveBeenCalled()
+    createSpy.mockRestore()
+  })
+
+  it('removes a staged file and revokes its blob URL when the X is tapped', async () => {
+    const createSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValueOnce('blob:mock/remove-me')
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const initial = [new File(['x'], 'a.jpg', { type: 'image/jpeg' })]
+    const user = userEvent.setup()
+    render(withProviders(<StagedHarness initial={initial} />))
+    expect(screen.getByTestId('staged-count')).toHaveTextContent('1')
+    await user.click(screen.getByRole('button', { name: /Foto entfernen/i }))
+    expect(screen.getByTestId('staged-count')).toHaveTextContent('0')
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock/remove-me')
+    createSpy.mockRestore()
+    revokeSpy.mockRestore()
+  })
+
+  it('rejects files whose MIME type is not an image with a German error', async () => {
+    const user = userEvent.setup()
+    render(withProviders(<StagedHarness />))
+    const input = screen.getAllByTestId('photo-upload-input')[0] as HTMLInputElement
+    const file = new File(['x'], 'doc.pdf', { type: 'application/pdf' })
+    await user.upload(input, file)
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/JPG, PNG oder WebP/i)
+    })
+    expect(screen.getByTestId('staged-count')).toHaveTextContent('0')
+  })
+
+  it('blocks a 4th staged file and surfaces the 3-photo cap error', async () => {
+    const initial = [
+      new File(['a'], 'a.jpg', { type: 'image/jpeg' }),
+      new File(['b'], 'b.jpg', { type: 'image/jpeg' }),
+      new File(['c'], 'c.jpg', { type: 'image/jpeg' }),
+    ]
+    render(withProviders(<StagedHarness initial={initial} />))
+    // No drop-zone visible at cap — but the outer grid still accepts drops.
+    expect(
+      screen.queryAllByRole('button', { name: /Foto hochladen/i }),
+    ).toHaveLength(0)
+    const dropTarget = screen.getByTestId('photo-upload-grid')
+    const file = new File(['d'], 'd.jpg', { type: 'image/jpeg' })
+    const dataTransfer = {
+      files: [file],
+      items: [{ kind: 'file', type: 'image/jpeg', getAsFile: () => file }],
+      types: ['Files'],
+    }
+    const { fireEvent } = await import('@testing-library/react')
+    fireEvent.drop(dropTarget, { dataTransfer })
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/Maximal 3 Fotos/i)
+    })
+    expect(screen.getByTestId('staged-count')).toHaveTextContent('3')
+  })
+
+  it('revokes all staged blob URLs on unmount to avoid leaking them', () => {
+    const createSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValueOnce('blob:mock/u1')
+      .mockReturnValueOnce('blob:mock/u2')
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const initial = [
+      new File(['a'], 'a.jpg', { type: 'image/jpeg' }),
+      new File(['b'], 'b.jpg', { type: 'image/jpeg' }),
+    ]
+    const { unmount } = render(withProviders(<StagedHarness initial={initial} />))
+    unmount()
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock/u1')
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock/u2')
+    createSpy.mockRestore()
+    revokeSpy.mockRestore()
   })
 })
