@@ -171,4 +171,48 @@ describe('StepMarkdownToolbar', () => {
       'true',
     )
   })
+
+  // UX1-RT plan §5 — announce the mode change via a polite live-region
+  // in addition to aria-pressed. Screen readers then read the status
+  // string at the next quiet moment rather than relying purely on the
+  // button-label change.
+  it('announces the preview-mode change via a polite live-region', async () => {
+    const { rerender } = render(
+      <StepMarkdownToolbar
+        value=""
+        onChange={() => {}}
+        textareaRef={createRef<HTMLTextAreaElement>()}
+        previewMode={false}
+        onTogglePreview={() => {}}
+      />,
+    )
+    const live = screen.getByTestId('step-toolbar-live')
+    expect(live).toHaveAttribute('aria-live', 'polite')
+    // Initial mount has no message yet — the live-region stays empty
+    // until the user actually toggles, so screen readers don't narrate
+    // the initial state on every step-row mount.
+    expect(live.textContent ?? '').toBe('')
+
+    rerender(
+      <StepMarkdownToolbar
+        value=""
+        onChange={() => {}}
+        textareaRef={createRef<HTMLTextAreaElement>()}
+        previewMode={true}
+        onTogglePreview={() => {}}
+      />,
+    )
+    expect(live.textContent).toBe('Vorschau aktiviert')
+
+    rerender(
+      <StepMarkdownToolbar
+        value=""
+        onChange={() => {}}
+        textareaRef={createRef<HTMLTextAreaElement>()}
+        previewMode={false}
+        onTogglePreview={() => {}}
+      />,
+    )
+    expect(live.textContent).toBe('Bearbeiten aktiviert')
+  })
 })

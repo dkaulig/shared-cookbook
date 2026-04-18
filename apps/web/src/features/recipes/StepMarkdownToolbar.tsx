@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Bold, Eye, Italic, List, ListOrdered, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -101,6 +101,22 @@ export function StepMarkdownToolbar({
   const previewLabel = previewMode ? 'Bearbeiten' : 'Vorschau'
   const PreviewIcon = previewMode ? Pencil : Eye
 
+  // UX1-RT plan §5 — announce preview-mode changes via a polite
+  // live-region. aria-pressed on the button covers the state for
+  // focused-toggle interactions, but some screen readers only narrate
+  // the label change; the live-region reads the new mode regardless.
+  // Empty on initial mount so a page full of step rows doesn't narrate
+  // "Bearbeiten aktiviert" once per row.
+  const [liveMessage, setLiveMessage] = useState('')
+  const firstRenderRef = useRef(true)
+  useEffect(() => {
+    if (firstRenderRef.current) {
+      firstRenderRef.current = false
+      return
+    }
+    setLiveMessage(previewMode ? 'Vorschau aktiviert' : 'Bearbeiten aktiviert')
+  }, [previewMode])
+
   return (
     <div
       role="toolbar"
@@ -144,6 +160,13 @@ export function StepMarkdownToolbar({
           <PreviewIcon className="h-3.5 w-3.5" aria-hidden="true" />
         </ToolbarButton>
       </div>
+      <span
+        data-testid="step-toolbar-live"
+        aria-live="polite"
+        className="sr-only"
+      >
+        {liveMessage}
+      </span>
     </div>
   )
 }
