@@ -1,19 +1,13 @@
 # Dev reverse-proxy sitting in front of the compose stack.
 # Single entry at http://localhost that routes /api/* to the .NET API,
-# everything else to the React SPA container.
+# everything else to the React SPA container. Recipe photos are served
+# by the backend itself via /api/photos/{**path} (signed URLs) — the
+# SeaweedFS filer is never reachable from outside the docker network.
 :80 {
     encode zstd gzip
 
     handle /api/* {
         reverse_proxy api:5000
-    }
-
-    # Recipe photos live in SeaweedFS's S3 gateway; stream them through the
-    # same origin so CORS + CSP stay simple and the API can return absolute
-    # URLs pinned to this host.
-    handle /photos/* {
-        uri strip_prefix /photos
-        reverse_proxy seaweedfs:8333
     }
 
     handle {
