@@ -40,3 +40,17 @@ export type {
   UpdateRecipeRequest,
   UploadPhotoResponse,
 } from './recipes.ts'
+export type {
+  RatingAggregate,
+  RatingDto,
+  RatingListResponse,
+  UpsertRatingRequest,
+  UpsertRatingResponse,
+} from './ratings.ts'
+export type {
+  RandomRecipeResponse,
+  RecipeSearchParams,
+  RecipeSearchResult,
+  SearchResult,
+  SearchSort,
+} from './search.ts'

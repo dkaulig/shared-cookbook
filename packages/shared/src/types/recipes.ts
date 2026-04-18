@@ -50,6 +50,11 @@ export interface RecipeSummaryDto {
   tagIds: string[]
   createdByDisplayName: string
   updatedAt: string
+  /** Rounded to one decimal; null when nobody has rated yet. */
+  avgRating: number | null
+  ratingCount: number
+  /** Current user's rating, or null when they haven't rated. */
+  myStars: number | null
 }
 
 export interface RecipeSummaryListDto {
