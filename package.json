@@ -1,0 +1,18 @@
+{
+  "name": "familien-kochbuch",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Familien-Kochbuch — a private, invite-only family recipe collection",
+  "scripts": {
+    "dev": "pnpm --filter @familien-kochbuch/web dev",
+    "build": "pnpm -r --parallel run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "format": "pnpm -r run format"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "packageManager": "pnpm@10.32.1"
+}
