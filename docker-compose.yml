@@ -29,10 +29,11 @@ services:
   seaweedfs:
     image: chrislusf/seaweedfs:latest
     container_name: familien-kochbuch-seaweedfs
-    # Filer-only mode — no S3 gateway, no public access. The API talks
-    # to :8333 over the internal docker network via plain HTTP PUT/GET/
-    # DELETE. The port is intentionally NOT published to the host.
-    command: server -dir=/data
+    # Master + volume + filer, no S3 gateway. The filer speaks plain
+    # HTTP on port 8333 (PUT/GET/DELETE against raw paths). We talk to
+    # it from the API container over the internal docker network; the
+    # port is intentionally NOT published to the host.
+    command: server -filer -dir=/data -filer.port=8333
     volumes:
       - seaweedfs-data:/data
     expose:
