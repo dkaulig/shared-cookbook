@@ -6,15 +6,13 @@ name: Deploy
 # the `deploy` job is stubbed out — see the commented-out step below.
 
 on:
+  # Tag-based release: push a `vMAJOR.MINOR.PATCH` tag to cut a release.
+  # Example: git tag v0.1.0 && git push origin v0.1.0
   push:
-    branches: [main]
-    paths:
-      - 'apps/api/**'
-      - 'apps/web/**'
-      - 'packages/**'
-      - 'infra/**'
-      - 'docker-compose.prod.yml'
-      - '.github/workflows/deploy.yml'
+    tags:
+      - 'v*'
+  # Manual dispatch: Actions → Deploy → "Run workflow" for ad-hoc deploys
+  # off any branch. Useful for hotfixes and first-time setup.
   workflow_dispatch:
 
 permissions:
