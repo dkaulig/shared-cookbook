@@ -32,12 +32,12 @@ export function SignupPage() {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    if (!token) {
-      setPreview({ status: 'error', message: 'Einladungslink ist ungültig oder fehlt.' })
-      return
-    }
     let cancelled = false
     void (async () => {
+      if (!token) {
+        if (!cancelled) setPreview({ status: 'error', message: 'Einladungslink ist ungültig oder fehlt.' })
+        return
+      }
       try {
         const response = await fetch(`/api/invites/app/${encodeURIComponent(token)}`)
         if (cancelled) return
