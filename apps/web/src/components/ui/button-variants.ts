@@ -20,7 +20,7 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(120,53,15,0.1),0_4px_12px_-4px_rgba(180,83,9,0.4)] hover:bg-[var(--primary-hover)] active:scale-[0.99]',
+          'bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(120,53,15,0.1),0_4px_12px_-4px_rgba(180,83,9,0.4)] hover:bg-[hsl(var(--primary-hover))] active:scale-[0.99]',
         destructive:
           'bg-destructive text-destructive-foreground shadow-[0_1px_2px_rgba(120,53,15,0.1),0_4px_12px_-4px_rgba(220,38,38,0.35)] hover:bg-destructive/90 active:scale-[0.99]',
         outline:
