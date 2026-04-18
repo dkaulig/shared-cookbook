@@ -28,6 +28,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
     public DbSet<Rating> Ratings => Set<Rating>();
+    public DbSet<RecipeRevision> RecipeRevisions => Set<RecipeRevision>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -273,6 +274,36 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 // aggregate's meaning ("avg of current members") without
                 // leaving ghost rows.
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Recipe revisions (S6) ──────────────────────────────────────
+
+        builder.Entity<RecipeRevision>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.ChangeType).HasConversion<int>();
+            e.Property(r => r.SnapshotJson).IsRequired();
+            e.Property(r => r.DiffSummary).HasMaxLength(RecipeRevision.DiffSummaryMaxLength);
+
+            // Composite index supports the "give me the last 5 for this
+            // recipe" lookup without a separate filesort. CreatedAt second
+            // so range scans on the leading column still hit the index.
+            e.HasIndex(r => new { r.RecipeId, r.CreatedAt });
+
+            e.HasOne<Recipe>()
+                .WithMany()
+                .HasForeignKey(r => r.RecipeId)
+                // When a recipe is hard-deleted, its history dies with it —
+                // soft-deletes leave revisions intact for audit purposes.
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(r => r.ChangedByUserId)
+                // Restrict so we never silently lose authorship history; if
+                // a user must be removed, their revisions need an explicit
+                // archival pass first.
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 
