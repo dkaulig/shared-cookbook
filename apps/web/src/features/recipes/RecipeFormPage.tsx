@@ -206,6 +206,17 @@ function RecipeFormInner({
     })
   }
 
+  function handleStepDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setSteps((prev) => {
+      const oldIndex = prev.findIndex((r) => r.key === active.id)
+      const newIndex = prev.findIndex((r) => r.key === over.id)
+      if (oldIndex < 0 || newIndex < 0) return prev
+      return arrayMove(prev, oldIndex, newIndex)
+    })
+  }
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
@@ -409,39 +420,39 @@ function RecipeFormInner({
               + Schritt hinzufügen
             </Button>
           </div>
-          <ol className="space-y-3">
-            {steps.map((row, index) => (
-              <li key={row.key} className="flex gap-2">
-                <div className="mt-8 text-sm font-semibold text-stone-600">{index + 1}.</div>
-                <div className="flex-1">
-                  <Label htmlFor={`step-${index}`} className="text-xs text-stone-600">
-                    Beschreibung
-                  </Label>
-                  <textarea
-                    id={`step-${index}`}
-                    className="min-h-[90px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    value={row.content}
-                    onChange={(e) => updateStep(index, e.target.value)}
-                    aria-label={`Schritt ${index + 1}`}
-                    maxLength={5000}
-                  />
-                </div>
-                <div className="mt-8">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Schritt entfernen"
-                    onClick={() =>
-                      setSteps((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
+          {/*
+            Two independent DndContexts (one for ingredients, one for steps)
+            keep collision detection scoped to the list being dragged — a
+            dragged ingredient can never be dropped into the step list and
+            vice versa.
+          */}
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleStepDragEnd}
+          >
+            <SortableContext
+              items={steps.map((r) => r.key)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ol className="space-y-3">
+                {steps.map((row, index) => (
+                  <SortableStepRow
+                    key={row.key}
+                    row={row}
+                    index={index}
+                    canRemove={steps.length > 1}
+                    onChange={(content) => updateStep(index, content)}
+                    onRemove={() =>
+                      setSteps((prev) =>
+                        prev.length > 1 ? prev.filter((_, i) => i !== index) : prev,
+                      )
                     }
-                  >
-                    ✕
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ol>
+                  />
+                ))}
+              </ol>
+            </SortableContext>
+          </DndContext>
         </section>
 
         {/* Tags */}
@@ -641,6 +652,82 @@ function SortableIngredientRow({
           onClick={onRemove}
           disabled={!canRemove}
           aria-label="Zutat entfernen"
+        >
+          ✕
+        </Button>
+      </div>
+    </li>
+  )
+}
+
+/**
+ * Sortable step row — same pattern as `SortableIngredientRow`. The drag
+ * handle button carries the @dnd-kit listeners (Space + ArrowUp/Down +
+ * Space for keyboard reorder, pointerdown for mouse/touch).
+ */
+function SortableStepRow({
+  row,
+  index,
+  canRemove,
+  onChange,
+  onRemove,
+}: {
+  row: StepRow
+  index: number
+  canRemove: boolean
+  onChange: (content: string) => void
+  onRemove: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.key })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  }
+
+  return (
+    <li ref={setNodeRef} style={style} className="flex gap-2">
+      <div className="flex items-start pt-8">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          data-testid={`step-drag-handle-${index}`}
+          aria-label="Schritt verschieben"
+          className="cursor-grab rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="mt-8 text-sm font-semibold text-stone-600">{index + 1}.</div>
+      <div className="flex-1">
+        <Label htmlFor={`step-${index}`} className="text-xs text-stone-600">
+          Beschreibung
+        </Label>
+        <textarea
+          id={`step-${index}`}
+          className="min-h-[90px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          value={row.content}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={`Schritt ${index + 1}`}
+          maxLength={5000}
+        />
+      </div>
+      <div className="mt-8">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          aria-label="Schritt entfernen"
+          onClick={onRemove}
+          disabled={!canRemove}
         >
           ✕
         </Button>
