@@ -70,6 +70,8 @@ describe('<Button />', () => {
     const classes = buttonVariants({ variant: 'outline', size: 'lg' })
     expect(typeof classes).toBe('string')
     expect(classes).toMatch(/border/)
-    expect(classes).toMatch(/h-10/)
+    // DS1 bumps lg from h-10 → h-11 to match the mockup's 44px touch
+    // target. The default size stays h-10.
+    expect(classes).toMatch(/h-11/)
   })
 })
