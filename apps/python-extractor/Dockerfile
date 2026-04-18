@@ -6,13 +6,18 @@
 # self-contained /app/.venv. We prefer `uv sync --frozen` so the image
 # fails closed if the lockfile drifts from pyproject.toml.
 #
-# Stage 2 (runtime): copies the venv + source into a slim Python base,
-# drops to a non-root user, and runs uvicorn. `curl` is kept in the
-# runtime image so HEALTHCHECK can hit /health without an external
-# binary dependency.
+# Stage 1a (whisper-model): pre-downloads the faster-whisper large-v3
+# weights into the venv's HuggingFace cache so runtime never fetches
+# from the network. Added ~3 GB to the final image (expected).
 #
-# Image size target at this stage: <300 MB. Will grow in P2-2 when
-# yt-dlp + faster-whisper join.
+# Stage 2 (runtime): copies the venv + model cache + source into a slim
+# Python base, drops to a non-root user, and runs uvicorn. `curl` is
+# kept in the runtime image so HEALTHCHECK can hit /health without an
+# external binary dependency. `ffmpeg` is required by yt-dlp for audio
+# extraction from the downloaded videos.
+#
+# Image size after P2-2: ~3.5 GB (whisper large-v3 weights dominate).
+# Build time: +2-3 minutes for the model download step.
 
 ARG PYTHON_VERSION=3.13-slim
 
@@ -44,14 +49,31 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # ─────────────────────────────────────────────────────────────────────
+# Stage 1a — whisper-model: pre-download large-v3 into /root/.cache.
+# Done as a dedicated layer so model-download churn doesn't invalidate
+# the deps layer above. The cache lives at /root/.cache/huggingface
+# in the builder and is copied into the runtime image below.
+# ─────────────────────────────────────────────────────────────────────
+FROM builder AS whisper-model
+
+ENV HF_HOME=/root/.cache/huggingface \
+    PATH="/app/.venv/bin:${PATH}"
+
+# Calls WhisperModel(...) which triggers the HuggingFace snapshot
+# download of the large-v3 weights + tokenizer. Runs once at build
+# time; the runtime stage copies the populated cache.
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3', device='cpu', compute_type='int8')"
+
+# ─────────────────────────────────────────────────────────────────────
 # Stage 2 — runtime: slim, non-root, healthchecked.
 # ─────────────────────────────────────────────────────────────────────
 FROM python:${PYTHON_VERSION} AS runtime
 
 # `curl` for the HEALTHCHECK; `tini` as PID 1 to reap zombies + forward
-# signals correctly to uvicorn.
+# signals correctly to uvicorn. `ffmpeg` is yt-dlp's audio-extraction
+# dependency — required for the video-path pipeline.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl tini \
+    && apt-get install -y --no-install-recommends curl tini ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user (uid 1001 matches the plan).
@@ -63,11 +85,20 @@ WORKDIR /app
 COPY --from=builder --chown=extractor:extractor /app/.venv /app/.venv
 COPY --from=builder --chown=extractor:extractor /app/src /app/src
 
+# Pre-downloaded faster-whisper model weights. Copied into the
+# non-root user's home so runtime HF loading reads from /app/.cache
+# (matches HF_HOME below).
+COPY --from=whisper-model --chown=extractor:extractor /root/.cache/huggingface /app/.cache/huggingface
+
 # Make the venv's Python + scripts the default on PATH.
+# HF_HOME pins the HuggingFace cache to the location we just copied
+# so faster-whisper hits the baked-in weights and never reaches the
+# network at runtime.
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app/src
+    PYTHONPATH=/app/src \
+    HF_HOME=/app/.cache/huggingface
 
 USER extractor
 
