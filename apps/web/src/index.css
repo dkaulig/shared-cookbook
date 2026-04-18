@@ -1,16 +1,22 @@
 @import "tailwindcss";
 
 /*
- * shadcn/ui tokens mapped to the Warme-Küche palette (DS1).
+ * shadcn/ui tokens mapped to the Sage Modern palette (DS8).
  *
- * Hex values come from `docs/mockups/README.md` and the `:root` block
- * in `docs/mockups/warme-kueche-login.html`. We keep shadcn's HSL-triplet
- * convention so `bg-primary`, `text-muted-foreground`, etc. continue to
- * work without per-component rewrites.
+ * Hex values come from the `:root` blocks in
+ * `docs/mockups/variant-a-sage.html` + `variant-a-home.html`. We keep
+ * shadcn's HSL-triplet convention so `bg-primary`,
+ * `text-muted-foreground`, etc. continue to work without per-component
+ * rewrites.
+ *
+ * Typography: DS8 drops Cormorant Garamond + Libre Baskerville and runs
+ * pure Inter across the app. The `--font-serif*` tokens still exist so
+ * `font-serif` / `font-serif-body` utility classes keep compiling, but
+ * they resolve to Inter.
  *
  * `--primary-hover` is an extra token (outside shadcn's spec) used by
- * the Button default variant to match the mockup's amber-800 hover state
- * via `hover:bg-[var(--primary-hover)]`.
+ * the Button default variant to match the mockup's sage-dark hover
+ * state via `hover:bg-[var(--primary-hover)]`.
  */
 @theme inline {
   --color-background: hsl(var(--background));
@@ -37,49 +43,49 @@
   --radius-sm: calc(var(--radius) - 4px);
 
   --font-sans: "Inter", system-ui, sans-serif;
-  --font-serif: "Cormorant Garamond", serif;
-  --font-serif-body: "Libre Baskerville", serif;
+  --font-serif: "Inter", system-ui, sans-serif;
+  --font-serif-body: "Inter", system-ui, sans-serif;
 }
 
 :root {
   color-scheme: light;
   --radius: 0.75rem; /* 12px — matches mockup --radius */
 
-  --background: 48 100% 96%; /* #FFFBEB amber-50 (cream) */
-  --foreground: 20 14% 10%; /* #1C1917 stone-900 */
+  --background: 60 10% 97%; /* #f7f7f6 sage-neutral bg */
+  --foreground: 60 4% 10%; /* #1a1a18 near-black text */
 
   --card: 0 0% 100%; /* #FFFFFF surface */
-  --card-foreground: 20 14% 10%; /* #1C1917 stone-900 */
+  --card-foreground: 60 4% 10%; /* #1a1a18 */
 
   --popover: 0 0% 100%; /* #FFFFFF */
-  --popover-foreground: 20 14% 10%; /* #1C1917 stone-900 */
+  --popover-foreground: 60 4% 10%; /* #1a1a18 */
 
-  --primary: 32 95% 37%; /* #B45309 amber-700 */
-  --primary-foreground: 48 100% 96%; /* #FFFBEB cream on amber */
-  --primary-hover: 25 75% 31%; /* #92400E amber-800 (hover) */
+  --primary: 148 21% 40%; /* #4f7961 sage */
+  --primary-foreground: 0 0% 100%; /* #FFFFFF on sage */
+  --primary-hover: 148 24% 32%; /* #3e6450 sage-dark (hover) */
 
-  --secondary: 48 96% 89%; /* #FEF3C7 amber-100 */
-  --secondary-foreground: 25 75% 31%; /* #92400E amber-800 */
+  --secondary: 148 18% 85%; /* #c3d4ca sage tint */
+  --secondary-foreground: 148 24% 22%; /* #2b4435 sage-deep */
 
-  --muted: 60 5% 96%; /* #F5F5F4 stone-100 */
-  --muted-foreground: 25 5% 35%; /* #57534E stone-600 */
+  --muted: 48 4% 94%; /* #efefeb warm neutral */
+  --muted-foreground: 48 6% 33%; /* #57574f */
 
-  --accent: 48 96% 89%; /* #FEF3C7 amber-100 */
-  --accent-foreground: 25 75% 31%; /* #92400E amber-800 */
+  --accent: 16 59% 60%; /* #d97757 coral */
+  --accent-foreground: 0 0% 100%; /* #FFFFFF on coral */
 
   --destructive: 0 72% 51%; /* #DC2626 red-600 */
-  --destructive-foreground: 48 100% 96%; /* #FFFBEB cream */
+  --destructive-foreground: 0 0% 100%; /* #FFFFFF */
 
-  --border: 24 6% 90%; /* #E7E5E4 stone-200 */
-  --input: 24 6% 84%; /* #D6D3D1 stone-300 */
-  --ring: 32 95% 37%; /* #B45309 amber-700 */
+  --border: 50 7% 89%; /* #e4e4e0 */
+  --input: 50 6% 78%; /* #c8c8c2 */
+  --ring: 148 21% 40%; /* #4f7961 sage */
 }
 
 .dark {
   /*
-   * Minimal usable dark-mode — not part of DS1 polish, but guarantees
+   * Minimal usable dark-mode — not part of DS8 polish, but guarantees
    * `<html class="dark">` does not produce a broken page. Values lean on
-   * stone-900 / amber-500 to keep contrast legible.
+   * stone-900 / sage-light to keep contrast legible.
    */
   --background: 20 14% 10%; /* #1C1917 stone-900 */
   --foreground: 60 9% 98%; /* #FAFAF9 stone-50 */
@@ -90,25 +96,25 @@
   --popover: 24 10% 15%;
   --popover-foreground: 60 9% 98%;
 
-  --primary: 38 92% 50%; /* #F59E0B amber-500 */
-  --primary-foreground: 20 14% 10%; /* stone-900 on amber */
-  --primary-hover: 32 95% 44%; /* slightly darker amber on hover */
+  --primary: 148 26% 55%; /* #6fa486 sage-light */
+  --primary-foreground: 60 4% 10%; /* near-black on sage-light */
+  --primary-hover: 148 23% 48%; /* slightly darker sage on hover */
 
-  --secondary: 25 75% 20%; /* deep amber-900ish */
-  --secondary-foreground: 48 96% 89%; /* amber-100 */
+  --secondary: 148 24% 22%; /* deep sage */
+  --secondary-foreground: 148 18% 85%; /* sage tint */
 
   --muted: 24 6% 20%; /* stone-800 */
   --muted-foreground: 24 5% 65%; /* stone-400 */
 
-  --accent: 25 75% 20%;
-  --accent-foreground: 48 96% 89%;
+  --accent: 16 70% 68%; /* coral-light */
+  --accent-foreground: 60 4% 10%;
 
   --destructive: 0 63% 45%; /* #B91C1C red-700 */
   --destructive-foreground: 60 9% 98%;
 
   --border: 24 6% 25%; /* stone-700 */
   --input: 24 6% 25%;
-  --ring: 38 92% 50%; /* amber-500 */
+  --ring: 148 26% 55%; /* sage-light */
 }
 
 html,
@@ -126,11 +132,11 @@ body {
 }
 
 /*
- * DS2 — scoped parchment dotted grid for the auth shell.
+ * DS2 — scoped dotted grid for the auth shell.
  *
- * The mockup (`docs/mockups/warme-kueche-login.html`) paints this via
- * `body::before`. We scope it to the `<AuthLayout>` wrapper so protected
- * routes (home, groups, recipes) get a clean background from DS3 onward.
+ * The mockup paints this via `body::before`. We scope it to the
+ * `<AuthLayout>` wrapper so protected routes (home, groups, recipes)
+ * get a clean background from DS3 onward.
  */
 .auth-parchment::before {
   content: "";
