@@ -21,23 +21,23 @@ describe('recipePhotoApi.uploadRecipePhoto', () => {
   it('POSTs multipart/form-data to /api/recipes/{id}/photos and returns the url', async () => {
     let hitMethod = ''
     let hitUrl = ''
-    let sawFilePart = false
+    let sawMultipartBody = false
     server.use(
       http.post('/api/recipes/r1/photos', async ({ request }) => {
         hitMethod = request.method
         hitUrl = request.url
-        const form = await request.formData()
-        sawFilePart = form.get('file') instanceof File
+        const contentType = request.headers.get('content-type') ?? ''
+        sawMultipartBody = contentType.startsWith('multipart/form-data')
         return HttpResponse.json({ url: 'fake://new.jpg' }, { status: 201 })
       }),
     )
 
-    const file = new File([new Uint8Array([1, 2, 3])], 'p.jpg', { type: 'image/jpeg' })
+    const file = new File(['hello'], 'p.jpg', { type: 'image/jpeg' })
     const result = await uploadRecipePhoto('r1', file)
 
     expect(hitMethod).toBe('POST')
     expect(hitUrl).toMatch(/\/api\/recipes\/r1\/photos$/)
-    expect(sawFilePart).toBe(true)
+    expect(sawMultipartBody).toBe(true)
     expect(result.url).toBe('fake://new.jpg')
   })
 

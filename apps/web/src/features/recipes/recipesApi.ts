@@ -6,9 +6,14 @@ import type {
   RecipeSummaryListDto,
   TagDto,
   UpdateRecipeRequest,
-  UploadPhotoResponse,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
+
+// UX1-PU — the low-level multipart upload helper lives in its own module
+// now so the create-mode form-submit orchestration can share it with the
+// edit-mode hook. Re-export from here to keep the existing call-site
+// (`import { uploadRecipePhoto } from './recipesApi'`) stable.
+export { uploadRecipePhoto } from './recipePhotoApi'
 
 /**
  * Typed access layer for the S3 Recipe API. All calls go through
@@ -81,15 +86,8 @@ export async function deleteRecipe(id: string): Promise<void> {
 }
 
 // ── Photos ──────────────────────────────────────────────────────────
-
-export async function uploadRecipePhoto(id: string, file: File): Promise<UploadPhotoResponse> {
-  const form = new FormData()
-  form.append('file', file)
-  return request<UploadPhotoResponse>(`/api/recipes/${encodeURIComponent(id)}/photos`, {
-    method: 'POST',
-    body: form,
-  })
-}
+// `uploadRecipePhoto` lives in ./recipePhotoApi — re-exported at the top
+// of this file so callers don't break.
 
 export async function deleteRecipePhoto(id: string, url: string): Promise<void> {
   await request<void>(`/api/recipes/${encodeURIComponent(id)}/photos`, {
