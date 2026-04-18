@@ -1,8 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-// Bundle Inter / Cormorant Garamond / Libre Baskerville locally so the
-// Warme-Küche theme works offline and does not call Google Fonts.
+// Bundle Inter locally so the Sage Modern theme works offline and
+// does not call Google Fonts (Inter-only typography per DS8).
 import './styles/fonts'
 import './index.css'
 import App from './App.tsx'
