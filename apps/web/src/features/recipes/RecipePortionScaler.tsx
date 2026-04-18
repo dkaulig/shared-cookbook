@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { IngredientDto } from '@familien-kochbuch/shared'
 import { scaleIngredients, type ScalableIngredient } from '@familien-kochbuch/shared'
@@ -25,6 +25,22 @@ function toScalableIngredient(i: IngredientDto): ScalableIngredient {
   }
 }
 
+interface ScalerState {
+  /** The clamped numeric servings count used for scaling math. */
+  servings: number
+  /**
+   * The live text in the input — may transiently differ from `servings`
+   * (e.g. empty while the user clears the field before retyping). Always
+   * kept in sync whenever `servings` is updated via buttons or the group
+   * shortcut.
+   */
+  draft: string
+}
+
+function stateFromServings(servings: number): ScalerState {
+  return { servings, draft: String(servings) }
+}
+
 /**
  * Live portion-scaling widget for the recipe detail page (PRD §4.5). The
  * user picks a target servings count via ±1 buttons, direct numeric input,
@@ -36,11 +52,11 @@ function toScalableIngredient(i: IngredientDto): ScalableIngredient {
  * coming in via the group default are passed through to the scaler
  * verbatim but displayed rounded in the button label for readability.
  *
- * Implementation detail: the servings state is the clamped numeric value
- * used for scaling, but we also carry a draft string so typing "2" after
- * clearing the field actually produces "2" on screen rather than getting
- * folded into the previous value. Every draft edit re-parses into
- * `servings` via the same clamp so the integer is always valid.
+ * Implementation note: `servings` and `draft` are stored in a single
+ * state object so every update is atomic — updating servings via a
+ * button always brings the text field along for the ride without needing
+ * a follow-up `useEffect` sync (which violates the set-state-in-effect
+ * lint rule).
  */
 export function RecipePortionScaler({
   defaultServings,
@@ -53,17 +69,8 @@ export function RecipePortionScaler({
   groupName: string
   ingredients: IngredientDto[]
 }) {
-  const [servings, setServings] = useState<number>(() => clamp(defaultServings))
-  // The live text in the input box; may be transiently empty while the user
-  // is clearing before retyping. `servings` is always kept in sync with the
-  // clamped parse of this string.
-  const [draft, setDraft] = useState<string>(() => String(clamp(defaultServings)))
-
-  // Keep draft in sync when servings is changed externally (button click,
-  // group-default shortcut).
-  useEffect(() => {
-    setDraft(String(servings))
-  }, [servings])
+  const [state, setState] = useState<ScalerState>(() => stateFromServings(clamp(defaultServings)))
+  const { servings, draft } = state
 
   const scaled = useMemo(() => {
     if (servings <= 0 || defaultServings <= 0) return []
@@ -76,30 +83,37 @@ export function RecipePortionScaler({
 
   function handleInputChange(e: ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value
-    setDraft(raw)
-    if (raw === '') return
-    const parsed = Number.parseFloat(raw)
-    if (Number.isNaN(parsed)) return
-    const clamped = clamp(parsed)
-    setServings(clamped)
-    // If the raw input would parse to something outside [1, 99], echo the
-    // clamped value back into the draft so the textbox reflects what the
-    // scaler is actually using.
-    if (clamped !== parsed) {
-      setDraft(String(clamped))
+    if (raw === '') {
+      // Transient empty state while the user is clearing/retyping — keep
+      // servings pinned to the min so any scaling mid-edit uses something
+      // valid.
+      setState({ servings: MIN_SERVINGS, draft: raw })
+      return
     }
+    const parsed = Number.parseFloat(raw)
+    if (Number.isNaN(parsed)) {
+      setState({ servings, draft: raw })
+      return
+    }
+    const clamped = clamp(parsed)
+    // If the value overshoots the cap, echo the clamped value back into
+    // the textbox so the UI reflects what the scaler is actually using.
+    setState({
+      servings: clamped,
+      draft: clamped !== parsed ? String(clamped) : raw,
+    })
   }
 
   function handleDecrement() {
-    setServings((s) => clamp(s - 1))
+    setState(stateFromServings(clamp(servings - 1)))
   }
 
   function handleIncrement() {
-    setServings((s) => clamp(s + 1))
+    setState(stateFromServings(clamp(servings + 1)))
   }
 
   function handleUseGroupDefault() {
-    setServings(clamp(groupDefaultServings))
+    setState(stateFromServings(clamp(groupDefaultServings)))
   }
 
   const groupButtonLabel = `Für ${groupName} umrechnen (${Math.round(groupDefaultServings)} Portionen)`
