@@ -21,7 +21,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
 | S3 | Recipes (Core CRUD) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Re-review after fix pass #1 passed — drag-drop reorder live-verified via tests + source readthrough, 246/246 .NET + 95/95 web tests, lint clean, full docker E2E curl flow (login → tags → create → GET → PUT reorder persists → 3 photos + Caddy fetch + 4th rejected → photo delete → recipe delete 204 → GET 404 → non-member 403) all confirmed with own eyes. See Review outcomes → S3 — Re-review (2026-04-18). |
-| S4 | Tags + Ratings + Search | in_review | general-purpose (bg) | 2026-04-18 | — | 321/321 .NET + 121/121 web tests; +23 domain, +21 infra, +31 api, +26 web. Rating entity + upsert endpoints, tsvector-backed search (Postgres) / LIKE fallback (SQLite), random picker, custom-tag create/delete, summary-card rating aggregate, RatingWidget + RecipeFilterPanel + TagManagementPage. Docker E2E (login → group → recipes → rate → upsert → search → AND tags → minRating → random → custom tag create+dupe+admin-delete+member-403+global-protected) all green. |
+| S4 | Tags + Ratings + Search | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 321/321 .NET + 121/121 web tests verified locally, docker stack healthy (all 6 services), SearchVector tsvector + GIN + both triggers observed via psql, full E2E curl flow (login → group → 3 recipes → rate → upsert (count stays 1) → q=Nudeln → tags AND → minRating → re-rate → random ×3 + null → custom-tag create/dup/member-403/admin-204/global-protected-400) all confirmed with own eyes. See Review outcomes → S4 entry below. |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
 | S6 | Version History (light) | pending | — | — | — | — |
 | S7 | Polish & Local Deploy Readiness | pending | — | — | — | — |
@@ -907,3 +907,108 @@ TDD paired red → green throughout. Each test commit precedes the feature it co
 - **Custom-tag category expansion**: today all group-scoped tags are forced to `TagCategory.Custom`. If a group wants its own "Saison" shortlist, we open up `Tag.CreateGroupScoped` + the endpoint's accepted category set.
 - **Read `Recipes.SearchVector` from the mapped model** instead of rebuilding it inline — would let us rank results via `ts_rank(SearchVector, to_tsquery(...))`. Requires an unmapped shadow property or raw SQL.
 - **RatingWidget avatar + timestamp** for each row when we render the full list (currently the widget only shows the current user's own row + aggregate; the `/ratings` endpoint already returns everyone's list).
+
+## Review outcomes → S4 — Review (2026-04-18) → pass
+
+Independent reviewer (general-purpose agent, has Bash) executed every verification command on commit range `100055f..HEAD` (23 commits: 22 implementation + 1 orchestrator dispatch). Nothing trusted — everything re-run locally.
+
+### Static checks
+
+- `git log --oneline 100055f..HEAD | wc -l` → **23** (22 impl + 1 `chore(orchestrator)` dispatch — matches expectation).
+- TDD commit-order spot-checks (all red → green):
+  - Rating domain: test `779a4ed` → feat `c91d474` ✓
+  - Rating infra (AppDbContext): test `76db1ac` → feat `9e43c4d` ✓
+  - Migration (`AddRatingsAndSearch`): `78fc903` — single commit by nature (EF-gen + hand-SQL block); test coverage arrives transitively via the search-service tests in `b76ab65` and the persistence tests in `76db1ac`. Acceptable per reviewer (covered through downstream tests + live psql inspection).
+  - Search service: test `b76ab65` → feat `ab2af9b` ✓
+  - Shared DTOs (`e600f45`) — type-only, no runtime to TDD; exercised transitively by Web + API tests.
+  - Rating API: test `d178d95` → feat `6b4014c` ✓
+  - Search + custom-tag + summary-aggregate API: test `ceeec0f` → feat `ffdb545` ✓
+  - Web ratings: test `c82a605` → feat `75c003a` ✓
+  - Web search: test `5e8d26a` → feat `cda50e8` ✓
+  - Web tag management: test `0be47e8` → feat `a61ac36` ✓
+  - Wire-up: `feat(web): integrate S4 surfaces (filter panel, rating widget, tag page) into app` (`5ccf6c7`) — confirms routing integration.
+  - Postgres fix: `fix(infrastructure): split Postgres tsvector search into two match expressions` (`86acb93`) — late-caught bug fixed in place; SQLite fallback was already LIKE-based so the original tests stayed green; the fix lights up the Postgres path for real.
+
+- `grep` battery (anti-shortcut checklist):
+  - `Assert.True(true|false)` in `apps/api/tests/` → **0**
+  - `[Skip` / `Skip=` / `.Skip(` in `apps/api/tests/*.cs` → **0**
+  - `it.skip` / `it.todo` / `describe.skip` / `.only(` / `xit` / `xdescribe` under `apps/web/src/` + `packages/` → **0**
+  - `TODO` / `FIXME` / `HACK` / `XXX` under `apps/` + `packages/` (.cs/.ts/.tsx) → **0**
+  - `@ts-ignore` / `@ts-expect-error` / `eslint-disable` / `SuppressMessage` / `pragma warning disable` → S1/S2/S3 EF-generated pragmas in the 4 migration designer + snapshot files + `useSession.ts` exhaustive-deps + `RecipeFilterPanel.tsx:48` new exhaustive-deps for the `qInput` debounce effect. The new suppression has a justification comment inline (`// eslint-disable-next-line react-hooks/exhaustive-deps -- only qInput drives the debounce`) — **accepted**.
+  - `NotImplementedException` under `apps/` + `packages/` (.cs) → **0** in prod.
+  - `TreatWarningsAsErrors` in `apps/api/Directory.Build.props` → **true** (unchanged).
+
+### Deliverables
+
+- Rating entity (`Rating.cs`) with `Stars 1..5` invariant + `UpdateStars` upsert helper: **yes**.
+- Migration `20260418111705_AddRatingsAndSearch.cs`: Ratings table with composite unique `(RecipeId, UserId)`, non-unique `RecipeId` + `UserId` indexes, both FKs CASCADE. Postgres-gated block adds `SearchVector tsvector`, three `fkochbuch_*` plpgsql functions, BEFORE-effective AFTER INSERT/UPDATE triggers on `Recipes` + AFTER INSERT/UPDATE/DELETE on `Ingredients`, one-time backfill DO block, GIN index on `SearchVector`. `Down()` mirrors cleanly. No unrelated drift. **yes**.
+- `IRecipeSearchService.cs` + `PostgresRecipeSearchService.cs` with Postgres tsvector path (split Title+Description ∪ EXISTS over Ingredients) + SQLite LIKE fallback. Provider check behind `IsPostgres` helper (single `.Contains("Npgsql", OrdinalIgnoreCase)` check), not string-matched in 15 places. **yes**.
+- `RatingEndpoints.cs` (`POST`/`DELETE`/`GET /api/recipes/{id}/ratings`) and `SearchEndpoints.cs` (`GET /api/groups/{groupId}/recipes/search` + `/random`). Custom-tag endpoints are on `RecipeEndpoints.cs` (reusing the existing `GET /api/groups/{groupId}/tags` helper set). **yes**.
+- `apps/web/src/features/ratings/` with `RatingWidget.tsx`, `hooks.ts`, `ratingsApi.ts`, `queryKeys.ts`; `apps/web/src/features/search/` with `RecipeFilterPanel.tsx`, `urlState.ts`, `hooks.ts`, `searchApi.ts`; `apps/web/src/features/tagManagement/` with `TagManagementPage.tsx`, `CreateTagDialog.tsx`, `hooks.ts`, `tagsApi.ts`. **yes**.
+- `App.tsx` wires the admin-only route `/groups/:groupId/tags` under `ProtectedRoute` → `TagManagementPage`. Filter UI reachable from `RecipeList` / `GroupDetailPage`. **yes**.
+- `packages/shared/src/types/index.ts` re-exports `ratings.ts` + `search.ts`. `RecipeSummaryDto` augmented with `avgRating` / `ratingCount` / `myStars`. **yes**.
+
+### Migration review
+
+- File: `apps/api/src/FamilienKochbuch.Infrastructure/Persistence/Migrations/20260418111705_AddRatingsAndSearch.cs`.
+- Ratings table: PK `Id` (uuid), composite-unique `(RecipeId, UserId)` via `IX_Ratings_RecipeId_UserId`, non-unique `IX_Ratings_RecipeId` + `IX_Ratings_UserId`. Both FKs cascade: `FK_Ratings_AspNetUsers_UserId` + `FK_Ratings_Recipes_RecipeId`.
+- Postgres-gated block (`migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL"`): `ALTER TABLE "Recipes" ADD COLUMN "SearchVector" tsvector;` + three plpgsql functions (`fkochbuch_update_recipe_search_vector(uuid)`, `fkochbuch_recipe_search_vector_trigger`, `fkochbuch_ingredient_search_vector_trigger`) + AFTER triggers on `Recipes.(Title, Description)` + AFTER INSERT/UPDATE/DELETE on `Ingredients` + one-time backfill DO block + `CREATE INDEX "IX_Recipes_SearchVector" ... USING GIN ("SearchVector")`. `Down()` mirrors in reverse order.
+- No unrelated schema drift. **yes**.
+
+### Runtime
+
+- `dotnet test apps/api/FamilienKochbuch.sln` → Domain 155/155, Infrastructure 55/55, Api 111/111 = **321/321 passed, 0 failed, 0 skipped**.
+- `pnpm -C apps/web test --run` → 29 test files, **121/121 passed, 0 skipped**.
+- `pnpm lint` at root → **clean** (0 errors, 0 warnings).
+- `docker compose up --build -d` → all 6 services (`postgres`, `redis`, `seaweedfs`, `api`, `web`, `caddy`) reach Up/Healthy within ~20 s. `/api/health` returns 200.
+- `docker compose exec postgres psql -U app -d familien_kochbuch -c '\d+ "Recipes"'` → `SearchVector | tsvector` column present, `"IX_Recipes_SearchVector" gin ("SearchVector")` index present, `trg_recipes_search_vector AFTER INSERT OR UPDATE OF "Title", "Description"` trigger present. `\d+ "Ingredients"` → `trg_ingredients_search_vector AFTER INSERT OR DELETE OR UPDATE` trigger present.
+- `docker compose down` → all containers + network removed cleanly.
+
+### E2E curl flow (live docker stack)
+
+- Admin login (`admin@familien-kochbuch.local` / `ChangeMe!Admin2026`) → access token issued.
+- `POST /api/groups` "S4 Review" → 201, group `6163ec81-4278-4003-97d2-c2af544420dc`.
+- `GET /api/groups/{G}/tags` → **30 global tags** across 6 categories (Mahlzeit 5, Saison 5, Typ 5, Aufwand 3, Diaet 4, Kueche 8). Picked T1=Abend (Mahlzeit), T2=asiatisch (Kueche), T3=glutenfrei (Diaet).
+- Created 3 recipes: R1 "Nudeln Pomodoro" tags [T1, T2]; R2 "Pizza Margherita" tags [T1, T2]; R3 "Salat mit Feta" tags [T1, T3].
+- `POST /api/recipes/{R1}/ratings {stars:5}` → `{avg:5, count:1, myStars:5}`.
+- `POST /api/recipes/{R1}/ratings {stars:3}` (same user, upsert) → `{avg:3, count:1, myStars:3}` — count stable at 1, **upsert semantics confirmed**.
+- `GET /api/groups/{G}/recipes/search?q=Nudeln` → total=1, items=[('Nudeln Pomodoro', avg=3, count=1, myStars=3)] — summary DTO includes all three aggregate fields.
+- `GET /api/groups/{G}/recipes/search?tags=T1,T2` → total=2, items=[Pizza, Nudeln]. R3 correctly excluded (has T3 not T2) — **multi-tag AND semantics confirmed**.
+- `GET /api/groups/{G}/recipes/search?minRating=4` → total=0 (R1 at avg=3 < 4, R2/R3 unrated).
+- Re-rate R1 to 5 → `GET ...?minRating=4` → [Nudeln Pomodoro] present.
+- `GET ...?q=Nudeln&minRating=4` → [Nudeln Pomodoro] present.
+- `GET /api/groups/{G}/recipes/random?q=Nudeln` × 3 → `{recipeId:R1}` all three times (only match).
+- `GET /api/groups/{G}/recipes/random?q=NonExistentWord` → `{recipeId:null}`.
+- `POST /api/groups/{G}/tags {name:"Kinderfreundlich", category:"Custom"}` → 201, tag appears in `GET /tags`.
+- Same POST again → 400 `{code:"tag_exists"}`.
+- Created fresh `review-member@example.com` via app invite + group invite + accept; as member: `DELETE /api/groups/{G}/tags/{customTagId}` → **403**.
+- As admin: `DELETE /api/groups/{G}/tags/{globalTagId}` → 400 `{code:"global_tag_protected"}`.
+- As admin: `DELETE /api/groups/{G}/tags/{customTagId}` → **204**. Custom tag gone from `GET /tags`.
+- `git status` clean; `git log origin/main..HEAD` empty.
+
+### Deviation assessments
+
+- **S4 #1 — tsvector column not mapped in EF (inline expressions instead):** **Accept.** The Postgres path compiles Title+Description and EXISTS-over-Ingredients into `to_tsvector('german', ...)` + `websearch_to_tsquery('german', ...)` via Npgsql's `EF.Functions.ToTsVector` / `WebSearchToTsQuery` — Postgres evaluates these against the row directly; the stored `SearchVector` column + GIN index are still maintained by triggers for any future consumer (raw SQL, reporting). Trade-off is no `ts_rank`-based ordering today, which is logged as a follow-up. No correctness impact; live E2E search worked.
+- **S4 #2 — SQLite sort client-side:** **Accept.** Implemented behind a single `IsPostgres` helper method (not string-matching sprinkled through 15 places); Postgres path does `.OrderBy().Skip().Take()` server-side, SQLite path materialises then sorts in memory. `ApplySort` / `ApplySortInMemory` are two static methods with identical semantics. Test corpora are tiny; Postgres production gets the efficient path.
+- **S4 #3 — Custom tag category forced to `Custom`:** **Accept with note on API consistency.** `POST /api/groups/{groupId}/tags` currently validates `body.Category` via `Enum.TryParse<TagCategory>` (returns 400 on an invalid enum), but then silently discards the parsed value with `_ = category;` and passes only the name to `Tag.CreateGroupScoped`, which hard-codes `TagCategory.Custom`. The reviewer notes this is mildly inconsistent: the DTO accepts + validates a field whose value never matters. Either (a) the endpoint should reject any non-`Custom` value explicitly (`400 invalid_category` when `!= Custom`) or (b) the endpoint should respect the submitted category and loosen the factory. The current behaviour ("accepted, validated, then ignored") is not user-hostile — the web form only ever sends `"Custom"`, and the domain invariant still holds — but it would surprise an API consumer reading the OpenAPI schema. Logged as a follow-up in the S5+ list; **not blocking** because (1) the behaviour is documented in the Deviations section, (2) the factory-level enforcement is the real invariant, (3) no user-visible impact via the shipped web UI. Recommend tightening in S5 polish (pick interpretation (a) — cheap and protects the contract).
+
+### Security / invariants
+
+- **Rating upsert same user:** verified — second `POST {stars:3}` after `{stars:5}` returns `{count:1}`, not `{count:2}`. Source: `RatingEndpoints.UpsertRatingAsync` fetches existing `(RecipeId, UserId)` row and calls `UpdateStars` when present (`apps/api/src/FamilienKochbuch.Api/Endpoints/RatingEndpoints.cs:103-115`). Unique index `IX_Ratings_RecipeId_UserId` on the table enforces at DB level as a belt-and-braces.
+- **Multi-tag AND semantics:** verified — `tags=T1,T2` returned R1+R2 (both carry T1+T2), correctly excluded R3 (only has T3 not T2). Source: `PostgresRecipeSearchService.BuildFilteredQuery` emits one correlated `EXISTS` per distinct requested tag (`apps/api/src/FamilienKochbuch.Infrastructure/Services/PostgresRecipeSearchService.cs:156-167`) — not `.Any(anyMatch)`.
+- **Global tag delete protection:** verified — `DELETE` on a seeded global tag returned 400 `global_tag_protected` (source: `RecipeEndpoints.DeleteGroupTagAsync:707`).
+- **Admin-only custom-tag delete:** verified — non-admin member received 403; admin's subsequent `DELETE` returned 204.
+- **German UI copy:** spot-checked — `RatingWidget.tsx` uses "Bewertungen", "Noch keine Bewertung.", "Bitte wähle zwischen 1 und 5 Sternen.", "Bewertung konnte nicht gespeichert werden." `RecipeFilterPanel.tsx` uses "Zufall", "Würfle…", "Zufalls-Auswahl fehlgeschlagen." Tag-creation endpoint error messages ("Ein Tag mit diesem Namen existiert bereits…", "Globale Tags können nicht gelöscht werden.", "Kategorie ist unbekannt.") all German. All user-visible strings are German.
+- **Filter state URL persistence:** verified by source readthrough — `RecipeFilterPanel.tsx:28` uses `useSearchParams`; `writeFiltersToSearchParams`/`readFiltersFromSearchParams` in `urlState.ts` handle the round trip; `useNavigate` + `useSearchParams` preserve state on reload.
+- **Zufall-Button flow:** verified — calls `fetchRandomRecipe` with the current `filters` object; on non-null `recipeId` navigates to the recipe detail; on null shows a German toast via `setRandomError` ("Zufalls-Auswahl fehlgeschlagen." or the API's message).
+- **TanStack Query invalidation:** verified in `features/ratings/hooks.ts` (invalidates `ratingQueryKeys.forRecipe(recipeId)` + `recipeQueryKeys.detail(recipeId)` + `recipeQueryKeys.all` on both upsert and delete) and `features/tagManagement/hooks.ts` (invalidates `recipeQueryKeys.tagsForGroup(groupId)` on create; adds `recipeQueryKeys.all` on delete so search results drop the tag).
+
+### Non-regression
+
+Previous slices' test counts survive: S1=77, S2=149, S3=246 (after MarkUpdated removal), S4=+75 → **321** total .NET. Web 95 → 121 (+26). Claim matches reality.
+
+### Verdict
+
+All 321 .NET + 121 web tests pass. Lint clean. Docker stack healthy with tsvector column + GIN + triggers live. Every acceptance criterion in the S4 spec is met, including the late-caught Postgres tsvector bug in `86acb93` (reviewer confirms the split Title+Description ∪ EXISTS-over-Ingredients expression compiles + runs correctly against the live stack). TDD order clean for every pair. No new shortcuts; one new suppression (`RecipeFilterPanel.tsx:48`) is inline-justified. Three deviations (tsvector not mapped in EF, SQLite sort client-side, Custom category forced) all accepted with reasoning; deviation #3's API-consistency note is logged as an S5 follow-up, not blocking.
+
+**S4 flipped `in_review` → `done`.**
