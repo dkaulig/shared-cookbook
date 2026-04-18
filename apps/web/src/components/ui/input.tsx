@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
  * form primitives (Form, FormField, etc.) will come when we pull in
  * react-hook-form in a later slice.
  */
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
+export type InputProps = React.InputHTMLAttributes<HTMLInputElement>
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, type, ...props }, ref) => {

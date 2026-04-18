@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
  * peer-disable styling yet. We can swap in the full @radix-ui/react-label
  * variant when form primitives land.
  */
-export interface LabelProps extends React.LabelHTMLAttributes<HTMLLabelElement> {}
+export type LabelProps = React.LabelHTMLAttributes<HTMLLabelElement>
 
 const Label = React.forwardRef<HTMLLabelElement, LabelProps>(
   ({ className, ...props }, ref) => (

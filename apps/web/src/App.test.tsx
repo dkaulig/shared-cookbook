@@ -1,36 +1,48 @@
-import { describe, expect, it } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
+import { render, screen, waitFor } from '@testing-library/react'
 import App from './App.tsx'
+import { useAuthStore } from './features/auth/authStore.ts'
 import { server } from './test/msw/server.ts'
 
 describe('<App />', () => {
-  it('zeigt die "Familien-Kochbuch" Ueberschrift', () => {
-    render(<App />)
-    expect(
-      screen.getByRole('heading', { level: 1, name: /familien-kochbuch/i }),
-    ).toBeInTheDocument()
+  beforeEach(() => {
+    useAuthStore.getState().clear()
+    window.history.replaceState(null, '', '/')
   })
 
-  it('zeigt "API verbunden" wenn /api/health 200 liefert', async () => {
+  afterEach(() => {
+    server.resetHandlers()
+  })
+
+  it('redirects to /login when silent refresh fails', async () => {
+    server.use(http.post('/api/auth/refresh', () => new HttpResponse(null, { status: 401 })))
+
     render(<App />)
 
     await waitFor(() => {
-      expect(screen.getByTestId('health-badge')).toHaveAttribute('data-state', 'connected')
+      expect(window.location.pathname).toBe('/login')
     })
-    expect(screen.getByTestId('health-badge')).toHaveTextContent(/api verbunden/i)
+    expect(screen.getByRole('heading', { level: 1, name: /anmelden/i })).toBeInTheDocument()
   })
 
-  it('zeigt "API nicht erreichbar" wenn /api/health fehlschlaegt', async () => {
+  it('renders the Familien-Kochbuch home when silent refresh succeeds', async () => {
     server.use(
-      http.get('/api/health', () => HttpResponse.text('Service Unavailable', { status: 503 })),
+      http.post('/api/auth/refresh', () =>
+        HttpResponse.json({
+          accessToken: 'tok',
+          user: { id: 'u1', email: 'user@example.com', displayName: 'Oma', role: 'User' },
+        }),
+      ),
     )
 
     render(<App />)
 
     await waitFor(() => {
-      expect(screen.getByTestId('health-badge')).toHaveAttribute('data-state', 'error')
+      expect(
+        screen.getByRole('heading', { level: 1, name: /familien-kochbuch/i }),
+      ).toBeInTheDocument()
     })
-    expect(screen.getByTestId('health-badge')).toHaveTextContent(/api nicht erreichbar/i)
+    expect(screen.getByText(/oma/i)).toBeInTheDocument()
   })
 })
