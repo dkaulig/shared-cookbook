@@ -26,6 +26,16 @@ dependencies = [
   # P2-1: retry with exponential backoff + Retry-After honouring for
   # transient Azure errors (5xx, 429). Tiny pure-Python lib.
   "tenacity==9.1.2",
+  # P2-2 blog path: three-layered HTML → recipe extractors.
+  # `extruct` parses JSON-LD / microdata / RDFa blocks from HTML.
+  # `recipe-scrapers` covers 1000+ cooking sites with hand-rolled
+  # parsers; faster path than falling through to plain BS4.
+  # `beautifulsoup4` + `lxml` backs the final fallback (plain text
+  # dump of <article>/<main>/<body>).
+  "extruct==0.18.0",
+  "recipe-scrapers==15.11.0",
+  "beautifulsoup4==4.14.3",
+  "lxml==6.1.0",
 ]
 
 [project.optional-dependencies]
