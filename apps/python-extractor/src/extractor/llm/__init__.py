@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from extractor.llm.azure_openai import AzureOpenAIProvider
 from extractor.llm.errors import LLM_ERROR_CODES, LLMErrorCode, LLMProviderError
+from extractor.llm.factory import build_provider
 from extractor.llm.mock import MockLLMProvider, NullProvider
 from extractor.llm.provider import ChatMessage, LLMProvider, VisionInput
 
@@ -21,4 +22,5 @@ __all__ = [
     "MockLLMProvider",
     "NullProvider",
     "VisionInput",
+    "build_provider",
 ]
