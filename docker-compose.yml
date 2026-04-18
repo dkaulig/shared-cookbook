@@ -29,12 +29,14 @@ services:
   seaweedfs:
     image: chrislusf/seaweedfs:latest
     container_name: familien-kochbuch-seaweedfs
-    command: server -s3 -s3.config=/config/s3.json -dir=/data
+    # Filer-only mode — no S3 gateway, no public access. The API talks
+    # to :8333 over the internal docker network via plain HTTP PUT/GET/
+    # DELETE. The port is intentionally NOT published to the host.
+    command: server -dir=/data
     volumes:
       - seaweedfs-data:/data
-      - ./infra/seaweedfs:/config:ro
-    ports:
-      - "8333:8333"
+    expose:
+      - "8333"
     restart: unless-stopped
 
   api:
@@ -51,15 +53,14 @@ services:
       ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@familien-kochbuch.local}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-ChangeMe!Admin2026}"
       # JWT signing key — MUST be set in production via the .env file.
+      # Also drives the per-URL photo signatures (SHA256 over "img-sign:" + this).
       JWT_SIGNING_KEY: "${JWT_SIGNING_KEY:-dev-only-signing-key-replace-via-JWT_SIGNING_KEY-env-var}"
       App__FrontendBaseUrl: "${APP_FRONTEND_BASE_URL:-http://localhost}"
-      # Photo storage (SeaweedFS S3 gateway). PublicBaseUrl is what the
-      # client sees: Caddy strip-prefixes /photos/* to the SeaweedFS bucket.
-      PhotoStorage__Endpoint: "${PHOTO_STORAGE_ENDPOINT:-http://seaweedfs:8333}"
-      PhotoStorage__Bucket: "${PHOTO_STORAGE_BUCKET:-recipe-photos}"
-      PhotoStorage__AccessKey: "${PHOTO_STORAGE_ACCESS_KEY:-familien-kochbuch}"
-      PhotoStorage__SecretKey: "${PHOTO_STORAGE_SECRET_KEY:-familien-kochbuch}"
-      PhotoStorage__PublicBaseUrl: "${PHOTO_STORAGE_PUBLIC_BASE_URL:-http://localhost/photos}"
+      # SeaweedFS filer (plain HTTP, internal docker network). The photo
+      # upload + proxy endpoints both route through this URL.
+      SeaweedFS__FilerUrl: "${SEAWEEDFS_FILER_URL:-http://seaweedfs:8333}"
+      # Signed photo URLs expire after this many hours (default 2 h).
+      Images__SignatureValidityHours: "${IMAGES_SIGNATURE_VALIDITY_HOURS:-2}"
     depends_on:
       postgres:
         condition: service_healthy
