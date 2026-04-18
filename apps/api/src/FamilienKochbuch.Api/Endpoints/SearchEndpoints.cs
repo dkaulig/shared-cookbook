@@ -100,6 +100,7 @@ public static class SearchEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         IRecipeSearchService search,
+        IPhotoStorage photoStorage,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -116,7 +117,7 @@ public static class SearchEndpoints
             summary.GroupId,
             summary.Title,
             summary.Description,
-            summary.Photo,
+            string.IsNullOrEmpty(summary.Photo) ? null : photoStorage.GetPublicUrl(summary.Photo),
             summary.TagIds.ToArray(),
             summary.CreatedByDisplayName,
             summary.UpdatedAt,

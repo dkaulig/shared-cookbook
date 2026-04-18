@@ -180,6 +180,7 @@ public static class RecipeEndpoints
     private static async Task<RecipeDetailDto> ProjectDetailAsync(
         AppDbContext db,
         Recipe recipe,
+        IPhotoStorage photoStorage,
         CancellationToken ct)
     {
         var creator = await db.Users
@@ -211,6 +212,13 @@ public static class RecipeEndpoints
             .Select(s => new StepDto(s.Id, s.Position, s.Content))
             .ToArray();
 
+        // Photos are stored as bare paths in the DB; project them through
+        // IPhotoStorage.GetPublicUrl so every response carries a freshly
+        // signed, time-bounded proxy URL.
+        var photos = recipe.Photos
+            .Select(photoStorage.GetPublicUrl)
+            .ToArray();
+
         return new RecipeDetailDto(
             recipe.Id,
             recipe.GroupId,
@@ -224,7 +232,7 @@ public static class RecipeEndpoints
             recipe.SourceUrl,
             recipe.SourceType.ToString(),
             recipe.ForkOfRecipeId,
-            recipe.Photos.ToArray(),
+            photos,
             recipe.LastCookedAt,
             recipe.CreatedAt,
             recipe.UpdatedAt,
@@ -240,6 +248,7 @@ public static class RecipeEndpoints
         CreateRecipeRequest body,
         ClaimsPrincipal principal,
         AppDbContext db,
+        IPhotoStorage photoStorage,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -300,7 +309,7 @@ public static class RecipeEndpoints
             return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
         }
 
-        var detail = await ProjectDetailAsync(db, recipe, ct);
+        var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
         return Results.Created($"/api/recipes/{recipe.Id}", detail);
     }
 
@@ -322,6 +331,7 @@ public static class RecipeEndpoints
         int? pageSize,
         ClaimsPrincipal principal,
         AppDbContext db,
+        IPhotoStorage photoStorage,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -381,12 +391,17 @@ public static class RecipeEndpoints
             int count = ratings?.Count ?? 0;
             int? myStars = ratings?.FirstOrDefault(r => r.UserId == userId)?.Stars;
 
+            var firstPhotoPath = x.Recipe.Photos.FirstOrDefault();
+            var firstPhotoUrl = string.IsNullOrEmpty(firstPhotoPath)
+                ? null
+                : photoStorage.GetPublicUrl(firstPhotoPath);
+
             return new RecipeSummaryDto(
                 x.Recipe.Id,
                 x.Recipe.GroupId,
                 x.Recipe.Title,
                 x.Recipe.Description,
-                x.Recipe.Photos.FirstOrDefault(),
+                firstPhotoUrl,
                 tagsByRecipe.TryGetValue(x.Recipe.Id, out var ids) ? ids : Array.Empty<Guid>(),
                 x.CreatorDisplay,
                 x.Recipe.UpdatedAt,
@@ -404,6 +419,7 @@ public static class RecipeEndpoints
         Guid id,
         ClaimsPrincipal principal,
         AppDbContext db,
+        IPhotoStorage photoStorage,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -413,7 +429,7 @@ public static class RecipeEndpoints
 
         if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
 
-        var detail = await ProjectDetailAsync(db, recipe, ct);
+        var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
         return Results.Ok(detail);
     }
 
@@ -424,6 +440,7 @@ public static class RecipeEndpoints
         UpdateRecipeRequest body,
         ClaimsPrincipal principal,
         AppDbContext db,
+        IPhotoStorage photoStorage,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -485,7 +502,7 @@ public static class RecipeEndpoints
         // Reload to project the detail DTO from fresh state.
         recipe = (await LoadRecipeWithChildrenAsync(db, recipe.Id, ct))!;
 
-        var detail = await ProjectDetailAsync(db, recipe, ct);
+        var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
         return Results.Ok(detail);
     }
 
@@ -544,25 +561,27 @@ public static class RecipeEndpoints
                 "photo_limit_reached",
                 $"Ein Rezept darf höchstens {Recipe.MaxPhotos} Fotos haben."));
 
-        string url;
+        string path;
         await using (var stream = file.OpenReadStream())
         {
-            url = await photoStorage.UploadAsync(stream, file.ContentType!, file.FileName, ct);
+            path = await photoStorage.UploadAsync(stream, file.ContentType!, file.FileName, ct);
         }
 
         try
         {
-            recipe.AddPhoto(url);
+            // DB holds the bare path; the public URL is computed per-response
+            // so each client gets a fresh expiry.
+            recipe.AddPhoto(path);
             await db.SaveChangesAsync(ct);
         }
         catch
         {
             // Best-effort rollback — we just stored a photo we can't reference.
-            await photoStorage.DeleteAsync(url, ct);
+            await photoStorage.DeleteAsync(path, ct);
             throw;
         }
 
-        return Results.Ok(new UploadPhotoResponse(url));
+        return Results.Ok(new UploadPhotoResponse(photoStorage.GetPublicUrl(path)));
     }
 
     // ── DELETE /api/recipes/{id}/photos ─────────────────────────────
@@ -584,12 +603,18 @@ public static class RecipeEndpoints
         if (string.IsNullOrWhiteSpace(body.Url))
             return Results.BadRequest(new ErrorResponse("invalid_input", "url ist erforderlich."));
 
-        var removed = recipe.RemovePhoto(body.Url);
+        // Clients may echo back either the signed URL they received or the
+        // bare path; normalize before removing so both shapes work.
+        var targetPath = SeaweedFsPhotoStorage.NormalizeToPath(body.Url);
+        if (string.IsNullOrWhiteSpace(targetPath))
+            return Results.BadRequest(new ErrorResponse("invalid_input", "url ist erforderlich."));
+
+        var removed = recipe.RemovePhoto(targetPath);
         if (!removed)
             return Results.NotFound();
 
         await db.SaveChangesAsync(ct);
-        await photoStorage.DeleteAsync(body.Url, ct);
+        await photoStorage.DeleteAsync(targetPath, ct);
 
         return Results.NoContent();
     }
