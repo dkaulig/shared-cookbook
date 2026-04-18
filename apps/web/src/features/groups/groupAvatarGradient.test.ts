@@ -5,12 +5,13 @@ import {
 } from './groupAvatarGradient'
 
 /**
- * Deterministic avatar-gradient helper for `<GroupDetailHeader />` (DS4).
+ * Deterministic avatar-gradient helper for `<GroupDetailHeader />` (DS4,
+ * retinted for DS8 Sage Modern).
  *
- * The mockup (`docs/mockups/warme-kueche-group-detail.html`) renders the
- * overlapping group avatar with a warm amber-tinted gradient. We expose
- * three tinted gradients (amber, rose, sage) so the 3–5 groups a typical
- * household maintains look visually distinct without a real cover image.
+ * The mockup (`docs/mockups/variant-a-home.html`) renders the overlapping
+ * group avatar with one of three Sage Modern tints (sage, coral, olive)
+ * so the 3–5 groups a typical household maintains look visually distinct
+ * without a real cover image.
  *
  * Hashing is on `groupId` so the same group always renders the same
  * swatch, while different groups get variety.

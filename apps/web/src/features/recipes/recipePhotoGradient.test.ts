@@ -5,7 +5,8 @@ import { recipePhotoGradient, RECIPE_PHOTO_GRADIENTS } from './recipePhotoGradie
  * Deterministic gradient CSS strings for the Home page's "Zuletzt gekocht"
  * cards when a recipe does not yet have a real photo. Mirrors the
  * `.recipe-photo-1 … recipe-photo-4` classes from
- * `docs/mockups/warme-kueche-home.html` so the visual reads the same.
+ * `docs/mockups/variant-a-home.html` (DS8 Sage Modern) so the visual reads
+ * the same.
  *
  * The helper hashes on recipe id so rerenders pick the same swatch for
  * the same recipe, and different recipes get visual variety.
@@ -14,8 +15,10 @@ describe('recipePhotoGradient', () => {
   it('exposes at least four gradient variants from the mockup', () => {
     expect(RECIPE_PHOTO_GRADIENTS.length).toBeGreaterThanOrEqual(4)
     for (const gradient of RECIPE_PHOTO_GRADIENTS) {
+      // DS8 Sage Modern uses straight linear gradients; the mockup no
+      // longer layers a radial highlight on top.
       expect(gradient).toMatch(/linear-gradient/)
-      expect(gradient).toMatch(/radial-gradient/)
+      expect(gradient).toMatch(/#[0-9a-f]{6}/i)
     }
   })
 

@@ -1,9 +1,9 @@
 /**
  * Gradient photo fallbacks for recipe cards when no real cover photo
  * is uploaded yet. The four gradients are copied verbatim from
- * `.recipe-photo-{1..4}` in `docs/mockups/warme-kueche-home.html` so
- * the Home page feels cohesive with the design spec until real photos
- * land.
+ * `.recipe-photo-{1..4}` in `docs/mockups/variant-a-home.html` so
+ * the Home page feels cohesive with the DS8 Sage Modern spec until
+ * real photos land.
  *
  * `recipePhotoGradient(id)` is deterministic: same id → same swatch,
  * different ids → variety. The hash is a tiny FNV-1a variant over the
@@ -11,14 +11,14 @@
  * for this visual distribution job.
  */
 export const RECIPE_PHOTO_GRADIENTS: readonly string[] = [
-  // recipe-photo-1 — amber / caramel
-  'linear-gradient(135deg, rgba(146,64,14,0.35), rgba(180,83,9,0.2)), radial-gradient(circle at 30% 40%, #fbbf24 0%, #b45309 60%)',
-  // recipe-photo-2 — deep red / cranberry
-  'linear-gradient(135deg, rgba(127,29,29,0.3), rgba(220,38,38,0.15)), radial-gradient(circle at 70% 60%, #fca5a5 0%, #991b1b 60%)',
-  // recipe-photo-3 — herb green / lime
-  'linear-gradient(135deg, rgba(22,101,52,0.2), rgba(132,204,22,0.15)), radial-gradient(circle at 40% 60%, #bef264 0%, #4d7c0f 60%)',
-  // recipe-photo-4 — toasted wheat / amber-cream
-  'linear-gradient(135deg, rgba(180,83,9,0.25), rgba(252,211,77,0.1)), radial-gradient(circle at 60% 40%, #fde68a 0%, #78350f 70%)',
+  // recipe-photo-1 — sage / deep-green
+  'linear-gradient(135deg, #a8c0b0 0%, #4f7961 100%)',
+  // recipe-photo-2 — coral / burnt-terracotta
+  'linear-gradient(135deg, #e9b99c 0%, #c26b43 100%)',
+  // recipe-photo-3 — olive / herbal-green
+  'linear-gradient(135deg, #d8e0b5 0%, #7a9a30 100%)',
+  // recipe-photo-4 — wheat / toasted-brown
+  'linear-gradient(135deg, #d9b88f 0%, #8f5f2b 100%)',
 ] as const
 
 /** FNV-1a 32-bit hash — tiny and no deps. */

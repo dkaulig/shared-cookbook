@@ -1,16 +1,16 @@
 /**
  * Gradient swatches for the overlapping group avatar on
- * `<GroupDetailHeader />` (DS4).
+ * `<GroupDetailHeader />` (DS4, retinted for DS8 Sage Modern).
  *
- * Colors come verbatim from the `.member-chip.m1/.m2/.m3` rules in
- * `docs/mockups/warme-kueche-group-detail.html`, extrapolated to the
- * larger 72 px square: amber, rose, and sage tints on a warm cream
- * background. The helper hashes on `groupId` so the same group always
- * draws the same swatch, while different groups get variety.
+ * Colors mirror the `.group-avatar.tint-{1,2,3}` rules in
+ * `docs/mockups/variant-a-home.html`: a sage, a coral-terracotta, and
+ * an olive swatch sitting on the Sage Modern cream background. The
+ * helper hashes on `groupId` so the same group always draws the same
+ * swatch, while different groups get variety.
  *
- * The returned object ships a background CSS value and a foreground text
- * color tuned to remain legible against the swatch (dark amber / dark
- * maroon / dark moss respectively).
+ * The returned object ships a background CSS value and a foreground
+ * text color tuned to remain legible against each swatch (deep sage,
+ * warm terracotta, and deep olive respectively).
  */
 export interface GroupAvatarGradient {
   readonly background: string
@@ -18,20 +18,20 @@ export interface GroupAvatarGradient {
 }
 
 export const GROUP_AVATAR_GRADIENTS: readonly GroupAvatarGradient[] = [
-  // amber — primary Warme-Küche tint, matches the mockup's default avatar
+  // sage — primary Sage Modern tint, matches the mockup's default avatar
   {
-    background: 'linear-gradient(135deg, #fde68a 0%, #fbbf24 100%)',
-    color: '#713f12',
+    background: 'linear-gradient(135deg, #c3d4ca 0%, #8daea0 100%)',
+    color: '#2b4435',
   },
-  // rose — warm companion tint
+  // coral — warm terracotta companion tint
   {
-    background: 'linear-gradient(135deg, #fecaca 0%, #fca5a5 100%)',
-    color: '#7f1d1d',
+    background: 'linear-gradient(135deg, #f0c9b6 0%, #d9a281 100%)',
+    color: '#7a3f21',
   },
-  // sage — cooler green tint for variety
+  // olive — cooler herbal green tint for variety
   {
-    background: 'linear-gradient(135deg, #d9f99d 0%, #a3e635 100%)',
-    color: '#365314',
+    background: 'linear-gradient(135deg, #d9e0b5 0%, #b6c27e 100%)',
+    color: '#4f5b1f',
   },
 ] as const
 
