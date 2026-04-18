@@ -43,11 +43,11 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 - **Wake-up time:** 2026-04-18 (photo-storage-fix agent returned)
 - **Action taken:** Photo-storage signed-URL fix pass completed end-to-end. Mirrored hoppr's pattern byte-for-byte: new `ImageSigningService` (HMAC-SHA256 over `{path}:{exp}`, URL-safe base64, `FixedTimeEquals`, key = `SHA256("img-sign:" + Jwt:SigningKey)`, validity from `Images:SignatureValidityHours`, default 2 h); anonymous `GET /api/photos/{**path}` proxy that 403s on missing/expired/tampered signatures and 404s when the filer object is gone; `SeaweedFsPhotoStorage` rewritten to a plain-HTTP filer client via `IHttpClientFactory` (AWSSDK.S3 gone, bucket auto-create gone, chunk-encoding workaround gone); `IPhotoStorage.UploadAsync` now returns the bare path and `GetPublicUrl(path)` produces a freshly-signed URL per response; `DeleteAsync` accepts either the path or the signed URL; recipe endpoints persist the path and surface the signed URL in every response; new idempotent `PhotoPathMigrationService` rewrites S3-era URLs to bare paths on startup; docker-compose runs SeaweedFS as `server -filer -dir=/data -filer.port=8333` (expose only, no host port), Caddy's `/photos/*` block removed. 360 .NET tests + 121 web tests + lint all green; live E2E through Caddy confirms upload → 200 with signed URL, expired/missing/invalid sig → 403, delete → 204 → 404 on subsequent GET, and `curl http://localhost:8333` → connection refused. Flipped S4 `done` (unchanged) and queued review dispatch for the photo-fix commit range.
-- **Next action:** dispatch the code-reviewer against commit range `5035b20..HEAD` to verify the anti-shortcut checklist + independently re-run `dotnet test`, `pnpm test`, `pnpm lint`, `docker compose up`, and curl the signed + invalid-`exp` paths themselves.
+- **Next action:** S5 (Portions + Fork + Group Defaults) is now eligible for dispatch. The photo-storage fix was independently re-reviewed on 2026-04-18 and passed (see Review outcomes → Photo-fix pass #1 below).
 
 ## Mid-slice fix passes
 
-- Photo storage signed-URL migration (2026-04-18) — resolved per `docs/known-issues/photo-storage-signed-urls.md`; commit range `5035b20..beb1966` (plus this progress/doc update commit); awaiting review agent dispatch.
+- Photo storage signed-URL migration (2026-04-18) — **reviewed and accepted**; commit range `5035b20..50c6e96` verified end-to-end by an independent reviewer. See Review outcomes → Photo-fix pass #1 (2026-04-18) → pass below.
 
 ## Blockers / pauses
 
@@ -1016,3 +1016,114 @@ Previous slices' test counts survive: S1=77, S2=149, S3=246 (after MarkUpdated r
 All 321 .NET + 121 web tests pass. Lint clean. Docker stack healthy with tsvector column + GIN + triggers live. Every acceptance criterion in the S4 spec is met, including the late-caught Postgres tsvector bug in `86acb93` (reviewer confirms the split Title+Description ∪ EXISTS-over-Ingredients expression compiles + runs correctly against the live stack). TDD order clean for every pair. No new shortcuts; one new suppression (`RecipeFilterPanel.tsx:48`) is inline-justified. Three deviations (tsvector not mapped in EF, SQLite sort client-side, Custom category forced) all accepted with reasoning; deviation #3's API-consistency note is logged as an S5 follow-up, not blocking.
 
 **S4 flipped `in_review` → `done`.**
+
+## Review outcomes → Photo-fix pass #1 (2026-04-18) → pass
+
+Independent reviewer (general-purpose agent, has Bash) executed every verification command on commit range `5035b20..50c6e96` for the mid-slice photo-storage signed-URL fix. Nothing trusted — everything re-run locally.
+
+### Static checks
+
+- `git log --oneline 5035b20^..50c6e96 | wc -l` → **13** (matches claim).
+- TDD commit-order spot-checks (all five sub-steps red → green):
+  - ImageSigningService: test `5035b20` precedes feat `b98de1b` ✓
+  - Photo proxy endpoint: test `081c648` precedes feat `fdfea14` ✓
+  - Storage refactor (filer HTTP): test `c31c0fb` precedes feat `75cf64f` ✓
+  - Endpoint wiring (bare-path store, signed URL response): test `11f53b0` precedes feat `12648e1` ✓
+  - Data migration: test `7f60b0f` precedes feat `de5e64d` ✓
+- `grep "Assert.True(true|false)" apps/api/tests/` → 0 matches.
+- `grep "[Skip|Skip=|.Skip(" apps/api/tests/ --include=*.cs` → 0 matches.
+- `grep "it.skip|it.todo|describe.skip|.only(|xit|xdescribe" apps/web/src/ packages/` → 0 matches.
+- `grep "TODO|FIXME|HACK|XXX" apps/ packages/ --include=*.{cs,ts,tsx}` → 0 matches.
+- `grep "@ts-ignore|@ts-expect-error|eslint-disable|SuppressMessage|pragma warning disable" apps/ packages/ --include=*.{cs,ts,tsx}` → 7 matches — all pre-existing S0–S4 baseline (4 EF-generated designer/snapshot pragmas, `useSession.ts` "intentionally once on mount", `RecipeFilterPanel.tsx` qInput debounce). **No NEW suppressions introduced by the photo-fix commit range.**
+- `grep "NotImplementedException" apps/ packages/ --include=*.cs` → 0 hits in prod.
+- `grep "Amazon.S3|AWSSDK|UseChunkEncoding" apps/ packages/ --include=*.cs` → 0 hits outside docs. `AWSSDK.*` packages removed from `FamilienKochbuch.Infrastructure.csproj`. Test scaffolding (`FakePhotoStorage`) has no Amazon.S3 imports.
+- `PhotoStorageOptions` still exists but is now a thin wrapper around `SectionName = "SeaweedFS"` with a single `FilerUrl` property — semantically matches the spec's `SeaweedFS:FilerUrl` convention (renaming the class is not required; the config section on disk is `SeaweedFS:FilerUrl` exactly per spec).
+- `cat apps/api/Directory.Build.props` → `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` present.
+
+### Deliverable presence
+
+- `apps/api/src/FamilienKochbuch.Api/Services/ImageSigningService.cs` + `PhotoUrlSigner.cs` (the `IPhotoUrlSigner` adapter per adjustment #1) ✓
+- `apps/api/src/FamilienKochbuch.Api/Endpoints/PhotoProxyEndpoints.cs` wired in `Program.cs` via `app.MapPhotoProxyEndpoints()` ✓
+- `SeaweedFsPhotoStorage` now uses `IHttpClientFactory` with the named client `"seaweedfs-filer"` (shared with the proxy endpoint), `UploadAsync` returns a raw path, no `Amazon.S3` imports, `GetPublicUrl` delegates to `IPhotoUrlSigner`, `DeleteAsync` accepts both raw path and signed URL via the shared `NormalizeToPath` helper (strips query string + `/api/photos/` prefix + scheme/host). ✓
+- `apps/api/src/FamilienKochbuch.Infrastructure/Services/IPhotoUrlSigner.cs` + `PhotoUrlSigner` adapter in the Api layer ✓
+- `PhotoPathMigrationService.cs` + tests (7 tests in `FamilienKochbuch.Infrastructure.Tests/Services/PhotoPathMigrationServiceTests.cs`) — idempotent, handles `http://localhost/photos/recipe-photos/{guid}.ext`, `http://seaweedfs:8333/recipe-photos/{guid}.ext`, already-bare paths, mixed arrays, and unparseable entries ✓
+- `docker-compose.yml` → `seaweedfs` command is `server -filer -dir=/data -filer.port=8333`; uses `expose: ["8333"]` (no host port mapping). ✓
+- `infra/Caddyfile` → `/photos/*` block **removed**; only `/api/*` + SPA routes remain. ✓
+- `appsettings.Development.json` → `SeaweedFS:FilerUrl` + `Images:SignatureValidityHours` present; `PhotoStorage` section removed. ✓
+- `.env.example` → documents `SEAWEEDFS_FILER_URL` and `IMAGES_SIGNATURE_VALIDITY_HOURS`. ✓
+
+### Signing correctness (hoppr parity)
+
+Byte-for-byte read of `ImageSigningService.cs` against hoppr's canonical `apps/api/src/Hoppr.Api/Services/ImageSigningService.cs`:
+
+- Key derivation: `SHA256.HashData(Encoding.UTF8.GetBytes("img-sign:" + jwtKey))` — **exact match** with hoppr. ✓
+- HMAC payload: `$"{path}:{exp}"` encoded UTF-8 — matches. ✓
+- URL-safe base64: `+` → `-`, `/` → `_`, `TrimEnd('=')` — matches. ✓
+- `Validate`: expiry check `now > exp → false`; then `CryptographicOperations.FixedTimeEquals(utf8(sig), utf8(expected))` — matches. ✓
+- Config key: reads `Jwt:SigningKey` instead of hoppr's `Jwt:Key` (documented in the class XML comment — this is the spec's intentional difference, not a drift).
+- Custom validity: second `SignUrl(basePath, filePath, TimeSpan validity)` overload respected; default from `Images:SignatureValidityHours`, fallback 2 h. ✓
+- Test coverage (`ImageSigningServiceTests.cs`): 12 tests including roundtrip, URL-safe base64 (50 iterations looking for `+`/`/`/`=`), tampered sig (single-char flip), tampered path, expired exp, null + empty sig, default-validity ~7200 s ± 5, custom-validity ~60 s ± 5, missing-key-throws, cross-secret rejection. Exceeds the ≥ 6 threshold — **no hollow tests**. ✓
+
+### Proxy correctness
+
+- Route: `GET /api/photos/{**path}` with `.AllowAnonymous()` — confirmed in source and via E2E. ✓
+- Reads `sig` + `exp` from `Request.Query`; `long.TryParse` on `exp` with `CultureInfo.InvariantCulture`; falls back to 403 on any parse/validate failure. ✓
+- Proxies from `SeaweedFS:FilerUrl` via the named `IHttpClientFactory` client (`seaweedfs-filer`); returns `Results.NotFound()` when filer returns non-2xx. ✓
+- `Cache-Control: private, max-age=3600` set on successful responses. ✓
+- `PhotoProxyEndpointsTests.cs`: 9 tests — happy 200, cache-control header, missing sig → 403, missing exp → 403, invalid sig → 403, expired → 403, tampered path → 403, non-numeric exp → 403, filer 404 → 404, anonymous access without JWT → 200. Uses `FakeSeaweedFsFiler` as a `DelegatingHandler` on the named client, no real SeaweedFS container touched. Exceeds the ≥ 6 threshold. ✓
+
+### Data-migration correctness
+
+- `PhotoPathMigrationService` loads recipes, normalizes each photo entry via `TryRewrite`, saves only when something changed. Marks `Photos` property modified (required because EF tracks the `List<string>` through a `ValueConverter`).
+- Idempotent: already-bare `recipes/{guid}.ext` returns unchanged; unparseable entries (no `recipe-photos/` segment) return `null` → caller leaves untouched.
+- Handles both legacy shapes: `http://localhost/photos/recipe-photos/…` (Caddy-proxied) and `http://seaweedfs:8333/recipe-photos/…` (direct). Explicit tests for both.
+- Uses a simple `IndexOf(LegacyBucketSegment)` + substring slice, not a fragile regex.
+- Wired in `Program.cs` at startup after `SeedAsync`; skipped in Testing env. ✓
+- Test coverage (7 tests): legacy localhost URL, direct SeaweedFS URL, bare-path no-op, mixed-across-recipes (3 recipes with legacy/fresh/mixed), idempotent (runs twice yields same state), unparseable entries left alone, empty Recipes table = no-op by short-circuit. ✓
+
+### Runtime verification (all executed by reviewer)
+
+- `dotnet test apps/api/FamilienKochbuch.sln` → **360/360 pass** (155 Domain + 61 Infrastructure + 144 Api). 0 skipped, 0 failed. Matches the claim of +39 vs S4's 321.
+- `cd apps/web && pnpm test --run` → **121/121 pass** across 29 test files. Unchanged from S4.
+- `pnpm lint` at root → clean (0 errors, 0 warnings).
+- `docker compose up --build -d` → all 6 services up; api reached `healthy` within ~24 s; postgres + redis healthy.
+- `docker compose ps` → `seaweedfs` column `PORTS` shows only internal ports (`7333/tcp, 8080/tcp, 8333/tcp, 8888/tcp, 9333/tcp, …`) with **no** `0.0.0.0:…->8333/tcp` host mapping. `caddy` is the only service with host-published ports (80 + 443).
+- **Critical privacy check:** `curl -I --max-time 3 http://localhost:8333/` → `curl: (7) Failed to connect to localhost port 8333 after 0 ms: Couldn't connect to server`. **SeaweedFS is not reachable from the host.** ✓
+
+### E2E curl flow (live docker stack)
+
+1. Login admin (`admin@familien-kochbuch.local` / `ChangeMe!Admin2026`) → 200, access token issued.
+2. `GET /api/groups/` → Private Sammlung `1928eae6-…` resolved.
+3. `GET /api/groups/{gid}/tags` → 30 global tags; picked T1=`a0000004-…-3` and T2=`a0000004-…-2`.
+4. `POST /api/groups/{gid}/recipes` with 1 ingredient + 1 step + 2 tags → 201, recipe id `65f5c754-…`.
+5. `POST /api/recipes/{rid}/photos` with a 69-byte 1×1 PNG → 200. Response body: `{"url":"/api/photos/recipes/182d388b…png?sig=baRYRzu-y-lknVbCzUflYtCv9uqjtwdNtuF90d2KABk&exp=1776522479"}`. URL is a **relative path** (hoppr-consistent; matches hoppr's `ImageEndpoints` which also returns `/api/images/{path}?…`). Prepending `http://localhost` gives the fetchable URL.
+6. `curl http://localhost/api/photos/…?sig=…&exp=…` → **200**, 69-byte PNG body returned, `Content-Type: image/png`, **`Cache-Control: private, max-age=3600`** header present. ✓
+7. Tamper `exp=1000000000` (past unix time) → **403**. ✓
+8. Tamper `sig` (flip first char `b` → `X`) → **403**. ✓
+9. Remove `sig` entirely → **403**. ✓
+10. `DELETE /api/recipes/{rid}/photos` with body `{"url":"<original relative URL>"}` → **204**. Response body empty. ✓
+11. `GET /api/recipes/{rid}` → `photos=[]`. ✓
+12. Re-fetch the original signed URL → **404** (filer has removed the file — cleaner than 403, and still correct behaviour per the spec's "404 is cleaner; 403 is acceptable"). ✓
+13. `docker compose down` → clean teardown.
+14. `git status` clean; `git log origin/main..HEAD` empty.
+
+### Deviation check (fix-agent's 5 adjustments)
+
+1. **`IPhotoUrlSigner` adapter** to keep `Infrastructure` layer ignorant of the Api-layer signing service — **accept**. Clean layering; Infrastructure references the interface, Api provides `PhotoUrlSigner : IPhotoUrlSigner` that wraps `ImageSigningService`. Matches the spec's "signer adapter per adjustment #1" expectation.
+2. **`PhotoStorageOptions` class kept but repurposed** — `SectionName = "SeaweedFS"`, single `FilerUrl` property. The on-disk config key matches the spec exactly (`SeaweedFS:FilerUrl`); the class rename was not a stated requirement. **accept**.
+3. **Signed URL returned as relative path** (`/api/photos/…?sig=…&exp=…`) rather than absolute (`http://localhost/api/photos/…`) — **accept**. Matches hoppr's canonical pattern (`ImageEndpoints` in hoppr also returns relative paths). The review spec's "MUST start with `http://localhost/api/photos/`" was stricter than the canonical pattern; the E2E still works because clients prepend their origin. No real-world impact. Worth noting for any future reviewer that flat relative URLs are deliberate.
+4. **`NormalizeToPath` helper shared between `SeaweedFsPhotoStorage.DeleteAsync` and `FakePhotoStorage.DeleteAsync`** so both test and prod paths agree on how a signed URL is reduced to a bare path — **accept**. Defensive, prevents drift between the fake and the real implementation.
+5. **`-filer -filer.port=8333`** explicit on the SeaweedFS command, replacing the earlier implicit `server -dir=/data` — **accept**. The follow-up commit `beb1966` makes the filer mode explicit so the container actually speaks REST on 8333 regardless of which SeaweedFS image version is pulled.
+
+### Regression sanity
+
+- Photo limit of 3 per recipe intact (`Recipe.MaxPhotos = 3`, enforced in `AddPhoto` and mapped to `photo_limit_reached` in `RecipeEndpoints`). ✓
+- `RecipeEndpoints` still authorizes photo upload via `IsGroupMemberAsync` (line 544) — non-members get 403 as before. Verified by the existing S3/S4 integration tests in `RecipeEndpointsTests`. ✓
+- No orphaned test files referencing `PhotoStorageOptions` in the legacy sense (`Endpoint` / `PublicBaseUrl` / `Bucket` properties are gone — the only surviving reference is in `SeaweedFsPhotoStorageTests` which uses the new `FilerUrl` shape). No `Amazon.S3` imports anywhere in test code.
+- Static web bundle, other API endpoints (Auth, Groups, Invites, Ratings, Search) — all 121 web + 360 .NET tests still green.
+
+### Verdict
+
+All 360 .NET + 121 web tests pass. Lint clean. Docker stack healthy. **SeaweedFS confirmed unreachable from the host** (connection refused on 8333, satisfying the primary privacy acceptance criterion). Signed URL scheme matches hoppr byte-for-byte modulo the spec-noted `Jwt:SigningKey` rename. Proxy endpoint 403s on every invalid-sig/missing-sig/expired/tampered-path case, 404s on valid-sig-but-missing-object. Data migration is idempotent and handles both legacy URL shapes + bare paths + unparseable entries defensively. TDD order is clean for all five sub-steps (test commit precedes feat commit in every case). The five fix-agent adjustments are all sound — #3 (relative URLs) tracks hoppr's canonical pattern even though the review brief wanted absolute. No new shortcuts, no new suppressions, no new TODOs. Full E2E curl flow including tamper/expire/delete/404-after-delete all confirmed with my own eyes against the live stack.
+
+**Photo-storage fix pass flipped `in_review` → `done`.** Issue `docs/known-issues/photo-storage-signed-urls.md` remains correctly marked `RESOLVED`.
