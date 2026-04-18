@@ -40,6 +40,10 @@ export function SignupPage() {
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  // BF1 #7 — second password field; must match `password` before submit.
+  // Mirrors the pattern already used by ResetPasswordPage so the user
+  // sees the same double-entry shape during invite-flow signup.
+  const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -86,6 +90,10 @@ export function SignupPage() {
     }
     if (password.length < 8) {
       setError('Passwort muss mindestens 8 Zeichen lang sein.')
+      return
+    }
+    if (password !== confirm) {
+      setError('Passwörter stimmen nicht überein.')
       return
     }
 
@@ -191,6 +199,19 @@ export function SignupPage() {
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={preview.status !== 'ok'}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm">Passwort bestätigen</Label>
+              <Input
+                id="confirm"
+                type="password"
+                placeholder="Nochmal zur Sicherheit"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
                 disabled={preview.status !== 'ok'}
               />
             </div>
