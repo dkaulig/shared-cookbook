@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import type { FormEvent, KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type {
   ApiError,
@@ -38,6 +38,9 @@ import {
   useUpdateRecipe,
 } from './hooks'
 import { CharCounter } from './CharCounter'
+import { renderInlineMarkdown } from './markdownRenderer'
+import { wrapSelection } from './markdownToolbarHelpers'
+import { StepMarkdownToolbar } from './StepMarkdownToolbar'
 import { DifficultyPills } from './DifficultyPills'
 import type { DifficultyLevel } from './DifficultyPills'
 import { FormActionBar } from './FormActionBar'
@@ -693,10 +696,16 @@ function FormInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   )
 }
 
-function FormTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function FormTextarea({
+  ref,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  ref?: React.Ref<HTMLTextAreaElement>
+}) {
   return (
     <textarea
       {...props}
+      ref={ref}
       className={cn(
         'min-h-[72px] w-full rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[15px] leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
         'placeholder:text-[hsl(var(--muted-foreground))]/80',
@@ -960,6 +969,40 @@ function SortableStepRow({
     transition,
     opacity: isDragging ? 0.85 : 1,
   }
+  // Per-step preview toggle — local to the row so flipping one step
+  // doesn't re-render the other rows' textareas.
+  const [previewMode, setPreviewMode] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  function handleTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Cmd+B on macOS, Ctrl+B on Windows / Linux. Same for italic.
+    const isMod = event.metaKey || event.ctrlKey
+    if (!isMod) return
+    if (event.key === 'b' || event.key === 'B') {
+      event.preventDefault()
+      applyShortcutWrap('**', '**')
+    } else if (event.key === 'i' || event.key === 'I') {
+      event.preventDefault()
+      applyShortcutWrap('*', '*')
+    }
+  }
+
+  function applyShortcutWrap(before: string, after: string) {
+    const ta = textareaRef.current
+    if (!ta) return
+    const start = ta.selectionStart ?? 0
+    const end = ta.selectionEnd ?? 0
+    const result = wrapSelection(row.content, start, end, before, after)
+    onChange(result.nextValue)
+    // The textarea is controlled — set the selection in a microtask so
+    // React's commit has landed the new value before we re-range.
+    queueMicrotask(() => {
+      const node = textareaRef.current
+      if (!node) return
+      node.focus()
+      node.setSelectionRange(result.nextSelectionStart, result.nextSelectionEnd)
+    })
+  }
 
   return (
     <li
@@ -994,14 +1037,39 @@ function SortableStepRow({
             Schritt {index + 1}
           </span>
         </div>
-        <FormTextarea
+        <StepMarkdownToolbar
           value={row.content}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Was wird in diesem Schritt gemacht?"
-          aria-label={`Schritt ${index + 1}`}
-          maxLength={5000}
-          className="min-h-[52px] text-[14px]"
+          onChange={onChange}
+          textareaRef={textareaRef}
+          previewMode={previewMode}
+          onTogglePreview={() => setPreviewMode((p) => !p)}
         />
+        {previewMode ? (
+          <div
+            data-testid={`step-preview-${index}`}
+            aria-label={`Schritt ${index + 1} Vorschau`}
+            className="min-h-[52px] rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[14px] leading-[1.4] text-foreground [&_strong]:font-semibold [&_strong]:text-[hsl(var(--primary-hover,var(--primary)))]"
+          >
+            {row.content.trim().length === 0 ? (
+              <span className="text-[hsl(var(--muted-foreground))]">
+                Noch kein Inhalt.
+              </span>
+            ) : (
+              renderInlineMarkdown(row.content)
+            )}
+          </div>
+        ) : (
+          <FormTextarea
+            ref={textareaRef}
+            value={row.content}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleTextareaKeyDown}
+            placeholder="Was wird in diesem Schritt gemacht?"
+            aria-label={`Schritt ${index + 1}`}
+            maxLength={5000}
+            className="min-h-[52px] text-[14px]"
+          />
+        )}
       </div>
 
       <div className="flex items-start pt-1">

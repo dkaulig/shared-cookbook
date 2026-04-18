@@ -497,6 +497,63 @@ describe('RecipeFormPage (create)', () => {
     expect(captured!.defaultServings).toBeGreaterThanOrEqual(1)
   })
 
+  // UX1-RT — the step row exposes a Markdown toolbar. Clicking "Fett"
+  // wraps the current textarea selection in ** and persists the new
+  // content on the submit payload.
+  it('wraps the selected step text in **…** when the user clicks the Fett toolbar button', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/new'))
+
+    const stepArea = screen.getByLabelText(/^Schritt 1$/i) as HTMLTextAreaElement
+    await user.type(stepArea, 'Kartoffeln schälen')
+    stepArea.focus()
+    stepArea.setSelectionRange(0, 'Kartoffeln'.length)
+
+    // Each step row has its own toolbar — pick the first row's Fett button.
+    const boldButtons = screen.getAllByRole('button', { name: 'Fett' })
+    await user.click(boldButtons[0]!)
+
+    expect(stepArea.value).toBe('**Kartoffeln** schälen')
+  })
+
+  // UX1-RT — the preview toggle per step flips the textarea to a
+  // read-only rendered block. Clicking "Vorschau" hides the textarea
+  // and clicking "Bearbeiten" brings it back.
+  it('toggles the step preview mode between textarea and rendered Markdown', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/new'))
+
+    const stepArea = screen.getByLabelText(/^Schritt 1$/i) as HTMLTextAreaElement
+    await user.type(stepArea, 'Mit **Salz** abschmecken')
+    expect(stepArea).toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: 'Vorschau' })[0]!)
+
+    // Textarea is gone; rendered <strong> is visible.
+    expect(screen.queryByLabelText(/^Schritt 1$/i)).not.toBeInTheDocument()
+    const strong = screen.getByText('Salz')
+    expect(strong.tagName.toLowerCase()).toBe('strong')
+
+    // Flip back.
+    await user.click(screen.getAllByRole('button', { name: 'Bearbeiten' })[0]!)
+    expect(screen.getByLabelText(/^Schritt 1$/i)).toBeInTheDocument()
+  })
+
+  // UX1-RT — Cmd/Ctrl+B on the focused textarea wraps the current
+  // selection in ** even without clicking the toolbar.
+  it('wraps the selected step text in ** via the Cmd/Ctrl+B keyboard shortcut', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/new'))
+
+    const stepArea = screen.getByLabelText(/^Schritt 1$/i) as HTMLTextAreaElement
+    await user.type(stepArea, 'Hallo Welt')
+    stepArea.focus()
+    stepArea.setSelectionRange(6, 10)
+
+    fireEvent.keyDown(stepArea, { key: 'b', code: 'KeyB', ctrlKey: true })
+    expect(stepArea.value).toBe('Hallo **Welt**')
+  })
+
   // BF1 #1 — the German "Menge" placeholder was being clipped because the
   // amount column was only 70px wide. The grid template that lays out the
   // ingredient row's three primary inputs (qty | unit | name) must reserve
