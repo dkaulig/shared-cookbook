@@ -3,6 +3,7 @@ import type {
   CreateGroupRequest,
   GroupDetail,
   GroupInviteCreated,
+  GroupInviteListItem,
   GroupInviteReceived,
   GroupMember,
   GroupRole,
@@ -18,9 +19,11 @@ import {
   declineGroupInvite,
   deleteGroup,
   fetchGroupDetail,
+  fetchGroupInvites,
   fetchGroupMembers,
   fetchReceivedInvites,
   removeGroupMember,
+  revokeGroupInvite,
   searchUsers,
   updateGroup,
   updateGroupMemberRole,
@@ -41,6 +44,23 @@ export function useGroupMembers(groupId: string | undefined) {
   return useQuery<GroupMember[]>({
     queryKey: groupId ? groupQueryKeys.members(groupId) : ['groups', 'members', 'disabled'],
     queryFn: () => fetchGroupMembers(groupId!),
+    enabled: !!groupId,
+  })
+}
+
+/**
+ * Admin-only list of outstanding (Pending) invites for a specific
+ * group. Feeds the invites section of `GroupMembersAndInvitesPanel`.
+ * Returns a disabled query when `groupId` is undefined so the same
+ * hook can sit next to `useGroup(id)` without a guard at the call
+ * site.
+ */
+export function useGroupInvites(groupId: string | undefined) {
+  return useQuery<GroupInviteListItem[]>({
+    queryKey: groupId
+      ? groupQueryKeys.groupInvites(groupId)
+      : ['groups', 'groupInvites', 'disabled'],
+    queryFn: () => fetchGroupInvites(groupId!),
     enabled: !!groupId,
   })
 }
@@ -103,6 +123,21 @@ export function useInviteToGroup(groupId: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: groupQueryKeys.detail(groupId) })
       void client.invalidateQueries({ queryKey: groupQueryKeys.members(groupId) })
+    },
+  })
+}
+
+/**
+ * Revoke a pending GroupInvite (admin-only on the backend). Takes the
+ * invite id as the mutation variable. Invalidates the owning group's
+ * invite list so the panel refetches.
+ */
+export function useRevokeInvite(groupId: string) {
+  const client = useQueryClient()
+  return useMutation<void, Error, string>({
+    mutationFn: revokeGroupInvite,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: groupQueryKeys.groupInvites(groupId) })
     },
   })
 }
