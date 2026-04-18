@@ -1,0 +1,14 @@
+# Dev reverse-proxy sitting in front of the compose stack.
+# Single entry at http://localhost that routes /api/* to the .NET API,
+# everything else to the React SPA container.
+:80 {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy api:5000
+    }
+
+    handle {
+        reverse_proxy web:5173
+    }
+}
