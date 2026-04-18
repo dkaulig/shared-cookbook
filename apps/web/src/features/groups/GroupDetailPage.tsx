@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ListOrdered, Plus, Settings } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, ListOrdered, Plus, Settings, Users } from 'lucide-react'
 import type { ApiError, RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,6 +18,7 @@ import {
 import { usePresetConsumer } from '@/features/search/usePresetConsumer'
 import { GroupDetailHeader } from './GroupDetailHeader'
 import { GroupFilterBar } from './GroupFilterBar'
+import { GroupMembersAndInvitesPanel } from './GroupMembersAndInvitesPanel'
 import { useGroup } from './hooks'
 
 /**
@@ -83,6 +84,7 @@ export function GroupDetailPage() {
   }, [searchInput, hasUserTyped])
 
   const [filterPanelOpen, setFilterPanelOpen] = useState(false)
+  const [membersPanelOpen, setMembersPanelOpen] = useState(false)
   const [randomPending, setRandomPending] = useState(false)
   const [randomError, setRandomError] = useState<string | null>(null)
 
@@ -200,6 +202,29 @@ export function GroupDetailPage() {
       </nav>
 
       <GroupDetailHeader group={group} recipeCount={totalRecipes} />
+
+      <div className="px-5 pt-4 md:px-8 md:pt-5">
+        <button
+          type="button"
+          onClick={() => setMembersPanelOpen((v) => !v)}
+          aria-expanded={membersPanelOpen}
+          aria-controls="members-and-invites-panel"
+          className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-[hsl(var(--primary)/0.06)]"
+        >
+          <Users className="h-4 w-4 text-[hsl(var(--muted-foreground))]" aria-hidden="true" />
+          Mitglieder & Einladungen
+          {membersPanelOpen ? (
+            <ChevronUp className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          )}
+        </button>
+        {membersPanelOpen && (
+          <div id="members-and-invites-panel" className="mt-3">
+            <GroupMembersAndInvitesPanel group={group} />
+          </div>
+        )}
+      </div>
 
       <div className="px-5 pt-6 md:px-8 md:pt-7">
         <GroupFilterBar
