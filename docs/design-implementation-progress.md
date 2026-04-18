@@ -1,6 +1,6 @@
 # Design Implementation — Progress Tracker
 
-**Last updated:** 2026-04-18 (DS3 reviewed and approved)
+**Last updated:** 2026-04-18 (DS4 reviewed and approved)
 
 Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents update on every tick / completion.
 
@@ -20,16 +20,16 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS1 | Theme Foundation (tokens, fonts, shadcn primitives) | done | general-purpose (bg) | 2026-04-17 | 2026-04-18 | 19 DS1 commits; 207 web (+28), 427 .NET, 32 shared = 666 green; lint clean; docker smoke ok; reviewer-verified |
 | DS2 | Auth Flow (Login, Signup, Forgot, Reset) | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 13 DS2 commits; 229 web (+22), 427 .NET, 32 shared = 688 green; lint clean; docker smoke ok; reviewer-verified |
 | DS3 | Home & Navigation Shell | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS3 commits; 282 web (+53), 427 .NET, 32 shared = 741 green; lint clean; docker smoke ok; reviewer-verified |
-| DS4 | Group Detail | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched after DS3 pass |
+| DS4 | Group Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 18 DS4 commits; 342 web (+60), 427 .NET, 32 shared = 801 green; lint clean; docker smoke ok; reviewer-verified |
 | DS5 | Recipe Detail | pending | — | — | — | — |
 | DS6 | Recipe Form | pending | — | — | — | — |
 | DS7 | Polish + PWA | pending | — | — | — | — |
 
 ## Last orchestrator tick
 
-- **Time:** 2026-04-18 (DS3 review complete — pass)
-- **Action:** Independent reviewer verified DS3 Home & Navigation Shell end-to-end. Commit range `3c92ed2..HEAD` contains 21 DS3 commits with strict TDD ordering on every helper/component/page. Every static check, runtime suite, Docker smoke, end-to-end smoke, and mockup fidelity assertion passed.
-- **Next:** dispatch DS4 (Group Detail) implementation agent.
+- **Time:** 2026-04-18 (DS4 review complete — pass)
+- **Action:** Independent reviewer verified DS4 Group Detail end-to-end. Commit range `6684efb..HEAD` contains exactly 18 DS4 commits with strict TDD ordering on every helper/component/page. Every static check, runtime suite (427 .NET + 342 web + 32 shared = 801 green), Docker smoke, end-to-end smoke, and mockup fidelity assertion passed.
+- **Next:** dispatch DS5 (Recipe Detail) implementation agent.
 
 ## Blockers / pauses
 
@@ -106,6 +106,51 @@ _(none)_
 
 **Verdict:** STATUS=pass. DS3 flipped to `done`, Completed 2026-04-18.
 
+### DS4 — Review (2026-04-18) → pass
+
+- **Commit count:** `git log --oneline 6684efb..HEAD | wc -l` → 18. Range matches the plan (18 implementation commits since the orchestrator dispatch commit `6684efb`; no orchestrator commit inside the range).
+- **TDD pairs verified (strict ordering — test-commit precedes feat-commit in every case):**
+  - `getGroupAvatarGradient` — test `0b99c18` → feat `5d4ba37` ✓
+  - `applyFilterPreset` + `currentSeasonTagName` — test `b922fbb` → feat `4a079da` ✓
+  - `GroupDetailHeader` — test `6b1e8a9` → feat `52d0868` ✓
+  - `GroupFilterBar` — test `a074b84` → feat `43157ef` ✓
+  - `RecipeGridCard` — test `268d295` → feat `1f095df` ✓
+  - `RecipeFilterPanel` restyle — test `3afefec` → feat `054a6c8` ✓
+  - `GroupDetailPage` restyle — test `ca2cb7c` → feat `7307927` ✓
+  - Follow-ups: `0a81835` (`usePresetConsumer` extraction), `3e3a73e` (initial-mount guard on debounced search effect), `43c3639` (`ActiveFilterChips` extraction) — each pushes behaviour already covered by preceding tests (preset consumption, active-chip rendering) and is a pure extraction/hardening, so no additional failing-test commit required.
+  - Chore: `fc35c56` (remove accidental playwright screenshots from repo root) — one-off hygiene, no tests.
+- **Static checks:** zero `Assert.True(true)`/`Assert.True(false)`, zero `[Skip]`/`.Skip(`, zero `it.skip`/`it.todo`/`describe.skip`/`.only(`/`xit`/`xdescribe` in production tests, zero new `TODO`/`FIXME`/`HACK`/`XXX` across apps + packages, zero `NotImplementedException`, `TreatWarningsAsErrors=true` confirmed in `apps/api/Directory.Build.props`.
+- **`eslint-disable` additions (2 new, both justified):**
+  - `apps/web/src/features/search/usePresetConsumer.ts:45` — `react-hooks/exhaustive-deps` suppressed on an effect keyed only on `[presetParam, options.tagsReady]`. Comment: "run once per preset+tags ready". Including `params` or `setParams` (both change on every `setParams(...)` call the effect itself performs) would create an infinite-loop: preset is consumed → `setParams` strips it → effect re-fires → reads stale state. The design intent is explicit: the effect is a one-shot consumer per (preset, tags-ready) tuple. **Accept.**
+  - `apps/web/src/features/groups/GroupDetailPage.tsx:82` — `react-hooks/exhaustive-deps` suppressed on the debounced search effect keyed on `[searchInput, hasUserTyped]`. Comment: "only searchInput/hasUserTyped drive the debounce". Including `searchParams` or `setSearchParams` would force a resync on every URL change (including the ones this very effect pushes via `setSearchParams(nextParams, { replace: true })`), collapsing the 300 ms debounce window. The `hasUserTyped` flag elsewhere in the file is the explicit guard that prevents the initial mount from clobbering an inbound `?preset=…` param. **Accept.**
+  - Neither disable could be cleanly fixed with `useCallback`/`useRef` wrapping because the dependency that lint wants included (`params`/`setParams` / `searchParams`/`setSearchParams`) is itself the reactive value whose reactivity would defeat the intended semantics. Both are single-line opt-outs with explicit WHY comments. Existing baseline (`useSession.ts` + `RecipeFilterPanel.tsx` from DS1-era + 5 EF migrations) unchanged.
+- **Deliverables verified:** `apps/web/src/features/groups/{GroupDetailHeader,GroupFilterBar,GroupDetailPage}.tsx` (+ co-located test files); `apps/web/src/features/groups/groupAvatarGradient.{ts,test.ts}`; `apps/web/src/features/recipes/RecipeGridCard.{tsx,test.tsx}`; `apps/web/src/features/search/{presets,urlState}.ts` + `{presets,ActiveFilterChips,RecipeFilterPanel}.test.{ts,tsx}`; `apps/web/src/features/search/{usePresetConsumer,ActiveFilterChips}.tsx`. `GroupDetailPage.tsx` composition grep confirms imports and usage of `GroupDetailHeader`, `GroupFilterBar`, `RecipeGridCard`, `ActiveFilterChips`, and `usePresetConsumer`.
+- **Component deep-dive:**
+  - **GroupDetailHeader** — cover banner (3-layer gradient: linear base + 2 radial warm-amber spots, `#fef3c7` fallback color); overlapping avatar wrapper uses `relative z-10 -mt-[36px]` for deterministic stacking above the cover; avatar itself is 72×72 rounded-[20px] with `border-4 border-background` and amber shadow. Members stack truncates at 3 via `group.members.slice(0, 3)` + `+N` chip for `max(0, memberCount - shown.length)`. Stats row renders three spans: recipe count (`BookOpen` icon), members stack + total + singular/plural, `Standard {defaultServings} Portion(en)`. Cover is gradient-only — no `coverImageUrl` branch, because the shared `GroupDetail` type doesn't expose one yet.
+  - **GroupFilterBar** — `<input type="search">` wrapped in a `flex flex-1` label with leading `Search` icon; toggle button shows "Filter" + optional count-badge pill (`bg-primary px-[7px] py-[1px]`) when `activeFilterCount > 0`; Zufall button uses `bg-destructive` + red shadow + `active:scale-[0.98]`. `aria-expanded` on the toggle exposes panel open state. Disabled state + "Würfle…" copy while `isRandomPending`.
+  - **RecipeFilterPanel** — 7 tag categories in `CATEGORY_ORDER = ['Mahlzeit','Saison','Typ','Aufwand','Diaet','Kueche','Custom']`; each category section renders chip buttons with `aria-pressed` toggle semantics and hover/focus rings. Min-rating slider 0–5 step 1, accent-primary; max-prep slider 10–240 step 5 with a `n <= 10 ? undefined : n` floor-clear so dragging to the minimum removes the filter. Creator + sort selects on a shared row. `usePresetConsumer` is ALSO wired here (as a safety net for standalone panel usage), not just at the page level — this is deliberate redundancy documented in the file comment.
+  - **RecipeGridCard** — 4:3 `aspect-[4/3]` photo area; `recipe.photo` when set, otherwise `recipePhotoGradient(recipe.id)` (DS3 hashed-gradient helper); rating pill overlays top-right with `Star` + German decimal comma (`.toFixed(1).replace('.', ',')`) only when `avgRating != null`; title in `font-serif text-[17px]`; meta line shows `{prepTimeMinutes} Min · {createdByDisplayName}` with graceful dividers; up to 2 mini-tag chips (amber bg `hsl(48_96%_89%)`, 10.5 px) resolved from the passed-in `tags` pool. `<Link to={`/groups/${recipe.groupId}/recipes/${recipe.id}`}>` wraps the whole card.
+  - **GroupDetailPage** — composition grep confirms all 5 imports. Sticky sub-top-nav at `top-[56px] z-[9]` (below global `TopNav` at `top-0 z-20`) with back button, group name, meta line, settings gear. `usePresetConsumer` mounted at page level (before the `filterPanelOpen` toggle gate) so chip arrivals fire regardless of panel state. FAB is a 56×56 primary-amber circle fixed `right-4` + `style={{ bottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}` — clears the 88 px BottomNav height + a 8 px gap + the iOS home-indicator inset; no overlap with the BottomNav's centre FAB (which is positioned by the nav container, not `position: fixed`). Empty states: "Noch keine Rezepte · Leg gleich eines an …" CTA and "Kein Treffer · Filter zurücksetzen" — both rendered via the `EmptyState` sub-component based on `hasFiltersOrQuery`.
+- **Runtime:**
+  - `dotnet test apps/api/FamilienKochbuch.sln` → 427 passed (176 Domain + 72 Infrastructure + 179 API), 0 failed, 0 skipped. Note: the first run flaked one Infrastructure test (`Argon2idPasswordHasherTests.VerifyHashedPassword_Fails_On_Tampered_Hash`) under parallel CPU pressure — a deliberately-slow KDF's known sensitivity to concurrent-test load. The same test passed cleanly in isolation (1/1) and on a repeat full-suite run (427/427). No real defect.
+  - `pnpm -C apps/web test --run` → **342 passed** across 67 files. Delta versus DS3's 282 is **+60** (agent self-reported 336-342; reality is the upper bound). Growth covers the 4 new helpers/hooks, 4 new components with extensive prop matrices (filter-count rendering, preset consumption flow, empty-state branching, rating pill, members-stack truncation, and the 300 ms debounced-search guard), plus the restyled panel/page test rewrites.
+  - `pnpm -C packages/shared test --run` → 32/32.
+  - `pnpm lint` → clean (ESLint passes with zero errors; pre-existing baseline warnings unchanged).
+  - `pnpm -C apps/web build` → succeeds in 213 ms; 65 PWA precache entries, 468 kB JS / 71 kB CSS, self-hosted fonts, no Google Fonts references.
+- **Docker smoke:** `docker compose up --build -d` brought all 6 services up; 22 s after boot `docker compose ps` shows api / postgres / redis healthy, caddy / web / seaweedfs up (no healthcheck by design). `curl http://localhost/api/health` → `{"status":"ok","timestamp":"2026-04-18T17:49:44.0101468+00:00"}`. Full E2E `bash scripts/smoke-test.sh` → all 13 steps green (login, app-invite, signup, re-login, group create, recipe create with 5 ingredients + 3 steps + 2 tags, rating, search, fork, revision log, recipe delete, group delete), exit 0. Stack cleanly torn down via `docker compose down`.
+- **Preset consumption flow covered:** `RecipeFilterPanel.test.tsx` verifies the URL contract explicitly — `preset=quick` preselects the "schnell" tag and sets `maxPrepTime=30`, `preset=warm` preselects "warm", `preset=veggie` preselects "vegetarisch", and in each case the post-consumption URL no longer contains `preset=…`. The flow from Home quick-chip → `/groups/:id?preset=quick` → `applyFilterPreset('quick')` → `/groups/:id?tags=…&maxPrepTime=30` is end-to-end tested.
+- **BottomNav + FAB co-existence:** BottomNav's centre `+`-FAB is positioned by the nav's inline flex layout (not `position: fixed`), and the GroupDetailPage's context FAB is `position: fixed; right: 1rem; bottom: calc(96px + env(safe-area-inset-bottom, 0px))`. The 96 px vertical offset clears the BottomNav's 88 px visual height + an 8 px gap and respects iOS home-indicator safe-area. No overlap on 375 px viewport — verified by math (BottomNav sits at `bottom: 0` with height ≤ 88 px; context FAB starts at `bottom: 96px+env(…)` ≥ 96 px). Visually the two FABs occupy different regions (centre vs. bottom-right) and different z-stacks.
+- **Deviation assessments (all 6):**
+  - **`prepTimeMinutes` optional on `RecipeGridCard`** — **accept**. The `RecipeSummaryDto` type from `@familien-kochbuch/shared` does not carry `prepTimeMinutes`; only the full `RecipeDto` does. `GroupDetailPage` passes `prepTimeMinutes={null}` per row rather than issuing 20 extra GETs just to display "• 45 Min" on each card. The prop is typed `number | null` so callers with richer data (future: when the search endpoint includes it) can wire it without changing the card's API. The meta-line renders gracefully without it (just "{creator}" with no leading dot). Correct trade-off: keep the card pure-render, surface the degradation in the UI (meta row stays readable), and keep the network contract honest. If DS5 later extends the search payload, the card already supports the full variant.
+  - **Prep-time slider floor clears filter (`n <= 10 ? undefined : n`)** — **accept**. The mockup's slider visually starts at 10 minutes, but intuitively a user dragging back to the leftmost position means "I don't care about prep time any more", not "show me only recipes under 10 minutes". Mapping the floor value to `undefined` clears the filter cleanly rather than locking the user into a permanent 10-min ceiling once they move the slider. The active-chip row's `Max ≤ X Min` chip disappears accordingly. The min-rating slider follows the same pattern at 0. Both behaviours are documented with dedicated tests in `RecipeFilterPanel.test.tsx` (presets + active chips).
+  - **Contextual FAB position above BottomNav (`bottom: calc(96px + env(safe-area-inset-bottom, 0px))`)** — **accept**. Mobile-FAB + mobile-BottomNav co-existence verified: BottomNav container height ≈ 88 px (10 px top + 52 px FAB + 26 px safe-area) positioned at `bottom: 0`; context FAB sits at `bottom ≥ 96 px`. No overlap at 375 px viewport. The safe-area-inset addition handles iPhone home-indicator correctly. Alternative (hiding the BottomNav on GroupDetailPage) would cost the user quick access to Home/Profil/Wochenplan; alternative (routing the BottomNav centre FAB to `/groups/:id/recipes/new` contextually) would overload the BottomNav semantics. Keeping two distinct FABs — global "create group/pick group" vs. contextual "add recipe here" — is the correct IA.
+  - **Cover banner gradient only (no `coverImageUrl` branch)** — **accept**. The `GroupDetail` type in `packages/shared` does not currently expose a cover-image URL (domain model has `avatarColor` + the implicit amber gradient; S1/S2 scoped covers out). Adding a branch now would be speculative: the agent would have to invent a storage path format that Phase-3 may or may not match. The current implementation pins a deterministic 3-layer gradient into the section so every group gets a warm banner regardless of data shape. When a future slice lights up `coverImageUrl`, adding a conditional `backgroundImage` override is a one-line change. Correct YAGNI.
+  - **`usePresetConsumer` extraction + search-mount guard (`hasUserTyped`)** — **accept**. Two-part fix for a real bug: initially the debounced-search effect fired on mount, which wrote `writeFiltersToSearchParams(filtersWithoutQ)` and wiped the `?preset=…` param before `usePresetConsumer` got to read it. The fix extracts the preset consumer into a reusable hook mounted at the page level (before the filter panel), and guards the debounce effect with a `hasUserTyped` flag flipped only on real `onSearchChange` callbacks. Clean separation of concerns, documented in the file comments, and tested via the `preset=quick/warm/veggie` RecipeFilterPanel tests. Good engineering response to a TDD-discovered regression.
+  - **`ActiveFilterChips` extraction** — **accept**. The chip row used to live inside `RecipeFilterPanel`, but DS4 needs the chips visible whenever filters are applied — even when the panel body is collapsed. Extracting the chip row to a standalone component (`apps/web/src/features/search/ActiveFilterChips.tsx`) lets `GroupDetailPage` mount it always-when-`activeFilterCount > 0`, while `RecipeFilterPanel` mounts the expanded body only when toggled open. Both consumers share the exact same URL-driven state via `useSearchParams` + `readFiltersFromSearchParams`, so no duplication. Co-located test file exists. Clean extraction, no functional regression.
+- **Cleanup:** `git status` clean after docker teardown, `git log origin/main..HEAD` empty at review start (0 unpushed commits).
+
+**Verdict:** STATUS=pass. DS4 flipped to `done`, Completed 2026-04-18.
+
 **Review standard:** Every review applies `docs/reviewing/anti-shortcut-checklist.md`. Reviewers execute verification commands themselves (dotnet test, pnpm test, lint, docker compose up, visual check against mockup HTML). They do not rely on the implementation agent's claims.
 
 ## Deviations from mockup / spec
@@ -175,3 +220,59 @@ _(none)_
   household encoding 2.5 as their honest default). German plural form
   still switches at exactly `=== 1` so "0.5 Portionen" / "1 Portion" /
   "2.5 Portionen" all read naturally.
+
+### DS4
+
+- **`prepTimeMinutes` is an optional `number | null` prop on `RecipeGridCard`.**
+  Rationale: `RecipeSummaryDto` from `@familien-kochbuch/shared` does
+  not carry `prepTimeMinutes`; only the full `RecipeDto` does. The
+  Group-Detail grid passes `prepTimeMinutes={null}` per row rather than
+  issuing N extra GETs just to print "• 45 Min" on each card. The meta
+  line degrades gracefully (just the creator name, no leading dot).
+  When a future slice extends the search payload, existing call-sites
+  can wire the real value without changing the card's API.
+- **Prep-time slider floor clears the filter (`n <= 10 ? undefined : n`).**
+  Rationale: the mockup's slider visually starts at 10 minutes, but
+  intuitively dragging back to the leftmost position means "I don't
+  care about prep time any more", not "show me only <10 min recipes".
+  Mapping the floor value to `undefined` clears the filter cleanly,
+  and the active-chip `Max ≤ X Min` disappears alongside it. Min-rating
+  slider uses the same pattern at 0.
+- **Contextual FAB positioned above the global BottomNav.**
+  Rationale: the Group-Detail page needs a contextual "add recipe here"
+  FAB, but the global BottomNav already carries its own centre FAB
+  (groups-picker). Rather than hide the BottomNav on this page (costs
+  quick-access to Home/Profil/Wochenplan) or overload the BottomNav's
+  semantics contextually, we keep two distinct FABs — global pick vs.
+  contextual create — and offset the contextual one via
+  `bottom: calc(96px + env(safe-area-inset-bottom, 0px))`. The 96 px
+  clears the BottomNav's 88 px visual height + 8 px gap; the safe-area
+  addition handles iPhone home-indicator.
+- **Cover banner is gradient-only (no `coverImageUrl` branch).**
+  Rationale: the `GroupDetail` type in `packages/shared` does not
+  currently expose a cover-image URL. Adding a conditional branch now
+  would require inventing a storage path format that Phase-3 may or
+  may not match. The current implementation pins a deterministic
+  3-layer warm-amber gradient into every group's section so every
+  group gets a consistent warm banner regardless of data shape. When a
+  future slice lights up `coverImageUrl`, adding a conditional
+  `backgroundImage` override is a one-line change.
+- **`usePresetConsumer` extraction + debounced-search initial-mount guard.**
+  Rationale: initially the debounced-search `useEffect` fired on mount,
+  which wrote `writeFiltersToSearchParams(filtersWithoutQ)` and wiped
+  the `?preset=…` URL param before the preset consumer got to read it.
+  The fix is two-part: (1) extract the preset consumer into a reusable
+  hook mounted at the page level (so it runs even when the filter
+  panel is still collapsed) and (2) guard the debounced-search effect
+  with a `hasUserTyped` flag that only flips true on a real
+  `onSearchChange` callback. Both sides have explanatory comments;
+  both sides are tested.
+- **`ActiveFilterChips` extraction from `RecipeFilterPanel`.**
+  Rationale: the chip row used to live inside the expanded filter
+  panel, but DS4 needs the chips visible whenever filters are applied —
+  even when the panel body is collapsed. Extracting the chip row to a
+  standalone component lets `GroupDetailPage` mount it always-when-
+  `activeFilterCount > 0`, while `RecipeFilterPanel` mounts the
+  expanded body only when the user toggles it open. Both consumers
+  share the exact same URL-driven state via `useSearchParams` +
+  `readFiltersFromSearchParams`, so no duplication.
