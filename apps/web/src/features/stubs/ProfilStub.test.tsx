@@ -51,8 +51,10 @@ describe('<ProfilStub />', () => {
 
   it('shows the signed-in display name and email', () => {
     renderPage()
-    expect(screen.getByText(/david/i)).toBeInTheDocument()
-    expect(screen.getByText(/david@kaulig\.de/i)).toBeInTheDocument()
+    // The displayName "David" + the email "maintainer@example.com" both match
+    // /david/i, so pin each with a distinct matcher.
+    expect(screen.getByText('David')).toBeInTheDocument()
+    expect(screen.getByText('maintainer@example.com')).toBeInTheDocument()
   })
 
   it('shows the Abmelden button and clears auth state when clicked', async () => {
