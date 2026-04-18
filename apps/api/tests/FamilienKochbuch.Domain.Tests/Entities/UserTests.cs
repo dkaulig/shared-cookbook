@@ -12,7 +12,8 @@ public class UserTests
     [Fact]
     public void New_User_Has_Role_User_By_Default()
     {
-        var user = new User { DisplayName = "Oma" };
+        var user = new User();
+        user.SetDisplayName("Oma");
 
         Assert.Equal(UserRole.User, user.Role);
     }
