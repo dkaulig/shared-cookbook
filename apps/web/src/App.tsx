@@ -5,6 +5,8 @@ import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage'
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { HomePage } from '@/features/home/HomePage'
+import { GroupsPage } from '@/features/groups/GroupsPage'
+import { GroupDetailPage } from '@/features/groups/GroupDetailPage'
 
 export default function App() {
   return (
@@ -19,6 +21,22 @@ export default function App() {
           element={
             <ProtectedRoute>
               <HomePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/groups"
+          element={
+            <ProtectedRoute>
+              <GroupsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/groups/:id"
+          element={
+            <ProtectedRoute>
+              <GroupDetailPage />
             </ProtectedRoute>
           }
         />

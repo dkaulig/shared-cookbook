@@ -1,9 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import App from './App.tsx'
 import { useAuthStore } from './features/auth/authStore.ts'
 import { server } from './test/msw/server.ts'
+
+function renderApp() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  }
+  return render(<App />, { wrapper: Wrapper })
+}
 
 describe('<App />', () => {
   beforeEach(() => {
@@ -18,7 +28,7 @@ describe('<App />', () => {
   it('redirects to /login when silent refresh fails', async () => {
     server.use(http.post('/api/auth/refresh', () => new HttpResponse(null, { status: 401 })))
 
-    render(<App />)
+    renderApp()
 
     await waitFor(() => {
       expect(window.location.pathname).toBe('/login')
@@ -34,9 +44,11 @@ describe('<App />', () => {
           user: { id: 'u1', email: 'user@example.com', displayName: 'Oma', role: 'User' },
         }),
       ),
+      http.get('/api/groups', () => HttpResponse.json([])),
+      http.get('/api/groups/invites', () => HttpResponse.json([])),
     )
 
-    render(<App />)
+    renderApp()
 
     await waitFor(() => {
       expect(
