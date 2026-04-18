@@ -17,7 +17,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 | # | Slice | State | Agent ID | Started | Completed | Notes |
 |---|---|---|---|---|---|---|
-| S0 | Monorepo Skeleton & Tooling | in_review | general-purpose (bg) → reviewer pending | 2026-04-18 | — | Implementation agent reports all acceptance criteria pass; awaiting independent reviewer verification per anti-shortcut-checklist. |
+| S0 | Monorepo Skeleton & Tooling | fix_needed | general-purpose (bg) → reviewer fix-requested | 2026-04-18 | — | Review surfaced 2 blocking issues (hollow smoke tests, missing shadcn/ui) + 1 convention deviation. See Review outcomes. |
 | S1 | Auth Foundation | pending | — | — | — | — |
 | S2 | Groups & Memberships | pending | — | — | — | — |
 | S3 | Recipes (Core CRUD) | pending | — | — | — | — |
@@ -51,9 +51,19 @@ _(none)_
 
 ## Review outcomes
 
-_(none yet — S0 ready for first review)_
+**S0 — Review #1 (2026-04-18) → fix_needed**
 
-**Review standard:** Every review applies `docs/reviewing/anti-shortcut-checklist.md`. Reviewers execute verification commands themselves; they do not rely on the agent's claims.
+Independent static review performed (reviewer agent-type `feature-dev:code-reviewer` lacks a Bash tool, so runtime verification was deferred — orchestrator will use `general-purpose` for all future reviews to guarantee shell execution). TDD ordering, security properties, warning-as-errors, and overall code hygiene all verified clean. The review caught three real issues:
+
+Blocking:
+1. `apps/api/tests/FamilienKochbuch.Domain.Tests/SmokeTests.cs:14` — `Assert.True(true)` placeholder (anti-shortcut checklist violation).
+2. `apps/api/tests/FamilienKochbuch.Infrastructure.Tests/SmokeTests.cs:14` — same `Assert.True(true)` violation.
+3. `apps/web/` — **shadcn/ui not initialized**; S0 spec explicitly requires `components.json` + base-components placeholder. Missing deliverable.
+
+Non-blocking (documentation):
+4. `apps/api/src/FamilienKochbuch.Api/Endpoints/HealthEndpoints.cs:9` — uses `this IEndpointRouteBuilder` + returns `IEndpointRouteBuilder`; hoppr convention is `this WebApplication app` with void return. Either revert or log as a documented deviation (reviewer's preference: document, since the chosen signature supports route groups and is testable).
+
+**Review standard:** Every review applies `docs/reviewing/anti-shortcut-checklist.md`. Reviewers execute verification commands themselves; they do not rely on the agent's claims. Going forward the orchestrator dispatches `general-purpose` for reviews (has Bash).
 
 ## Deviations from PRD
 
