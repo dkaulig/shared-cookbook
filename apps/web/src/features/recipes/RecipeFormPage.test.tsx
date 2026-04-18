@@ -554,6 +554,232 @@ describe('RecipeFormPage (create)', () => {
     expect(stepArea.value).toBe('Hallo **Welt**')
   })
 
+  // UX1-PU — the three dashed placeholder tiles are replaced with the
+  // staged PhotoUploadGrid so the user can drop photos before the recipe
+  // itself exists. These tests drive the staged grid + submit
+  // orchestration (sequential upload after createRecipe, partial-failure
+  // banner, button-state transitions).
+
+  it('renders the staged PhotoUploadGrid in create mode (3 drop-zones, no "nach dem Speichern")', () => {
+    render(withProviders('/groups/g1/recipes/new'))
+    // Old placeholder copy should be gone.
+    expect(screen.queryByText(/nach dem Speichern/i)).not.toBeInTheDocument()
+    // Three empty slots from the grid component.
+    expect(
+      screen.getAllByRole('button', { name: /Foto hochladen/i }),
+    ).toHaveLength(3)
+  })
+
+  it('does NOT fire any /photos request when the user submits with zero staged photos', async () => {
+    const user = userEvent.setup()
+    let postedRecipe = false
+    let photoCalls = 0
+    server.use(
+      http.post('/api/groups/g1/recipes', () => {
+        postedRecipe = true
+        return HttpResponse.json(
+          {
+            id: 'r-nophoto',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+      http.post('/api/recipes/:id/photos', () => {
+        photoCalls += 1
+        return HttpResponse.json({ url: 'fake://x' })
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    await waitFor(() => expect(postedRecipe).toBe(true))
+    // Give any (wrongly) queued photo upload a tick to fire — still zero.
+    await new Promise((r) => setTimeout(r, 10))
+    expect(photoCalls).toBe(0)
+  })
+
+  it('uploads a staged photo sequentially after createRecipe resolves and navigates', async () => {
+    const user = userEvent.setup()
+    const recipeCreated: string[] = []
+    const photosPosted: string[] = []
+    server.use(
+      http.post('/api/groups/g1/recipes', () => {
+        recipeCreated.push('r-with-photo')
+        return HttpResponse.json(
+          {
+            id: 'r-with-photo',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+      http.post('/api/recipes/r-with-photo/photos', () => {
+        photosPosted.push('ok')
+        return HttpResponse.json({ url: 'fake://a.jpg' }, { status: 201 })
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    // Stage a photo through the grid's hidden input.
+    const input = screen.getAllByTestId('photo-upload-input')[0] as HTMLInputElement
+    await user.upload(input, new File(['x'], 'a.jpg', { type: 'image/jpeg' }))
+
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    await waitFor(() => expect(recipeCreated).toHaveLength(1))
+    await waitFor(() => expect(photosPosted).toHaveLength(1))
+  })
+
+  it('shows partial-failure banner when 1 of 2 staged photos fails to upload (still navigates)', async () => {
+    const user = userEvent.setup()
+    let photoCallCount = 0
+    server.use(
+      http.post('/api/groups/g1/recipes', () =>
+        HttpResponse.json(
+          {
+            id: 'r-partial',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        ),
+      ),
+      http.post('/api/recipes/r-partial/photos', () => {
+        photoCallCount += 1
+        if (photoCallCount === 2) {
+          return HttpResponse.json(
+            { code: 'photo_too_large', message: 'Bild darf maximal 5 MB groß sein.' },
+            { status: 413 },
+          )
+        }
+        return HttpResponse.json({ url: `fake://${photoCallCount}.jpg` }, { status: 201 })
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    const input = screen.getAllByTestId('photo-upload-input')[0] as HTMLInputElement
+    await user.upload(input, new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
+    await user.upload(input, new File(['b'], 'b.jpg', { type: 'image/jpeg' }))
+
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    // Both photo calls must be attempted (second fails; we don't short-circuit).
+    await waitFor(() => expect(photoCallCount).toBe(2))
+    // Partial-failure banner surfaces.
+    await waitFor(() => {
+      const banner = screen.getByRole('alert')
+      expect(banner).toHaveTextContent(/1 von 2 Fotos konnten nicht hochgeladen werden/i)
+      expect(banner).toHaveTextContent(/5 MB/i)
+    })
+  })
+
+  it('transitions submit button label Speichern → Fotos hochladen … while staged photos upload', async () => {
+    const user = userEvent.setup()
+    let resolveRecipe!: () => void
+    let resolvePhoto!: () => void
+    server.use(
+      http.post('/api/groups/g1/recipes', async () => {
+        await new Promise<void>((r) => {
+          resolveRecipe = r
+        })
+        return HttpResponse.json(
+          {
+            id: 'r-lbl',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+      http.post('/api/recipes/r-lbl/photos', async () => {
+        await new Promise<void>((r) => {
+          resolvePhoto = r
+        })
+        return HttpResponse.json({ url: 'fake://x.jpg' }, { status: 201 })
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    const input = screen.getAllByTestId('photo-upload-input')[0] as HTMLInputElement
+    await user.upload(input, new File(['x'], 'a.jpg', { type: 'image/jpeg' }))
+
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    // While recipe create is pending: "Speichere …".
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Speichere/i })).toBeInTheDocument(),
+    )
+    // Release the recipe POST → photo phase begins.
+    resolveRecipe()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Fotos hochladen/i }),
+      ).toBeInTheDocument(),
+    )
+    // Finish the photo upload so the component settles.
+    resolvePhoto()
+  })
+
   // BF1 #1 — the German "Menge" placeholder was being clipped because the
   // amount column was only 70px wide. The grid template that lays out the
   // ingredient row's three primary inputs (qty | unit | name) must reserve
