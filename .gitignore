@@ -54,3 +54,7 @@ data/
 coverage/
 .coverage
 htmlcov/
+
+# Playwright MCP cache (local session artifacts)
+.playwright-mcp/
+phase-0-test-result.png

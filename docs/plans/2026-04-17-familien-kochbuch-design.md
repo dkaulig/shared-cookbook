@@ -235,17 +235,26 @@ Button "In andere Gruppe kopieren" → Ziel-Gruppe wählen → unabhängige Kopi
 
 **Pipeline (Python-Microservice)**
 
-- `yt-dlp` → Video-Download + Metadaten (Caption, Description)
-- `faster-whisper` → Audio-Transkription (**lokal**, keine API-Kosten, deutsch-tauglich)
-- (Optional Phase 2.1) Vision-LLM für Text-Overlays aus Key-Frames
-- Structuring-LLM (Azure OpenAI, `gpt-4o-mini`): Caption + Transkript + Overlays → **strukturiertes JSON** (Zutaten, Schritte, Portionen, geschätzte Nährwerte, Tags)
-- Thumbnail als initiales Foto
+1. **`yt-dlp`** → Video-Download + Metadaten (Caption, Description, externe URLs)
+2. **`faster-whisper`** → Audio-Transkription (**lokal**, keine API-Kosten, deutsch-tauglich)
+3. **Caption-Analyse** → externe URLs extrahieren (typisch: Reels verweisen auf Blog mit Mengen)
+4. **Website-Fetch** (wenn URL gefunden) — Multi-Source-Mehrwert, kein separates Feature:
+   - `httpx` für den HTTP-Fetch
+   - `extruct` / `recipe-scrapers` für **JSON-LD Recipe-Schema** (SEO-Pflicht auf Food-Blogs → direkt strukturiert, oft ohne LLM-Post-Processing)
+   - `beautifulsoup4` als Fallback für unstrukturiertes HTML
+5. (Optional Phase 2.1) Vision-LLM für Text-Overlays aus Key-Frames
+6. **Structuring-LLM** (Azure OpenAI, `gpt-4o-mini`): bekommt **alle Quellen kombiniert** — Audio-Transkript + Caption + Website-Inhalt + optional Overlays → **strukturiertes JSON** (Zutaten, Schritte, Portionen, geschätzte Nährwerte, Tags)
+7. Thumbnail als initiales Foto
+
+**Reine Blog-URL-Imports** laufen über denselben Pfad — Schritte 1/2 entfallen, Rest identisch. Das deckt die ursprüngliche Offene Frage #1 automatisch ab.
 
 **Fehler-Handhabung**
 
 - Download fehlgeschlagen (privat/gelöscht): klare Fehlermeldung, manuelles Anlegen angeboten
 - Kein Rezept erkennbar: LLM liefert Confidence-Hinweis, UI warnt
 - Nicht-deutsche Quelle: trotzdem extrahieren, bei Bedarf übersetzen
+- **Zutaten ohne Mengen** (typisch bei Reels mit externem Blog-Link, Phase-0-Learning): Review-UI markiert betroffene Zeilen visuell (gelb, "Menge fehlt"-Badge), User ergänzt vor dem Speichern
+- **Website-Fetch fehlgeschlagen** (404, Block, Timeout): Extraktion läuft mit verfügbaren Quellen weiter, UI zeigt Hinweis
 
 ### 5.2 AI-Chat zum Rezept-Erfinden
 
@@ -861,7 +870,7 @@ Fragen, die im PRD-Prozess bewusst nicht final entschieden wurden. Bei Phasen-Im
 
 ### 15.1 Feature-Fragen
 
-1. **Rezept-Blog-Import** (JSON-LD) zusätzlich zum Video-Import — technisch simpel. *Default-Empfehlung: in Phase 2 dazu.*
+1. ~~**Rezept-Blog-Import** (JSON-LD) zusätzlich zum Video-Import~~ — **GELÖST (2026-04-18):** Durch Phase-0-Validierung als **Pflicht-Teil der Pipeline** identifiziert, nicht mehr separates Nebenfeature. Siehe `docs/phase-0-results.md` und Abschnitt 5.1. Reine Blog-URLs laufen durch denselben Pfad.
 2. **Duplikat-Erkennung** bei Video-Import — Soft-Warn bei identischer `source_url`.
 3. **Edit-Benachrichtigung** — Versions-Historie als passive Transparenz reicht für v1.
 4. **Tag-Governance** — jedes Gruppen-Mitglied darf anlegen, Admin konsolidiert.
