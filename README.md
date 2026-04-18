@@ -26,26 +26,75 @@ and the slice-by-slice implementation plan in
 
 ```bash
 pnpm install
-docker compose up --build
+docker compose up --build -d
+open http://localhost/
 ```
 
-Open <http://localhost/> — Caddy routes `/api/*` to the .NET API and
-everything else to the React PWA.
-
-First-boot admin credentials (override via `ADMIN_EMAIL` /
-`ADMIN_PASSWORD` env vars in a `.env` file at the repo root):
+Caddy routes `/api/*` to the .NET API and everything else to the
+React PWA. First boot seeds an admin account whose credentials you can
+override in a `.env` file at the repo root via `ADMIN_EMAIL` /
+`ADMIN_PASSWORD`. The defaults are:
 
 ```
 email:    admin@familien-kochbuch.local
 password: ChangeMe!Admin2026
 ```
 
-Log in as the admin, click **Jemanden einladen**, copy the invite URL
-for every family member, and paste it into their browser (or mail, or
-WhatsApp, or carrier pigeon).
+Log in as the admin, click **Jemanden einladen** (on `/profil` or on the
+Home invite card), copy the invite URL for every family member, and
+paste it into their browser (or mail, or WhatsApp, or carrier pigeon).
 
 Tear down with `docker compose down` (add `-v` to also drop the
 Postgres / SeaweedFS / Caddy volumes).
+
+---
+
+## UI Stand (Phase 1.5 — Warme-Küche)
+
+Alle Seiten sind mobile-first (375 × 812 px Screenshots, aufgenommen
+auf einem iPhone-X-Viewport). Palette: amber-700 auf cream, Cormorant
+Garamond für Überschriften, Libre Baskerville italic für Zitate und
+Taglines, Inter für den Rest.
+
+### Login — `/login`
+
+Einladung zum Anmelden mit ruhiger Begrüßung und gepunktetem Pergament-
+Hintergrund.
+
+![Login-Seite mit Begrüßung, Pergament-Hintergrund und Anmeldeformular](docs/screenshots/login.png)
+
+### Startseite — `/`
+
+Persönliche Begrüßung mit Tageszeit, Schnellfilter-Chips, den eigenen
+Gruppen und "zuletzt gekocht". Die Glocke oben rechts zeigt einen Punkt,
+sobald es offene Einladungen gibt.
+
+![Home-Seite mit Begrüßung, Schnellfilter-Chips und Gruppenliste](docs/screenshots/home.png)
+
+### Gruppendetail — `/groups/:id`
+
+Warmer Amber-Banner, überlappendes Avatar-Tile, Stats-Zeile, Filter +
+Zufall, gefolgt vom Rezept-Grid. Die rote "Zufall"-Taste springt zu
+einem zufälligen passenden Rezept.
+
+![Gruppendetail mit Amber-Banner, Filter und Rezept-Grid](docs/screenshots/group-detail.png)
+
+### Rezept-Detail — `/groups/:id/recipes/:id`
+
+Hero-Foto (Fallback: deterministischer warmer Verlauf), Titelkarte mit
+Tags + Rating, Portionen-Stepper, Zutaten-Checkliste, nummerierte
+Schritte und sticky Action-Bar am unteren Rand ("In Wochenplan" +
+"Jetzt gekocht").
+
+![Rezept-Detail-Seite mit Hero, Portionen-Stepper und sticky Action-Bar](docs/screenshots/recipe-detail.png)
+
+### Rezeptformular — `/groups/:id/recipes/new`
+
+Sticky Top-Bar mit X-Abbrechen + Serif-Titel, Intro-Block mit Ziel-
+Gruppen-Pille, Grunddaten-, Foto-, Zutaten-, Schritt- und Tag-Blöcke,
+und unten die sticky "Rezept speichern"-Bar.
+
+![Rezeptformular mit sticky Speichern-Bar](docs/screenshots/recipe-form.png)
 
 ---
 
@@ -84,14 +133,14 @@ pnpm -C packages/shared test --run
 pnpm lint
 ```
 
-Phase 1 baseline, recorded after S7:
+Phase 1.5 baseline, recorded after DS7:
 
 | Target | Count |
 | --- | --- |
-| `dotnet test` | 427 |
-| `pnpm -C apps/web test --run` | 179 |
+| `dotnet test` | 432 |
+| `pnpm -C apps/web test --run` | 442 |
 | `pnpm -C packages/shared test --run` | 32 |
-| **Total** | **638** |
+| **Total** | **906** |
 
 ---
 
