@@ -855,6 +855,103 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
         Assert.All(list, item => Assert.Equal("Pending", item.Status));
     }
 
+    // ── DELETE /api/groups/invites/{id} (GM1 — admin-only revoke) ─
+
+    [Fact]
+    public async Task RevokeGroupInvite_As_Admin_Deletes_Invite_And_Hides_From_Invitee()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("rev-a@example.com", "Alice");
+        var (bobId, bTok) = await SignupAndLoginAsync("rev-b@example.com", "Bob");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Familie", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var invite = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(bobId));
+        var inviteBody = (await invite.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteDto>())!;
+
+        var revoke = await clientA.DeleteAsync($"/api/groups/invites/{inviteBody.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+
+        // Admin no longer sees the invite in the group listing.
+        var listRes = await clientA.GetAsync($"/api/groups/{group.Id}/invites");
+        var list = (await listRes.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteListItemDto[]>())!;
+        Assert.Empty(list);
+
+        // Invitee no longer sees the received-invite either.
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var received = await clientB.GetAsync("/api/groups/invites");
+        var bobList = (await received.Content.ReadFromJsonAsync<GroupEndpoints.ReceivedInviteDto[]>())!;
+        Assert.DoesNotContain(bobList, i => i.Id == inviteBody.Id);
+    }
+
+    [Fact]
+    public async Task RevokeGroupInvite_As_Member_Returns_403()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("rev2-a@example.com", "Alice");
+        var (bobId, bTok) = await SignupAndLoginAsync("rev2-b@example.com", "Bob");
+        var (charlieId, _) = await SignupAndLoginAsync("rev2-c@example.com", "Charlie");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Familie", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+        await AddMembershipAsync(group.Id, bobId, GroupRole.Member);
+
+        var invite = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(charlieId));
+        var inviteBody = (await invite.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteDto>())!;
+
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var revoke = await clientB.DeleteAsync($"/api/groups/invites/{inviteBody.Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, revoke.StatusCode);
+    }
+
+    [Fact]
+    public async Task RevokeGroupInvite_Non_Member_Returns_403()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("rev3-a@example.com", "Alice");
+        var (bobId, _) = await SignupAndLoginAsync("rev3-b@example.com", "Bob");
+        var (_, cTok) = await SignupAndLoginAsync("rev3-c@example.com", "Charlie");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Familie", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var invite = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(bobId));
+        var inviteBody = (await invite.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteDto>())!;
+
+        using var clientC = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientC, cTok);
+        var revoke = await clientC.DeleteAsync($"/api/groups/invites/{inviteBody.Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, revoke.StatusCode);
+    }
+
+    [Fact]
+    public async Task RevokeGroupInvite_Unknown_Invite_Returns_404()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("rev4-a@example.com", "Alice");
+        AuthorizeClient(_client, aTok);
+        var res = await _client.DeleteAsync($"/api/groups/invites/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task RevokeGroupInvite_Requires_Authentication()
+    {
+        var res = await _client.DeleteAsync($"/api/groups/invites/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
     // ── internal helper ─────────────────────────────────────────────
 
     private async Task AddMembershipAsync(Guid groupId, Guid userId, GroupRole role)
