@@ -24,6 +24,14 @@ function renderAt(initialPath: string) {
       <Route element={<AppLayout />}>
         <Route path="/" element={<div data-testid="home-child">Home</div>} />
         <Route path="/groups" element={<div data-testid="groups-child">Groups</div>} />
+        <Route
+          path="/groups/:groupId/recipes/:recipeId"
+          element={<div data-testid="recipe-child">Recipe</div>}
+        />
+        <Route
+          path="/groups/:groupId/recipes/:recipeId/edit"
+          element={<div data-testid="recipe-edit-child">Edit</div>}
+        />
       </Route>
     </Routes>,
     { wrapper: Wrapper },
@@ -71,5 +79,18 @@ describe('<AppLayout />', () => {
     expect(main).not.toBeNull()
     // Tailwind utility echoes the mockup's `padding-bottom: 88px + safe-area`.
     expect(main?.className).toMatch(/pb-/)
+  })
+
+  it('hides the shared TopNav on the recipe detail route (DS5 owns its own top bar)', () => {
+    renderAt('/groups/g1/recipes/r1')
+    // banner = <header role="banner"> in TopNav. Absent on recipe detail.
+    expect(screen.queryByRole('banner')).toBeNull()
+    expect(screen.getByTestId('recipe-child')).toBeInTheDocument()
+  })
+
+  it('keeps the shared TopNav on the recipe edit route', () => {
+    renderAt('/groups/g1/recipes/r1/edit')
+    expect(screen.getByRole('banner')).toBeInTheDocument()
+    expect(screen.getByTestId('recipe-edit-child')).toBeInTheDocument()
   })
 })
