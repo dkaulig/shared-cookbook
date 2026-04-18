@@ -7,6 +7,8 @@ import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { HomePage } from '@/features/home/HomePage'
 import { GroupsPage } from '@/features/groups/GroupsPage'
 import { GroupDetailPage } from '@/features/groups/GroupDetailPage'
+import { RecipeDetailPage } from '@/features/recipes/RecipeDetailPage'
+import { RecipeFormPage } from '@/features/recipes/RecipeFormPage'
 
 export default function App() {
   return (
@@ -37,6 +39,30 @@ export default function App() {
           element={
             <ProtectedRoute>
               <GroupDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/groups/:groupId/recipes/new"
+          element={
+            <ProtectedRoute>
+              <RecipeFormPage mode="create" />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/groups/:groupId/recipes/:recipeId"
+          element={
+            <ProtectedRoute>
+              <RecipeDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/groups/:groupId/recipes/:recipeId/edit"
+          element={
+            <ProtectedRoute>
+              <RecipeFormPage mode="edit" />
             </ProtectedRoute>
           }
         />

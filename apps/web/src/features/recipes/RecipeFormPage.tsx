@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type {
   ApiError,
   CreateRecipeRequest,
   IngredientDto,
+  RecipeDetailDto,
   RecipeStepDto,
   TagCategory,
   TagDto,
@@ -83,42 +84,69 @@ type Props = {
   mode: 'create' | 'edit'
 }
 
+/**
+ * Wrapper: on edit we need the recipe loaded before rendering the inner
+ * form, so we can initialise `useState` from the DTO on first render (no
+ * setState-in-effect hack). Create mode skips the wait.
+ */
 export function RecipeFormPage({ mode }: Props) {
+  const params = useParams<{ groupId: string; recipeId: string }>()
+  const recipeId = params.recipeId ?? ''
+  const recipeQuery = useRecipe(mode === 'edit' ? recipeId : undefined)
+
+  if (mode === 'edit' && recipeQuery.isLoading) {
+    return <main className="mx-auto max-w-3xl px-6 py-10 text-stone-500">Lade Rezept …</main>
+  }
+
+  if (mode === 'edit' && (recipeQuery.isError || !recipeQuery.data)) {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
+          Rezept konnte nicht geladen werden.
+        </p>
+      </main>
+    )
+  }
+
+  return <RecipeFormInner mode={mode} initial={mode === 'edit' ? recipeQuery.data! : undefined} />
+}
+
+function RecipeFormInner({
+  mode,
+  initial,
+}: {
+  mode: 'create' | 'edit'
+  initial?: RecipeDetailDto
+}) {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
   const groupId = params.groupId ?? ''
   const recipeId = params.recipeId ?? ''
 
   const tagsQuery = useGroupTags(groupId)
-  const recipeQuery = useRecipe(mode === 'edit' ? recipeId : undefined)
   const createMutation = useCreateRecipe(groupId)
   const updateMutation = useUpdateRecipe(recipeId, groupId)
 
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [defaultServings, setDefaultServings] = useState(4)
-  const [prepTime, setPrepTime] = useState('')
-  const [difficulty, setDifficulty] = useState(1)
-  const [sourceUrl, setSourceUrl] = useState('')
-  const [ingredients, setIngredients] = useState<IngredientRow[]>([emptyIngredient()])
-  const [steps, setSteps] = useState<StepRow[]>([emptyStep()])
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
+  const [title, setTitle] = useState(initial?.title ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
+  const [defaultServings, setDefaultServings] = useState(initial?.defaultServings ?? 4)
+  const [prepTime, setPrepTime] = useState(
+    initial?.prepTimeMinutes != null ? String(initial.prepTimeMinutes) : '',
+  )
+  const [difficulty, setDifficulty] = useState(initial?.difficulty ?? 1)
+  const [sourceUrl, setSourceUrl] = useState(initial?.sourceUrl ?? '')
+  const [ingredients, setIngredients] = useState<IngredientRow[]>(() =>
+    initial && initial.ingredients.length > 0
+      ? initial.ingredients.map(ingredientFromDto)
+      : [emptyIngredient()],
+  )
+  const [steps, setSteps] = useState<StepRow[]>(() =>
+    initial && initial.steps.length > 0 ? initial.steps.map(stepFromDto) : [emptyStep()],
+  )
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
+    () => initial?.tags.map((t) => t.id) ?? [],
+  )
   const [error, setError] = useState<string | null>(null)
-
-  // Prefill from the loaded recipe when editing.
-  useEffect(() => {
-    if (mode !== 'edit' || !recipeQuery.data) return
-    const r = recipeQuery.data
-    setTitle(r.title)
-    setDescription(r.description ?? '')
-    setDefaultServings(r.defaultServings)
-    setPrepTime(r.prepTimeMinutes != null ? String(r.prepTimeMinutes) : '')
-    setDifficulty(r.difficulty)
-    setSourceUrl(r.sourceUrl ?? '')
-    setIngredients(r.ingredients.length > 0 ? r.ingredients.map(ingredientFromDto) : [emptyIngredient()])
-    setSteps(r.steps.length > 0 ? r.steps.map(stepFromDto) : [emptyStep()])
-    setSelectedTagIds(r.tags.map((t) => t.id))
-  }, [mode, recipeQuery.data])
 
   const tagsByCategory = useMemo(() => {
     const grouped = new Map<TagCategory, TagDto[]>()
@@ -491,10 +519,10 @@ export function RecipeFormPage({ mode }: Props) {
         </section>
 
         {/* Photos (only in edit mode — create first, then upload). */}
-        {mode === 'edit' && recipeQuery.data && (
+        {mode === 'edit' && initial && (
           <section className="space-y-3 rounded-md bg-background p-4 ring-1 ring-border">
             <h2 className="text-lg font-semibold text-stone-900">Fotos</h2>
-            <PhotoUploader recipeId={recipeId} photos={recipeQuery.data.photos} />
+            <PhotoUploader recipeId={recipeId} photos={initial.photos} />
           </section>
         )}
 
