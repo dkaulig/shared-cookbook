@@ -64,6 +64,7 @@ builder.Services.AddScoped<IPasswordHasher<User>, Argon2idPasswordHasher>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<SeedDataService>();
 builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
+builder.Services.AddScoped<IPrivateCollectionService, PrivateCollectionService>();
 
 // ── Auth (JWT Bearer) ─────────────────────────────────────────────────
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
