@@ -80,4 +80,40 @@ public class TagTests
         Assert.Throws<ArgumentException>(() =>
             Tag.CreateGroupScoped(Guid.NewGuid(), Guid.Empty, "Custom"));
     }
+
+    // GR1 — Grundrezept-Tags: the Komponente category exists alongside the
+    // other predefined categories and is used by seeded sub-recipe tags
+    // (Teig, Sauce, Dressing, …). It behaves like every other global
+    // category — CreateGlobal accepts it verbatim, it is not Custom, and
+    // it round-trips through the enum-to-int storage shape.
+
+    [Fact]
+    public void CreateGlobal_Accepts_Komponente_Category()
+    {
+        var tag = Tag.CreateGlobal("Pizzateig", TagCategory.Komponente);
+
+        Assert.Equal(TagCategory.Komponente, tag.Category);
+        Assert.True(tag.IsGlobal);
+        Assert.NotEqual(TagCategory.Custom, tag.Category);
+    }
+
+    [Fact]
+    public void Komponente_Is_Distinct_From_Every_Other_Category()
+    {
+        var others = new[]
+        {
+            TagCategory.Mahlzeit,
+            TagCategory.Saison,
+            TagCategory.Typ,
+            TagCategory.Aufwand,
+            TagCategory.Diaet,
+            TagCategory.Kueche,
+            TagCategory.Custom,
+        };
+
+        foreach (var other in others)
+        {
+            Assert.NotEqual(TagCategory.Komponente, other);
+        }
+    }
 }
