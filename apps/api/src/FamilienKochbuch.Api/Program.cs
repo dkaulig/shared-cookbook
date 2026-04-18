@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using Amazon.Runtime;
 using Amazon.S3;
 using FamilienKochbuch.Api.Endpoints;
+using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Identity;
 using FamilienKochbuch.Infrastructure.Persistence;
@@ -68,6 +69,9 @@ builder.Services.AddScoped<SeedDataService>();
 builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
 builder.Services.AddScoped<IPrivateCollectionService, PrivateCollectionService>();
 builder.Services.AddScoped<IRecipeSearchService, PostgresRecipeSearchService>();
+
+// ── Photo URL signing (HMAC over path+exp, keyed off Jwt:SigningKey) ──
+builder.Services.AddSingleton<ImageSigningService>();
 
 // ── Photo storage (SeaweedFS via S3-compatible gateway) ──────────────
 builder.Services.Configure<PhotoStorageOptions>(builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
