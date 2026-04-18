@@ -8,10 +8,12 @@
     "./types": "./src/types/index.ts"
   },
   "scripts": {
-    "test": "echo 'no tests yet' && exit 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "echo 'no lint target' && exit 0"
   },
   "devDependencies": {
-    "typescript": "~5.9.0"
+    "typescript": "~5.9.0",
+    "vitest": "^4.1.4"
   }
 }
