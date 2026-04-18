@@ -123,6 +123,9 @@ export function useInviteToGroup(groupId: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: groupQueryKeys.detail(groupId) })
       void client.invalidateQueries({ queryKey: groupQueryKeys.members(groupId) })
+      // The newly created invite must also appear in the admin's invite
+      // list in GroupMembersAndInvitesPanel without a manual refetch.
+      void client.invalidateQueries({ queryKey: groupQueryKeys.groupInvites(groupId) })
     },
   })
 }
