@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -70,6 +70,8 @@ describe('TagManagementPage', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     )
+    // confirm() is a no-op in jsdom — stub it to accept.
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPage({ myRole: 'Admin' })
     await waitFor(() => expect(screen.getByText(/Omas Hit/i)).toBeInTheDocument())
 
