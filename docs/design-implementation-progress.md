@@ -20,7 +20,7 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS1 | Theme Foundation (tokens, fonts, shadcn primitives) | done | general-purpose (bg) | 2026-04-17 | 2026-04-18 | 19 DS1 commits; 207 web (+28), 427 .NET, 32 shared = 666 green; lint clean; docker smoke ok; reviewer-verified |
 | DS2 | Auth Flow (Login, Signup, Forgot, Reset) | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 13 DS2 commits; 229 web (+22), 427 .NET, 32 shared = 688 green; lint clean; docker smoke ok; reviewer-verified |
 | DS3 | Home & Navigation Shell | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS3 commits; 282 web (+53), 427 .NET, 32 shared = 741 green; lint clean; docker smoke ok; reviewer-verified |
-| DS4 | Group Detail | pending | — | — | — | — |
+| DS4 | Group Detail | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched after DS3 pass |
 | DS5 | Recipe Detail | pending | — | — | — | — |
 | DS6 | Recipe Form | pending | — | — | — | — |
 | DS7 | Polish + PWA | pending | — | — | — | — |
