@@ -85,6 +85,7 @@ public static class GroupEndpoints
         groups.MapGet("/invites", GetReceivedInvitesAsync);
         groups.MapPost("/invites/{id:guid}/accept", AcceptInviteAsync);
         groups.MapPost("/invites/{id:guid}/decline", DeclineInviteAsync);
+        groups.MapDelete("/invites/{id:guid}", RevokeGroupInviteAsync);
         groups.MapGet("/{id:guid}", GetGroupDetailAsync);
         groups.MapPut("/{id:guid}", UpdateGroupAsync);
         groups.MapDelete("/{id:guid}", DeleteGroupAsync);
@@ -413,6 +414,35 @@ public static class GroupEndpoints
 
         return Results.Ok(new GroupInviteDto(
             invite.Id, invite.GroupId, invite.InvitedUserId, invite.Status.ToString(), invite.CreatedAt));
+    }
+
+    /// <summary>
+    /// Admin-only revoke of a Pending GroupInvite. Hard-deletes the row —
+    /// the entity has no soft-revoke state and there is no current audit
+    /// requirement per the GM1 plan. Already-accepted/declined invites are
+    /// still deletable (no-op from the user's perspective; nothing visible
+    /// to roll back) but we keep the endpoint strict: if the invite is
+    /// missing we return 404.
+    /// </summary>
+    private static async Task<IResult> RevokeGroupInviteAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var invite = await db.GroupInvites.FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (invite is null) return Results.NotFound();
+
+        var myMembership = await db.GroupMemberships
+            .FirstOrDefaultAsync(m => m.GroupId == invite.GroupId && m.UserId == userId, ct);
+        if (myMembership is null || myMembership.Role != GroupRole.Admin)
+            return Results.Forbid();
+
+        db.GroupInvites.Remove(invite);
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
     }
 
     // ── Members ─────────────────────────────────────────────────────
