@@ -40,7 +40,7 @@ describe('<LoginPage />', () => {
     await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
     await user.click(screen.getByRole('button', { name: /anmelden/i }))
 
-    expect(await screen.findByText(/e-mail/i)).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/e-mail/i)
   })
 
   it('shows a German error when submitted with an invalid email format', async () => {
@@ -51,9 +51,7 @@ describe('<LoginPage />', () => {
     await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
     await user.click(screen.getByRole('button', { name: /anmelden/i }))
 
-    expect(
-      await screen.findByText(/gültige e-mail/i),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/gültige e-mail/i)
   })
 
   it('on 401 surfaces the server German error message', async () => {
@@ -70,7 +68,7 @@ describe('<LoginPage />', () => {
     await user.type(screen.getByLabelText(/passwort/i), 'wrong')
     await user.click(screen.getByRole('button', { name: /anmelden/i }))
 
-    expect(await screen.findByText(/E-Mail oder Passwort ungültig/i)).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/E-Mail oder Passwort ungültig/i)
   })
 
   it('on 200 redirects to "/" and populates the auth store', async () => {
