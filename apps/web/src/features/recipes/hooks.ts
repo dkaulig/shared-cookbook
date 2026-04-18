@@ -3,6 +3,8 @@ import type {
   CreateRecipeRequest,
   ForkRecipeRequest,
   RecipeDetailDto,
+  RecipeRevisionDetail,
+  RecipeRevisionSummary,
   RecipeSummaryListDto,
   TagDto,
   UpdateRecipeRequest,
@@ -19,6 +21,7 @@ import {
   updateRecipe,
   uploadRecipePhoto,
 } from './recipesApi'
+import { fetchRecipeRevision, fetchRecipeRevisions } from './revisionsApi'
 import { recipeQueryKeys } from './queryKeys'
 import { groupQueryKeys } from '@/features/groups/queryKeys'
 
@@ -70,6 +73,9 @@ export function useUpdateRecipe(id: string, groupId?: string) {
     mutationFn: (body) => updateRecipe(id, body),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: recipeQueryKeys.detail(id) })
+      // S6: any successful PUT may have appended a new revision; refresh
+      // the history so the panel re-renders without a manual reload.
+      void client.invalidateQueries({ queryKey: recipeQueryKeys.revisions(id) })
       if (groupId) {
         void client.invalidateQueries({ queryKey: [...recipeQueryKeys.all, 'group', groupId] })
       }
@@ -120,5 +126,33 @@ export function useRemoveRecipePhoto(id: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: recipeQueryKeys.detail(id) })
     },
+  })
+}
+
+// ── S6: Version history ────────────────────────────────────────────────
+
+/** Last 5 revision summaries for a recipe. */
+export function useRecipeRevisions(recipeId: string | undefined) {
+  return useQuery<RecipeRevisionSummary[]>({
+    queryKey: recipeId
+      ? recipeQueryKeys.revisions(recipeId)
+      : ['recipes', 'revisions', 'disabled'],
+    queryFn: () => fetchRecipeRevisions(recipeId!),
+    enabled: !!recipeId,
+  })
+}
+
+/** Full snapshot for a single revision — fetched on demand when the
+ *  diff modal opens. */
+export function useRecipeRevision(
+  recipeId: string | undefined,
+  revisionId: string | undefined,
+) {
+  return useQuery<RecipeRevisionDetail>({
+    queryKey: recipeId && revisionId
+      ? recipeQueryKeys.revision(recipeId, revisionId)
+      : ['recipes', 'revisions', 'detail', 'disabled'],
+    queryFn: () => fetchRecipeRevision(recipeId!, revisionId!),
+    enabled: !!(recipeId && revisionId),
   })
 }
