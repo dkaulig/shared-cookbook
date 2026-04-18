@@ -230,4 +230,30 @@ describe('<GroupDetailPage />', () => {
       expect(screen.getByTestId('location-probe').textContent ?? '').toContain('q=Schnitzel')
     })
   })
+
+  it('renders a collapsed "Mitglieder & Einladungen" toggle by default', async () => {
+    render(withProviders('/groups/g1'))
+    const toggle = await screen.findByRole('button', { name: /mitglieder.*einladungen/i })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    // Until expanded, the panel body isn't rendered.
+    expect(
+      screen.queryByRole('heading', { name: /mitglieder & einladungen/i, level: 2 }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('expanding the toggle reveals the members list', async () => {
+    server.use(http.get('/api/groups/g1/invites', () => HttpResponse.json([])))
+    render(withProviders('/groups/g1'))
+    const toggle = await screen.findByRole('button', { name: /mitglieder.*einladungen/i })
+
+    const user = userEvent.setup()
+    await user.click(toggle)
+
+    expect(
+      await screen.findByRole('heading', { name: /mitglieder & einladungen/i, level: 2 }),
+    ).toBeInTheDocument()
+    const list = screen.getByRole('list', { name: /mitglieder/i })
+    expect(list).toHaveTextContent('Alice')
+    expect(list).toHaveTextContent('Bob')
+  })
 })
