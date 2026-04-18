@@ -1,6 +1,7 @@
 import type {
   ApiError,
   CreateRecipeRequest,
+  ForkRecipeRequest,
   RecipeDetailDto,
   RecipeSummaryListDto,
   TagDto,
@@ -95,6 +96,19 @@ export async function deleteRecipePhoto(id: string, url: string): Promise<void> 
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
+  })
+}
+
+// ── Fork ────────────────────────────────────────────────────────────
+
+export async function forkRecipe(
+  id: string,
+  body: ForkRecipeRequest,
+): Promise<RecipeDetailDto> {
+  return request<RecipeDetailDto>(`/api/recipes/${encodeURIComponent(id)}/fork`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 }
 

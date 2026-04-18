@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -42,34 +42,26 @@ const GROUPS = [
   },
 ]
 
-function renderDialog(
-  onClose: () => void = () => {},
-  recordNavigate: (path: string) => void = () => {},
-) {
+function PathTracker() {
+  const location = useLocation()
+  return <div data-testid="current-path">{location.pathname}</div>
+}
+
+function renderDialog(onClose: () => void = () => {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  function NavigateRecorder() {
-    const navigate = useNavigate()
-    // Hand the navigate fn back to the test through a ref-like side-effect.
-    Object.assign(globalThis, { __testNavigate: navigate })
-    return null
-  }
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={['/start']}>
           <Routes>
             <Route
-              path="/start"
+              path="*"
               element={
                 <>
-                  <NavigateRecorder />
+                  <PathTracker />
                   {children}
                 </>
               }
-            />
-            <Route
-              path="/groups/:groupId/recipes/:recipeId"
-              element={<RecordOnMountNavigateHelper recordNavigate={recordNavigate} />}
             />
           </Routes>
         </MemoryRouter>
@@ -80,12 +72,6 @@ function renderDialog(
     <ForkRecipeDialog recipeId="r-source" sourceGroupId="g-source" onClose={onClose} />,
     { wrapper: Wrapper },
   )
-}
-
-function RecordOnMountNavigateHelper({ recordNavigate }: { recordNavigate: (path: string) => void }) {
-  const path = window.location.pathname
-  recordNavigate(path)
-  return <div>Navigated to {path}</div>
 }
 
 describe('<ForkRecipeDialog />', () => {
@@ -106,14 +92,11 @@ describe('<ForkRecipeDialog />', () => {
   it('shows a dropdown of user groups excluding the source group', async () => {
     renderDialog()
     expect(await screen.findByRole('heading', { name: /In andere Gruppe kopieren/i })).toBeInTheDocument()
-    const select = await screen.findByLabelText(/Zielgruppe/i)
+    // Wait for the async groups fetch to settle.
+    expect(await screen.findByRole('option', { name: 'Gemeinsame Küche' })).toBeInTheDocument()
+    expect(await screen.findByRole('option', { name: 'Grillclub' })).toBeInTheDocument()
     // Source group "Meine Sammlung" must NOT be listed.
-    expect(Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '')).toEqual(
-      expect.arrayContaining(['Gemeinsame Küche', 'Grillclub']),
-    )
-    expect(Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '')).not.toContain(
-      'Meine Sammlung',
-    )
+    expect(screen.queryByRole('option', { name: 'Meine Sammlung' })).not.toBeInTheDocument()
   })
 
   it('submits the fork mutation and navigates to the new recipe', async () => {
@@ -153,6 +136,8 @@ describe('<ForkRecipeDialog />', () => {
     renderDialog(onClose)
 
     const select = await screen.findByLabelText(/Zielgruppe/i)
+    // Wait until the option has rendered (groups fetch resolved).
+    await screen.findByRole('option', { name: 'Gemeinsame Küche' })
     await user.selectOptions(select, 'g-target')
     await user.click(screen.getByRole('button', { name: /Kopieren/i }))
 
@@ -162,10 +147,11 @@ describe('<ForkRecipeDialog />', () => {
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled()
     })
-    // Navigation is exercised via the route/NavigateRecorder scaffolding —
-    // the top-level MemoryRouter pushes to /groups/g-target/recipes/r-forked
-    // which renders the helper span.
-    expect(await screen.findByText(/Navigated to \/groups\/g-target\/recipes\/r-forked/)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('current-path')).toHaveTextContent(
+        '/groups/g-target/recipes/r-forked',
+      )
+    })
   })
 
   it('disables submit until a target group is picked', async () => {
@@ -189,6 +175,8 @@ describe('<ForkRecipeDialog />', () => {
     renderDialog()
 
     const select = await screen.findByLabelText(/Zielgruppe/i)
+    // Wait until the option has rendered (groups fetch resolved).
+    await screen.findByRole('option', { name: 'Gemeinsame Küche' })
     await user.selectOptions(select, 'g-target')
     await user.click(screen.getByRole('button', { name: /Kopieren/i }))
 
