@@ -1,7 +1,17 @@
+import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { GroupDetail, GroupMember } from '@familien-kochbuch/shared'
 import { GroupDetailHeader } from './GroupDetailHeader'
+
+function withClient(node: ReactNode): ReactNode {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+  })
+  return <QueryClientProvider client={client}>{node}</QueryClientProvider>
+}
 
 /**
  * DS4 — cover + overlapping avatar + name + description + stats row.
@@ -100,6 +110,29 @@ describe('<GroupDetailHeader />', () => {
     )
     expect(
       screen.queryByText('Sonntags kocht Oma, unter der Woche wir.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('admin sees a "Gruppe bearbeiten" button that opens EditGroupDialog', async () => {
+    render(withClient(<GroupDetailHeader group={baseGroup} recipeCount={47} />))
+    const btn = screen.getByRole('button', { name: /gruppe bearbeiten/i })
+    expect(btn).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(btn)
+    expect(
+      screen.getByRole('heading', { level: 2, name: /gruppe bearbeiten/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('member does NOT see the "Gruppe bearbeiten" button', () => {
+    render(
+      withClient(
+        <GroupDetailHeader group={{ ...baseGroup, myRole: 'Member' }} recipeCount={47} />,
+      ),
+    )
+    expect(
+      screen.queryByRole('button', { name: /gruppe bearbeiten/i }),
     ).not.toBeInTheDocument()
   })
 })
