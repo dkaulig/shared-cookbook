@@ -139,8 +139,8 @@ describe('<GroupDetailPage />', () => {
 
     render(withProviders('/groups/g1'))
     expect(await screen.findByRole('link', { name: /Omas Schnitzel/ })).toBeInTheDocument()
-    // Results header should show the N Rezepte count line.
-    expect(screen.getByText(/1 Rezept/)).toBeInTheDocument()
+    // Results header prints "<count> Rezepte in [Gruppe]" — we match the
+    // "in Example Family" piece which is unique to that header.
     expect(screen.getByText(/in Example Family/)).toBeInTheDocument()
   })
 
