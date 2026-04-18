@@ -155,7 +155,10 @@ public static class RecipeEndpoints
         recipe.MapGet("/", GetRecipeAsync);
         recipe.MapPut("/", UpdateRecipeAsync);
         recipe.MapDelete("/", DeleteRecipeAsync);
-        recipe.MapPost("/photos", UploadPhotoAsync).DisableAntiforgery();
+        // ExcludeFromDescription: Swashbuckle 9.0.6 can't generate schemas
+        // for Minimal API endpoints that take [FromForm] IFormFile; the
+        // route still works, it just doesn't appear in the Swagger UI.
+        recipe.MapPost("/photos", UploadPhotoAsync).DisableAntiforgery().ExcludeFromDescription();
         recipe.MapDelete("/photos", RemovePhotoAsync);
         recipe.MapPost("/fork", ForkRecipeAsync);
     }

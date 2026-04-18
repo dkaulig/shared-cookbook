@@ -8,7 +8,9 @@
     "build": "pnpm -r --parallel run build",
     "test": "pnpm -r run test",
     "lint": "pnpm -r run lint",
-    "format": "pnpm -r run format"
+    "format": "pnpm -r run format",
+    "api:openapi": "bash scripts/export-openapi.sh",
+    "smoke-test": "bash scripts/smoke-test.sh"
   },
   "engines": {
     "node": ">=22",

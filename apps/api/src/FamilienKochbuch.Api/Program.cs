@@ -79,6 +79,44 @@ builder.Services.AddSingleton<IPhotoUrlSigner, PhotoUrlSigner>();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
+// ── OpenAPI / Swagger UI (dev-only, gated by env or "OpenApi:Enabled") ──
+// In Production the Swagger routes are NOT mounted, so the schema can't
+// be scraped by anonymous visitors.
+var openApiEnabled = builder.Environment.IsDevelopment()
+                     || string.Equals(builder.Configuration["OpenApi:Enabled"], "true",
+                         StringComparison.OrdinalIgnoreCase);
+if (openApiEnabled)
+{
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen(options =>
+    {
+        options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+        {
+            Title = "Familien-Kochbuch API",
+            Version = "v1",
+            Description = "Private Rezept-Sammlung — Phase 1 API.",
+        });
+        options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+        {
+            Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Description = "JWT Bearer token from POST /api/auth/login",
+        });
+        options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+        {
+            [new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer",
+                },
+            }] = Array.Empty<string>(),
+        });
+    });
+}
+
 // ── SeaweedFS filer HTTP client + photo storage (plain HTTP, no S3) ──
 // The named client is shared by the photo-proxy endpoint and the upload
 // path so both sides go through a single HttpClient config point.
@@ -182,6 +220,23 @@ app.MapRecipeRevisionEndpoints();
 app.MapRatingEndpoints();
 app.MapSearchEndpoints();
 app.MapPhotoProxyEndpoints();
+
+// ── Swagger UI (dev only) ─────────────────────────────────────────────
+if (openApiEnabled)
+{
+    app.UseSwagger(options =>
+    {
+        // Serve the OpenAPI document under /api/swagger/{doc}/swagger.json
+        // so it sits under the /api prefix proxied by Caddy.
+        options.RouteTemplate = "api/swagger/{documentName}/swagger.{extension:regex(^(json|yaml)$)}";
+    });
+    app.UseSwaggerUI(options =>
+    {
+        options.RoutePrefix = "api/swagger";
+        options.SwaggerEndpoint("/api/swagger/v1/swagger.json", "Familien-Kochbuch API v1");
+        options.DocumentTitle = "Familien-Kochbuch API";
+    });
+}
 
 // ── Migrate + seed on startup (skipped in Testing environment) ────────
 if (!app.Environment.IsEnvironment("Testing"))
