@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { RecipeGridCard } from '@/features/recipes/RecipeGridCard'
 import { useGroupTags } from '@/features/recipes/hooks'
+import { ActiveFilterChips } from '@/features/search/ActiveFilterChips'
 import { RecipeFilterPanel } from '@/features/search/RecipeFilterPanel'
 import { useRecipeSearch } from '@/features/search/hooks'
 import { fetchRandomRecipe } from '@/features/search/searchApi'
@@ -220,21 +221,18 @@ export function GroupDetailPage() {
           </p>
         )}
 
-        {/* The filter panel hosts its own active-filter chips row, the
-            reset button, and the collapsible panel body. We control
-            visibility of the whole thing via `filterPanelOpen`; the
-            chip row is useful even when collapsed so we render it
-            unconditionally (panel component already guards chips). */}
-        {filterPanelOpen && (
-          <div className="mt-4">
-            <RecipeFilterPanel groupId={groupId} />
+        {/* Active filters are always shown when present — even if the
+            panel body is collapsed — so the user sees what's applied
+            and can × individual chips without re-opening the panel. */}
+        {activeFilterCount > 0 && (
+          <div className="mt-3">
+            <ActiveFilterChips groupId={groupId} />
           </div>
         )}
 
-        {/* If the panel is closed, still show the active-filter chips so
-            users know what's applied. We render the panel inline only
-            when open to match the mockup toggle affordance. */}
-        {!filterPanelOpen && activeFilterCount > 0 && (
+        {/* The expanded filter panel (tags + sliders + dropdowns) only
+            mounts when the user has toggled the Filter button open. */}
+        {filterPanelOpen && (
           <div className="mt-3">
             <RecipeFilterPanel groupId={groupId} />
           </div>
