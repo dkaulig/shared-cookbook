@@ -44,6 +44,10 @@ const CATEGORY_ORDER: readonly TagCategory[] = [
   'Aufwand',
   'Diaet',
   'Kueche',
+  // GR1 — isolated sub-recipes (Pizzateig, Tomatensauce, Dressings, …).
+  // Placed before Custom so the predefined categories stay grouped and
+  // the user-created tags remain visually distinct at the bottom.
+  'Komponente',
   'Custom',
 ]
 
@@ -54,6 +58,7 @@ const CATEGORY_LABEL: Record<TagCategory, string> = {
   Aufwand: 'Aufwand',
   Diaet: 'Diät',
   Kueche: 'Küche',
+  Komponente: 'Komponente',
   Custom: 'Custom',
 }
 

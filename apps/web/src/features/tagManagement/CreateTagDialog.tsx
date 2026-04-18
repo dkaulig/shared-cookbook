@@ -14,6 +14,9 @@ const CATEGORIES: { value: TagCategory; label: string }[] = [
   { value: 'Aufwand', label: 'Aufwand' },
   { value: 'Diaet', label: 'Diät' },
   { value: 'Kueche', label: 'Küche' },
+  // GR1 — lets groups author their own Komponente-style sub-recipe
+  // tags alongside the seven seeded globals.
+  { value: 'Komponente', label: 'Komponente' },
 ]
 
 /**

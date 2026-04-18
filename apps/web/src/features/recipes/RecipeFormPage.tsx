@@ -69,6 +69,10 @@ const CATEGORY_ORDER: readonly TagCategory[] = [
   'Aufwand',
   'Diaet',
   'Kueche',
+  // GR1 — Grundrezept-Tags for isolated sub-recipes. Rendered as its
+  // own section between the predefined categories and the user-created
+  // Custom block.
+  'Komponente',
   'Custom',
 ]
 
@@ -79,6 +83,7 @@ const CATEGORY_LABELS: Record<TagCategory, string> = {
   Aufwand: 'Aufwand',
   Diaet: 'Diät',
   Kueche: 'Küche',
+  Komponente: 'Komponente',
   Custom: 'Gruppen-Tags (Custom)',
 }
 
