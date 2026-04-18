@@ -123,7 +123,13 @@ public class RecipeRevisionTests
     [Fact]
     public void Constructor_Rejects_Default_CreatedAt()
     {
-        Assert.Throws<ArgumentException>(() => NewRevision(createdAt: default));
+        Assert.Throws<ArgumentException>(() => new RecipeRevision(
+            recipeId: Guid.NewGuid(),
+            changedByUserId: Guid.NewGuid(),
+            changeType: RecipeChangeType.Created,
+            snapshotJson: "{\"title\":\"x\"}",
+            diffSummary: null,
+            createdAt: default));
     }
 
     [Fact]
