@@ -131,7 +131,24 @@ public class RecipeRevisionServiceTests : IAsyncLifetime
 
         for (var i = 0; i < 6; i++)
         {
-            // Each insert is one tick later so ordering is deterministic.
+            if (i > 0)
+            {
+                // Mutate the recipe between revisions so the no-op guard
+                // doesn't suppress the inserts. Bump the title so each
+                // snapshot is unique.
+                var tracked = await _db.Recipes.FirstAsync(r => r.Id == recipe.Id);
+                tracked.UpdateMetadata(
+                    title: $"Auflauf v{i}",
+                    description: tracked.Description,
+                    defaultServings: tracked.DefaultServings,
+                    prepTimeMinutes: tracked.PrepTimeMinutes,
+                    difficulty: tracked.Difficulty,
+                    sourceUrl: tracked.SourceUrl,
+                    sourceType: tracked.SourceType,
+                    updatedAt: _now.AddMinutes(i));
+                await _db.SaveChangesAsync();
+            }
+
             await _service.RecordAsync(
                 recipe.Id, _userId,
                 i == 0 ? RecipeChangeType.Created : RecipeChangeType.Edited,
@@ -139,10 +156,10 @@ public class RecipeRevisionServiceTests : IAsyncLifetime
                 default);
         }
 
-        var rows = await _db.RecipeRevisions.AsNoTracking()
+        var rowsRaw = await _db.RecipeRevisions.AsNoTracking()
             .Where(r => r.RecipeId == recipe.Id)
-            .OrderBy(r => r.CreatedAt)
             .ToListAsync();
+        var rows = rowsRaw.OrderBy(r => r.CreatedAt).ToList();
 
         Assert.Equal(5, rows.Count);
         // Oldest (the Created one at minute 0) should be gone — we kept
@@ -186,32 +203,42 @@ public class RecipeRevisionServiceTests : IAsyncLifetime
         var recipe = await CreateRecipeAsync("Erste");
         await _service.RecordAsync(recipe.Id, _userId, RecipeChangeType.Created, _now, default);
 
-        // Mutate the recipe: title change, add 1 ingredient, drop 1 step.
-        var tracked = await _db.Recipes
-            .Include(r => r.Ingredients)
-            .Include(r => r.Steps)
-            .FirstAsync(r => r.Id == recipe.Id);
-        tracked.UpdateMetadata(
-            title: "Zweite",
-            description: tracked.Description,
-            defaultServings: tracked.DefaultServings,
-            prepTimeMinutes: tracked.PrepTimeMinutes,
-            difficulty: tracked.Difficulty,
-            sourceUrl: tracked.SourceUrl,
-            sourceType: tracked.SourceType,
-            updatedAt: _now.AddMinutes(1));
-        tracked.Ingredients.Add(new Ingredient(tracked.Id, 2, 100m, "g", "Salz", null, true));
-        var firstStep = tracked.Steps.OrderBy(s => s.Position).First();
-        tracked.Steps.Remove(firstStep);
-        _db.RecipeSteps.Remove(firstStep);
-        await _db.SaveChangesAsync();
+        // Mutate the recipe in a fresh DbContext to avoid change-tracker
+        // collisions with the AsNoTracking includes the service issues.
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(_connection)
+            .Options;
+        await using (var mutationDb = new AppDbContext(options))
+        {
+            var tracked = await mutationDb.Recipes.FirstAsync(r => r.Id == recipe.Id);
+            tracked.UpdateMetadata(
+                title: "Zweite",
+                description: tracked.Description,
+                defaultServings: tracked.DefaultServings,
+                prepTimeMinutes: tracked.PrepTimeMinutes,
+                difficulty: tracked.Difficulty,
+                sourceUrl: tracked.SourceUrl,
+                sourceType: tracked.SourceType,
+                updatedAt: _now.AddMinutes(1));
+            await mutationDb.SaveChangesAsync();
+
+            mutationDb.Ingredients.Add(new Ingredient(recipe.Id, 2, 100m, "g", "Salz", null, true));
+            await mutationDb.SaveChangesAsync();
+
+            var firstStep = await mutationDb.RecipeSteps
+                .Where(s => s.RecipeId == recipe.Id)
+                .FirstAsync(s => s.Position == 0);
+            mutationDb.RecipeSteps.Remove(firstStep);
+            await mutationDb.SaveChangesAsync();
+        }
+        _db.ChangeTracker.Clear();
 
         await _service.RecordAsync(recipe.Id, _userId, RecipeChangeType.Edited, _now.AddMinutes(2), default);
 
-        var latest = await _db.RecipeRevisions.AsNoTracking()
+        var allRevisions = await _db.RecipeRevisions.AsNoTracking()
             .Where(r => r.RecipeId == recipe.Id)
-            .OrderByDescending(r => r.CreatedAt)
-            .FirstAsync();
+            .ToListAsync();
+        var latest = allRevisions.OrderByDescending(r => r.CreatedAt).First();
 
         Assert.Equal(RecipeChangeType.Edited, latest.ChangeType);
         Assert.False(string.IsNullOrWhiteSpace(latest.DiffSummary));
