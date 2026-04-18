@@ -1,6 +1,6 @@
 # Design Implementation — Progress Tracker
 
-**Last updated:** 2026-04-18 (DS4 reviewed and approved)
+**Last updated:** 2026-04-18 (DS5 reviewed and approved)
 
 Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents update on every tick / completion.
 
@@ -21,15 +21,15 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS2 | Auth Flow (Login, Signup, Forgot, Reset) | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 13 DS2 commits; 229 web (+22), 427 .NET, 32 shared = 688 green; lint clean; docker smoke ok; reviewer-verified |
 | DS3 | Home & Navigation Shell | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS3 commits; 282 web (+53), 427 .NET, 32 shared = 741 green; lint clean; docker smoke ok; reviewer-verified |
 | DS4 | Group Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 18 DS4 commits; 342 web (+60), 427 .NET, 32 shared = 801 green; lint clean; docker smoke ok; reviewer-verified |
-| DS5 | Recipe Detail | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched after DS4 pass |
+| DS5 | Recipe Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS5 commits; 392 web (+50), 432 .NET (+5 cook endpoint), 32 shared = 856 green; lint clean; docker smoke ok; reviewer-verified |
 | DS6 | Recipe Form | pending | — | — | — | — |
 | DS7 | Polish + PWA | pending | — | — | — | — |
 
 ## Last orchestrator tick
 
-- **Time:** 2026-04-18 (DS4 review complete — pass)
-- **Action:** Independent reviewer verified DS4 Group Detail end-to-end. Commit range `6684efb..HEAD` contains exactly 18 DS4 commits with strict TDD ordering on every helper/component/page. Every static check, runtime suite (427 .NET + 342 web + 32 shared = 801 green), Docker smoke, end-to-end smoke, and mockup fidelity assertion passed.
-- **Next:** dispatch DS5 (Recipe Detail) implementation agent.
+- **Time:** 2026-04-18 (DS5 review complete — pass)
+- **Action:** Independent reviewer verified DS5 Recipe Detail end-to-end. Commit range `a4fc31e..HEAD` contains exactly 21 DS5 commits with strict TDD ordering on every component, hook, API wrapper, and the new cook endpoint. Every static check, runtime suite (432 .NET + 392 web + 32 shared = 856 green), Docker smoke, end-to-end smoke, cook-endpoint E2E (200 / 403 / 404 / no-revision), and mockup fidelity assertion passed.
+- **Next:** dispatch DS6 (Recipe Form) implementation agent.
 
 ## Blockers / pauses
 
@@ -150,6 +150,67 @@ _(none)_
 - **Cleanup:** `git status` clean after docker teardown, `git log origin/main..HEAD` empty at review start (0 unpushed commits).
 
 **Verdict:** STATUS=pass. DS4 flipped to `done`, Completed 2026-04-18.
+
+### DS5 — Review (2026-04-18) → pass
+
+- **Commit count:** `git log --oneline a4fc31e..HEAD | wc -l` → 21. Range matches the plan (21 DS5 implementation commits since the orchestrator dispatch commit `a4fc31e`; no orchestrator commit inside the range).
+- **TDD pairs verified (strict ordering — test-commit precedes feat-commit in every case):**
+  - Cook endpoint (API) — test `7333b90` → feat `ab83473` ✓
+  - Client cook plumbing (API wrapper + hook) — test `ab6ca17` → feat `56bde8c` ✓
+  - RecipeForkBanner — test `70c2afd` → feat `3773626` ✓
+  - PortionStepperCard — test `957a058` → feat `cce95f3` ✓
+  - IngredientChecklist — test `1a100ad` → feat `f08f644` ✓
+  - StepList — test `d25e10d` → feat `81d43d9` ✓
+  - RecipeActionBar — test `1e756da` → feat `b72669b` ✓
+  - RecipeDetailHeader — test `bd6b3a5` → feat `b1356f3` ✓
+  - RatingWidget restyle — `69d5218` (refactor; 4 existing S4 tests stay green) ✓
+  - RecipeHistoryPanel restyle — `e87248e` (refactor; 3 existing S6 tests stay green) ✓
+  - RecipeDetailPage compose — `f68f091` (updates 9 existing tests to the new DOM + adds 1 new test for the sticky "Jetzt gekocht" button → 10 green) ✓
+  - Lint fixes — `b6cf822` ✓
+  - TopNav suppression + AppLayout — `085c2a9` (two new AppLayout tests pin the detail-route hide + edit-route keep contract) ✓
+- **Static checks:** zero `Assert.True(true)`/`Assert.True(false)`, zero `[Skip]`/`.Skip(`, zero `it.skip`/`it.todo`/`describe.skip`/`.only(`/`xit`/`xdescribe` in production tests, zero new `TODO`/`FIXME`/`HACK`/`XXX` across `apps/` + `packages/`, zero `NotImplementedException`, `TreatWarningsAsErrors=true` confirmed in `apps/api/Directory.Build.props`.
+- **`eslint-disable` / `pragma warning disable` baseline unchanged (no DS5 additions):** 5 EF migrations + `useSession.ts` (S2) + `usePresetConsumer.ts` (DS4) + `GroupDetailPage.tsx` (DS4). Zero new disables introduced by DS5.
+- **Deliverables verified:** `apps/web/src/features/recipes/` contains `RecipeDetailHeader.tsx`, `PortionStepperCard.tsx`, `IngredientChecklist.tsx`, `StepList.tsx`, `RecipeActionBar.tsx`, `RecipeForkBanner.tsx` (each with a co-located `*.test.tsx`), plus the restyled `RatingWidget.tsx` (S4) and `RecipeHistoryPanel.tsx` (S6). `markRecipeAsCooked` and `useMarkAsCooked` live in `recipesApi.ts` + `hooks.ts`. `POST /api/recipes/{id}/cook` is wired in `RecipeEndpoints.cs:164`. `Recipe.MarkCooked(DateTimeOffset)` is implemented in `Recipe.cs:142`. `ProjectDetailAsync` carries `LastCookedAt` into the detail DTO (`RecipeEndpoints.cs:122,243`).
+- **Cook endpoint deep-dive (`RecipeEndpoints.cs:819-839`):**
+  - Uses `TimeProvider` injected as `clock` (no `DateTimeOffset.UtcNow` direct call).
+  - Auth gate: `TryGetUserId` → 401 if unauth; `IsGroupMemberAsync` → 403 if non-member; `LoadRecipeWithChildrenAsync` → 404 if not found.
+  - Persists via `await db.SaveChangesAsync(ct)` after `recipe.MarkCooked(clock.GetUtcNow())`.
+  - Returns `Results.Ok(detail)` with the refreshed `ProjectDetailAsync` DTO.
+  - Does NOT touch `RecipeRevision` anywhere in the handler — purely stamps `LastCookedAt` and persists.
+  - 5 integration tests in `RecipeEndpointsTests.cs:972-1080`: 200 + updated timestamp (member), 403 (non-member), 404 (unknown id), 401 (unauthenticated), `MarkCooked_Does_Not_Append_Revision` (count-before == count-after).
+- **RecipeDetailPage composition (`RecipeDetailPage.tsx`):** mounts `<RecipeDetailHeader />`, `<PortionStepperCard />`, "Zutaten" heading + `<IngredientChecklist />`, "Zubereitung" heading + `<StepList />`, optional source-URL link, "Bewertungen" heading + `<RatingWidget />`, `<RecipeHistoryPanel />`, and `<RecipeActionBar />` (plus the existing `<ForkRecipeDialog />`). `servings` state lives on the page (initialized to `null`, falls back to `recipe.defaultServings`) and flows into `PortionStepperCard` + `IngredientChecklist` via props — no shared store needed. Loading branch renders 5 `<Skeleton>` placeholders from S7 matching the section rhythm. Error branch renders a `role="alert"` "Rezept konnte nicht geladen werden." + "Zur Gruppe" back button. 404 from the API lands in the same error branch via `detail.isError`.
+- **TopNav suppression (`AppLayout.tsx:22-41`):** two `useMatch` checks — `'/groups/:groupId/recipes/:recipeId'` and `'/groups/:groupId/recipes/:recipeId/edit'`. `hideTopNav` is true only when the detail route matches and the edit route does NOT. Two new `AppLayout.test.tsx` tests (lines 84-96) cover both branches: detail route hides the banner, edit route renders it plus the edit child. Existing TopNav mount + BottomNav tests unaffected.
+- **RecipeDetailHeader (`RecipeDetailHeader.tsx`):** `useEffect` attaches a passive `window.scroll` listener; threshold = `heroRef.current.offsetHeight - 56`; cleanup returns `removeEventListener` on unmount. Hero branch uses `recipe.photos[0]` when present, otherwise inline `backgroundImage` style via `recipePhotoGradient(recipe.id)` with a two-stop shadow overlay. Camera + "Foto 1 / N" counter rendered bottom-right when `totalPhotos > 0`. Title card overlaps the hero via `-mt-10` (equivalent to `-40px`) with `rounded-[24px]` + amber shadow. Tag row uses `<Badge variant="mini">` per assigned tag. Stat row shows rating pill (hidden when `avgRating == null`) + prep time + difficulty label + creator via `User` icon. Fork banner only renders when `recipe.forkOfRecipeId != null`. Overflow menu exposes fork / edit / delete via parent callbacks (`aria-haspopup="menu"` + `aria-expanded`).
+- **IngredientChecklist (`IngredientChecklist.tsx`):** each row is a `<button role="checkbox" aria-checked>`. Scaling is delegated to `scaleIngredients()` from `@familien-kochbuch/shared` inside a `useMemo` keyed on `[ingredients, defaultServings, servings]`. `AmountText` splitter renders "nach Geschmack" / "eine Prise" inside an `<em>`, and splits "`N Stück`" so the "Stück" / "Stk" / "Stueck" unit word gets italic treatment while the number keeps tabular-nums. Session state is `useState<Set<string>>` keyed on ingredient id (with `pos-N-i` fallback when the DTO id is undefined).
+- **StepList (`StepList.tsx`):** numbered step cards sorted by `position`. 32×32 amber avatar on the left with `font-serif` step number; right column runs text through `renderInlineMarkdown`. Header comment documents the scope and notes "swap to react-markdown is a 1-file change". Bold-then-italic precedence (no triple-asterisk support). Test suite covers bold, italic, plain text, shuffled ordering, and empty array.
+- **RecipeActionBar (`RecipeActionBar.tsx`):** two buttons — ghost "In Wochenplan" (Calendar icon) + primary "Jetzt gekocht" (Check icon). "In Wochenplan" fires `handleWochenplanClick` which sets a status "Wochenplan kommt in Phase 3." (surfaced via `role="status"`). "Jetzt gekocht" calls the parent-supplied `onMarkCooked` promise, disables during `markCookedPending`, and surfaces success via `role="status"` + errors via `role="alert"`. Both messages also render into `sr-only` `aria-live` regions (polite + assertive). Zero toast library imports — the header comment explicitly justifies this.
+- **Runtime:**
+  - `dotnet test apps/api/FamilienKochbuch.sln` → 432 passed (176 Domain + 72 Infrastructure + 184 API; +5 from DS4's 427 = the 5 new cook-endpoint tests).
+  - `pnpm -C apps/web test --run` → **392 passed** across 73 files (+50 vs. DS4's 342 — matches the agent's 392 claim exactly).
+  - `pnpm -C packages/shared test --run` → 32/32.
+  - `pnpm lint` → clean.
+  - `pnpm -C apps/web build` → succeeds in 229 ms (65 PWA precache entries, 485 kB JS / 78 kB CSS, self-hosted fonts).
+  - Total: 432 + 392 + 32 = 856 green (matches the claimed total).
+- **Docker smoke:** `docker compose up --build -d` brought all 6 services up (api / postgres / redis healthy; caddy, web, seaweedfs Up without healthcheck by design). `curl -s http://localhost/api/health` → `{"status":"ok","timestamp":"2026-04-18T18:28:36.7271985+00:00"}`. Full E2E `bash scripts/smoke-test.sh` → all 13 steps green (login, app-invite, signup, re-login, group create, recipe create with 5 ingredients + 3 steps + 2 tags, rating, search, fork, revision log, recipe delete, group delete), exit 0. Stack cleanly torn down via `docker compose down`.
+- **E2E cook flow (manual curl sequence):**
+  - Step 33: `GET /api/recipes/{R1}` → `lastCookedAt: null` (pre-cook).
+  - Step 34: `POST /api/recipes/{R1}/cook` → `200` + body with `lastCookedAt: 2026-04-18T18:30:08.6866065+00:00` (ISO-8601).
+  - Step 35: `GET /api/recipes/{R1}` → `lastCookedAt: 2026-04-18T18:30:08.686606+00:00` (persisted).
+  - Step 36: `GET /api/recipes/{R1}/revisions` → count = 1 (the `Created` entry from step 32; cook did NOT append a revision — contract pinned).
+  - Step 37: fresh non-member user (signup via invite, not added to admin's Private Sammlung) `POST /api/recipes/{R1}/cook` → `403`.
+  - Step 38: `POST /api/recipes/00000000-0000-0000-0000-000000000000/cook` → `404`.
+- **Two FABs don't conflict:** the GroupDetailPage contextual FAB is offset via `bottom: calc(96px + env(safe-area-inset-bottom, 0px))` (DS4 convention, unchanged). The RecipeActionBar is a full-width sticky bar at `fixed bottom-[calc(env(safe-area-inset-bottom,0px)+72px)]` on mobile / `md:bottom-[env(safe-area-inset-bottom,0px)]` on desktop. The recipe detail route doesn't render the GroupDetailPage at all (different `path`), so there is no geometric overlap — only one action surface per page.
+- **ServingStepper ↔ IngredientChecklist coupling:** `servings` lives on `RecipeDetailPage` (`useState<number | null>(null)`) and is passed as a prop to both children. `IngredientChecklist.test.tsx` includes "quantity display re-scales when servings prop changes" — exercises the live recomputation end-to-end.
+- **Scroll listener cleanup:** `RecipeDetailHeader.tsx:73-83` returns `window.removeEventListener('scroll', onScroll)` from the `useEffect` cleanup function. No test pins this explicitly, but the pattern is React-idiomatic and the function identity is stable across renders (closed over the ref). Readthrough confirmed.
+- **Deviation assessments (all 5):**
+  - **No toast library (inline aria-live)** — **accept**. The app has no existing toast system; pulling one in for one component would add a provider + dep for zero reuse value. The `sr-only` aria-live wrappers (polite for status, assertive for errors) plus a visible floating pill above the action bar deliver the same UX with first-class screen-reader support. When a future slice adopts a global toast, the notifier is a 10-line removal.
+  - **Fork-banner title = current recipe's title** — **accept**. The `RecipeDetailDto` exposes `forkOfRecipeId` but not the original's title; fetching it would require an extra GET + an access check (forks can outlive their sources). Fork creation copies the original's title into the new recipe, so on first render the two are identical. Using the current title is accurate at fork time and a reasonable stand-in afterwards; the link still resolves to `/recipes/{originalRecipeId}`. If the stand-in proves misleading in practice, `forkOfRecipeTitle` is a one-field DTO extension.
+  - **TopNav suppression on detail route only** — **accept**. Detail page owns a scroll-aware floating top bar overlaid on the hero; stacking the shared `TopNav` above it would produce two chrome strips. Scope is precise — edit route keeps the shared nav because it has no hero. Two AppLayout tests pin both branches.
+  - **Hand-rolled Markdown in StepList** — **accept**. Mockup + existing step corpus only use `**bold**` and `*italic*`. A ~30-line pure-function renderer with exhaustive tests beats pulling `react-markdown` + its remark/unified tree for that scope. Header comment flags the swap-to-react-markdown path as a one-file change. Triple-asterisk (bold+italic) is intentionally not supported — no corpus entry needs it.
+  - **`MarkCooked` does not append a revision** — **accept**. The revision log tracks content changes (`Created`, `Edited`, `Forked`). Cooking is an activity signal for the recency sort + "Zuletzt gekocht" grid — writing a revision per tap would flood the history panel with noise. The `MarkCooked_Does_Not_Append_Revision` integration test pins the contract; the E2E cook flow reviewer-ran today confirmed the revision count stays at 1 through a cook call.
+- **Cleanup:** `git status` clean after docker teardown, `git log origin/main..HEAD` empty at review start (0 unpushed commits).
+
+**Verdict:** STATUS=pass. DS5 flipped to `done`, Completed 2026-04-18.
 
 **Review standard:** Every review applies `docs/reviewing/anti-shortcut-checklist.md`. Reviewers execute verification commands themselves (dotnet test, pnpm test, lint, docker compose up, visual check against mockup HTML). They do not rely on the implementation agent's claims.
 
@@ -276,3 +337,57 @@ _(none)_
   expanded body only when the user toggles it open. Both consumers
   share the exact same URL-driven state via `useSearchParams` +
   `readFiltersFromSearchParams`, so no duplication.
+
+### DS5
+
+- **Sticky action bar uses inline `aria-live` regions instead of a toast library.**
+  Rationale: the RecipeActionBar needs to surface three transient
+  messages ("als gekocht markiert", "Wochenplan kommt in Phase 3",
+  error text) but the rest of the app has no toast infrastructure.
+  Pulling in sonner/react-hot-toast for one component would mean a new
+  provider in `App.tsx`, a new dep, and a parallel notification channel
+  the rest of DS1–DS4 doesn't use. Two hidden `sr-only` aria-live
+  wrappers (polite + assertive) plus a visible floating pill above the
+  bar deliver the same UX at zero dep cost and with first-class SR
+  support. When a future slice adopts a global toast system, the
+  inline notifier is a 10-line removal.
+- **Fork banner uses the current recipe's title as a stand-in for the original's title.**
+  Rationale: the `RecipeDetailDto` exposes `forkOfRecipeId` but not
+  the original recipe's title (fetching it would require an extra GET
+  + an access check, since forks can outlive the source). Fork
+  creation copies the original's title verbatim into the new recipe,
+  so on first render the two titles are identical — using the current
+  title as the link label is accurate at fork time and remains a
+  reasonable stand-in afterwards. The link still resolves to
+  `/recipes/{originalRecipeId}`, so users who can see the original get
+  the authoritative title on the next page. A follow-up slice could
+  extend the DTO with `forkOfRecipeTitle` if the stand-in becomes
+  visibly misleading in practice.
+- **Shared `TopNav` is suppressed on the recipe-detail route only (not on the edit route).**
+  Rationale: the detail page owns a custom scroll-aware floating top
+  bar (back + share + bookmark + more) overlaid on the hero photo.
+  Keeping the shared `TopNav` above it would give users two stacked
+  chrome strips on the most visually-demanding page in the app. The
+  suppression is scoped via two `useMatch` checks so that
+  `/groups/:groupId/recipes/:recipeId/edit` — which is a regular form
+  page without a hero — keeps the shared nav. Two new `AppLayout`
+  tests pin both branches of the contract.
+- **Hand-rolled inline Markdown renderer for `StepList` instead of `react-markdown`.**
+  Rationale: the recipe-detail mockup and the existing step corpus only
+  use `**bold**` and `*italic*` — two patterns that fit in a ~30-line
+  pure-function renderer with exhaustive test coverage. Pulling
+  `react-markdown` + its remark/unified tree for that scope is
+  disproportionate bundle weight. The `StepList.tsx` header comment
+  flags that swapping to `react-markdown` is a one-file change if a
+  future slice wants lists, tables, autolinks, or GFM. Triple-asterisk
+  (bold+italic) is not supported — no corpus entry needs it, and the
+  step-list tests pin the surface area exactly.
+- **`MarkCooked` does not append a `RecipeRevision`.**
+  Rationale: the revision log tracks content changes (`Created`,
+  `Edited`, `Forked`). "Jetzt gekocht" is an activity signal that
+  feeds the recency sort in `PostgresRecipeSearchService` and the
+  Home "Zuletzt gekocht" grid — writing a revision on every tap would
+  flood the history panel with noise and obscure real edits. The
+  `MarkCooked_Does_Not_Append_Revision` integration test pins this
+  contract by snapshotting the revision count before and after a
+  cook call and asserting equality.
