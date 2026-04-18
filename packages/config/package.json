@@ -1,0 +1,23 @@
+{
+  "name": "@familien-kochbuch/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./eslint.config.base.js": "./eslint.config.base.js"
+  },
+  "scripts": {
+    "test": "echo 'no tests yet' && exit 0",
+    "lint": "echo 'no lint target' && exit 0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^10.2.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^17.4.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.48.0"
+  }
+}

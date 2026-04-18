@@ -1,0 +1,17 @@
+{
+  "name": "@familien-kochbuch/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types/index.ts"
+  },
+  "scripts": {
+    "test": "echo 'no tests yet' && exit 0",
+    "lint": "echo 'no lint target' && exit 0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0"
+  }
+}
