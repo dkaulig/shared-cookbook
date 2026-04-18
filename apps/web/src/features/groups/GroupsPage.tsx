@@ -1,43 +1,32 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useAuth } from '@/features/auth/useAuth'
 import { CreateGroupDialog } from './CreateGroupDialog'
-import { ReceivedInvitesBanner } from './ReceivedInvitesBanner'
 import { useMyGroups } from './useMyGroups'
 
 /**
  * /groups — overview of the signed-in user's groups. Lists Private
  * Sammlung + any additional collaborative groups as shadcn-styled cards.
  * Primary action is "+ Gruppe erstellen" which opens the create dialog.
+ *
+ * DS3 moved the Abmelden affordance to `/profil` (ProfilStub) and the
+ * pending-invite banner to the Home page — both previously lived here
+ * but were redundant once the AppLayout's TopNav + BottomNav shell
+ * landed.
  */
 export function GroupsPage() {
   const groups = useMyGroups()
   const [showCreate, setShowCreate] = useState(false)
-  const { logout } = useAuth()
-  const navigate = useNavigate()
-
-  async function handleLogout() {
-    await logout()
-    navigate('/login', { replace: true })
-  }
 
   return (
     <main className="mx-auto min-h-dvh max-w-3xl px-6 py-10">
       <header className="mb-6 flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight text-stone-900">Meine Gruppen</h1>
-        <div className="flex gap-2">
-          <Button type="button" onClick={() => setShowCreate(true)}>
-            + Gruppe erstellen
-          </Button>
-          <Button type="button" variant="outline" onClick={handleLogout}>
-            Abmelden
-          </Button>
-        </div>
+        <Button type="button" onClick={() => setShowCreate(true)}>
+          + Gruppe erstellen
+        </Button>
       </header>
-
-      <ReceivedInvitesBanner />
 
       {groups.isLoading && (
         <ul className="grid gap-3 sm:grid-cols-2" aria-label="Gruppen werden geladen">
