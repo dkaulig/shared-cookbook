@@ -8,13 +8,13 @@ import { cn } from '@/lib/utils'
 import { useDeleteRating, useRatings, useUpsertRating } from './hooks'
 
 /**
- * DS5 rating card (restyled from the S4 functional widget). Mirrors
- * `.rating-card` in `docs/mockups/warme-kueche-recipe-detail.html`:
+ * DS5 rating card (restyled from the S4 functional widget). Retinted
+ * for DS8 Sage Modern:
  *
- *   - Cormorant-Garamond "Deine Bewertung" headline + muted sub-line
- *   - Aggregate amber pill in the top-right (Star + 4,8)
+ *   - Display `font-serif` "Deine Bewertung" headline + muted sub-line
+ *   - Aggregate star pill in the top-right (Star + 4,8)
  *   - 5-star picker with 28 px icons
- *   - Textarea with amber focus ring
+ *   - Textarea with sage focus ring (via the --primary token)
  *   - Ghost "Löschen" + primary "Speichern" footer buttons
  *
  * Behavioural contract (preserved verbatim from the S4 tests):

@@ -24,7 +24,7 @@ type PreviewState =
  * /signup?token=... — form backed by a valid AppInvite. Fetches the
  * preview so the recipient sees who invited them before they register.
  *
- * DS2 restyle: matches the Warme-Küche visual grammar from `LoginPage`.
+ * DS2 restyle: matches the Sage Modern visual grammar from `LoginPage`.
  * The kicker pill shows the inviter's display name ("{Name} lädt dich
  * zum Familien-Kochbuch ein"). Form fields: Anzeigename, E-Mail,
  * Passwort. Disabled until the preview is `ok`.

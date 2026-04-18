@@ -4,20 +4,21 @@ import { cn } from '@/lib/utils'
 
 /**
  * Shell layout for every `/login`, `/signup`, `/forgot-password` and
- * `/reset-password` route. Mirrors the Warme-Küche mockup
- * (`docs/mockups/warme-kueche-login.html`):
+ * `/reset-password` route. Retinted for DS8 Sage Modern:
  *
- *   - Fixed parchment dotted background (pseudo-element on the wrapper,
- *     not `body::before`, so the effect stays scoped to auth routes).
- *   - Top brand lockup: amber-700 rounded tile with the chef-hat mark,
- *     serif brand name, uppercase tagline.
+ *   - Fixed dotted background (pseudo-element on the wrapper, not
+ *     `body::before`, so the effect stays scoped to auth routes). The
+ *     dot color uses `hsl(var(--primary)/0.06)` so the token swap to
+ *     sage cascades automatically.
+ *   - Top brand lockup: sage rounded tile with the chef-hat mark,
+ *     display brand name, uppercase tagline.
  *   - Body slot (via `<Outlet />`) for the active auth page.
  *   - Subtle privacy footer note.
  *
- * The parchment pattern utility class `auth-parchment` is defined in
- * `index.css` (plain CSS) so Tailwind arbitrary `bg-[radial-gradient(…)]`
- * does not bloat the class string and so the dotted grid can be positioned
- * as a fixed pseudo-element.
+ * The pattern utility class `auth-parchment` is defined in `index.css`
+ * (plain CSS) so Tailwind arbitrary `bg-[radial-gradient(…)]` does not
+ * bloat the class string and so the dotted grid can be positioned as a
+ * fixed pseudo-element.
  */
 export function AuthLayout() {
   return (
@@ -31,7 +32,7 @@ export function AuthLayout() {
         <header role="banner" className="flex items-center gap-3">
           <div
             aria-hidden="true"
-            className="grid h-11 w-11 place-items-center rounded-[14px] bg-primary text-primary-foreground shadow-[0_4px_12px_-4px_rgba(180,83,9,0.45)]"
+            className="grid h-11 w-11 place-items-center rounded-[14px] bg-primary text-primary-foreground shadow-[0_4px_12px_-4px_rgba(79,121,97,0.45)]"
           >
             <ChefHatLogo size={22} />
           </div>

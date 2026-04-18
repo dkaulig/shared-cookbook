@@ -23,7 +23,7 @@ export function GroupSwitcher() {
             to={`/groups/${group.id}`}
             aria-current={active ? 'page' : undefined}
             className={`rounded-md px-3 py-1 text-sm ring-1 ring-border transition ${
-              active ? 'bg-amber-100 text-amber-900' : 'bg-background text-stone-700 hover:bg-muted'
+              active ? 'bg-secondary text-secondary-foreground' : 'bg-background text-stone-700 hover:bg-muted'
             }`}
           >
             {group.name}

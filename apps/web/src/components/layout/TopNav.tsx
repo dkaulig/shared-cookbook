@@ -6,15 +6,15 @@ import { useMyReceivedInvites } from '@/features/groups/hooks'
 import { cn } from '@/lib/utils'
 
 /**
- * DS3 top navigation bar.
+ * DS3 top navigation bar (retinted for DS8 Sage Modern).
  *
- * Mirrors `.topnav` in `docs/mockups/warme-kueche-home.html`:
- * - Brand lockup (amber-tile chef-hat + serif name) on the left.
+ * Mirrors `.topnav` in `docs/mockups/variant-a-home.html`:
+ * - Brand lockup (sage-tile chef-hat + display name) on the left.
  * - Three "nav actions" on the right: Suchen, Benachrichtigungen (with
  *   a red dot when `useMyReceivedInvites()` > 0), and an avatar chip
  *   whose initial is the signed-in user's displayName[0].
- * - Sticky at `top: 0` with a cream/blur background so scrolled content
- *   floats underneath.
+ * - Sticky at `top: 0` with a neutral/blur background so scrolled
+ *   content floats underneath.
  *
  * Kept intentionally lean: the Suchen button is a placeholder click
  * target today (routes to `/groups` where real search lives). DS7 will
@@ -41,7 +41,7 @@ export function TopNav() {
       >
         <span
           aria-hidden="true"
-          className="grid h-9 w-9 place-items-center rounded-[10px] bg-primary text-primary-foreground shadow-[0_2px_8px_-2px_rgba(180,83,9,0.4)]"
+          className="grid h-9 w-9 place-items-center rounded-[10px] bg-primary text-primary-foreground shadow-[0_2px_8px_-2px_rgba(79,121,97,0.4)]"
         >
           <ChefHatLogo size={19} />
         </span>
@@ -76,7 +76,7 @@ export function TopNav() {
           to="/profil"
           aria-label="Dein Profil"
           title={user?.displayName ?? undefined}
-          className="ml-1 grid h-9 w-9 place-items-center rounded-full border-2 border-background bg-[linear-gradient(135deg,#fed7aa_0%,#fdba74_100%)] text-[14px] font-semibold text-[#7c2d12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="ml-1 grid h-9 w-9 place-items-center rounded-full border-2 border-background bg-[linear-gradient(135deg,#c3d4ca_0%,#8daea0_100%)] text-[14px] font-semibold text-[#2b4435] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           {initial}
         </Link>

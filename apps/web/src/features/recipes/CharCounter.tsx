@@ -11,11 +11,10 @@ export interface CharCounterProps {
 
 /**
  * DS6 inline character counter rendered beneath inputs and textareas
- * whose native `maxLength` is set. Matches `.char-count` in
- * `docs/mockups/warme-kueche-recipe-form.html`:
+ * whose native `maxLength` is set:
  *
  *   - Neutral 11 px muted text while the input has headroom.
- *   - Amber warning once ≥ 80 % of the hard limit is used.
+ *   - Warm warning tone once ≥ 80 % of the hard limit is used.
  *   - Destructive-red once the user is at the hard limit.
  *
  * Pure projection: the counter does not enforce the limit — the input's
@@ -29,7 +28,7 @@ export function CharCounter({ value, max, className }: CharCounterProps) {
     count >= max
       ? 'text-[hsl(var(--destructive))]'
       : ratio >= 0.8
-        ? 'text-amber-700'
+        ? 'text-[hsl(var(--accent))]'
         : 'text-[hsl(var(--muted-foreground))]'
 
   return (

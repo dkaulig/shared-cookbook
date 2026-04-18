@@ -1,14 +1,14 @@
 import { cva } from 'class-variance-authority'
 
 /**
- * CVA variants for the Warme-Küche Badge.
+ * CVA variants for the Sage Modern Badge.
  *
  * Split out of `badge.tsx` to satisfy `react-refresh/only-export-components`
  * (same pattern the Button uses).
  *
- * - `default`     — secondary / amber-100 chip (the common category chip)
+ * - `default`     — secondary / sage-tint chip (the common category chip)
  * - `mini`        — the `.mini-tag` from the mockup, 11 px, dense padding
- * - `destructive` — red-600 surface, cream text
+ * - `destructive` — red-600 surface, white text
  * - `outline`     — border + foreground text, muted ghost chip
  */
 export const badgeVariants = cva(

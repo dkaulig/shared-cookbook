@@ -49,7 +49,7 @@ export function RecipeList({ groupId }: { groupId: string }) {
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-semibold text-stone-900">{recipe.title}</h3>
                 {recipe.avgRating != null && recipe.ratingCount > 0 && (
-                  <span className="flex items-center gap-1 text-xs text-amber-600">
+                  <span className="flex items-center gap-1 text-xs text-[hsl(var(--accent))]">
                     <span className="text-sm leading-none">★</span>
                     {recipe.avgRating.toFixed(1).replace('.', ',')}
                     <span className="text-stone-400">({recipe.ratingCount})</span>

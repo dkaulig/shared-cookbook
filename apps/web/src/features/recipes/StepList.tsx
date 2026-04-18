@@ -6,9 +6,9 @@ export interface StepListProps {
 }
 
 /**
- * DS5 numbered step cards. Cormorant-Garamond step number on the left,
- * Markdown-rendered content on the right. Visual shell mirrors
- * .step-card / .step-num in docs/mockups/warme-kueche-recipe-detail.html.
+ * DS5 numbered step cards. Display `font-serif` (Inter under DS8) step
+ * number on the left, Markdown-rendered content on the right. Visual
+ * shell mirrors .step-card / .step-num in the recipe-detail mockup.
  *
  * The Markdown renderer is intentionally tiny — the mockup + existing
  * corpus only use **bold** and *italic*. Hand-rolling beats pulling in

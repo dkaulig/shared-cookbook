@@ -56,7 +56,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <h1 className="mb-3 font-serif text-[clamp(28px,6vw,36px)] font-semibold leading-[1.1] tracking-[-0.015em] text-foreground">
             Ups, da ist etwas schief gelaufen.
           </h1>
-          <p className="mb-6 font-[Libre_Baskerville,serif] text-[15px] italic leading-[1.55] text-muted-foreground">
+          <p className="mb-6 font-serif-body text-[15px] italic leading-[1.55] text-muted-foreground">
             Bitte lade die Seite neu. Sollte das Problem bestehen bleiben, melde dich bei den anderen Gruppen-Admins.
           </p>
           <Button type="button" size="lg" onClick={this.handleReload}>

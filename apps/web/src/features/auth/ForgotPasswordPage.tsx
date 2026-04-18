@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { isValidEmail } from './validation'
 
 /**
- * /forgot-password — single-field variant in the Warme-Küche visual
+ * /forgot-password — single-field variant in the Sage Modern visual
  * grammar. The success copy is intentionally the same regardless of
  * whether the email is registered (no user enumeration). The endpoint
  * always returns 204.

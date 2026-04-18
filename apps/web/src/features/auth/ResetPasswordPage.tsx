@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
  * /reset-password?token=... — completes the password-reset flow with
  * the composite token the API's password-reset-request email delivers.
  *
- * DS2 restyle: Warme-Küche hero + card, two password fields, Speichern
+ * DS2 restyle: Sage Modern hero + card, two password fields, Speichern
  * CTA. On success we show a Bestätigungs-Hinweis and auto-redirect to
  * /login after ~1.2 s.
  */
