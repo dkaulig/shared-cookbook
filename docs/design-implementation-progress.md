@@ -17,7 +17,7 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 
 | # | Slice | State | Agent | Started | Completed | Notes |
 |---|---|---|---|---|---|---|
-| DS1 | Theme Foundation (tokens, fonts, shadcn primitives) | pending | — | — | — | — |
+| DS1 | Theme Foundation (tokens, fonts, shadcn primitives) | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched after mockups committed |
 | DS2 | Auth Flow (Login, Signup, Forgot, Reset) | pending | — | — | — | — |
 | DS3 | Home & Navigation Shell | pending | — | — | — | — |
 | DS4 | Group Detail | pending | — | — | — | — |
