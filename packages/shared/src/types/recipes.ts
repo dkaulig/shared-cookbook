@@ -13,6 +13,7 @@ export type TagCategory =
   | 'Aufwand'
   | 'Diaet'
   | 'Kueche'
+  | 'Komponente'
   | 'Custom'
 
 export interface IngredientDto {
