@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S3 re-review → done)
+**Last updated:** 2026-04-18 (S5 review → done)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -22,7 +22,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
 | S3 | Recipes (Core CRUD) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Re-review after fix pass #1 passed — drag-drop reorder live-verified via tests + source readthrough, 246/246 .NET + 95/95 web tests, lint clean, full docker E2E curl flow (login → tags → create → GET → PUT reorder persists → 3 photos + Caddy fetch + 4th rejected → photo delete → recipe delete 204 → GET 404 → non-member 403) all confirmed with own eyes. See Review outcomes → S3 — Re-review (2026-04-18). |
 | S4 | Tags + Ratings + Search | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 321/321 .NET + 121/121 web tests verified locally, docker stack healthy (all 6 services), SearchVector tsvector + GIN + both triggers observed via psql, full E2E curl flow (login → group → 3 recipes → rate → upsert (count stays 1) → q=Nudeln → tags AND → minRating → re-rate → random ×3 + null → custom-tag create/dup/member-403/admin-204/global-protected-400) all confirmed with own eyes. See Review outcomes → S4 entry below. |
-| S5 | Portions + Fork + Group Defaults | in_review | general-purpose (bg) | 2026-04-18 | — | Implementation landed: 376/376 .NET + 148/148 web + 32/32 shared tests, lint clean, docker E2E (login → create R1 w/ 3 ingredients + 2 steps + 2 tags + 1 photo → POST /fork → 201 with forkOfRecipeId + same children count + shared photo path → PUT group defaultServings=2.5 → GET=2.5 → PUT 25/0/-1 all → 400 → non-member fork → 403) all confirmed with own eyes. See S5 — completion notes below. |
+| S5 | Portions + Fork + Group Defaults | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 376/376 .NET + 148/148 web + 32/32 shared tests verified locally, lint clean, docker stack healthy (all 6 services), full E2E curl flow (admin login → create G2 → 3-ingredient recipe with null/non-scalable row + 2 steps + 2 global tags → PNG upload → fork to G2 → 201 with forkOfRecipeId + same ingredient/step/tag counts + identical bare photo path in both recipes → PUT defaultServings=2.5 → GET=2.5 → PUT 25/0/-1 all → 400 → outsider signup + fork → 403) all confirmed with own eyes. All 5 deviations accepted. See Review outcomes → S5 — Review (2026-04-18) → pass. |
 | S6 | Version History (light) | pending | — | — | — | — |
 | S7 | Polish & Local Deploy Readiness | pending | — | — | — | — |
 
@@ -1274,3 +1274,84 @@ Previous slices' test counts hold:
 - Shared package tests: 0 → **32** (new — vitest introduced for the scaler math).
 
 **S5 flipped `in_progress` → `in_review`.**
+
+## Review outcomes → S5 — Review (2026-04-18) → pass
+
+Independent reviewer (general-purpose agent, has Bash) executed every verification command on commit range `3abe138..HEAD` (18 implementation commits + 1 orchestrator dispatch = 19 total). Nothing trusted — everything re-run.
+
+**Static checks (all clean):**
+
+- `git log --oneline 3abe138..HEAD` → 18 commits; TDD order verified for every pair:
+  - IngredientScaler: test `6dcf4fb` → feat `1349eca` ✓
+  - RecipePortionScaler: test `439ad2e` → feat `1caf66f` ✓
+  - RecipeDetailPage integration: test `9a3f11b` → feat `4de056d` ✓
+  - Group.DefaultServings cap: test `b386e73` → feat `f3b200f` ✓
+  - EditGroupDialog cap: test `cd92ca1` → feat `f95a8cf` ✓
+  - Fork endpoint: test `4df1038` → feat `eeb3401` ✓
+  - ForkRecipeDialog: test `c2eb7a1` → feat `dd37ce3` ✓
+  - Fork banner: test `852e4ae` → feat `a04f9a4` ✓
+  - `d85a83a refactor(web): atomic scaler state` — genuine React anti-pattern fix (removed a `useEffect` that sync-synced `draft` from `servings`, triggering `react-hooks/set-state-in-effect`). No new tests needed — the existing 16 RecipePortionScaler tests pin down every user-visible behaviour (button clicks, input typing, group-default shortcut, fractional servings) and all remained green through the refactor. No suppressions introduced, no behaviour changes. **Verdict: acceptable** — normal TDD iteration where a refactor to satisfy a lint rule is covered by pre-existing tests.
+- `grep Assert.True(true|false)` in .cs → 0
+- `grep [Skip]/Skip=/.Skip(` in api tests → 0
+- `grep it.skip/.only()/xit/xdescribe` in web+shared → 0
+- `grep TODO/FIXME/HACK/XXX` → 0
+- `grep @ts-ignore/@ts-expect-error/eslint-disable/SuppressMessage/pragma warning disable` → exactly the 7 pre-existing hits from prior slices (4 EF-generated `#pragma warning disable 612, 618` in migration/snapshot files + `useSession.ts` exhaustive-deps + `RecipeFilterPanel.tsx` exhaustive-deps from S4). **No new suppressions introduced by S5.**
+- `grep NotImplementedException` in prod .cs → 0
+- `Directory.Build.props` → `TreatWarningsAsErrors=true` ✓
+
+**Deliverables present:** `packages/shared/src/utils/ingredient-scaling.ts` + sibling `.test.ts` ✓; `packages/shared/package.json` has `"test": "vitest run"` ✓; `packages/shared/vitest.config.ts` exists ✓; `apps/web/src/features/recipes/RecipePortionScaler.tsx` + `.test.tsx` ✓; `apps/web/src/features/recipes/ForkRecipeDialog.tsx` + `.test.tsx` ✓; `RecipeDetailPage.tsx` imports both components and renders a fork banner guarded by `recipe.forkOfRecipeId` ✓; `EditGroupDialog.tsx` has `<Input type="number" min="0.5" max="20" step="0.5">` with label "Standard-Portionen" and client-side 0 < x ≤ 20 German error messages ✓; `POST /api/recipes/{id}/fork` mapped in `RecipeEndpoints.cs` ✓; `Group.MaxDefaultServings = 20m` constant with invariant enforcement in ctor + `UpdateMetadata` ✓; `ForkRecipeRequest` shared type exported from `packages/shared/src/types/recipes.ts` ✓.
+
+**IngredientScaler correctness (32 tests cover all PRD rules):**
+
+- API matches plan (`ScalableIngredient`, `ScaledIngredient`, `scaleIngredients(ingredients, from, to)`). Throws on zero/negative servings ✓.
+- Stück-family unit list case-sensitive: `Stück`, `Scheibe`, `Zehe`, `Blatt`, `Dose`, `Packung`, `Bund` ✓. Legacy `Stueck` alias normalized to `Stück` on input.
+- Stück rounding to nearest whole integer with `wasRounded=true` when diverged > 0.05 ✓. Floor-at-1 for Stück so dividing down never produces "0 Eier".
+- Decimal units round to 2 decimals, trailing zeros stripped (`"1.5 TL"` not `"1.50 TL"`, `"200 ml"` not `"200.00 ml"`).
+- "eine Prise" special-case for TL/EL when scaled value ≤ 0.125 ✓.
+- Non-scalable passthrough + `quantity=null → "nach Geschmack"` passthrough ✓.
+- Fractional servings accepted: `200 g at 4 → 2.5 = 125 g` pinned by a test.
+
+**Fork endpoint correctness:** 10+ tests pin down happy path (201 + full clone structure including `ForkOfRecipeId`, ingredient/step/tag counts, positions, new row ids), non-member target → 403, non-member source → 403, same-group fork → 201 (deviation 4), global tags preserved verbatim, group-scoped custom tag matched by `(Name, Category)` in target → target's tag id used, unmatched custom tag dropped with warning log, photos shared by bare path (same string in `origRow.Photos[0]` and `forkedRow.Photos[0]` asserted directly via `AsNoTracking()`), 401 unauthenticated, 404 on nonexistent recipe.
+
+**Runtime (all verified locally):**
+
+- `dotnet test apps/api/FamilienKochbuch.sln` → 158 Domain + 61 Infrastructure + 157 Api = **376/376 pass, 0 failed, 0 skipped**.
+- `pnpm --filter ./apps/web test --run` → **148/148 pass** across 32 test files.
+- `pnpm --filter ./packages/shared test --run` → **32/32 pass** in 1 file.
+- `pnpm lint` → clean (0 errors, 0 warnings). Confirms `d85a83a` fully resolved the set-state-in-effect lint error; no follow-up suppressions.
+- `docker compose up --build -d` → all 6 services started; postgres/redis/api reach `healthy`; `GET /api/health` responds `{"status":"ok","timestamp":"2026-04-18T13:04:20..."}` through Caddy.
+
+**E2E curl flow (all through Caddy on `localhost`, real Postgres + SeaweedFS):**
+
+1. Admin login with seeded `admin@familien-kochbuch.local` / `ChangeMe!Admin2026` → 200 + JWT captured.
+2. `POST /api/groups {name:"S5 Fork Target"}` → 201, G2 id `de68d2c1-…-06e` captured.
+3. `GET /api/groups` → admin sees Private Sammlung + existing E2E-Test + new S5 Fork Target + a stale S5-G2 from a prior session — all four groups listed, myRole=Admin.
+4. Fetched 2 global tag ids from Private Sammlung's tag list.
+5. `POST /api/groups/{PRIV}/recipes` with 3 ingredients (Mehl 500g scalable, Eier 3 Stück scalable, Pfeffer quantity:null scalable:false), 2 steps, 2 global tags → 201, R1 id `aa3a6c45-…`.
+6. `POST /api/recipes/R1/photos` with a valid 1×1 PNG → 200, signed URL contains bare path `recipes/186e9162cd93415dbd5b16016cf78eeb.png`.
+7. `POST /api/recipes/R1/fork {targetGroupId:G2}` → **201 Created**. Response shows `forkOfRecipeId = R1`, `groupId = G2`, same 3 ingredients (new ids, identical positions/quantities/units/scalable flags), same 2 steps (new ids, preserved order/content), same 2 global tags (identical tag ids), photos array contains the **identical bare path** `recipes/186e9162cd93415dbd5b16016cf78eeb.png` (only the signed URL's `sig` + `exp` params differ, proving the shared-reference policy).
+8. `PUT /api/groups/G2 {defaultServings:2.5,…}` → 200 + `defaultServings: 2.5` in response body; `GET /api/groups/G2` → `defaultServings: 2.5` persisted.
+9. `PUT /api/groups/G2 {defaultServings:25}` → **400** `{"code":"invalid_input","message":"Default servings must be at most 20. …"}`.
+10. `PUT /api/groups/G2 {defaultServings:0}` → **400** `must be greater than zero`.
+11. `PUT /api/groups/G2 {defaultServings:-1}` → **400** `must be greater than zero`.
+12. Created fresh app invite as admin → signed up `s5-outsider@test.local` (non-member of admin's groups) → logged in as outsider → `POST /api/recipes/R1/fork {targetGroupId:G2}` → **403** (caller is not a member of the source group, which is the first RBAC gate). Confirms PRD §4.7 membership requirement on both sides.
+13. `docker compose down` → all containers removed cleanly.
+14. `git status` → clean; `git log origin/main..HEAD` → empty.
+
+**Deviation assessments (all 5 accepted):**
+
+1. **Fork photo path-sharing (not byte-copy) — ACCEPT.** Policy is documented in both code (`ForkRecipeAsync` block comment), test (`Fork_Copies_Photo_Path_References_Sharing_Underlying_Files`) and tracker deviation #1, and live-verified: identical bare path in source + fork DB rows. Trade-off (source photo delete breaks fork's view) is explicit and a follow-up is logged. Reasonable Phase-1 choice to avoid doubling storage.
+2. **No C# IngredientScaler twin — ACCEPT.** Scaling runs 100% client-side through the shared utility; the server never needs scaled quantities in Phase 1 (no server-rendered PDF, no server-side print view). A future slice can trivially port the 30-line pure-function math to C#. Deviation is documented.
+3. **S4 custom-tag category follow-up deferred — ACCEPT.** Scope brief said "strictly S5"; touching the `POST /groups/:groupId/tags` category handling would be scope creep. The issue is tracked and scheduled for a later cleanup pass.
+4. **API allows same-group fork; UI hides it — ACCEPT.** Deliberate split: the endpoint stays permissive (scripts, admin copy, test harness all need it — `Fork_Into_Same_Group_Creates_Independent_Copy` depends on it), while `ForkRecipeDialog.options = groups.filter(g => g.id !== sourceGroupId)` prunes it from the user-facing dropdown. Consistent with PRD §4.7 ("unabhängige Kopie in andere Gruppe") because the user can't realistically trigger it from the UI. Tested on both sides.
+5. **Group-default button label rounds fractional servings for display, exact math preserved — ACCEPT.** Test `handles fractional group default servings for rendering but passes through scaling math` pins both halves: label shows `(3 Portionen)` when `groupDefaultServings=2.5`, but clicking the button scales 500 g (at 4) to exactly 312.5 g. The rounding is `Math.round()` purely for readability; internal state keeps the decimal.
+
+**Security / invariants:**
+
+- `Group.DefaultServings` cap (0 < x ≤ 20) enforced at **Domain** (`Group.cs` ctor + `UpdateMetadata`, lines 46-51 and 135-144, tests `Constructor_Rejects_DefaultServings_Above_Max` + boundary variants), **API** (rethrows `ArgumentException` → 400 + German message; live-verified with 0/-1/25 rejected), **UI** (`EditGroupDialog` `<Input min="0.5" max="20" step="0.5">` + explicit JS guards with German error). Three layers of defence — ✓.
+- Fork cross-group membership check: `IsGroupMemberAsync(source.GroupId, userId)` THEN `IsGroupMemberAsync(body.TargetGroupId, userId)` — both must pass, else 403. Verified by two dedicated tests (`Fork_Returns_403_When_User_Is_Not_Member_Of_Source_Group`, `Fork_Returns_403_When_User_Is_Not_Member_Of_Target_Group`) plus live curl with a fresh outsider account. ✓
+- Scaler non-scalable + `quantity=null` passthrough: both branches trigger before the `factor` multiplication, `wasRounded=false` preserved, `displayQuantity` is `"nach Geschmack"` for the null case and the original quantity otherwise. Covered by 3 explicit tests + the mixed-list integration test. ✓
+- German UI copy verified across RecipePortionScaler ("Portion verringern/erhöhen", "Portionen", "Für {name} umrechnen (N Portionen)"), ForkRecipeDialog ("In andere Gruppe kopieren", "Zielgruppe", "Gruppe wählen …", "Abbrechen", "Kopieren", "Du bist in keiner anderen Gruppe Mitglied."), EditGroupDialog ("Gruppe bearbeiten", "Name", "Beschreibung", "Standard-Portionen", "Cover-Bild URL", "Speichern"), RecipeDetailPage fork banner ("Dieses Rezept wurde aus diesem Original geforkt."). ✓
+- TanStack Query invalidation on `useForkRecipe`: `invalidateQueries({ queryKey: [...recipeQueryKeys.all, 'group', data.groupId] })` uses the **target** group's id from the server response, so the target group's recipe list refreshes after a fork. Paired with `invalidateQueries({ queryKey: recipeQueryKeys.detail(data.id) })` for the new recipe itself. ✓
+
+**Conclusion:** every acceptance criterion from the S5 spec is verified, every deliverable is present, every deviation is documented + reasonable, every runtime check is green, and the E2E flow works end-to-end through real Caddy + Postgres + SeaweedFS. No shortcuts found. **S5 flipped `in_review` → `done`.**
