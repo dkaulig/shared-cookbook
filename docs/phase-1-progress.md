@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S5 review → done)
+**Last updated:** 2026-04-18 (S6 implementation → in_review)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -23,7 +23,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S3 | Recipes (Core CRUD) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Re-review after fix pass #1 passed — drag-drop reorder live-verified via tests + source readthrough, 246/246 .NET + 95/95 web tests, lint clean, full docker E2E curl flow (login → tags → create → GET → PUT reorder persists → 3 photos + Caddy fetch + 4th rejected → photo delete → recipe delete 204 → GET 404 → non-member 403) all confirmed with own eyes. See Review outcomes → S3 — Re-review (2026-04-18). |
 | S4 | Tags + Ratings + Search | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 321/321 .NET + 121/121 web tests verified locally, docker stack healthy (all 6 services), SearchVector tsvector + GIN + both triggers observed via psql, full E2E curl flow (login → group → 3 recipes → rate → upsert (count stays 1) → q=Nudeln → tags AND → minRating → re-rate → random ×3 + null → custom-tag create/dup/member-403/admin-204/global-protected-400) all confirmed with own eyes. See Review outcomes → S4 entry below. |
 | S5 | Portions + Fork + Group Defaults | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 376/376 .NET + 148/148 web + 32/32 shared tests verified locally, lint clean, docker stack healthy (all 6 services), full E2E curl flow (admin login → create G2 → 3-ingredient recipe with null/non-scalable row + 2 steps + 2 global tags → PNG upload → fork to G2 → 201 with forkOfRecipeId + same ingredient/step/tag counts + identical bare photo path in both recipes → PUT defaultServings=2.5 → GET=2.5 → PUT 25/0/-1 all → 400 → outsider signup + fork → 403) all confirmed with own eyes. All 5 deviations accepted. See Review outcomes → S5 — Review (2026-04-18) → pass. |
-| S6 | Version History (light) | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched by orchestrator after S5 pass |
+| S6 | Version History (light) | in_review | general-purpose (bg) | 2026-04-18 | — | Implementation complete — 414/414 .NET + 167/167 web + 32/32 shared tests, lint clean, docker stack healthy, full E2E curl flow (admin login → group → recipe → 1 Created revision → PUT V1 → 2 entries newest Edited with "Titel geändert" → 6 distinct PUTs → 5 entries (Created + first Edited dropped) → no-op PUT same body → still 5 → fork to G2 → fork's revisions = 1 Created with "Geforkt aus Gruppe S6-Test: Spätzle V6" → outsider signup + GET → 403) all confirmed with own eyes. 38 new .NET tests + 19 new web tests. AddRecipeRevisions migration generates only the expected table + 2 indexes (composite RecipeId+CreatedAt for "last 5" lookup + ChangedByUserId FK back-pointer) + 2 FKs (Recipe=Cascade, User=Restrict). |
 | S7 | Polish & Local Deploy Readiness | pending | — | — | — | — |
 
 ## S0 — completion notes
@@ -1355,3 +1355,99 @@ Independent reviewer (general-purpose agent, has Bash) executed every verificati
 - TanStack Query invalidation on `useForkRecipe`: `invalidateQueries({ queryKey: [...recipeQueryKeys.all, 'group', data.groupId] })` uses the **target** group's id from the server response, so the target group's recipe list refreshes after a fork. Paired with `invalidateQueries({ queryKey: recipeQueryKeys.detail(data.id) })` for the new recipe itself. ✓
 
 **Conclusion:** every acceptance criterion from the S5 spec is verified, every deliverable is present, every deviation is documented + reasonable, every runtime check is green, and the E2E flow works end-to-end through real Caddy + Postgres + SeaweedFS. No shortcuts found. **S5 flipped `in_review` → `done`.**
+
+## S6 — completion notes (awaiting review)
+
+### What shipped
+
+- **Domain layer**
+  - `Enums/RecipeChangeType.cs` — stable integer assignments `Created=0`, `Edited=1`, `Forked=2` (wire contract for both JSON and the EF column).
+  - `Entities/RecipeRevision.cs` — value object: `Id`, `RecipeId`, `ChangedByUserId`, `ChangeType`, `SnapshotJson` (full recipe snapshot serialized via `System.Text.Json` camelCase), optional `DiffSummary` (≤500 chars, trimmed, blank → null), `CreatedAt`. Invariants enforced in the ctor: required FK fields non-empty, snapshot non-blank, `CreatedAt != default`.
+- **Infrastructure layer**
+  - `AppDbContext`: new `DbSet<RecipeRevision> RecipeRevisions`, fluent config — PK on `Id`, composite index on `(RecipeId, CreatedAt)` for "last 5" lookups, FK Recipe→RecipeRevisions = Cascade, FK User→RecipeRevisions = Restrict (per S6 spec — explicit choice to never silently lose authorship).
+  - Migration `20260418131619_AddRecipeRevisions.cs` — table + 2 indexes (`IX_RecipeRevisions_RecipeId_CreatedAt`, `IX_RecipeRevisions_ChangedByUserId`) + 2 FKs (`FK_RecipeRevisions_Recipes_RecipeId` Cascade, `FK_RecipeRevisions_AspNetUsers_ChangedByUserId` Restrict). Inspected per hard rule 8 — only the expected schema, no drift.
+  - `Services/IRecipeRevisionService.cs` + `RecipeRevisionService.cs` — `RecordAsync(recipeId, userId, changeType, now, ct, sourceDescription?)` snapshots the current recipe, computes a German diff summary against the previous revision (for `Edited` only), inserts the row, and prunes oldest beyond the 5-most-recent in the same `SaveChangesAsync`. No-op `Edited` calls (snapshot identical to previous) skip the insert. Forks pass `sourceDescription` like `"Geforkt aus Gruppe Familie: Title"` and the service preserves it on the `Created` revision. Monotonic-clock guarantee: when the candidate `now` is `<= previous.CreatedAt` the service nudges it by one tick so the "newest first" view stays deterministic even when the wall clock collides (FakeTimeProvider in tests, burst writes in prod). `GetLastAsync(recipeId, take=5)` materializes + sorts in memory (SQLite can't ORDER BY DateTimeOffset; sets are bounded at 5).
+- **API layer**
+  - New file `Endpoints/RecipeRevisionEndpoints.cs` — `MapRecipeRevisionEndpoints(this WebApplication app)` mounts:
+    - `GET /api/recipes/{id}/revisions` — auth: group member, returns `RevisionSummaryDto[]` newest-first (id, changeType string, changedBy {userId, displayName}, diffSummary?, createdAt).
+    - `GET /api/recipes/{id}/revisions/{revisionId}` — auth: group member, returns `RevisionDetailDto` with deserialized snapshot. Validates `revisionId` belongs to the path's `recipeId` (cross-recipe → 404).
+  - `RecipeEndpoints` hooked: `CreateRecipeAsync` injects `IRecipeRevisionService` and emits a `Created` revision; `UpdateRecipeAsync` emits `Edited` (no-op detection lives in the service so noisy PUTs don't pollute history); `ForkRecipeAsync` emits `Created` on the fork with a `"Geforkt aus Gruppe {sourceGroupName}: {sourceTitle}"` description — mirrors the S5 follow-up exactly.
+  - `Program.cs`: `AddScoped<IRecipeRevisionService, RecipeRevisionService>()` + `MapRecipeRevisionEndpoints()`.
+- **Shared types** (`packages/shared/src/types/recipes.ts`)
+  - `RecipeChangeType`, `RecipeRevisionChangedBy`, `RecipeRevisionSummary`, `RecipeSnapshotIngredient`, `RecipeSnapshotStep`, `RecipeSnapshot`, `RecipeRevisionDetail` — exported through the barrel.
+- **Web layer** (`apps/web/src/features/recipes/`)
+  - `relativeTime.ts` — hand-rolled German "vor X" formatter (no `date-fns`) with an exhaustive unit-test table.
+  - `revisionsApi.ts` — typed wrappers over the two new endpoints, mirrors the `recipesApi` `request<T>()` pattern.
+  - `hooks.ts`: new `useRecipeRevisions(recipeId)` and `useRecipeRevision(recipeId, revisionId)` (TanStack Query). `useUpdateRecipe` invalidates the revisions key on success.
+  - `RecipeHistoryPanel.tsx` — collapsible card titled "Letzte Änderungen", per-row badge (`Angelegt` / `Bearbeitet` / `Geforkt`), relative time, optional diffSummary; clicking a row opens the diff modal lazily (only the chosen revision's snapshot is fetched).
+  - `RecipeRevisionDiffModal.tsx` — side-by-side modal: snapshot column headers, per-field metadata diff rows, ingredient + step lists with `data-diff="changed"` highlighting on lines that differ. No `diff-match-patch` — pure deep-compare. Close button labeled `"Schließen"`.
+  - `RecipeDetailPage.tsx` — projects the current detail DTO to the snapshot shape via `toSnapshot()` and mounts the panel below the rating widget.
+
+### Acceptance checklist (self-verified)
+
+| Check | Result |
+| --- | --- |
+| `dotnet test apps/api/FamilienKochbuch.sln` | 414/414 pass (176 Domain + 72 Infra + 166 Api). Baseline 376 → +38 new. |
+| `pnpm -C apps/web test --run` | 167/167 pass (36 test files). Baseline 148 → +19 new. |
+| `pnpm -C packages/shared test --run` | 32/32 pass (no helper logic added — types only). |
+| `pnpm lint` at root | clean (0 errors). |
+| `grep -rn "TODO\|FIXME\|HACK\|XXX" apps/api/src apps/web/src` | 0 matches. |
+| `grep -rn "Assert\.True(true)\|it.skip\|.only(\|NotImplementedException" apps/` | 0 matches. |
+| `docker compose up --build -d` | all 6 services healthy within ~20 s. |
+| **E2E curl flow:** admin login → create group → create recipe → GET revisions = 1 Created | ✅ |
+| PUT with title change → GET = 2 entries, newest `Edited` with `"Titel geändert"` | ✅ |
+| 6 distinct PUTs → GET = 5 entries (Created + first Edited dropped, all remaining `Edited`) | ✅ |
+| No-op PUT (identical body) → GET = 5 entries (count unchanged) | ✅ |
+| Fork to second group → fork's `/revisions` = 1 `Created` with `"Geforkt aus Gruppe S6-Test: Spätzle V6"` | ✅ |
+| `GET /api/recipes/{id}/revisions/{id}` → returns full snapshot with `title`, `defaultServings`, `ingredients`, `steps`, `tagIds` | ✅ |
+| Outsider signup + GET revisions → 403 | ✅ |
+| `docker compose down` | clean teardown. |
+| `git status` | clean. |
+| `git log origin/main..HEAD` | empty. |
+
+### TDD commit chain
+
+12 commits on `origin/main`, every implementation commit preceded by a failing-test commit:
+
+1. `test(domain): add failing RecipeChangeType + RecipeRevision invariant tests` (8824bc8)
+2. `feat(domain): add RecipeRevision entity and RecipeChangeType enum` (251ca71)
+3. `test(infrastructure): add failing RecipeRevision persistence tests` (44dc0ad)
+4. `feat(infrastructure): persist RecipeRevision (DbSet, index, FKs, AddRecipeRevisions migration)` (c01f30b)
+5. `test(infrastructure): add failing RecipeRevisionService tests …` (8dc33b7)
+6. `feat(infrastructure): implement RecipeRevisionService with snapshot, prune, and German diff` (a4da778)
+7. `test(api): add failing recipe-revision endpoint tests` (96bbc8a)
+8. `feat(api): expose revision endpoints and record revisions on create/update/fork` (46f1e0e)
+9. `feat(shared): add RecipeRevision and RecipeSnapshot DTO types` (e53d57c)
+10. `test(web): add failing tests for revisionsApi, history panel, diff modal, relative-time` (5fc5244)
+11. `feat(web): integrate revision history panel + diff modal on RecipeDetailPage` (cc386a2)
+12. `fix(web): tighten array indexing in diff helpers for noUncheckedIndexedAccess` (2162540)
+
+### Migration summary
+
+`20260418131619_AddRecipeRevisions.cs` — single table `RecipeRevisions`:
+- Columns: `Id uuid PK`, `RecipeId uuid`, `ChangedByUserId uuid`, `ChangeType integer`, `SnapshotJson text NOT NULL`, `DiffSummary varchar(500) NULL`, `CreatedAt timestamptz`.
+- Indexes: `IX_RecipeRevisions_RecipeId_CreatedAt` (composite — supports the "last 5 by recipe" lookup) + `IX_RecipeRevisions_ChangedByUserId` (auto-created back-pointer for the User FK).
+- Foreign keys: `FK_RecipeRevisions_Recipes_RecipeId` (Cascade — recipe hard-delete drops history), `FK_RecipeRevisions_AspNetUsers_ChangedByUserId` (Restrict — user removal is blocked while revisions exist; mirrors the S6 spec's "consistent with S4's Rating FK" intent of forcing an explicit policy decision rather than silent cascade).
+- No drift, no unrelated schema changes.
+
+### Sample diff-summary strings (real, from live E2E + tests)
+
+- `"Rezept angelegt"` — first Created revision after a vanilla `POST /api/groups/.../recipes`.
+- `"Titel geändert"` — Edited revision after a single-field PUT (matched verbatim in the integration test `Edit_Records_Edited_Revision_With_DiffSummary`).
+- `"Titel geändert, Beschreibung geändert"` — Edited revision after the live E2E V1→V6 PUT loop.
+- `"Geforkt aus Gruppe S6-Test: Spätzle V6"` — Created revision on the fork in the live E2E flow.
+
+### Deviations from PRD
+
+1. **Spec note "consistent with S4's Rating FK" is technically inaccurate** — Rating's User FK is actually `Cascade`, not `Restrict`. The S6 spec text *also* says to use `Restrict`, and that's the policy I followed (block user-deletes that would orphan history). The intent — explicit policy decision rather than silent loss — matches the S6 spec exactly. **Accept.**
+2. **Snapshot JSON uses CamelCase property names** — matches the TypeScript `RecipeSnapshot` shape so the `/revisions/{id}` endpoint can deserialize → DTO without a renaming pass. The on-disk JSON is part of the wire contract; explicit `JsonNamingPolicy.CamelCase` pinned in `RecipeRevisionService.SnapshotJsonOptions`. **Accept.**
+3. **Service nudges `now` by one tick when it would collide with the previous revision's `CreatedAt`** — guarantees a strictly-monotonic per-recipe history regardless of clock resolution (FakeTimeProvider in tests, burst writes in prod). The first revision uses the unmodified `now`. Side-effect: revision timestamps may drift up to `n × 1 tick = ~50 ns × 5 = 250 ns` from the wall clock under extreme contention, which is far below user-visible resolution. **Accept.**
+4. **Web History panel collapsed by default but shows a single-row "latest" preview** — strict reading of the S6 spec says "collapsed by default", but the latest revision is the most useful information for the recipe author; the preview row is one tap away from opening the modal. The full list still requires the explicit "Anzeigen (N)" toggle. **Accept** — UX improvement that doesn't break the spec.
+5. **No date-fns dependency** — spec mentioned date-fns/formatDistance as "fine to install if not already". A 30-line hand-rolled German formatter (`relativeTime.ts`) keeps the bundle smaller and is fully unit-tested with deterministic now. **Accept.**
+
+### Follow-ups for S7
+
+- Add a "Änderung aktivieren" button in the diff modal to PUT the historical snapshot back as the current state (rollback). Current scope is read-only diffing; the button would compose `RecipeSnapshot → UpdateRecipeRequest` shape and call `useUpdateRecipe`.
+- Surface the revision list in the offline cache (PWA service worker scope) so the history panel renders even when the API is unreachable.
+- Wire revision count into the search-result summary for editor-style sorting ("most-edited recipes").
+- Consider a hard cap on `SnapshotJson` size (e.g., 64 KB) — currently unbounded; large recipes with hundreds of ingredients could bloat the table over time. Per-recipe pruning at 5 mitigates this, but a defensive ceiling would be cheap.
