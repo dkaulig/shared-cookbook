@@ -483,7 +483,7 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
     }
 
     [Fact]
-    public async Task UploadPhoto_Returns_200_And_Url()
+    public async Task UploadPhoto_Returns_200_With_Signed_Url_And_Stores_Bare_Path()
     {
         var (_, token) = await SignupAndLoginAsync("up@ex.com", "U");
         AuthorizeClient(_client, token);
@@ -496,10 +496,25 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.UploadPhotoResponse>())!;
-        Assert.StartsWith("fake://", body.Url);
+        // Response URL is a signed proxy URL.
+        Assert.StartsWith("/api/photos/recipes/", body.Url);
+        Assert.Contains("?sig=", body.Url);
+        Assert.Contains("&exp=", body.Url);
 
+        // Detail response also surfaces the signed URL for the photo array.
         var detail = await _client.GetFromJsonAsync<RecipeEndpoints.RecipeDetailDto>($"/api/recipes/{created.Id}");
         Assert.Single(detail!.Photos);
+        Assert.StartsWith("/api/photos/recipes/", detail.Photos[0]);
+        Assert.Contains("?sig=", detail.Photos[0]);
+
+        // But the DB stores only the bare path (no query, no signature).
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var dbRecipe = await db.Recipes.SingleAsync(r => r.Id == created.Id);
+        var stored = Assert.Single(dbRecipe.Photos);
+        Assert.StartsWith("recipes/", stored);
+        Assert.DoesNotContain("?", stored);
+        Assert.DoesNotContain("sig=", stored);
     }
 
     [Fact]
@@ -567,7 +582,7 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
     // ── DELETE /api/recipes/{id}/photos ─────────────────────────────
 
     [Fact]
-    public async Task DeletePhoto_Removes_From_Array_And_Storage()
+    public async Task DeletePhoto_Accepts_Signed_Url_And_Removes_From_Array_And_Storage()
     {
         var (_, token) = await SignupAndLoginAsync("delp@ex.com", "D");
         AuthorizeClient(_client, token);
@@ -580,6 +595,8 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         uploadRes.EnsureSuccessStatusCode();
         var upload = (await uploadRes.Content.ReadFromJsonAsync<RecipeEndpoints.UploadPhotoResponse>())!;
 
+        // Client sends back the signed URL it received; endpoint must normalize
+        // it to the bare path internally.
         using var req = new HttpRequestMessage(
             HttpMethod.Delete,
             $"/api/recipes/{created.Id}/photos")
@@ -591,7 +608,49 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
 
         var detail = await _client.GetFromJsonAsync<RecipeEndpoints.RecipeDetailDto>($"/api/recipes/{created.Id}");
         Assert.Empty(detail!.Photos);
-        Assert.Contains(upload.Url, _factory.Photos.Deleted);
+
+        // FakePhotoStorage records the normalized bare path (not the signed URL).
+        var expectedPath = SeaweedFsPhotoStorage.NormalizeToPath(upload.Url);
+        Assert.Contains(expectedPath, _factory.Photos.Deleted);
+
+        // DB state: photo array is empty.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var dbRecipe = await db.Recipes.SingleAsync(r => r.Id == created.Id);
+        Assert.Empty(dbRecipe.Photos);
+    }
+
+    [Fact]
+    public async Task DeletePhoto_Accepts_Bare_Path()
+    {
+        var (_, token) = await SignupAndLoginAsync("delp2@ex.com", "D2");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var createRes = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", BuildCreateRequest());
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        using var form = BuildPhoto(ValidPngBytes(), "photo.png", "image/png");
+        var uploadRes = await _client.PostAsync($"/api/recipes/{created.Id}/photos", form);
+        uploadRes.EnsureSuccessStatusCode();
+
+        // Look up the stored path directly and pass it to delete.
+        string storedPath;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            storedPath = (await db.Recipes.SingleAsync(r => r.Id == created.Id)).Photos[0];
+        }
+
+        using var req = new HttpRequestMessage(
+            HttpMethod.Delete,
+            $"/api/recipes/{created.Id}/photos")
+        {
+            Content = JsonContent.Create(new RecipeEndpoints.RemovePhotoRequest(storedPath)),
+        };
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        Assert.Contains(storedPath, _factory.Photos.Deleted);
     }
 
     // ── GET /api/groups/{groupId}/tags ──────────────────────────────
