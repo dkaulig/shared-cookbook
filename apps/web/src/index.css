@@ -1,84 +1,126 @@
 @import "tailwindcss";
 
 /*
- * shadcn/ui — New York style, neutral base, CSS variables.
- * Token values taken from https://ui.shadcn.com/themes (neutral).
- * Tailwind 4 picks these up via `@theme inline` so utilities like
- * `bg-primary`, `text-destructive-foreground`, etc. resolve correctly.
+ * shadcn/ui tokens mapped to the Warme-Küche palette (DS1).
+ *
+ * Hex values come from `docs/mockups/README.md` and the `:root` block
+ * in `docs/mockups/warme-kueche-login.html`. We keep shadcn's HSL-triplet
+ * convention so `bg-primary`, `text-muted-foreground`, etc. continue to
+ * work without per-component rewrites.
+ *
+ * `--primary-hover` is an extra token (outside shadcn's spec) used by
+ * the Button default variant to match the mockup's amber-800 hover state
+ * via `hover:bg-[var(--primary-hover)]`.
  */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-serif: "Cormorant Garamond", serif;
+  --font-serif-body: "Libre Baskerville", serif;
 }
 
 :root {
   color-scheme: light;
-  --radius: 0.5rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --radius: 0.75rem; /* 12px — matches mockup --radius */
+
+  --background: 48 100% 96%; /* #FFFBEB amber-50 (cream) */
+  --foreground: 20 14% 10%; /* #1C1917 stone-900 */
+
+  --card: 0 0% 100%; /* #FFFFFF surface */
+  --card-foreground: 20 14% 10%; /* #1C1917 stone-900 */
+
+  --popover: 0 0% 100%; /* #FFFFFF */
+  --popover-foreground: 20 14% 10%; /* #1C1917 stone-900 */
+
+  --primary: 32 95% 37%; /* #B45309 amber-700 */
+  --primary-foreground: 48 100% 96%; /* #FFFBEB cream on amber */
+  --primary-hover: 25 75% 31%; /* #92400E amber-800 (hover) */
+
+  --secondary: 48 96% 89%; /* #FEF3C7 amber-100 */
+  --secondary-foreground: 25 75% 31%; /* #92400E amber-800 */
+
+  --muted: 60 5% 96%; /* #F5F5F4 stone-100 */
+  --muted-foreground: 25 5% 35%; /* #57534E stone-600 */
+
+  --accent: 48 96% 89%; /* #FEF3C7 amber-100 */
+  --accent-foreground: 25 75% 31%; /* #92400E amber-800 */
+
+  --destructive: 0 72% 51%; /* #DC2626 red-600 */
+  --destructive-foreground: 48 100% 96%; /* #FFFBEB cream */
+
+  --border: 24 6% 90%; /* #E7E5E4 stone-200 */
+  --input: 24 6% 84%; /* #D6D3D1 stone-300 */
+  --ring: 32 95% 37%; /* #B45309 amber-700 */
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.556 0 0);
+  /*
+   * Minimal usable dark-mode — not part of DS1 polish, but guarantees
+   * `<html class="dark">` does not produce a broken page. Values lean on
+   * stone-900 / amber-500 to keep contrast legible.
+   */
+  --background: 20 14% 10%; /* #1C1917 stone-900 */
+  --foreground: 60 9% 98%; /* #FAFAF9 stone-50 */
+
+  --card: 24 10% 15%; /* ~#26221F stone-850 */
+  --card-foreground: 60 9% 98%;
+
+  --popover: 24 10% 15%;
+  --popover-foreground: 60 9% 98%;
+
+  --primary: 38 92% 50%; /* #F59E0B amber-500 */
+  --primary-foreground: 20 14% 10%; /* stone-900 on amber */
+  --primary-hover: 32 95% 44%; /* slightly darker amber on hover */
+
+  --secondary: 25 75% 20%; /* deep amber-900ish */
+  --secondary-foreground: 48 96% 89%; /* amber-100 */
+
+  --muted: 24 6% 20%; /* stone-800 */
+  --muted-foreground: 24 5% 65%; /* stone-400 */
+
+  --accent: 25 75% 20%;
+  --accent-foreground: 48 96% 89%;
+
+  --destructive: 0 63% 45%; /* #B91C1C red-700 */
+  --destructive-foreground: 60 9% 98%;
+
+  --border: 24 6% 25%; /* stone-700 */
+  --input: 24 6% 25%;
+  --ring: 38 92% 50%; /* amber-500 */
 }
 
 html,
 body,
 #root {
   min-height: 100dvh;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
