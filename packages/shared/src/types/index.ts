@@ -1,5 +1,9 @@
 export type { HealthResponse } from './health.ts'
 export type {
+  ChangeDisplayNameRequest,
+  ChangePasswordRequest,
+} from './account.ts'
+export type {
   ApiError,
   AuthResponse,
   AuthUser,
