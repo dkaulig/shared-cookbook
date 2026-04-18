@@ -24,6 +24,7 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS5 | Recipe Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS5 commits; 392 web (+50), 432 .NET (+5 cook endpoint), 32 shared = 856 green; lint clean; docker smoke ok; reviewer-verified |
 | DS6 | Recipe Form | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 16 DS6 commits; 434 web (+42), 432 .NET, 32 shared = 898 green; lint clean; docker smoke ok; reviewer-verified |
 | DS7 | Polish + PWA | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 16 DS7 commits (+1 follow-up docs commit for GR1/PDF-export planning, TDD-exempt); 442 web (+8), 432 .NET, 32 shared = 906 green; lint clean; docker smoke ok; 5 screenshots in docs/screenshots/; reviewer-verified. Phase 1.5 complete. |
+| DS8 | Sage Modern redesign (tokens + Inter-only) | done | general-purpose (bg) + code-reviewer | 2026-04-18 | 2026-04-18 | 5 DS8 commits (`23fe5ae..fa67e69`); tokens + fonts + gradients swapped, 23 files swept clean of amber hex + Cormorant/Libre Baskerville. 446 web (unchanged count), 447 .NET (untouched), 32 shared = 925 green; lint clean; reviewer-verified with 1 follow-up fix (GroupDetailPage random-error alert → destructive tokens). Awaiting user visual smoke. |
 
 ## Last orchestrator tick
 
@@ -41,6 +42,24 @@ _(none)_
 
 ## Planned follow-ups (post-DS7)
 
+**Order after DS8 lands:** BF1 → AP1 → GM1 → UX1-RichText → UX1-PhotoUpload. User-agreed 2026-04-18.
+
+- **DS8 — Sage Modern redesign** — **done** 2026-04-18. 5 commits (`23fe5ae..fa67e69`); tokens + fonts + gradients swapped, 23 files swept clean of amber hex + Cormorant/Libre Baskerville. Plan at `docs/plans/2026-04-18-ds8-sage-modern-redesign.md`. 446 web + 447 .NET + 32 shared = 925 green; reviewer-verified with 1 follow-up fix (GroupDetailPage alert → destructive tokens).
+- **BF1 — Quick Bugfixes** (est. 30-45 min, user-reported 2026-04-18):
+  1. Ingredient amount field — placeholder is cut off; fix input width/padding.
+  2. "Zuletzt geändert" shows role ("Admin") instead of user displayname — projection/mapping bug in revision history query.
+  3. Umlaute rendered as `ae`/`oe`/`ue` in some strings instead of `ä`/`ö`/`ü` — likely a slugify/normalize helper applied to plain-text output where it doesn't belong. Audit usage sites.
+  4. Header search icon routes to Groups overview — not useful; disable button + tooltip "bald verfügbar" until a real search view lands.
+  5. Header notification bell has no function — remove the icon for now; re-add in Phase 2 when the notification backend exists.
+  6. Home "Warm" (and other) filter chips jump into a seemingly random group — replace `goToBiggestGroup(preset)` with either a group-picker modal or route to a new `/rezepte?preset=warm` cross-group view. Pick the simpler option (picker modal if only one group, direct if user is in only one).
+  7. Signup page (invite flow, `SignupPage.tsx`) has only one password input — add "Passwort bestätigen" field with client-side match validation (mirror what `ResetPasswordPage.tsx` already does). Error message if mismatch, block submit.
+- **AP1 — User-Profil** (est. 45-60 min, original AP1 scope + password confirm): Change-password flow takes old password + new password + **confirm new password** (reject on mismatch client-side, reject on wrong old password server-side). Displayname change endpoint + inline edit on `ProfilStub`. TDD as usual.
+- **GM1 — Group Management** (est. 2-3 h, user-requested 2026-04-18):
+  1. Rename group — Admin-only PATCH `/api/groups/{id}` endpoint + edit dialog accessible from `GroupDetailHeader`.
+  2. Invite link list + revoke — Admin sees all outstanding invite links for a group, can revoke (`DELETE /api/groups/{id}/invites/{inviteId}`). New `GroupInvitesPanel` component.
+  3. Member management — Admin sees member list with roles, can change role (Member ↔ Admin), can remove members (`DELETE /api/groups/{id}/members/{userId}`). Safety: cannot remove last Admin.
+- **UX1-RichText — Rich-Text Zubereitung** (est. 2-3 h, user-requested 2026-04-18): replace plain textarea for recipe steps with a Tiptap editor (bold, italic, lists). Store as Markdown or TipTap-JSON in DB. Sanitize on render. Accessibility: keyboard shortcuts + ARIA live region for toolbar state.
+- **UX1-PhotoUpload — Create-mode photo upload** (est. 1-2 h, user-requested 2026-04-18 earlier): save-first-then-upload flow on the recipe create form.
 - **Recipe composition (v2)**: cross-recipe linking where one recipe references another as a sub-ingredient (e.g. "Pizza Margherita verwendet 1× Pizzateig-Rezept"). Scales sub-recipe portions with the parent recipe. NOT in Phase 1 or 1.5; defer to Phase 2+.
 - **Recipe PDF export (v2)**: download a recipe as a PDF for printing or sharing via email/WhatsApp/Telegram. Two plausible implementations: (a) print-friendly CSS + browser-native "Save as PDF" dialog — simplest, no server dep, acceptable quality; (b) server-rendered PDF via `QuestPDF` in .NET or headless Chromium in the Python extractor microservice — better typography + branding but more infra. User-requested 2026-04-18; defer to Phase 2.
 
