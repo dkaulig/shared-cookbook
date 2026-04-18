@@ -289,4 +289,202 @@ describe('RecipeFormPage (create)', () => {
     ])
     expect(capturedPayload!.steps.map((s) => s.position)).toEqual([0, 1, 2])
   })
+
+  it('renders the DS6 sticky form top bar with "Neues Rezept"', () => {
+    render(withProviders('/groups/g1/recipes/new'))
+    // TopNav suppression → only the form top bar is visible. The serif
+    // title renders inside a banner. Both the banner and the h1 repeat
+    // the copy, so assert on the banner specifically.
+    const banner = screen.getByRole('banner')
+    expect(banner).toHaveTextContent(/Neues Rezept/)
+    expect(banner).toHaveTextContent(/Ungespeicherte Änderungen/)
+  })
+
+  it('renders the FormIntro italic tagline', () => {
+    render(withProviders('/groups/g1/recipes/new'))
+    expect(
+      screen.getByText(/Zutaten und Schritte kannst du später jederzeit anpassen/i),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the CharCounter under the title input', () => {
+    render(withProviders('/groups/g1/recipes/new'))
+    // With empty title, the title counter reads "0 / 200" (the
+    // description counter underneath reads "0 / 2000").
+    expect(screen.getByText(/^0 \/ 200$/)).toBeInTheDocument()
+    expect(screen.getByText(/^0 \/ 2000$/)).toBeInTheDocument()
+  })
+
+  it('updates the CharCounter live as the user types in the title', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Omas')
+    expect(screen.getByText(/^4 \/ 200$/)).toBeInTheDocument()
+  })
+
+  it('lets the user select a difficulty pill and persists the choice on submit', async () => {
+    const user = userEvent.setup()
+    let captured: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        captured = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-diff',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 3,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    await user.click(screen.getByRole('button', { name: /Aufwendig/ }))
+    expect(screen.getByRole('button', { name: /Aufwendig/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured!.difficulty).toBe(3)
+  })
+
+  it('toggles a tag chip and submits the chosen tag id', async () => {
+    const user = userEvent.setup()
+    let captured: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        captured = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-tag',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    // Tags are loaded via MSW in beforeEach — wait for the "vegan" chip.
+    const veganChip = await screen.findByRole('button', { name: /vegan/i })
+    await user.click(veganChip)
+    expect(veganChip).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured!.tagIds).toContain('t1')
+  })
+
+  it('auto-disables scalable and sends scalable=false when the user selects the "nach Geschmack" unit', async () => {
+    const user = userEvent.setup()
+    let captured: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        captured = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-ng',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Salz')
+    await user.selectOptions(
+      screen.getByLabelText(/Zutat 1 Einheit/i),
+      'nach Geschmack',
+    )
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured!.ingredients[0]?.quantity).toBeNull()
+    expect(captured!.ingredients[0]?.scalable).toBe(false)
+  })
+
+  it('clamps Portionen to 1 before submit even if the user types 0', async () => {
+    const user = userEvent.setup()
+    let captured: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        captured = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-clamp',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 1,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+
+    const servings = screen.getByLabelText(/Portionen/i) as HTMLInputElement
+    await user.clear(servings)
+    await user.type(servings, '0')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured!.defaultServings).toBeGreaterThanOrEqual(1)
+  })
 })
