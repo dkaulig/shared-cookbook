@@ -982,19 +982,27 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
         Assert.Null(created.LastCookedAt);
 
-        var before = DateTimeOffset.UtcNow.AddSeconds(-5);
+        // FakeTimeProvider is the authoritative clock — bump it by a few
+        // seconds so the "cooked at" stamp is provably in the future of
+        // the recipe's creation timestamp and we can assert exact equality
+        // instead of a slippery wall-clock window. Kept under the JWT
+        // access-token lifetime (15 min) so the token in this test client
+        // stays valid.
+        _factory.Clock.Advance(TimeSpan.FromSeconds(10));
+        var expectedCookedAt = _factory.Clock.GetUtcNow();
+
         var response = await _client.PostAsync($"/api/recipes/{created.Id}/cook", content: null);
-        var after = DateTimeOffset.UtcNow.AddSeconds(5);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
         Assert.NotNull(body.LastCookedAt);
-        Assert.InRange(body.LastCookedAt!.Value, before, after);
+        Assert.Equal(expectedCookedAt, body.LastCookedAt!.Value);
 
         // Persisted.
         var fetch = await _client.GetFromJsonAsync<RecipeEndpoints.RecipeDetailDto>(
             $"/api/recipes/{created.Id}");
         Assert.NotNull(fetch!.LastCookedAt);
+        Assert.Equal(expectedCookedAt, fetch.LastCookedAt!.Value);
     }
 
     [Fact]

@@ -161,6 +161,7 @@ public static class RecipeEndpoints
         recipe.MapPost("/photos", UploadPhotoAsync).DisableAntiforgery().ExcludeFromDescription();
         recipe.MapDelete("/photos", RemovePhotoAsync);
         recipe.MapPost("/fork", ForkRecipeAsync);
+        recipe.MapPost("/cook", MarkCookedAsync);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -801,6 +802,40 @@ public static class RecipeEndpoints
         var reloaded = (await LoadRecipeWithChildrenAsync(db, fork.Id, ct))!;
         var detail = await ProjectDetailAsync(db, reloaded, photoStorage, ct);
         return Results.Created($"/api/recipes/{fork.Id}", detail);
+    }
+
+    // ── POST /api/recipes/{id}/cook ─────────────────────────────────
+
+    /// <summary>
+    /// DS5 "Jetzt gekocht" action. Marks the recipe as cooked right now by
+    /// stamping <see cref="Recipe.LastCookedAt"/> with the current UTC time
+    /// and returns the refreshed detail DTO. Requires group membership.
+    ///
+    /// Explicitly does NOT append a <c>RecipeRevision</c> — cooking is an
+    /// activity signal consumed by the recipe-search recency sort, not a
+    /// change to the recipe content. Writing a revision every time a user
+    /// taps "Jetzt gekocht" would drown the history panel in noise.
+    /// </summary>
+    private static async Task<IResult> MarkCookedAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var recipe = await LoadRecipeWithChildrenAsync(db, id, ct);
+        if (recipe is null) return Results.NotFound();
+
+        if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
+
+        recipe.MarkCooked(clock.GetUtcNow());
+        await db.SaveChangesAsync(ct);
+
+        var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
+        return Results.Ok(detail);
     }
 
     // ── GET /api/groups/{groupId}/tags ──────────────────────────────
