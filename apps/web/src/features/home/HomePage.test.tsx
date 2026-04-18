@@ -153,8 +153,11 @@ describe('<HomePage />', () => {
 
   it('renders the "+ Neue Gruppe anlegen" card and opens the create dialog when clicked', async () => {
     server.use(
-      http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'gA', name: 'Familie Kaulig' })]),
+      ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
+      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -163,7 +166,7 @@ describe('<HomePage />', () => {
     await user.click(add)
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText(/gruppe erstellen/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /gruppe erstellen/i })).toBeInTheDocument()
   })
 
   it('renders the "Zuletzt gekocht" section with recipes from the biggest group', async () => {
