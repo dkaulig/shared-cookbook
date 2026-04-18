@@ -5,6 +5,9 @@ Exposes:
   Docker HEALTHCHECK and the .NET orchestrator.
 - ``POST /extract/url`` — accepts a URL + caller hint, runs the full
   video/blog extraction pipeline, returns a structured recipe result.
+- ``POST /chat`` — one conversational turn with the koch-assistent.
+- ``POST /chat/{session_id}/to-recipe`` — verdichte den Dialog zu
+  einem strukturierten Rezept.
 
 Dependencies are injected via FastAPI's ``Depends`` so tests can
 override the LLM provider and the video stack (downloader +
@@ -18,13 +21,19 @@ from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
 
 from extractor.config import Settings
-from extractor.llm import LLMProvider, LLMProviderError, build_provider
+from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, build_provider
+from extractor.pipeline.chat import (
+    EmptyMessagesError,
+    MessagesTooLongError,
+    chat_to_recipe,
+    chat_turn,
+)
 from extractor.pipeline.types import ExtractionResult
 from extractor.pipeline.url import extract_from_url
 from extractor.pipeline.video import (
@@ -75,6 +84,55 @@ class ExtractUrlRequest(BaseModel):
 
     url: HttpUrl = Field(description="Source URL — video host or blog URL.")
     hint: ExtractHint
+
+
+class ChatMessageModel(BaseModel):
+    """One chat message in request bodies.
+
+    Mirrors :class:`extractor.llm.ChatMessage` but as a pydantic model so
+    FastAPI validates the role + content at the edge (422 on violations)
+    before the pipeline sees anything. ``extra="forbid"`` blocks payload
+    drift (e.g. clients sending function-call fields the service wouldn't
+    persist anyway).
+    """
+
+    role: Literal["system", "user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+
+    model_config = {"extra": "forbid"}
+
+
+class ChatRequest(BaseModel):
+    """Body of ``POST /chat``."""
+
+    session_id: str = Field(min_length=1, max_length=200)
+    messages: list[ChatMessageModel]
+
+    model_config = {"extra": "forbid"}
+
+
+class ChatResponse(BaseModel):
+    """Response model for ``POST /chat``.
+
+    Single field for now; an SSE streaming variant (v1.1) keeps this
+    shape for the non-streaming path.
+    """
+
+    assistant_message: str
+
+    model_config = {"extra": "forbid"}
+
+
+class ChatToRecipeRequest(BaseModel):
+    """Body of ``POST /chat/{session_id}/to-recipe``.
+
+    ``session_id`` lives in the path — the body only carries the
+    dialogue, matching the plan's API shape.
+    """
+
+    messages: list[ChatMessageModel]
+
+    model_config = {"extra": "forbid"}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -161,6 +219,15 @@ def _http_from_extraction_error(exc: ExtractionError) -> HTTPException:
     return HTTPException(status_code=500, detail=str(exc))
 
 
+def _as_chat_messages(messages: list[ChatMessageModel]) -> list[ChatMessage]:
+    """Translate the wire-level pydantic list to the TypedDict shape.
+
+    The pipeline + provider consume :class:`ChatMessage` TypedDicts;
+    the pydantic models live only at the HTTP edge.
+    """
+    return [{"role": m.role, "content": m.content} for m in messages]
+
+
 # ─────────────────────────────────────────────────────────────────────
 # App factory
 # ─────────────────────────────────────────────────────────────────────
@@ -244,6 +311,66 @@ def create_app() -> FastAPI:
             raise _http_from_llm_error(exc) from exc
         except ExtractionError as exc:
             raise _http_from_extraction_error(exc) from exc
+
+    @application.post("/chat", response_model=ChatResponse, tags=["chat"])
+    async def chat_endpoint(
+        request: ChatRequest,
+        provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+    ) -> ChatResponse:
+        """Run one conversational turn.
+
+        - ``EmptyMessagesError`` → 400.
+        - ``MessagesTooLongError`` → 413.
+        - :class:`LLMProviderError` → 503 (provider_unavailable /
+          rate_limited) or 500 otherwise.
+
+        Note: user content is *not* logged at INFO — only the turn
+        count + session_id is, so the server logs don't become an
+        accidental transcript archive.
+        """
+        logger.info(
+            "chat request session_id=%s turns=%d",
+            request.session_id,
+            len(request.messages),
+        )
+        messages = _as_chat_messages(request.messages)
+        try:
+            reply = await chat_turn(messages, provider)
+        except EmptyMessagesError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except MessagesTooLongError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except LLMProviderError as exc:
+            raise _http_from_llm_error(exc) from exc
+        return ChatResponse(assistant_message=reply)
+
+    @application.post("/chat/{session_id}/to-recipe", tags=["chat"])
+    async def chat_to_recipe_endpoint(
+        session_id: str,
+        request: ChatToRecipeRequest,
+        provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+    ) -> ExtractionResult:
+        """Verdichte den Dialog zu einem strukturierten Rezept.
+
+        The path's ``session_id`` becomes the synthetic ``source_url``
+        ("chat:<session_id>") on the returned recipe so the downstream
+        UI has a stable reference even though the service itself is
+        stateless.
+        """
+        logger.info(
+            "chat_to_recipe request session_id=%s turns=%d",
+            session_id,
+            len(request.messages),
+        )
+        messages = _as_chat_messages(request.messages)
+        try:
+            return await chat_to_recipe(messages, provider, session_id=session_id)
+        except EmptyMessagesError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except MessagesTooLongError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except LLMProviderError as exc:
+            raise _http_from_llm_error(exc) from exc
 
     return application
 
