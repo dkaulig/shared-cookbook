@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthLayout } from '@/features/auth/AuthLayout'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { SignupPage } from '@/features/auth/SignupPage'
@@ -12,76 +13,61 @@ import { GroupDetailPage } from '@/features/groups/GroupDetailPage'
 import { RecipeDetailPage } from '@/features/recipes/RecipeDetailPage'
 import { RecipeFormPage } from '@/features/recipes/RecipeFormPage'
 import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
+import { WochenplanStub } from '@/features/stubs/WochenplanStub'
+import { ProfilStub } from '@/features/stubs/ProfilStub'
 
+/**
+ * Route table.
+ *
+ * - `AuthLayout` wraps the four unauthenticated pages; it owns the
+ *   parchment dotted background scoped to auth flows only.
+ * - `AppLayout` (DS3) wraps every protected page; it owns TopNav +
+ *   BottomNav so Home, Gruppen, Rezepte, Wochenplan, Profil all share
+ *   the shell without each page having to import the nav components.
+ * - `ProtectedRoute` still guards the auth gate; the layout itself is
+ *   dumb and just draws chrome.
+ */
 export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
-      <Routes>
-        <Route element={<AuthLayout />}>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-        </Route>
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <HomePage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/groups"
-          element={
-            <ProtectedRoute>
-              <GroupsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/groups/:id"
-          element={
-            <ProtectedRoute>
-              <GroupDetailPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/groups/:groupId/tags"
-          element={
-            <ProtectedRoute>
-              <TagManagementPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/groups/:groupId/recipes/new"
-          element={
-            <ProtectedRoute>
-              <RecipeFormPage mode="create" />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/groups/:groupId/recipes/:recipeId"
-          element={
-            <ProtectedRoute>
-              <RecipeDetailPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/groups/:groupId/recipes/:recipeId/edit"
-          element={
-            <ProtectedRoute>
-              <RecipeFormPage mode="edit" />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+        <Routes>
+          <Route element={<AuthLayout />}>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+          </Route>
+
+          <Route
+            element={
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/" element={<HomePage />} />
+            <Route path="/groups" element={<GroupsPage />} />
+            <Route path="/groups/:id" element={<GroupDetailPage />} />
+            <Route path="/groups/:groupId/tags" element={<TagManagementPage />} />
+            <Route
+              path="/groups/:groupId/recipes/new"
+              element={<RecipeFormPage mode="create" />}
+            />
+            <Route
+              path="/groups/:groupId/recipes/:recipeId"
+              element={<RecipeDetailPage />}
+            />
+            <Route
+              path="/groups/:groupId/recipes/:recipeId/edit"
+              element={<RecipeFormPage mode="edit" />}
+            />
+            <Route path="/wochenplan" element={<WochenplanStub />} />
+            <Route path="/profil" element={<ProfilStub />} />
+          </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </BrowserRouter>
     </ErrorBoundary>
   )

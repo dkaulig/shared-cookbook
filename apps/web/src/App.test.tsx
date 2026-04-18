@@ -55,11 +55,16 @@ describe('<App />', () => {
 
     renderApp()
 
+    // DS3 restyle: the h1 is the serif hero "Was kochen wir heute?";
+    // the Familien-Kochbuch brand lives on the TopNav banner above it.
     await waitFor(() => {
       expect(
-        screen.getByRole('heading', { level: 1, name: /familien-kochbuch/i }),
+        screen.getByRole('heading', { level: 1, name: /was kochen wir heute\?/i }),
       ).toBeInTheDocument()
     })
+    // Brand lockup in the sticky TopNav.
+    expect(screen.getByRole('banner')).toHaveTextContent(/familien-kochbuch/i)
+    // Greeting kicker embeds the display name.
     expect(screen.getByText(/oma/i)).toBeInTheDocument()
   })
 })
