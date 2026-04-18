@@ -27,6 +27,7 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS8 | Sage Modern redesign (tokens + Inter-only) | done | general-purpose (bg) + code-reviewer | 2026-04-18 | 2026-04-18 | 6 DS8 commits (`23fe5ae..a1a9d79`); tokens + fonts + gradients swapped, 23 files + PWA meta/manifest/favicon swept clean of amber hex + Cormorant/Libre Baskerville. 446 web (unchanged count), 447 .NET (untouched), 32 shared = 925 green; lint clean; reviewer-verified with 2 follow-up fixes (GroupDetailPage alert → destructive tokens; PWA meta + favicon sweep). User visual smoke 2026-04-18 passed — approved for main. |
 | BF1 | Quick bugfixes (7 items) | done | general-purpose (bg) + code-reviewer | 2026-04-18 | 2026-04-18 | 13 BF1 commits (`97054d4..41cf1eb`); items 1 (qty column width), 2 (admin DisplayName config), 3 (umlaut sweep), 4 (disabled search), 5 (bell removed), 6 (group-picker dialog, 3-branch dispatch), 7 (signup password confirm). 455 web (+9), 448 .NET (+1), 32 shared = 935 green; lint clean; reviewer-verified with 2 follow-ups (0-groups chip-press test, `noUncheckedIndexedAccess` TS fix). Item 2 deviation: root cause was seed hardcoding "Admin" DisplayName, not a DTO projection bug — fix reads `ADMIN_DISPLAY_NAME` from config (default "Familienkoch"). User approved 2026-04-18. |
 | AP1 | User-Profil (password + displayname change) | done | general-purpose (bg) + code-reviewer | 2026-04-18 | 2026-04-18 | 8 AP1 commits (`bdc0b8b..3274736`); new `POST /api/account/change-password` + `PATCH /api/account/display-name` endpoints (RequireAuthorization, UserManager.ChangePasswordAsync, trim + 2-50 char validation, no token revocation); new `accountClient.ts` + `ProfilStub.tsx` rewrite with inline pencil-edit for displayname + Passwort-ändern card + success/error banners. 473 web (+18), 463 .NET (+15), 32 shared = **968 green**; `pnpm build` confirmed; lint clean; reviewer-verified with 1 a11y follow-up (`role="status"` on success banner). No deviations from plan. Awaiting user visual smoke. |
+| GM1 | Group Management (rename + members + invite list/revoke) | done | general-purpose (bg) + code-reviewer | 2026-04-18 | 2026-04-18 | 16 GM1 commits (`7ee868e..c365ab8`); new `GET /api/groups/{id}/invites` + `DELETE /api/groups/invites/{id}` endpoints, `GroupMembersAndInvitesPanel` with role dropdowns + remove + revoke + last-admin protection, `EditGroupDialog` wired into `GroupDetailHeader` (admin-only). 474 .NET (+11), 495 web (+22), 32 shared = **1001 green**; build + lint clean; reviewer-verified with 1 follow-up fix (`useInviteToGroup` also invalidates `groupInvites` cache). **Plan deviations documented** (both accepted by reviewer): (1) plan hypothesised `AppInvite`-style `invitedEmail`/`expiresAt`/`consumedAt` but real `GroupInvite` entity uses `InvitedUserId` + `Status` (Pending/Accepted/Declined) with no expiry — impl followed the real model; (2) plan said "reuse `DELETE /api/invites/{id}`" but that endpoint is for `AppInvite`, not `GroupInvite` — impl added a new `DELETE /api/groups/invites/{id}` instead. |
 
 ## Last orchestrator tick
 
@@ -37,6 +38,16 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 ## Blockers / pauses
 
 _(none)_
+
+## Autonomous execution mandate (2026-04-18)
+
+User directive: run GM1 → UX1-RT → UX1-PU → full Phase 2 (P2-0…P2-10) autonomously without further approval. Stop only on hard blockers that make continuation impossible. Deviations from plan or PRD are to be **documented** inline in the per-slice entry below, not escalated.
+
+- TDD + reviewer loop per sub-slice, same pattern as Phase 1 (DS1–DS7, GR1, DS8, BF1, AP1).
+- Anti-shortcut checklist enforced by every reviewer.
+- No deployment during this run — commits land on `main`, user triggers tagged deploy later.
+- Phase 2 open architectural questions (#3 HMAC, #4 Azure-fail hard, #5 cost server-side, #6 rate-limit 10/50) default to the recommendations documented in `docs/plans/2026-04-18-phase-2-architecture.md`; orchestrator records the decision at each sub-slice kickoff.
+- Hoppr chat reference path (`/Users/dkaulig/Projects/hoppr`) handed to P2-4 impl agent as read-only design source.
 
 ## Follow-up slices
 
@@ -64,6 +75,7 @@ _(none)_
 - **UX1-PhotoUpload — Create-mode photo upload** (est. 1-2 h, user-requested 2026-04-18 earlier): save-first-then-upload flow on the recipe create form.
 - **Recipe composition (v2)**: cross-recipe linking where one recipe references another as a sub-ingredient (e.g. "Pizza Margherita verwendet 1× Pizzateig-Rezept"). Scales sub-recipe portions with the parent recipe. NOT in Phase 1 or 1.5; defer to Phase 2+.
 - **Recipe PDF export (v2)**: download a recipe as a PDF for printing or sharing via email/WhatsApp/Telegram. Two plausible implementations: (a) print-friendly CSS + browser-native "Save as PDF" dialog — simplest, no server dep, acceptable quality; (b) server-rendered PDF via `QuestPDF` in .NET or headless Chromium in the Python extractor microservice — better typography + branding but more infra. User-requested 2026-04-18; defer to Phase 2.
+- **SignalR live-updates (v2 / Phase 3)** — user-requested 2026-04-18. Real-time push for: new recipes created in a group, recipe edits (revision history), shopping list mutations, weekly-plan changes, membership changes. Implementation path: ASP.NET Core SignalR hub behind JWT auth; group-scoped connections (one hub connection per user, subscribes to their groups); frontend TanStack Query cache invalidation on received events (no manual refetch). Reconnect-on-disconnect + exponential backoff. Fits naturally with Phase 3 (Meal Planning + Shopping List) since those features need realtime anyway. Out of Phase 2 scope (which is AI-centric).
 
 ## Review outcomes
 
