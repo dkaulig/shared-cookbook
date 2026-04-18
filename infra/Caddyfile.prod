@@ -1,0 +1,16 @@
+# Production Caddyfile for Familien-Kochbuch. Caddy auto-provisions TLS
+# via Let's Encrypt using the CADDY_DOMAIN env var set in
+# docker-compose.prod.yml. For local prod-mode sanity testing, set
+# CADDY_DOMAIN=localhost — Caddy falls back to the local CA and serves
+# on https://localhost with a self-signed cert.
+{$CADDY_DOMAIN} {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy api:5000
+    }
+
+    handle {
+        reverse_proxy web:5173
+    }
+}

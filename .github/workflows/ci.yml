@@ -1,9 +1,10 @@
 name: CI
 
+# Runs on every pull request to main. The push-to-main pipeline lives in
+# deploy.yml so we don't run the same tests twice; CI keeps the PR gate
+# fast with path-filtered jobs.
 on:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
 
 permissions:
@@ -35,7 +36,7 @@ jobs:
     name: test-api
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.api == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.api == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -52,7 +53,7 @@ jobs:
     name: test-web
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.web == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.web == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
