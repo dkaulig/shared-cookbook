@@ -1,29 +1,33 @@
 import { useState } from 'react'
+import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Mail, UserPlus } from 'lucide-react'
+import { Mail, Pencil, UserPlus } from 'lucide-react'
+import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuth } from '@/features/auth/useAuth'
+import { useAuthStore } from '@/features/auth/authStore'
+import { changeDisplayName, changePassword } from '@/features/auth/accountClient'
 import { InviteDialog } from '@/features/invites/InviteDialog'
 
+const DISPLAYNAME_MIN = 2
+const DISPLAYNAME_MAX = 50
+
 /**
- * Placeholder page behind the `/profil` route until Phase 3 ships the
- * full profile — app-invite creation, password-change, device-list, etc.
+ * /profil — the logged-in user's self-service surface.
  *
- * DS3 preserved the S1 logout affordance here so users still have a
- * one-tap way to sign out after the Home page restyle moved the action
- * off the hero.
- *
- * DS7 upgrades this from a pure stub to a minimally-useful profile
- * surface: the displayName + email from `useAuth()` are surfaced on
- * the page, "Jemanden einladen" opens the existing `InviteDialog`, and
- * the Abmelden button stays as the escape hatch. No new data fetches —
- * the dialog reuses the `/api/invites/app/` POST endpoint that landed
- * in S2 and that the HomePage's "Jemanden einladen" banner already
- * wires up.
+ * DS7 seeded this as a minimal stub (email + displayname readout,
+ * "Jemanden einladen", Abmelden). AP1 extends it with two real
+ * operations that previously required an out-of-app password-reset
+ * detour: inline displayname edit and a Passwort-ändern card. Both
+ * go through `accountClient` → `apiClient`, so the silent-refresh
+ * and bearer-token wiring comes for free.
  */
 export function ProfilStub() {
-  const { user, logout } = useAuth()
+  const { user, accessToken, logout } = useAuth()
+  const setSession = useAuthStore((s) => s.setSession)
   const navigate = useNavigate()
   const [inviteOpen, setInviteOpen] = useState(false)
 
@@ -37,13 +41,12 @@ export function ProfilStub() {
       <h1 className="font-serif text-[clamp(30px,7vw,40px)] font-semibold leading-[1.05] tracking-[-0.015em]">
         Mein Profil
       </h1>
-      <p className="mt-2 font-serif-body text-[15px] italic leading-[1.5] text-muted-foreground">
-        Angemeldet als{' '}
-        <span className="not-italic font-semibold text-foreground">
-          {user?.displayName ?? '…'}
-        </span>
-        .
-      </p>
+      <DisplayNameLine
+        currentName={user?.displayName ?? ''}
+        onSaved={(next) => {
+          if (accessToken) setSession(accessToken, next)
+        }}
+      />
 
       <Card className="mt-8">
         <CardHeader>
@@ -57,10 +60,12 @@ export function ProfilStub() {
             </span>
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Passwort-Änderung, Geräte-Verwaltung und App-Einstellungen kommen in Phase 3.
+            Weitere Einstellungen folgen in einer späteren Version.
           </p>
         </CardContent>
       </Card>
+
+      <PasswordCard />
 
       <Card className="mt-5">
         <CardHeader>
@@ -93,5 +98,240 @@ export function ProfilStub() {
 
       {inviteOpen && <InviteDialog onClose={() => setInviteOpen(false)} />}
     </section>
+  )
+}
+
+// ── Displayname inline-edit ────────────────────────────────────────
+
+interface DisplayNameLineProps {
+  currentName: string
+  onSaved: (next: import('@familien-kochbuch/shared').AuthUser) => void
+}
+
+function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(currentName)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const trimmed = draft.trim()
+  const validLength = trimmed.length >= DISPLAYNAME_MIN && trimmed.length <= DISPLAYNAME_MAX
+  const canSave = validLength && trimmed !== currentName && !saving
+
+  function enterEdit() {
+    setDraft(currentName)
+    setError(null)
+    setEditing(true)
+  }
+
+  function cancel() {
+    setEditing(false)
+    setError(null)
+  }
+
+  async function save() {
+    if (!canSave) return
+    setSaving(true)
+    setError(null)
+    try {
+      const next = await changeDisplayName({ displayName: trimmed })
+      onSaved(next)
+      setEditing(false)
+    } catch (err) {
+      const apiErr = err as Partial<ApiError>
+      setError(apiErr.message ?? 'Anzeigename konnte nicht gespeichert werden.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <p className="mt-2 font-serif-body text-[15px] italic leading-[1.5] text-muted-foreground">
+        Angemeldet als{' '}
+        <span className="not-italic font-semibold text-foreground">
+          {currentName || '…'}
+        </span>
+        .
+        <button
+          type="button"
+          onClick={enterEdit}
+          aria-label="Anzeigenamen bearbeiten"
+          className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Pencil className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </p>
+    )
+  }
+
+  return (
+    <form
+      className="mt-3 space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void save()
+      }}
+      noValidate
+    >
+      <Label htmlFor="displayname-input" className="text-sm">
+        Anzeigename
+      </Label>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+        <Input
+          id="displayname-input"
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={DISPLAYNAME_MAX + 20}
+          autoFocus
+          className="sm:max-w-xs"
+        />
+        <div className="flex gap-2">
+          <Button type="submit" size="sm" disabled={!canSave}>
+            Speichern
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={cancel} disabled={saving}>
+            Abbrechen
+          </Button>
+        </div>
+      </div>
+      {!validLength && (
+        <p className="text-xs text-muted-foreground">
+          Anzeigename muss zwischen {DISPLAYNAME_MIN} und {DISPLAYNAME_MAX} Zeichen lang sein.
+        </p>
+      )}
+      {error && (
+        <p
+          role="alert"
+          className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+        >
+          {error}
+        </p>
+      )}
+    </form>
+  )
+}
+
+// ── Passwort ändern ────────────────────────────────────────────────
+
+function PasswordCard() {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
+  const allFilled = current.length > 0 && next.length > 0 && confirm.length > 0
+  const matches = next === confirm
+  const differsFromCurrent = next !== current
+  const canSubmit = allFilled && matches && differsFromCurrent && !submitting
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!canSubmit) return
+    setError(null)
+    setSuccess(false)
+    setSubmitting(true)
+    try {
+      await changePassword({
+        currentPassword: current,
+        newPassword: next,
+        newPasswordConfirm: confirm,
+      })
+      setSuccess(true)
+      setCurrent('')
+      setNext('')
+      setConfirm('')
+    } catch (err) {
+      const apiErr = err as Partial<ApiError>
+      setError(apiErr.message ?? 'Passwort konnte nicht geändert werden.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card className="mt-5">
+      <CardHeader>
+        <CardTitle>Passwort ändern</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="current-password">Aktuelles Passwort</Label>
+            <Input
+              id="current-password"
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => {
+                setCurrent(e.target.value)
+                setSuccess(false)
+                setError(null)
+              }}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="new-password">Neues Passwort</Label>
+            <Input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => {
+                setNext(e.target.value)
+                setSuccess(false)
+                setError(null)
+              }}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="new-password-confirm">Neues Passwort bestätigen</Label>
+            <Input
+              id="new-password-confirm"
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => {
+                setConfirm(e.target.value)
+                setSuccess(false)
+                setError(null)
+              }}
+            />
+          </div>
+
+          {allFilled && !matches && (
+            <p className="text-xs text-muted-foreground">
+              Neues Passwort und Bestätigung stimmen nicht überein.
+            </p>
+          )}
+          {allFilled && matches && !differsFromCurrent && (
+            <p className="text-xs text-muted-foreground">
+              Das neue Passwort muss sich vom aktuellen unterscheiden.
+            </p>
+          )}
+
+          {success && (
+            <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 ring-1 ring-emerald-200">
+              Passwort aktualisiert.
+            </p>
+          )}
+          {error && (
+            <p
+              role="alert"
+              className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+            >
+              {error}
+            </p>
+          )}
+
+          <Button type="submit" disabled={!canSubmit} className="self-start">
+            Passwort ändern
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   )
 }

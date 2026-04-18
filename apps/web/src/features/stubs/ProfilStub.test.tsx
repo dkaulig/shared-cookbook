@@ -135,8 +135,11 @@ describe('<ProfilStub />', () => {
       await waitFor(() => {
         expect(useAuthStore.getState().user?.displayName).toBe('Dave')
       })
-      // Edit mode exited — input gone.
-      expect(screen.queryByLabelText(/anzeigename/i)).not.toBeInTheDocument()
+      // Edit mode exited — the text <input> is gone (pencil-button aria-label
+      // also contains "Anzeigename" so we match by role + type instead).
+      await waitFor(() => {
+        expect(screen.queryByRole('textbox', { name: /anzeigename/i })).not.toBeInTheDocument()
+      })
     })
 
     it('disables Speichern with a 1-char name and shows an inline hint', async () => {
@@ -173,7 +176,7 @@ describe('<ProfilStub />', () => {
       await user.click(screen.getByRole('button', { name: /abbrechen/i }))
 
       expect(patchCalls).toBe(0)
-      expect(screen.queryByLabelText(/anzeigename/i)).not.toBeInTheDocument()
+      expect(screen.queryByRole('textbox', { name: /anzeigename/i })).not.toBeInTheDocument()
       expect(useAuthStore.getState().user?.displayName).toBe('David')
     })
 
