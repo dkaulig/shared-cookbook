@@ -1,6 +1,6 @@
 # Design Implementation — Progress Tracker
 
-**Last updated:** 2026-04-18 (kickoff, mockups committed)
+**Last updated:** 2026-04-17 (DS1 implementation complete, awaiting review)
 
 Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents update on every tick / completion.
 
@@ -17,7 +17,7 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 
 | # | Slice | State | Agent | Started | Completed | Notes |
 |---|---|---|---|---|---|---|
-| DS1 | Theme Foundation (tokens, fonts, shadcn primitives) | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched after mockups committed |
+| DS1 | Theme Foundation (tokens, fonts, shadcn primitives) | in_review | general-purpose (bg) | 2026-04-17 | 2026-04-17 | 16 commits; 207 web tests (+28), 427 .NET, 32 shared; lint clean; docker smoke ok |
 | DS2 | Auth Flow (Login, Signup, Forgot, Reset) | pending | — | — | — | — |
 | DS3 | Home & Navigation Shell | pending | — | — | — | — |
 | DS4 | Group Detail | pending | — | — | — | — |
@@ -27,9 +27,9 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 
 ## Last orchestrator tick
 
-- **Time:** 2026-04-18 (design session + kickoff)
-- **Action:** Mockups committed under `docs/mockups/`, DS plan authored at `docs/plans/design-implementation-plan.md`, DS1 queued for dispatch.
-- **Next:** dispatch DS1 implementation agent.
+- **Time:** 2026-04-17 (DS1 implementation complete)
+- **Action:** DS1 Theme Foundation landed across 16 commits (fonts/tokens/Button/Card/Input/Label/Textarea/Select/Badge). All acceptance criteria verified by the implementation agent: 207 web + 427 .NET + 32 shared tests pass, `pnpm lint` clean, `docker compose up` + `/api/health` smoke ok, CSS bundle self-hosts fontsource WOFF2 with zero Google-Fonts references.
+- **Next:** dispatch DS1 reviewer agent per the anti-shortcut checklist.
 
 ## Blockers / pauses
 
@@ -43,4 +43,19 @@ _(none yet)_
 
 ## Deviations from mockup / spec
 
-_(none yet)_
+### DS1
+
+- **Select primitive — native `<select>` instead of `@radix-ui/react-select`.**
+  Rationale: only a single-value dropdown is needed in DS4 (creator filter)
+  and DS6 (unit picker). A native element saves ~15 KB of Radix JS, keeps
+  accessibility free (platform-rendered option list) and avoids pulling a
+  new Radix dependency during the theme slice. If a future slice wants a
+  styled option list, swap in Radix then.
+- **Select chevron painted via `style=` instead of Tailwind `bg-*` utilities.**
+  Rationale: tailwind-merge dropped `bg-background` when combined with
+  `bg-[right_12px_center]` (both resolve to the `bg` group). Moving the
+  chevron metadata to inline style keeps the surface token intact.
+- **`--primary-hover` is a DS1-only token (not in shadcn canonical set).**
+  Rationale: the mockup button hover drops from amber-700 to amber-800 —
+  a literal colour, not an alpha ramp off `--primary`. A named token keeps
+  dark-mode overrides clean and is documented in the index.css header.
