@@ -172,7 +172,7 @@ export function RecipeDetailHeader({
       <div
         ref={heroRef}
         data-testid="hero-surface"
-        className="relative aspect-[4/3] w-full overflow-hidden bg-[radial-gradient(circle_at_35%_55%,#fde68a_0%,#ca8a04_40%,#78350f_80%)] md:aspect-[21/9] md:max-h-[420px]"
+        className="relative aspect-[4/3] w-full overflow-hidden bg-[radial-gradient(circle_at_35%_55%,#c3d4ca_0%,#4f7961_45%,#2b4435_85%)] md:aspect-[21/9] md:max-h-[420px]"
         style={heroStyle}
       >
         {firstPhoto && (
@@ -192,7 +192,7 @@ export function RecipeDetailHeader({
 
       {/* ── Overlapping title card ──────────────────────────────── */}
       <div className="mx-auto max-w-3xl px-5 md:max-w-[920px] md:px-8">
-        <div className="relative z-[2] -mt-10 rounded-[24px] border border-border bg-card px-5 py-5 shadow-[0_8px_24px_-8px_rgba(146,64,14,0.14),0_2px_6px_-2px_rgba(28,25,23,0.04)]">
+        <div className="relative z-[2] -mt-10 rounded-[24px] border border-border bg-card px-5 py-5 shadow-[0_8px_24px_-8px_rgba(79,121,97,0.18),0_2px_6px_-2px_rgba(28,25,23,0.04)]">
           {recipe.tags.length > 0 && (
             <div className="mb-2.5 flex flex-wrap gap-1.5">
               {recipe.tags.map((tag) => (

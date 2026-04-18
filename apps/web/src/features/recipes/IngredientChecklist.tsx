@@ -146,7 +146,7 @@ function IngredientRow({
 /**
  * Amount-column renderer. Splits the shared displayQuantity string so
  * German convention words ("nach Geschmack", "eine Prise") and the
- * "Stück" unit label render in italic Libre-Baskerville per mockup,
+ * "Stück" unit label render in italic `font-serif-body` per mockup,
  * while the numeric part keeps the tabular-nums treatment.
  */
 function AmountText({ display }: { display: ScaledIngredient | undefined }) {

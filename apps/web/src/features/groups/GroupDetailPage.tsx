@@ -215,7 +215,7 @@ export function GroupDetailPage() {
         {randomError && (
           <p
             role="alert"
-            className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200"
+            className="mt-3 rounded-md bg-orange-50 px-3 py-2 text-sm text-orange-900 ring-1 ring-orange-200"
           >
             {randomError}
           </p>

@@ -26,7 +26,7 @@ export function WochenplanStub() {
       <h1 className="font-serif text-[clamp(30px,7vw,40px)] font-semibold leading-[1.05] tracking-[-0.015em]">
         Wochenplan kommt in Phase 3
       </h1>
-      <p className="mt-3 font-[Libre_Baskerville,serif] text-[15px] italic leading-[1.55] text-muted-foreground">
+      <p className="mt-3 font-serif-body text-[15px] italic leading-[1.55] text-muted-foreground">
         Rezepte planen. Einkaufsliste generieren. Saisonale Vorschläge.
       </p>
 

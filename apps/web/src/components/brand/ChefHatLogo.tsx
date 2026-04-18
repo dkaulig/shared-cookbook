@@ -2,12 +2,12 @@ import type { SVGProps } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * Warme-Küche chef-hat mark (DS2).
+ * Sage Modern chef-hat mark (DS2, retinted DS8).
  *
- * Inlined from the `<svg>` in `docs/mockups/warme-kueche-login.html` so
- * the visual matches the mockup byte-for-byte. Uses `currentColor` for
- * both stroke and fill slots, which lets us drop it into the amber-tile
- * logo chip where the surrounding `color` controls the silhouette.
+ * Inlined from the `<svg>` in `docs/mockups/variant-a-home.html` so the
+ * visual matches the mockup byte-for-byte. Uses `currentColor` for both
+ * stroke and fill slots, which lets us drop it into the sage-tile logo
+ * chip where the surrounding `color` controls the silhouette.
  */
 export interface ChefHatLogoProps extends Omit<SVGProps<SVGSVGElement>, 'width' | 'height'> {
   /** Square icon dimension in CSS pixels. Defaults to 22 (mockup value). */

@@ -37,7 +37,7 @@ export function ProfilStub() {
       <h1 className="font-serif text-[clamp(30px,7vw,40px)] font-semibold leading-[1.05] tracking-[-0.015em]">
         Mein Profil
       </h1>
-      <p className="mt-2 font-[Libre_Baskerville,serif] text-[15px] italic leading-[1.5] text-muted-foreground">
+      <p className="mt-2 font-serif-body text-[15px] italic leading-[1.5] text-muted-foreground">
         Angemeldet als{' '}
         <span className="not-italic font-semibold text-foreground">
           {user?.displayName ?? '…'}

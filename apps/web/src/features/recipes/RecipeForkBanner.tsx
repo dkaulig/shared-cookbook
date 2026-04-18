@@ -21,9 +21,8 @@ export interface RecipeForkBannerProps {
  * DS5 fork-attribution banner rendered inside the recipe title card when
  * the recipe is a fork (`recipe.forkOfRecipeId != null`).
  *
- * Visual shell mirrors `.fork-banner` in
- * `docs/mockups/warme-kueche-recipe-detail.html`:
- *   - amber-tinted surface (`bg-[hsl(var(--secondary))]`)
+ * Visual shell (retinted DS8 Sage Modern):
+ *   - sage-tinted surface (`bg-[hsl(var(--secondary))]`)
  *   - 28×28 git-fork icon on the left
  *   - "Geforkt aus „{Title}" · Gruppe {Name}" on the right, with the
  *     title rendered as a link back to the original recipe.
@@ -41,7 +40,7 @@ export function RecipeForkBanner({
   return (
     <div
       className={cn(
-        'flex items-center gap-2.5 rounded-[12px] border border-[hsl(48_96%_80%)]',
+        'flex items-center gap-2.5 rounded-[12px] border border-[hsl(var(--secondary))]',
         'bg-[hsl(var(--secondary))] px-3.5 py-2.5 text-[13px] leading-snug text-[hsl(var(--foreground))]',
         className,
       )}

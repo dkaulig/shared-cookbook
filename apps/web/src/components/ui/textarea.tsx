@@ -2,11 +2,11 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * shadcn/ui Textarea tuned for the Warme-Küche form style.
+ * shadcn/ui Textarea tuned for the Sage Modern form style.
  *
  * Visually mirrors `<Input>` — same tokens, padding, focus ring — but
  * opts into vertical resizing + a min-height that matches the 3-step
- * rows in `docs/mockups/warme-kueche-recipe-form.html`.
+ * rows in the recipe-form mockup.
  */
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>
 

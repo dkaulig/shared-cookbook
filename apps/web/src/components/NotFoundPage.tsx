@@ -5,13 +5,13 @@ import { Button } from '@/components/ui/button'
  * DS7 404 fallback.
  *
  * React Router's catch-all (`path="*"`) lands here when the requested
- * route is not registered. Keeps the Warme-Küche voice (warm, a little
- * playful) without being slapstick — the tagline is "Hier kocht niemand"
- * and the subtitle is the honest "Diese Seite gibt's nicht (mehr).".
+ * route is not registered. Keeps the app voice warm and a little playful
+ * — the tagline is "Hier kocht niemand" and the subtitle is the honest
+ * "Diese Seite gibt's nicht (mehr).".
  *
- * The heading uses Cormorant Garamond (via `font-serif`), the subtitle
- * uses italic Libre Baskerville, and the primary button reuses the
- * shared DS1 Button primitive with the standard `size="lg"` treatment.
+ * DS8 Sage Modern typography: headline uses `font-serif`, subtitle uses
+ * `font-serif-body` italic — both tokens resolve to Inter so the page
+ * reads cleanly in the Sage Modern skin.
  */
 export function NotFoundPage() {
   return (
@@ -29,7 +29,7 @@ export function NotFoundPage() {
         <h1 className="mb-3 font-serif text-[clamp(30px,7vw,44px)] font-semibold leading-[1.05] tracking-[-0.015em] text-foreground">
           404 · Hier kocht niemand
         </h1>
-        <p className="mb-8 font-[Libre_Baskerville,serif] text-[15px] italic leading-[1.55] text-muted-foreground">
+        <p className="mb-8 font-serif-body text-[15px] italic leading-[1.55] text-muted-foreground">
           Diese Seite gibt's nicht (mehr).
         </p>
         <Button asChild size="lg">

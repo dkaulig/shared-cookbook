@@ -2,13 +2,13 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * shadcn/ui Input tuned for the Warme-Küche form style.
+ * shadcn/ui Input tuned for the Sage Modern form style (DS1, DS8).
  *
- * Matches the login-card input in `docs/mockups/warme-kueche-login.html`:
  *   - h-11 (~44 px) touch-friendly height, px-3.5 horizontal padding
  *   - 16 px body font (`text-base`) — prevents iOS zoom on focus
- *   - border-input (stone-300) with bg-background (cream) surface
- *   - focus state: 4 px amber ring at 25 % alpha + amber border
+ *   - border-input with bg-background surface (neutral under Sage Modern)
+ *   - focus state: 4 px sage ring at 25 % alpha + sage border (via the
+ *     --ring / --primary tokens)
  */
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement>
 

@@ -58,7 +58,7 @@ export function GroupsPage() {
                 <div className="flex items-start justify-between gap-2">
                   <h2 className="text-lg font-semibold text-stone-900">{group.name}</h2>
                   {group.isPrivateCollection && (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
                       Privat
                     </span>
                   )}

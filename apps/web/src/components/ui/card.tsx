@@ -2,12 +2,12 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * shadcn/ui Card + subparts, tuned for the Warme-Küche look.
+ * shadcn/ui Card + subparts, tuned for the Sage Modern look (DS8).
  *
  * Uses the bg-card / text-card-foreground tokens defined in index.css so
- * the surface follows the cream/white palette automatically. The title
- * uses `font-serif` (Cormorant Garamond) to echo the mockup's display
- * treatment on card headers.
+ * the surface follows the white/neutral palette automatically. The
+ * title uses `font-serif` (which resolves to Inter under DS8) to echo
+ * the mockup's display treatment on card headers.
  */
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (

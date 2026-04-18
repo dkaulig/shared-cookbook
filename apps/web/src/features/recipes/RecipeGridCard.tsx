@@ -5,13 +5,13 @@ import { cn } from '@/lib/utils'
 import { recipePhotoGradient } from './recipePhotoGradient'
 
 /**
- * DS4 compact recipe card for the Group-Detail grid.
+ * DS4 compact recipe card for the Group-Detail grid (retinted for DS8
+ * Sage Modern).
  *
- * Mirrors `.recipe-card` in
- * `docs/mockups/warme-kueche-group-detail.html`:
+ * Mirrors `.recipe-card` in the mockup:
  *   - 4 : 3 cover (photo URL or hashed gradient placeholder)
  *   - rating pill overlay (top-right) when avgRating is set
- *   - Cormorant-Garamond title
+ *   - `font-serif` display title (Inter under DS8)
  *   - meta line: prep minutes · creator display name
  *   - up to 2 mini-tag chips
  *
@@ -50,7 +50,7 @@ export function RecipeGridCard({ recipe, tags, prepTimeMinutes }: RecipeGridCard
       aria-label={recipe.title}
       className={cn(
         'group flex flex-col overflow-hidden rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)]',
-        'transition hover:-translate-y-px hover:border-[hsl(var(--input))] hover:shadow-[0_8px_24px_-8px_rgba(146,64,14,0.14),0_2px_6px_-2px_rgba(28,25,23,0.04)]',
+        'transition hover:-translate-y-px hover:border-[hsl(var(--input))] hover:shadow-[0_8px_24px_-8px_rgba(79,121,97,0.18),0_2px_6px_-2px_rgba(28,25,23,0.04)]',
       )}
     >
       <div
@@ -63,7 +63,7 @@ export function RecipeGridCard({ recipe, tags, prepTimeMinutes }: RecipeGridCard
           <span
             className={cn(
               'absolute right-2 top-2 inline-flex items-center gap-[3px] rounded-full px-2 py-[3px]',
-              'bg-[rgba(28,25,23,0.78)] text-[11px] font-semibold text-[#fefce8] backdrop-blur',
+              'bg-[rgba(26,26,24,0.82)] text-[11px] font-semibold text-[#fafafa] backdrop-blur',
             )}
           >
             <Star className="h-[10px] w-[10px] fill-current" aria-hidden="true" />
@@ -89,7 +89,7 @@ export function RecipeGridCard({ recipe, tags, prepTimeMinutes }: RecipeGridCard
             {resolvedTags.map((tag) => (
               <span
                 key={tag.id}
-                className="rounded-[4px] bg-[hsl(48_96%_89%)] px-1.5 py-[1px] text-[10.5px] font-medium text-[hsl(25_75%_31%)]"
+                className="rounded-[4px] bg-[hsl(var(--primary)/0.1)] px-1.5 py-[1px] text-[10.5px] font-medium text-primary"
               >
                 {tag.name}
               </span>

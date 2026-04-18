@@ -9,10 +9,9 @@
  * `text-muted-foreground`, etc. continue to work without per-component
  * rewrites.
  *
- * Typography: DS8 drops Cormorant Garamond + Libre Baskerville and runs
- * pure Inter across the app. The `--font-serif*` tokens still exist so
- * `font-serif` / `font-serif-body` utility classes keep compiling, but
- * they resolve to Inter.
+ * Typography: DS8 runs pure Inter across the app. The `--font-serif*`
+ * tokens still exist so `font-serif` / `font-serif-body` utility
+ * classes keep compiling, but they resolve to Inter.
  *
  * `--primary-hover` is an extra token (outside shadcn's spec) used by
  * the Button default variant to match the mockup's sage-dark hover

@@ -9,10 +9,11 @@ export interface FormIntroProps {
 }
 
 /**
- * DS6 form intro block: serif headline + italic Libre-Baskerville tagline
- * + amber target-group pill. Mirrors `.form-intro` in the recipe-form
- * mockup. Purely presentational — the parent page owns `useGroup()` and
- * passes the name down.
+ * DS6 form intro block: display headline + italic `font-serif-body`
+ * tagline + sage target-group pill. Mirrors `.form-intro` in the
+ * recipe-form mockup (retinted for DS8 Sage Modern). Purely
+ * presentational — the parent page owns `useGroup()` and passes the
+ * name down.
  */
 export function FormIntro({ mode, groupName, className }: FormIntroProps) {
   const heading = mode === 'create' ? 'Neues Rezept' : 'Rezept bearbeiten'

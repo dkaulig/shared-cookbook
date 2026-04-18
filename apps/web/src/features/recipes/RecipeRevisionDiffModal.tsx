@@ -107,7 +107,7 @@ export function RecipeRevisionDiffModal({ previous, current, onClose }: DiffModa
                   data-diff={line.changed ? 'changed' : 'same'}
                   className={
                     line.changed
-                      ? 'rounded bg-amber-50 px-2 py-0.5 text-stone-900 ring-1 ring-amber-200'
+                      ? 'rounded bg-orange-50 px-2 py-0.5 text-stone-900 ring-1 ring-orange-200'
                       : 'px-2 py-0.5 text-stone-700'
                   }
                 >
@@ -146,7 +146,7 @@ export function RecipeRevisionDiffModal({ previous, current, onClose }: DiffModa
                   data-diff={line.changed ? 'changed' : 'same'}
                   className={
                     line.changed
-                      ? 'rounded bg-amber-50 px-2 py-0.5 text-stone-900 ring-1 ring-amber-200'
+                      ? 'rounded bg-orange-50 px-2 py-0.5 text-stone-900 ring-1 ring-orange-200'
                       : 'px-2 py-0.5 text-stone-700'
                   }
                 >
@@ -191,7 +191,7 @@ function DiffRow({ label, changed, children }: DiffRowProps) {
       data-diff={changed ? 'changed' : 'same'}
       className={
         changed
-          ? 'rounded bg-amber-50 px-2 py-1 ring-1 ring-amber-200'
+          ? 'rounded bg-orange-50 px-2 py-1 ring-1 ring-orange-200'
           : 'px-2 py-1 text-stone-700'
       }
     >
