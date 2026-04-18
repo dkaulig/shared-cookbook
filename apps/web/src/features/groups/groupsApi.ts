@@ -3,6 +3,7 @@ import type {
   CreateGroupRequest,
   GroupDetail,
   GroupInviteCreated,
+  GroupInviteListItem,
   GroupInviteReceived,
   GroupMember,
   GroupRole,
@@ -127,6 +128,19 @@ export async function createGroupInvite(
 
 export async function fetchReceivedInvites(): Promise<GroupInviteReceived[]> {
   return request<GroupInviteReceived[]>('/api/groups/invites')
+}
+
+export async function fetchGroupInvites(groupId: string): Promise<GroupInviteListItem[]> {
+  return request<GroupInviteListItem[]>(
+    `/api/groups/${encodeURIComponent(groupId)}/invites`,
+  )
+}
+
+export async function revokeGroupInvite(inviteId: string): Promise<void> {
+  await request<void>(
+    `/api/groups/invites/${encodeURIComponent(inviteId)}`,
+    { method: 'DELETE' },
+  )
 }
 
 export async function acceptGroupInvite(inviteId: string): Promise<GroupInviteCreated> {

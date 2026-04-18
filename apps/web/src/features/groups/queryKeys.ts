@@ -8,6 +8,8 @@ export const groupQueryKeys = {
   mine: () => [...groupQueryKeys.all, 'mine'] as const,
   detail: (id: string) => [...groupQueryKeys.all, 'detail', id] as const,
   members: (id: string) => [...groupQueryKeys.all, 'members', id] as const,
+  /** GM1 — admin listing of outstanding invites for a single group. */
+  groupInvites: (id: string) => [...groupQueryKeys.all, 'groupInvites', id] as const,
   invitesReceived: () => ['groups', 'invites', 'received'] as const,
   userSearch: (q: string, excludeGroupId?: string) =>
     ['users', 'search', q, excludeGroupId ?? 'none'] as const,
