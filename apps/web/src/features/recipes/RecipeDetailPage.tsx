@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import type { ApiError, RecipeDetailDto, RecipeSnapshot } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useGroup } from '@/features/groups/hooks'
 import { useDeleteRecipe, useRecipe } from './hooks'
@@ -47,7 +48,25 @@ export function RecipeDetailPage() {
   if (!recipeId) return <Navigate to={`/groups/${groupId}`} replace />
 
   if (detail.isLoading) {
-    return <main className="mx-auto max-w-3xl px-6 py-10 text-stone-500">Lade Rezept …</main>
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-10" aria-label="Rezept wird geladen">
+        <Skeleton className="mb-4 h-4 w-32" />
+        <Skeleton className="mb-6 h-64 w-full" />
+        <Skeleton className="mb-3 h-10 w-2/3" />
+        <Skeleton className="mb-6 h-4 w-1/2" />
+        <div className="mb-8 space-y-2 rounded-md bg-background p-4 ring-1 ring-border">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-4/6" />
+        </div>
+        <div className="mb-8 space-y-2 rounded-md bg-background p-4 ring-1 ring-border">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+        </div>
+      </main>
+    )
   }
 
   if (detail.isError || !detail.data || !currentSnapshot) {

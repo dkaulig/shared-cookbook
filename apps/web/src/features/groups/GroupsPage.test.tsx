@@ -45,6 +45,27 @@ describe('<GroupsPage />', () => {
     useAuthStore.getState().clear()
   })
 
+  it('shows skeleton placeholders while the groups query is loading', async () => {
+    // Block the response so the query stays in-flight long enough to
+    // assert on the skeleton row.
+    let resolveRequest: ((value: GroupSummary[]) => void) | undefined
+    server.use(
+      http.get('/api/groups', () => new Promise<Response>((resolve) => {
+        resolveRequest = (body) => resolve(HttpResponse.json(body))
+      })),
+    )
+
+    renderPage()
+
+    const skeletons = await screen.findAllByRole('status')
+    expect(skeletons.length).toBeGreaterThan(0)
+
+    resolveRequest?.([])
+    await waitFor(() => {
+      expect(screen.getByText(/noch in keiner gruppe/i)).toBeInTheDocument()
+    })
+  })
+
   it('renders the German heading and empty state when API returns []', async () => {
     server.use(http.get('/api/groups', () => HttpResponse.json([])))
 
