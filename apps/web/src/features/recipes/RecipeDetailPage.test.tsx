@@ -42,7 +42,22 @@ beforeEach(() => {
     accessToken: 't',
     user: { id: 'u1', email: 'u1@ex.com', displayName: 'U', role: 'User' },
   })
-  server.use(http.get('/api/recipes/r1', () => HttpResponse.json(recipe)))
+  server.use(
+    http.get('/api/recipes/r1', () => HttpResponse.json(recipe)),
+    http.get('/api/groups/g1', () =>
+      HttpResponse.json({
+        id: 'g1',
+        name: 'Familie',
+        description: null,
+        coverImageUrl: null,
+        defaultServings: 2,
+        isPrivateCollection: false,
+        memberCount: 1,
+        myRole: 'Admin',
+        members: [],
+      }),
+    ),
+  )
 })
 
 function withProviders(path: string): ReactNode {
@@ -76,8 +91,22 @@ describe('RecipeDetailPage', () => {
     expect(link).toHaveAttribute('href', 'https://example.com/recipe')
   })
 
-  it('shows placeholder portion input (S5 will make it interactive)', async () => {
+  it('renders the live portion-scaler input seeded at defaultServings', async () => {
     render(withProviders('/groups/g1/recipes/r1'))
-    expect(await screen.findByLabelText(/Portionen/i)).toBeInTheDocument()
+    const input = await screen.findByLabelText(/Portionen/i)
+    expect(input).toHaveValue(4)
+  })
+
+  it('renders scaled ingredient list matching default servings at initial render', async () => {
+    render(withProviders('/groups/g1/recipes/r1'))
+    expect(await screen.findByText('500 g')).toBeInTheDocument()
+    expect(screen.getByText('nach Geschmack')).toBeInTheDocument()
+  })
+
+  it('renders the group-default umrechnen button using the fetched group settings', async () => {
+    render(withProviders('/groups/g1/recipes/r1'))
+    expect(
+      await screen.findByRole('button', { name: /Für Familie umrechnen \(2 Portionen\)/i }),
+    ).toBeInTheDocument()
   })
 })
