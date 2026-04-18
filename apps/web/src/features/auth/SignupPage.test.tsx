@@ -104,6 +104,34 @@ describe('<SignupPage />', () => {
     expect(loginLink).toHaveAttribute('href', '/login')
   })
 
+  // BF1 #7 — single password input invited typos that locked invitees
+  // out of the invite. Mirror ResetPasswordPage's two-input pattern:
+  // both fields must match before the form submits.
+  it('blocks submit and surfaces a mismatch alert when passwords differ', async () => {
+    server.use(
+      http.get('/api/invites/app/:token', () =>
+        HttpResponse.json({ valid: true, expiresAt: '2030-01-01T00:00:00Z', inviterDisplayName: 'Oma' }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    renderSignup()
+
+    await screen.findAllByText(/oma/i)
+
+    await user.type(screen.getByLabelText(/anzeigename/i), 'Neuer Nutzer')
+    await user.type(screen.getByLabelText(/e-mail/i), 'new@example.com')
+    await user.type(screen.getByLabelText(/^passwort$/i), 'geheim123')
+    await user.type(screen.getByLabelText(/passwort bestätigen/i), 'tippfehler9')
+    await user.click(screen.getByRole('button', { name: /^registrieren$/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /passwörter stimmen nicht überein/i,
+    )
+    // No redirect happened — the home stub never mounted.
+    expect(screen.queryByTestId('home')).toBeNull()
+  })
+
   it('submits the signup form and redirects to /', async () => {
     server.use(
       http.get('/api/invites/app/:token', () =>
@@ -127,7 +155,8 @@ describe('<SignupPage />', () => {
 
     await user.type(screen.getByLabelText(/anzeigename/i), 'Neuer Nutzer')
     await user.type(screen.getByLabelText(/e-mail/i), 'new@example.com')
-    await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
+    await user.type(screen.getByLabelText(/^passwort$/i), 'geheim123')
+    await user.type(screen.getByLabelText(/passwort bestätigen/i), 'geheim123')
     await user.click(screen.getByRole('button', { name: /^registrieren$/i }))
 
     await waitFor(() => {
