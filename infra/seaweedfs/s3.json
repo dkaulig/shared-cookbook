@@ -1,0 +1,26 @@
+{
+  "identities": [
+    {
+      "name": "familien-kochbuch",
+      "credentials": [
+        {
+          "accessKey": "familien-kochbuch",
+          "secretKey": "familien-kochbuch"
+        }
+      ],
+      "actions": [
+        "Admin",
+        "Read",
+        "Write",
+        "List",
+        "Tagging"
+      ]
+    },
+    {
+      "name": "anonymous",
+      "actions": [
+        "Read"
+      ]
+    }
+  ]
+}

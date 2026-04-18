@@ -8,6 +8,14 @@
         reverse_proxy api:5000
     }
 
+    # Recipe photos live in SeaweedFS's S3 gateway; stream them through the
+    # same origin so CORS + CSP stay simple and the API can return absolute
+    # URLs pinned to this host.
+    handle /photos/* {
+        uri strip_prefix /photos
+        reverse_proxy seaweedfs:8333
+    }
+
     handle {
         reverse_proxy web:5173
     }
