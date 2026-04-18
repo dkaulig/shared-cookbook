@@ -41,6 +41,10 @@ export function EditGroupDialog({
       setError('Standard-Portionen muss eine positive Zahl sein.')
       return
     }
+    if (parsedServings > 20) {
+      setError('Standard-Portionen darf höchstens 20 sein.')
+      return
+    }
 
     try {
       await update.mutateAsync({
@@ -100,6 +104,7 @@ export function EditGroupDialog({
               id="edit-group-default-servings"
               type="number"
               min="0.5"
+              max="20"
               step="0.5"
               value={defaultServings}
               onChange={(e) => setDefaultServings(e.target.value)}
