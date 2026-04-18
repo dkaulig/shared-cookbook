@@ -20,6 +20,8 @@ beforeEach(() => {
       HttpResponse.json([
         { id: 't1', name: 'schnell', category: 'Aufwand', isGlobal: true, groupId: null, createdByUserId: null },
         { id: 't2', name: 'vegan', category: 'Diaet', isGlobal: true, groupId: null, createdByUserId: null },
+        { id: 't3', name: 'warm', category: 'Typ', isGlobal: true, groupId: null, createdByUserId: null },
+        { id: 't4', name: 'vegetarisch', category: 'Diaet', isGlobal: true, groupId: null, createdByUserId: null },
       ]),
     ),
     http.get('/api/groups/g1/members', () =>
@@ -55,19 +57,7 @@ function renderPanel(initial = '/groups/g1') {
 }
 
 describe('RecipeFilterPanel', () => {
-  it('typing into the text search updates the URL', async () => {
-    renderPanel()
-    const input = await screen.findByLabelText(/Suche/i) as HTMLInputElement
-    const user = userEvent.setup()
-    await user.type(input, 'Nudeln')
-
-    await waitFor(() => {
-      const loc = screen.getByTestId('location-probe').textContent ?? ''
-      expect(loc).toContain('q=Nudeln')
-    })
-  })
-
-  it('clicking a tag chip toggles tag in URL', async () => {
+  it('clicking a tag chip toggles the tag in the URL', async () => {
     renderPanel()
 
     const chip = await screen.findByRole('button', { name: /schnell/i })
@@ -86,37 +76,101 @@ describe('RecipeFilterPanel', () => {
     })
   })
 
-  it('clicking Zufall fetches random and navigates', async () => {
-    server.use(
-      http.get('/api/groups/g1/recipes/random', () =>
-        HttpResponse.json({ recipeId: 'r42' }),
-      ),
-    )
-
+  it('moving the min-rating slider updates the URL', async () => {
     renderPanel()
+    const slider = await screen.findByLabelText(/Mindest-Bewertung/i)
     const user = userEvent.setup()
-    const zufall = await screen.findByRole('button', { name: /Zufall/i })
-    await user.click(zufall)
+    await user.click(slider)
+    await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}')
 
     await waitFor(() => {
       const loc = screen.getByTestId('location-probe').textContent ?? ''
-      expect(loc).toContain('/groups/g1/recipes/r42')
+      expect(loc).toContain('minRating=')
     })
   })
 
-  it('random with no match surfaces a German message', async () => {
-    server.use(
-      http.get('/api/groups/g1/recipes/random', () =>
-        HttpResponse.json({ recipeId: null }),
-      ),
-    )
-
+  it('changing the sort select updates the URL', async () => {
     renderPanel()
+    const select = await screen.findByLabelText(/Sortierung/i)
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /Zufall/i }))
+    await user.selectOptions(select, 'best_rated')
 
-    await waitFor(() =>
-      expect(screen.getByText(/Kein Rezept passt/i)).toBeInTheDocument(),
-    )
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      expect(loc).toContain('sort=best_rated')
+    })
+  })
+
+  it('renders the group tags grouped by category', async () => {
+    renderPanel()
+    await screen.findByRole('button', { name: /schnell/i })
+    // Category headers from the mockup: Mahlzeit / Typ / Aufwand / Diät / Küche / Custom
+    // Our tag pool covers Aufwand, Diaet, Typ → those headers should render.
+    expect(screen.getByText(/Aufwand/i)).toBeInTheDocument()
+    expect(screen.getByText(/Typ/i)).toBeInTheDocument()
+    expect(screen.getByText(/Diät/i)).toBeInTheDocument()
+  })
+
+  it('preset=quick preselects the "schnell" tag and sets maxPrepTime=30', async () => {
+    renderPanel('/groups/g1?preset=quick')
+
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      // Preset gets consumed → `preset=` disappears; tag + maxPrepTime appear.
+      expect(loc).not.toContain('preset=')
+      expect(loc).toContain('tags=t1')
+      expect(loc).toContain('maxPrepTime=30')
+    })
+  })
+
+  it('preset=warm preselects the "warm" tag', async () => {
+    renderPanel('/groups/g1?preset=warm')
+
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      expect(loc).toContain('tags=t3')
+      expect(loc).not.toContain('preset=')
+    })
+  })
+
+  it('preset=veggie preselects the "vegetarisch" tag', async () => {
+    renderPanel('/groups/g1?preset=veggie')
+
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      expect(loc).toContain('tags=t4')
+      expect(loc).not.toContain('preset=')
+    })
+  })
+
+  it('shows an active-filter chip row with × remove buttons', async () => {
+    renderPanel('/groups/g1?tags=t1')
+
+    // Chip labelled "schnell" appears in the active filters row with a
+    // button to remove.
+    const removeBtn = await screen.findByRole('button', {
+      name: /schnell entfernen/i,
+    })
+    expect(removeBtn).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(removeBtn)
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      expect(loc).not.toContain('tags=t1')
+    })
+  })
+
+  it('"Filter zurücksetzen" clears every active filter', async () => {
+    renderPanel('/groups/g1?tags=t1&minRating=4')
+    const clear = await screen.findByRole('button', { name: /Filter zurücksetzen/i })
+    const user = userEvent.setup()
+    await user.click(clear)
+
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      expect(loc).not.toContain('tags=')
+      expect(loc).not.toContain('minRating=')
+    })
   })
 })
