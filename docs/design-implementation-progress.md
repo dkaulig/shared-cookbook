@@ -1,6 +1,6 @@
 # Design Implementation — Progress Tracker
 
-**Last updated:** 2026-04-18 (DS5 reviewed and approved)
+**Last updated:** 2026-04-18 (DS6 reviewed and approved)
 
 Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents update on every tick / completion.
 
@@ -22,14 +22,14 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS3 | Home & Navigation Shell | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS3 commits; 282 web (+53), 427 .NET, 32 shared = 741 green; lint clean; docker smoke ok; reviewer-verified |
 | DS4 | Group Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 18 DS4 commits; 342 web (+60), 427 .NET, 32 shared = 801 green; lint clean; docker smoke ok; reviewer-verified |
 | DS5 | Recipe Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS5 commits; 392 web (+50), 432 .NET (+5 cook endpoint), 32 shared = 856 green; lint clean; docker smoke ok; reviewer-verified |
-| DS6 | Recipe Form | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched after DS5 pass |
+| DS6 | Recipe Form | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 16 DS6 commits; 434 web (+42), 432 .NET, 32 shared = 898 green; lint clean; docker smoke ok; reviewer-verified |
 | DS7 | Polish + PWA | pending | — | — | — | — |
 
 ## Last orchestrator tick
 
-- **Time:** 2026-04-18 (DS5 review complete — pass)
-- **Action:** Independent reviewer verified DS5 Recipe Detail end-to-end. Commit range `a4fc31e..HEAD` contains exactly 21 DS5 commits with strict TDD ordering on every component, hook, API wrapper, and the new cook endpoint. Every static check, runtime suite (432 .NET + 392 web + 32 shared = 856 green), Docker smoke, end-to-end smoke, cook-endpoint E2E (200 / 403 / 404 / no-revision), and mockup fidelity assertion passed.
-- **Next:** dispatch DS6 (Recipe Form) implementation agent.
+- **Time:** 2026-04-18 (DS6 review complete — pass)
+- **Action:** Independent reviewer verified DS6 Recipe Form end-to-end. Commit range `bc507fa..HEAD` contains exactly 16 DS6 implementation commits with strict TDD ordering on every new component (CharCounter, DifficultyPills, RecipeFormTopNav, AppLayout suppression, FormIntro, PhotoUploadGrid, FormActionBar) plus a single refactor commit for the RecipeFormPage restyle (pre-existing behavioural tests stayed green) and one integration coverage commit adding 8 wired tests on top. Every static check, runtime suite (432 .NET + 434 web + 32 shared = 898 green), Docker smoke, end-to-end smoke, drag-drop keyboard-reorder preservation, and mockup fidelity assertion passed.
+- **Next:** dispatch DS7 (Polish + PWA) implementation agent.
 
 ## Blockers / pauses
 
@@ -212,6 +212,51 @@ _(none)_
 
 **Verdict:** STATUS=pass. DS5 flipped to `done`, Completed 2026-04-18.
 
+### DS6 — Review (2026-04-18) → pass
+
+- **Commit count:** `git log --oneline bc507fa..HEAD | wc -l` → 16. Range matches the plan (16 DS6 implementation commits since the orchestrator dispatch commit `bc507fa`; no orchestrator commit inside the range — 16 impl + 1 orchestrator prefix = 17 total touching DS6 scope).
+- **TDD pairs verified (strict ordering — test-commit precedes feat-commit in every case):**
+  - CharCounter — test `c2d5e48` → feat `6798ab8` ✓
+  - DifficultyPills — test `b117c63` → feat `055e5dd` ✓
+  - RecipeFormTopNav — test `4a29e71` → feat `dbcd9ac` ✓
+  - AppLayout suppression on form routes — test `72584ec` → feat `0ad9360` ✓
+  - FormIntro — test `7db7d89` → feat `ed6967b` ✓
+  - PhotoUploadGrid — test `246012d` → feat `4d40b4a` ✓
+  - FormActionBar — test `acb37cb` → feat `4c915ef` ✓
+  - RecipeFormPage restyle — `8bda427` (single `refactor(web)` commit that composes the 6 new blocks into the existing page; 9 pre-existing behavioural tests, including the S3-fix-pass keyboard-reorder pair for ingredients + steps, stay green unchanged — TDD-exempt per plan rules since no new behaviour is being added, only layout + composition) ✓
+  - Integration coverage — `7186414` adds 8 wired tests on top of the composed page (form top bar draft tagline, italic intro tagline, live CharCounter, difficulty-pill round-trip, tag-chip toggle + submit, `nach Geschmack` unit forces `quantity=null` + `scalable=false`, Portionen clamp-to-1). The pattern here (feat-first then add-integration-tests-on-top) is correct because each newly-composed behaviour is an emergent property of already-tested primitives, not new logic — the 8 new cases pin the wiring, and every pinning case exercises a code path that the primitive tests do not already cover. ✓
+- **Static checks:** zero `Assert.True(true)`/`Assert.True(false)`, zero `[Skip]`/`.Skip(`, zero `it.skip`/`it.todo`/`describe.skip`/`.only(`/`xit`/`xdescribe` in production tests, zero new `TODO`/`FIXME`/`HACK`/`XXX` across `apps/` + `packages/`, zero `NotImplementedException`, `TreatWarningsAsErrors=true` confirmed in `apps/api/Directory.Build.props`.
+- **`eslint-disable` / `pragma warning disable` baseline unchanged (no DS6 additions):** 5 EF migrations + `useSession.ts` (S2) + `usePresetConsumer.ts` (DS4) + `GroupDetailPage.tsx` (DS4). Zero new disables introduced by DS6.
+- **Deliverables verified:** `apps/web/src/features/recipes/` contains the 6 new DS6 components (`CharCounter.tsx`, `DifficultyPills.tsx`, `RecipeFormTopNav.tsx`, `FormIntro.tsx`, `PhotoUploadGrid.tsx`, `FormActionBar.tsx`) each with co-located test files, plus the restyled `RecipeFormPage.tsx` + `RecipeFormPage.test.tsx`. The legacy `PhotoUploader.tsx` is deleted (confirmed: not present in the features/recipes listing; deletion occurred in `8bda427`). `AppLayout.tsx` has the updated `useMatch` logic distinguishing `:recipeId !== 'new'` from real detail routes.
+- **Component deep-dive:**
+  - **CharCounter** — renders `{count} / {max}` with `aria-live="polite"`; tone gradient is neutral → `text-amber-700` at ≥ 80% ratio → `text-[hsl(var(--destructive))]` at hard limit. Pure projection; does not enforce the limit (the native `maxLength` does). Character count uses `[...value].length` so surrogate pairs count as one unit.
+  - **DifficultyPills** — three flex-1 pills with `role="group"` + `aria-label="Schwierigkeit"`. Each pill is a `<button aria-pressed={selected}>` with level-count dot glyphs (1/2/3 filled circles via `Array.from({length: level})`). Selecting the already-active pill is a no-op (does not call `onChange` — avoids spurious draft-mutations). Controlled: `value: 1 | 2 | 3` + `onChange: (next: DifficultyLevel) => void`.
+  - **RecipeFormTopNav** — `<header role="banner" sticky top-0 z-20>` with backdrop-blur. Left: X-Abbrechen icon button (`aria-label="Abbrechen"` → `onCancel`). Middle: `font-serif` 18px title ("Neues Rezept" / "Rezept bearbeiten" based on mode) with 11px subtitle defaulting to `"Ungespeicherte Änderungen"` (overridable via prop for future autosave). Right: `MoreHorizontal` no-op placeholder with `aria-label="Mehr"` — DS6 ships without wiring per deviation; DS7 wires share/discard-draft menu. Padding honours `env(safe-area-inset-top)`.
+  - **FormIntro** — serif `<h1>` with `clamp(28px,6vw,36px)` headline ("Neues Rezept" / "Rezept bearbeiten"); italic Libre-Baskerville tagline below (create / edit variants); amber target-group pill `bg-primary/0.08 text-primary` with `Users` icon + "Gruppe: {groupName ?? '…'}" — graceful `…` fallback while `useGroup(groupId)` loads. Purely presentational; parent passes `groupName` down.
+  - **PhotoUploadGrid** — 3-slot grid; filled slots (`<img object-cover>` + dark X-remove `rgba(28,25,23,0.7)` top-right + circular index 1/2/3 bottom-left) and empty DropSlot (dashed border, UploadCloud icon, "Tippen zum Auswählen / oder hierhin ziehen" two-line copy, `aria-label="Foto hochladen"`). Click-to-upload AND drag-drop (`onDragOver`/`onDragLeave`/`onDrop` via `e.dataTransfer.files`) both route to `acceptFiles()` → `useUploadRecipePhoto.mutateAsync`. 3-photo cap enforced via `atLimit` with German error (`Maximal 3 Fotos pro Rezept — entferne zuerst ein vorhandenes Bild.`); MIME allowlist `image/jpeg` + `image/png` + `image/webp` with German error (`Nur JPG, PNG oder WebP unterstützt.`). Multi-file drop surfaces a friendly German message. X-remove on filled slots calls `useRemoveRecipePhoto.mutateAsync`. Error rendered as `<p role="alert">`. Input `accept="image/jpeg,image/png,image/webp"` + `disabled={atLimit || upload.isPending}` as a defence-in-depth safety net for the cap.
+  - **FormActionBar** — fixed, `inset-x-0 z-[8] flex justify-center` wrapper (pointer-events-none) so the inner bar centers correctly inside the form column. Inner bar: `max-w-3xl` rounded-16 card with `backdrop-blur-lg` + amber-toned bottom-shadow. Ghost "Abbrechen" button on the left (border-input, hover → primary outline); primary button on the right with `Check` icon (strokeWidth 2.4), label "Rezept speichern" / "Änderungen speichern" swapping via mode, `disabled={pending}` + `"Speichere …"` spinner label while the mutation is in flight. Positioning math copies DS5's `RecipeActionBar`: `bottom-[calc(env(safe-area-inset-bottom,0px)+72px)]` on mobile (clears BottomNav) / `md:bottom-[env(safe-area-inset-bottom,0px)]` on desktop.
+  - **AppLayout suppression** — three `useMatch` calls (`/groups/:groupId/recipes/:recipeId`, `/groups/:groupId/recipes/:recipeId/edit`, `/groups/:groupId/recipes/new`); the new commit filters `isRecipeDetail = recipeDetailMatch != null && recipeDetailMatch.params.recipeId !== 'new'` so the detail-route regex doesn't swallow `/recipes/new`. `hideTopNav` fires when on detail (non-edit), edit, or create-new form routes. Two new AppLayout tests pin the branch coverage.
+  - **RecipeFormPage composition** — renders `<RecipeFormTopNav />` + `<main>` with `<FormIntro groupName={useGroup(groupId).data?.name} />` + the form sections (Grunddaten → Fotos → Details → Zutaten → Zubereitung → Tags) each wrapped in `<FormCard>`, and the `<FormActionBar />` at the bottom. State covers `title`, `description`, `defaultServings`, `prepTime`, `difficulty`, `sourceUrl`, `ingredients[]`, `steps[]`, `selectedTagIds[]`, `createTagOpen`, `error`. Submit path: `POST /api/groups/:groupId/recipes` (create) via `useCreateRecipe` or `PUT /api/recipes/:recipeId` (edit) via `useUpdateRecipe`, then navigates to `/groups/:groupId/recipes/:result.id`. Drag-drop handlers (`handleIngredientDragEnd` + `handleStepDragEnd`) preserved with `arrayMove` + `useSensors(PointerSensor, KeyboardSensor)`. "nach Geschmack" unit coupling at lines 287–301: when `unit === 'nach Geschmack'` the submit payload sets `quantity = null` + `scalable = false`. The accompanying test at `RecipeFormPage.test.tsx:408-448` pins both assertions.
+- **Drag-drop preservation verified:** `PointerSensor` + `KeyboardSensor` (with `sortableKeyboardCoordinates`) + `DndContext` + `SortableContext` all still wired in `RecipeFormPage.tsx`. `data-testid` attributes `ingredient-drag-handle-{N}` + `step-drag-handle-{N}` preserved on the drag-handle buttons (lines 835 + 972). The two S3-fix-pass keyboard-reorder tests (`reorders ingredient rows via keyboard sensor` + `reorders step rows via keyboard sensor and persists the new order on submit`) still pass unchanged, with new position renumbering assertions on submit. `touch-action: none` style preserved on the drag handle for mobile.
+- **Accessibility spot-check:** `DifficultyPills` uses `role="group"` + `aria-label` on the container and `aria-pressed` on each pill; `CharCounter` uses `aria-live="polite"` on the counter div; `PhotoUploadGrid` error surface uses `role="alert"`, and the drop-slot + remove buttons both carry `aria-label`s (`"Foto hochladen"` / `"Foto entfernen"`); `RecipeFormTopNav` header has `role="banner"` with `aria-label`-ed X-cancel and more-menu buttons; `FormActionBar` primary button swaps `aria-label` between `"Speichere Rezept"` (pending) and the mode-specific static label.
+- **Runtime:**
+  - `dotnet test apps/api/FamilienKochbuch.sln` → 432 passed (176 Domain + 72 Infrastructure + 184 API). No new .NET tests in DS6 — the slice is web-only per the plan. 0 skipped / 0 failed.
+  - `pnpm -C apps/web test --run` → **434 passed** across 79 files (+42 vs. DS5's 392 — exceeds the agent's ≥434 claim exactly).
+  - `pnpm -C packages/shared test --run` → 32/32.
+  - `pnpm lint` → clean.
+  - `pnpm -C apps/web build` → succeeds in 229 ms (65 PWA precache entries, 498 kB JS / 81 kB CSS, self-hosted fonts, no Google Fonts network references).
+  - **Total: 432 + 434 + 32 = 898 green (matches the agent's claim exactly).**
+- **Docker smoke:** `docker compose up --build -d` brought all 6 services up (api / postgres / redis healthy; caddy, web, seaweedfs Up without healthcheck by design). `curl -s -o /dev/null -w "%{http_code}" http://localhost/groups/any/recipes/new` → **200** (SPA shell served, form hydrates client-side). `curl -s http://localhost/api/health` → `{"status":"ok","timestamp":"2026-04-18T18:58:14.8833876+00:00"}`. Full E2E `bash scripts/smoke-test.sh` → all 13 steps green (login, app-invite, signup, re-login, group create, recipe create with 5 ingredients + 3 steps + 2 tags via API, rating, search, fork, revision log, recipe delete, group delete), exit 0. The smoke flow creates recipes via API directly (not through the form UI) — DS6 introduces no API changes, so the smoke remains a valid non-regression signal. Stack cleanly torn down via `docker compose down`.
+- **Deviation assessments (all 5):**
+  - **Autosave dropped; subtitle honesty ("Ungespeicherte Änderungen")** — **accept**. Per spec fallback, autosave is optional for DS6 and trivial to add later as a subtitle override (`<RecipeFormTopNav subtitle="Entwurf gespeichert vor 3 s" />`). The default copy is honest about the current state. Zero behaviour promised-but-not-delivered.
+  - **AppLayout route-matching distinguishes `recipeId !== 'new'`** — **accept**. Without this distinction, `/groups/:groupId/recipes/new` would match the `:recipeId` detail regex and suppress the shared TopNav as a "detail page" — but new is a form route, not a detail route. Filtering on the matched-param value is the minimal, explicit fix; alternative route-order tricks (moving `/new` above `/:recipeId` in the router) would scatter the logic. The same file also suppresses TopNav on edit + new explicitly via `recipeEditMatch` + `recipeNewMatch`, so the composite rule is easy to read and each branch is covered by the AppLayout test suite.
+  - **"nach Geschmack" unit coupling (replaces old scalable checkbox)** — **accept**. Simpler UX than a separate "skalierbar" checkbox tied to an opaque unit semantics. The coupling is: select `unit === 'nach Geschmack'` → submit payload forces `quantity = null` + `scalable = false`. The scaler math (`scaleIngredients` in shared) throws on 0/negative quantities, so a null-quantity row MUST be non-scalable for downstream safety — the form enforces this invariant at submit time. Pinned by `RecipeFormPage.test.tsx:408-448` with both assertions.
+  - **CreateTagDialog name (not `CreateCustomTagDialog`)** — **accept**. The plan spec refers to `CreateCustomTagDialog.tsx` but the component landed in a prior slice as `CreateTagDialog.tsx` at `apps/web/src/features/tagManagement/CreateTagDialog.tsx`. No duplication, no rename churn; the form's custom-category "Neuen Tag erstellen" button wires to the existing dialog verbatim. Trivial naming divergence with zero functional impact.
+  - **PhotoUploadGrid mounts only in edit mode; create mode shows 3 disabled placeholders with "nach dem Speichern" hint** — **accept**. The API upload endpoint (`POST /api/recipes/{id}/photos`) attaches a photo to an existing `recipeId`, which does not exist until the first `POST /api/groups/:groupId/recipes` returns with an id. Supporting uploads in create mode would require a two-step flow (save empty draft → upload against that id → let user re-edit), a client-side photo buffer that gets POSTed on first save (needs a multi-part `CreateRecipeRequest` shape that doesn't exist today), or inventing a new `/draft-photos` endpoint. Deferring to "edit after first save" is a reasonable UX regression for DS6: the hint copy ("Fotos kannst du nach dem ersten Speichern hinzufügen — bis zu 3 Bilder pro Rezept.") sets the correct expectation, and three disabled dashed placeholders with "nach dem Speichern" glyphs make the deferred affordance obvious. DS7 or a future polish pass can implement the two-step or draft-buffer path without breaking the current contract.
+- **Cleanup:** `git status` clean after docker teardown, `git log origin/main..HEAD` empty before the review commit (the 16 DS6 impl commits + dispatch `bc507fa` were all pushed by the implementation agent; this review adds only the tracker update + review commit on top).
+
+**Verdict:** STATUS=pass. DS6 flipped to `done`, Completed 2026-04-18.
+
 **Review standard:** Every review applies `docs/reviewing/anti-shortcut-checklist.md`. Reviewers execute verification commands themselves (dotnet test, pnpm test, lint, docker compose up, visual check against mockup HTML). They do not rely on the implementation agent's claims.
 
 ## Deviations from mockup / spec
@@ -391,3 +436,52 @@ _(none)_
   `MarkCooked_Does_Not_Append_Revision` integration test pins this
   contract by snapshotting the revision count before and after a
   cook call and asserting equality.
+
+### DS6
+
+- **Autosave is not implemented; RecipeFormTopNav subtitle defaults to "Ungespeicherte Änderungen".**
+  Rationale: the plan's DS6 deliverables list does not require
+  autosave, and DS7 (Polish + PWA) is the natural home for a debounce +
+  local-draft feature alongside offline support. The form ships a
+  concrete, honest draft-state copy now, with the subtitle exposed as
+  a prop so a future slice can swap in "Entwurf gespeichert vor Xs"
+  without touching the component.
+- **AppLayout's TopNav suppression distinguishes `recipeId !== 'new'`.**
+  Rationale: the detail-route regex `/groups/:groupId/recipes/:recipeId`
+  would otherwise match `/groups/:groupId/recipes/new` and suppress
+  the shared TopNav under the wrong semantics. Filtering on the
+  matched-param value (`recipeDetailMatch.params.recipeId !== 'new'`)
+  is the minimal, explicit fix and keeps both real branches
+  (`recipeEditMatch`, `recipeNewMatch`) covered by dedicated tests.
+  Alternative route-order tricks would scatter the logic.
+- **"nach Geschmack" unit coupling replaces the legacy scalable-checkbox UX.**
+  Rationale: the old UI asked the user to toggle "skalierbar" on
+  rows with opaque unit semantics (e.g. "Salz, eine Prise"). The new
+  coupling makes the invariant explicit: selecting `unit === 'nach
+  Geschmack'` forces `quantity = null` + `scalable = false` at submit
+  time. The scaler (`scaleIngredients` in shared) throws on
+  0/negative quantities, so null-quantity rows MUST be non-scalable
+  for downstream safety — the form enforces the invariant once
+  instead of relying on the user to toggle it correctly. Pinned by a
+  test in `RecipeFormPage.test.tsx:408-448` asserting both
+  `quantity=null` and `scalable=false` in the submitted payload.
+- **Custom-tag dialog name is `CreateTagDialog`, not `CreateCustomTagDialog` as in the plan text.**
+  Rationale: the component landed in a prior slice with the shorter
+  name (`apps/web/src/features/tagManagement/CreateTagDialog.tsx`).
+  Renaming mid-slice would be pure churn with zero functional
+  benefit. The custom-category "Neuen Tag erstellen" chip wires to
+  the existing dialog verbatim.
+- **PhotoUploadGrid mounts only in edit mode; create mode shows disabled placeholder slots with a "nach dem Speichern" hint.**
+  Rationale: the API upload endpoint (`POST /api/recipes/{id}/photos`)
+  requires an existing `recipeId`, which doesn't exist until the user
+  submits the form. Supporting create-mode uploads would require a
+  two-step flow (save empty draft → upload → re-edit), a client-side
+  photo buffer that gets POSTed on first save (needs a multi-part
+  `CreateRecipeRequest` shape), or a new `/draft-photos` endpoint.
+  Deferring to "edit after first save" is a reasonable UX regression
+  for DS6: the hint copy ("Fotos kannst du nach dem ersten Speichern
+  hinzufügen — bis zu 3 Bilder pro Rezept.") sets the correct
+  expectation, and three disabled dashed placeholders with "nach dem
+  Speichern" glyphs make the deferred affordance obvious. A future
+  slice can implement the two-step or draft-buffer path without
+  breaking the current contract.
