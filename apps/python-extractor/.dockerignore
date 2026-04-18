@@ -26,5 +26,6 @@ env
 .coverage
 htmlcov
 
-# Docs + local notes (not needed in the image)
-README.md
+# (README.md IS needed — pyproject.toml's [project].readme field points
+# at it and hatchling's wheel build fails without it. Keep it in the
+# build context.)
