@@ -49,6 +49,7 @@ public static class AuthEndpoints
         AppDbContext db,
         UserManager<User> users,
         TokenService tokens,
+        IPrivateCollectionService privateCollections,
         TimeProvider clock,
         IOptions<JwtOptions> jwt,
         CancellationToken ct)
@@ -91,6 +92,7 @@ public static class AuthEndpoints
 
         invite.MarkUsed(user.Id, now);
         await db.SaveChangesAsync(ct);
+        await privateCollections.EnsurePrivateCollectionAsync(user.Id, ct);
         await tx.CommitAsync(ct);
 
         var access = tokens.CreateAccessToken(user);

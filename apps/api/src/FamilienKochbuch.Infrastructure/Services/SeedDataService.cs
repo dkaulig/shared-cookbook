@@ -15,6 +15,7 @@ namespace FamilienKochbuch.Infrastructure.Services;
 public class SeedDataService(
     AppDbContext db,
     UserManager<User> users,
+    IPrivateCollectionService privateCollections,
     IConfiguration config,
     ILogger<SeedDataService> logger)
 {
@@ -62,6 +63,8 @@ public class SeedDataService(
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
             throw new InvalidOperationException($"Failed to seed admin user: {errors}");
         }
+
+        await privateCollections.EnsurePrivateCollectionAsync(admin.Id, ct);
 
         logger.LogInformation("Seeded initial Admin user {Email}", email);
     }
