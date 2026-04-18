@@ -111,3 +111,52 @@ export interface RemovePhotoRequest {
 export interface ForkRecipeRequest {
   targetGroupId: string
 }
+
+// ── S6: Version history ────────────────────────────────────────────────
+
+export type RecipeChangeType = 'Created' | 'Edited' | 'Forked'
+
+export interface RecipeRevisionChangedBy {
+  userId: string
+  displayName: string
+}
+
+export interface RecipeRevisionSummary {
+  id: string
+  changeType: RecipeChangeType
+  changedBy: RecipeRevisionChangedBy
+  /** Optional German one-liner — null on the first Created revision when
+   *  the service hasn't decorated it. */
+  diffSummary?: string | null
+  createdAt: string
+}
+
+export interface RecipeSnapshotIngredient {
+  position: number
+  quantity: number | null
+  unit: string
+  name: string
+  note?: string | null
+  scalable: boolean
+}
+
+export interface RecipeSnapshotStep {
+  position: number
+  content: string
+}
+
+export interface RecipeSnapshot {
+  title: string
+  description?: string | null
+  defaultServings: number
+  prepTimeMinutes?: number | null
+  difficulty: 1 | 2 | 3
+  sourceUrl?: string | null
+  ingredients: RecipeSnapshotIngredient[]
+  steps: RecipeSnapshotStep[]
+  tagIds: string[]
+}
+
+export interface RecipeRevisionDetail extends RecipeRevisionSummary {
+  snapshot: RecipeSnapshot
+}
