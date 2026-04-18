@@ -87,7 +87,7 @@ describe('<HomePage />', () => {
     expect(h1.className).toMatch(/font-serif/)
   })
 
-  it('renders the six quick-filter chips with the amber-primary "Schnell" first', async () => {
+  it('renders the six quick-filter chips with the sage-primary "Schnell" first', async () => {
     server.use(
       http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
@@ -290,7 +290,7 @@ describe('<HomePage />', () => {
       http.get('/api/groups/invites', () => HttpResponse.json([])),
     )
     renderHome()
-    // The tagline is italic Libre-Baskerville per mockup.
+    // The tagline is rendered in italic `font-serif-body` (Inter, per DS8).
     const subtitle = await screen.findByText(/hunger beruhigt/i)
     expect(subtitle).toBeInTheDocument()
     expect(subtitle.className).toMatch(/italic/)

@@ -18,9 +18,9 @@ import { cn } from '@/lib/utils'
 /**
  * DS3 Home / Dashboard — the post-login landing page.
  *
- * Mirrors `docs/mockups/warme-kueche-home.html` section-for-section:
- *   1. Greeting hero (time-of-day kicker + serif headline + italic tagline).
- *   2. Horizontal quick-filter chip row (6 chips, amber-filled primary + outlines).
+ * Mirrors `docs/mockups/variant-a-home.html` section-for-section:
+ *   1. Greeting hero (time-of-day kicker + display headline + tagline).
+ *   2. Horizontal quick-filter chip row (6 chips, sage-filled primary + outlines).
  *   3. Pending-invite banner — reuses the DS3-restyled ReceivedInvitesBanner.
  *   4. "Meine Gruppen" — group cards + "+ Neue Gruppe" dashed card.
  *   5. "Zuletzt gekocht" — recipe cards w/ gradient fallback photo, rating pill, tags.
@@ -76,7 +76,7 @@ export function HomePage() {
         <h1 className="mt-1 font-serif text-[clamp(30px,7vw,40px)] font-semibold leading-[1.05] tracking-[-0.015em]">
           Was kochen wir heute?
         </h1>
-        <p className="mt-1 font-[Libre_Baskerville,serif] text-[15px] italic leading-[1.5] text-[hsl(var(--muted-foreground))]">
+        <p className="mt-1 font-serif-body text-[15px] italic leading-[1.5] text-[hsl(var(--muted-foreground))]">
           Ein schneller Tipp, was Hunger beruhigt.
         </p>
 
@@ -221,7 +221,7 @@ function Chip({
       className={cn(
         'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition-colors',
         primary
-          ? 'border border-primary bg-primary text-primary-foreground shadow-[0_2px_8px_-2px_rgba(180,83,9,0.35)] hover:bg-[hsl(var(--primary-hover))]'
+          ? 'border border-primary bg-primary text-primary-foreground shadow-[0_2px_8px_-2px_rgba(79,121,97,0.35)] hover:bg-[hsl(var(--primary-hover))]'
           : 'border border-border bg-card text-foreground hover:border-primary',
       )}
     >
@@ -232,9 +232,11 @@ function Chip({
 }
 
 const TINTS = [
-  'bg-[linear-gradient(135deg,#fde68a_0%,#fbbf24_100%)] text-[#713f12]',
-  'bg-[linear-gradient(135deg,#fecaca_0%,#fca5a5_100%)] text-[#7f1d1d]',
-  'bg-[linear-gradient(135deg,#d9f99d_0%,#a3e635_100%)] text-[#365314]',
+  // Sage Modern tints mirrored from `.group-avatar.tint-{1,2,3}` in
+  // docs/mockups/variant-a-home.html — sage, coral, olive.
+  'bg-[#c3d4ca] text-[#2b4435]',
+  'bg-[#f0c9b6] text-[#7a3f21]',
+  'bg-[#d9e0b5] text-[#4f5b1f]',
 ] as const
 
 function GroupCard({ group, tintIndex }: { group: GroupSummary; tintIndex: number }) {
@@ -245,7 +247,7 @@ function GroupCard({ group, tintIndex }: { group: GroupSummary; tintIndex: numbe
     <Link
       to={`/groups/${group.id}`}
       aria-label={group.name}
-      className="group flex flex-col gap-2 rounded-[18px] border border-border bg-card p-[18px_18px_16px] shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition hover:-translate-y-px hover:border-[hsl(var(--input))] hover:shadow-[0_8px_24px_-8px_rgba(146,64,14,0.14),0_2px_6px_-2px_rgba(28,25,23,0.04)]"
+      className="group flex flex-col gap-2 rounded-[18px] border border-border bg-card p-[18px_18px_16px] shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition hover:-translate-y-px hover:border-[hsl(var(--input))] hover:shadow-[0_8px_24px_-8px_rgba(79,121,97,0.18),0_2px_6px_-2px_rgba(28,25,23,0.04)]"
     >
       <div className="flex items-center gap-3">
         <span
@@ -310,7 +312,7 @@ function RecipeCard({
     <Link
       to={`/groups/${recipe.groupId}/recipes/${recipe.id}`}
       aria-label={recipe.title}
-      className="group overflow-hidden rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition hover:-translate-y-px hover:border-[hsl(var(--input))] hover:shadow-[0_8px_24px_-8px_rgba(146,64,14,0.14),0_2px_6px_-2px_rgba(28,25,23,0.04)]"
+      className="group overflow-hidden rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition hover:-translate-y-px hover:border-[hsl(var(--input))] hover:shadow-[0_8px_24px_-8px_rgba(79,121,97,0.18),0_2px_6px_-2px_rgba(28,25,23,0.04)]"
     >
       <div
         aria-hidden="true"
@@ -322,7 +324,7 @@ function RecipeCard({
         }}
       >
         {rating && (
-          <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-[rgba(28,25,23,0.8)] px-2 py-1 text-xs font-semibold text-[#fefce8] backdrop-blur">
+          <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-[rgba(26,26,24,0.82)] px-2 py-1 text-xs font-semibold text-[#fafafa] backdrop-blur">
             <Star className="h-3 w-3 fill-current" aria-hidden="true" />
             {rating}
           </span>

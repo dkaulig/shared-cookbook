@@ -4,15 +4,14 @@ import { cn } from '@/lib/utils'
 import { getGroupAvatarGradient } from './groupAvatarGradient'
 
 /**
- * DS4 Group-header block.
+ * DS4 Group-header block (retinted for DS8 Sage Modern).
  *
- * Mirrors `.group-header` → `.group-stats-row` in
- * `docs/mockups/warme-kueche-group-detail.html`:
- *   1. `.cover`            — rounded warm amber gradient banner.
+ * Mirrors `.group-header` → `.group-stats-row` in the group-detail
+ * mockup structure, with Sage Modern tokens from `variant-a-*`:
+ *   1. `.cover`            — rounded sage gradient banner.
  *   2. `.group-avatar-wrap`— pulled up 36 px with `z-index: 1` so the
- *                            avatar sits above the cover (this is the
- *                            post-bug stacking fix from the mockup).
- *   3. `.group-heading`    — Cormorant-Garamond h1 + muted description.
+ *                            avatar sits above the cover.
+ *   3. `.group-heading`    — display h1 + muted description.
  *   4. `.group-stats-row`  — recipe count · members stack · default portions.
  *
  * The avatar uses `getGroupAvatarGradient(id)` so the 3 tints rotate
@@ -42,15 +41,15 @@ export function GroupDetailHeader({
         data-testid="group-cover"
         aria-hidden="true"
         className={cn(
-          'relative h-[120px] rounded-[24px] border border-[#fde68a] md:h-[180px]',
+          'relative h-[120px] rounded-[24px] border border-[#c3d4ca] md:h-[180px]',
         )}
         style={{
           backgroundImage: [
-            'linear-gradient(135deg, rgba(180,83,9,0.15), rgba(217,119,6,0.1) 50%, rgba(252,211,77,0.2))',
-            'radial-gradient(circle at 20% 40%, #fde68a 0%, transparent 55%)',
-            'radial-gradient(circle at 85% 75%, #fed7aa 0%, transparent 55%)',
+            'linear-gradient(135deg, rgba(79,121,97,0.18), rgba(141,174,160,0.12) 50%, rgba(195,212,202,0.24))',
+            'radial-gradient(circle at 20% 40%, #c3d4ca 0%, transparent 55%)',
+            'radial-gradient(circle at 85% 75%, #f0c9b6 0%, transparent 55%)',
           ].join(', '),
-          backgroundColor: '#fef3c7',
+          backgroundColor: '#e6ede8',
         }}
       />
 
@@ -60,7 +59,7 @@ export function GroupDetailHeader({
         <span
           data-testid="group-avatar-big"
           aria-hidden="true"
-          className="grid h-[72px] w-[72px] place-items-center rounded-[20px] border-4 border-background font-serif text-[34px] font-semibold shadow-[0_4px_18px_-4px_rgba(146,64,14,0.3)]"
+          className="grid h-[72px] w-[72px] place-items-center rounded-[20px] border-4 border-background font-serif text-[34px] font-semibold shadow-[0_4px_18px_-4px_rgba(79,121,97,0.3)]"
           style={{ background: swatch.background, color: swatch.color }}
         >
           {initial}
@@ -121,9 +120,11 @@ export function GroupDetailHeader({
 }
 
 const MEMBER_CHIP_TINTS = [
-  'bg-[linear-gradient(135deg,#fed7aa,#fdba74)] text-[#7c2d12]',
-  'bg-[linear-gradient(135deg,#fecaca,#fca5a5)] text-[#7f1d1d]',
-  'bg-[linear-gradient(135deg,#d9f99d,#a3e635)] text-[#365314]',
+  // Sage Modern member-chip tints — sage / coral / olive, mirroring the
+  // `.group-avatar.tint-{1,2,3}` rules in docs/mockups/variant-a-home.html.
+  'bg-[linear-gradient(135deg,#c3d4ca,#8daea0)] text-[#2b4435]',
+  'bg-[linear-gradient(135deg,#f0c9b6,#d9a281)] text-[#7a3f21]',
+  'bg-[linear-gradient(135deg,#d9e0b5,#b6c27e)] text-[#4f5b1f]',
 ] as const
 
 function MemberChip({
