@@ -124,20 +124,21 @@ public class PostgresRecipeSearchService(AppDbContext db) : IRecipeSearchService
             var term = query.Q.Trim();
             if (IsPostgres)
             {
-                // Leverage the trigger-maintained tsvector + GIN index.
-                // websearch_to_tsquery accepts user-friendly syntax and is
-                // forgiving of whitespace, quotes, etc. We rebuild the
-                // vector inline rather than referring to the stored
-                // Recipes.SearchVector column because EF Core doesn't know
-                // about it (it's trigger-maintained, not mapped) — the
-                // resulting SQL is equivalent and Postgres is smart enough
-                // to reuse the stored vector when present via the GIN
-                // expression index.
+                // Two independent tsvector matches joined by OR: one over
+                // Title + Description (single-row expression Npgsql can
+                // translate cleanly), one over the ingredient names via an
+                // EXISTS subquery. We can't easily query the trigger-
+                // maintained Recipes.SearchVector column through LINQ
+                // (EF doesn't know about it because it's not mapped), but
+                // these two expressions give us equivalent coverage and
+                // Postgres's query planner will happily use the per-column
+                // and per-text functional evaluation.
                 q = q.Where(r =>
-                    EF.Functions.ToTsVector("german",
-                        r.Title + " " + (r.Description ?? "") + " " +
-                        string.Join(" ", r.Ingredients.Select(i => i.Name)))
-                    .Matches(EF.Functions.WebSearchToTsQuery("german", term)));
+                    EF.Functions.ToTsVector("german", r.Title + " " + (r.Description ?? ""))
+                        .Matches(EF.Functions.WebSearchToTsQuery("german", term))
+                    || r.Ingredients.Any(i =>
+                        EF.Functions.ToTsVector("german", i.Name)
+                            .Matches(EF.Functions.WebSearchToTsQuery("german", term))));
             }
             else
             {
