@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { AuthLayout } from './AuthLayout'
 import { SignupPage } from './SignupPage'
 import { useAuthStore } from './authStore'
 import { server } from '@/test/msw/server'
@@ -11,7 +12,10 @@ function renderSignup(search: string = '?token=the-token') {
   return render(
     <MemoryRouter initialEntries={[`/signup${search}`]}>
       <Routes>
-        <Route path="/signup" element={<SignupPage />} />
+        <Route element={<AuthLayout />}>
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/login" element={<div data-testid="login">Anmelden</div>} />
+        </Route>
         <Route path="/" element={<div data-testid="home">Zuhause</div>} />
       </Routes>
     </MemoryRouter>,
@@ -27,7 +31,25 @@ describe('<SignupPage />', () => {
     server.resetHandlers()
   })
 
-  it('fetches invite preview and shows the inviter name', async () => {
+  it('renders the hero headline and card submit button', async () => {
+    server.use(
+      http.get('/api/invites/app/:token', () =>
+        HttpResponse.json({
+          valid: true,
+          expiresAt: '2030-01-01T00:00:00Z',
+          inviterDisplayName: 'Oma',
+        }),
+      ),
+    )
+
+    renderSignup()
+    expect(
+      screen.getByRole('heading', { level: 1, name: /willkommen in der familie/i }),
+    ).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^registrieren$/i })).toBeInTheDocument()
+  })
+
+  it('fetches invite preview and shows the inviter name in the kicker', async () => {
     server.use(
       http.get('/api/invites/app/:token', ({ params }) => {
         expect(params.token).toBe('the-token')
@@ -41,8 +63,7 @@ describe('<SignupPage />', () => {
 
     renderSignup()
 
-    expect(await screen.findByText(/tante herta/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /registrieren/i })).toBeInTheDocument()
+    expect(await screen.findByText(/tante herta lädt dich/i)).toBeInTheDocument()
   })
 
   it('shows an error when the invite is invalid', async () => {
@@ -57,10 +78,27 @@ describe('<SignupPage />', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/einladung/i)
   })
 
-  it('shows an error when the invite is missing', async () => {
+  it('shows an error when the invite token is missing', async () => {
     renderSignup('?token=')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/einladung/i)
+  })
+
+  it('links back to /login for returning users', async () => {
+    server.use(
+      http.get('/api/invites/app/:token', () =>
+        HttpResponse.json({
+          valid: true,
+          expiresAt: '2030-01-01T00:00:00Z',
+          inviterDisplayName: 'Opa',
+        }),
+      ),
+    )
+    renderSignup()
+
+    // The card footer offers a link to /login.
+    const loginLink = await screen.findByRole('link', { name: /anmelden/i })
+    expect(loginLink).toHaveAttribute('href', '/login')
   })
 
   it('submits the signup form and redirects to /', async () => {
@@ -82,12 +120,12 @@ describe('<SignupPage />', () => {
     renderSignup()
 
     // Wait for invite preview so the form is enabled.
-    await screen.findByText(/oma/i)
+    await screen.findByText(/oma lädt dich/i)
 
     await user.type(screen.getByLabelText(/anzeigename/i), 'Neuer Nutzer')
     await user.type(screen.getByLabelText(/e-mail/i), 'new@example.com')
     await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
-    await user.click(screen.getByRole('button', { name: /registrieren/i }))
+    await user.click(screen.getByRole('button', { name: /^registrieren$/i }))
 
     await waitFor(() => {
       expect(screen.getByTestId('home')).toBeInTheDocument()
