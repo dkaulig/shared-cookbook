@@ -12,6 +12,13 @@ public class Group
     public const int NameMaxLength = 100;
     public const int DescriptionMaxLength = 500;
     public const string PrivateCollectionName = "Private Sammlung";
+    /// <summary>
+    /// Upper bound for <see cref="DefaultServings"/>. Aligned with the web
+    /// editor's 0.5..20 range (PRD §4.5 / S5). 20 portions is already far
+    /// beyond what any sane family dinner needs, so anything above is
+    /// rejected as input error.
+    /// </summary>
+    public const decimal MaxDefaultServings = 20m;
 
     // EF-friendly parameterless ctor — private so all domain construction
     // goes through the validating ctor below.
@@ -39,6 +46,9 @@ public class Group
         if (defaultServings <= 0m)
             throw new ArgumentException(
                 "Default servings must be greater than zero.", nameof(defaultServings));
+        if (defaultServings > MaxDefaultServings)
+            throw new ArgumentException(
+                $"Default servings must be at most {MaxDefaultServings}.", nameof(defaultServings));
 
         Id = Guid.NewGuid();
         Name = trimmedName;
@@ -127,6 +137,9 @@ public class Group
             if (defaultServings.Value <= 0m)
                 throw new ArgumentException(
                     "Default servings must be greater than zero.", nameof(defaultServings));
+            if (defaultServings.Value > MaxDefaultServings)
+                throw new ArgumentException(
+                    $"Default servings must be at most {MaxDefaultServings}.", nameof(defaultServings));
             DefaultServings = defaultServings.Value;
         }
 
