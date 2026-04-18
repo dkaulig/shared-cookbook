@@ -90,7 +90,12 @@ public static class RecipeEndpoints
         string? Photo,
         Guid[] TagIds,
         string CreatedByDisplayName,
-        DateTimeOffset UpdatedAt);
+        DateTimeOffset UpdatedAt,
+        double? AvgRating,
+        int RatingCount,
+        int? MyStars);
+
+    public record CreateTagRequest(string Name, string Category);
 
     public record RecipeSummaryListDto(
         RecipeSummaryDto[] Items,
@@ -139,6 +144,8 @@ public static class RecipeEndpoints
             .WithTags("Tags")
             .RequireAuthorization();
         groupTags.MapGet("/", ListGroupTagsAsync);
+        groupTags.MapPost("/", CreateGroupTagAsync);
+        groupTags.MapDelete("/{tagId:guid}", DeleteGroupTagAsync);
 
         var recipe = app.MapGroup("/api/recipes/{id:guid}")
             .WithTags("Recipes")
@@ -356,15 +363,37 @@ public static class RecipeEndpoints
             .GroupBy(x => x.RecipeId)
             .ToDictionary(g => g.Key, g => g.Select(x => x.TagId).ToArray());
 
-        var items = rows.Select(x => new RecipeSummaryDto(
-            x.Recipe.Id,
-            x.Recipe.GroupId,
-            x.Recipe.Title,
-            x.Recipe.Description,
-            x.Recipe.Photos.FirstOrDefault(),
-            tagsByRecipe.TryGetValue(x.Recipe.Id, out var ids) ? ids : Array.Empty<Guid>(),
-            x.CreatorDisplay,
-            x.Recipe.UpdatedAt)).ToArray();
+        // Rating aggregates per recipe. We pull in one shot and compute
+        // avg/count/myStars in memory — rating counts per recipe are small.
+        var ratingRows = await db.Ratings
+            .Where(r => recipeIds.Contains(r.RecipeId))
+            .Select(r => new { r.RecipeId, r.UserId, r.Stars })
+            .ToListAsync(ct);
+        var ratingsByRecipe = ratingRows.GroupBy(x => x.RecipeId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var items = rows.Select(x =>
+        {
+            var ratings = ratingsByRecipe.TryGetValue(x.Recipe.Id, out var list) ? list : null;
+            double? avg = ratings is null || ratings.Count == 0
+                ? null
+                : Math.Round(ratings.Average(r => (double)r.Stars), 1);
+            int count = ratings?.Count ?? 0;
+            int? myStars = ratings?.FirstOrDefault(r => r.UserId == userId)?.Stars;
+
+            return new RecipeSummaryDto(
+                x.Recipe.Id,
+                x.Recipe.GroupId,
+                x.Recipe.Title,
+                x.Recipe.Description,
+                x.Recipe.Photos.FirstOrDefault(),
+                tagsByRecipe.TryGetValue(x.Recipe.Id, out var ids) ? ids : Array.Empty<Guid>(),
+                x.CreatorDisplay,
+                x.Recipe.UpdatedAt,
+                avg,
+                count,
+                myStars);
+        }).ToArray();
 
         return Results.Ok(new RecipeSummaryListDto(items, p, size, total));
     }
@@ -598,5 +627,98 @@ public static class RecipeEndpoints
             .ToArray();
 
         return Results.Ok(sorted);
+    }
+
+    // ── POST /api/groups/{groupId}/tags ─────────────────────────────────
+
+    private static async Task<IResult> CreateGroupTagAsync(
+        Guid groupId,
+        CreateTagRequest body,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId && g.DeletedAt == null, ct);
+        if (group is null) return Results.NotFound();
+        if (!await IsGroupMemberAsync(db, groupId, userId, ct)) return Results.Forbid();
+
+        if (!Enum.TryParse<TagCategory>(body.Category, ignoreCase: false, out var category))
+            return Results.BadRequest(new ErrorResponse("invalid_category",
+                "Kategorie ist unbekannt."));
+
+        // Per PRD §4.2 "Custom" is the intended free-form bucket. Custom tags
+        // always land in that bucket regardless of what the client sends so
+        // the global taxonomy stays authoritative — the endpoint only
+        // accepts a name, the rest is domain policy.
+        _ = category;
+
+        Domain.Entities.Tag newTag;
+        try
+        {
+            newTag = Domain.Entities.Tag.CreateGroupScoped(userId, groupId, body.Name);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+        }
+
+        // Duplicate-before-save check so the response is a clean 400 rather
+        // than a DbUpdateException via the unique index.
+        var duplicate = await db.Tags.AnyAsync(t =>
+            t.GroupId == groupId && t.Category == newTag.Category && t.Name == newTag.Name, ct);
+        if (duplicate)
+            return Results.BadRequest(new ErrorResponse("tag_exists",
+                "Ein Tag mit diesem Namen existiert bereits in dieser Gruppe."));
+
+        db.Tags.Add(newTag);
+        await db.SaveChangesAsync(ct);
+
+        var dto = new TagDto(
+            newTag.Id, newTag.Name, newTag.Category.ToString(),
+            newTag.IsGlobal, newTag.GroupId, newTag.CreatedByUserId);
+        return Results.Created($"/api/groups/{groupId}/tags/{newTag.Id}", dto);
+    }
+
+    // ── DELETE /api/groups/{groupId}/tags/{tagId} ───────────────────────
+
+    private static async Task<IResult> DeleteGroupTagAsync(
+        Guid groupId,
+        Guid tagId,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId && g.DeletedAt == null, ct);
+        if (group is null) return Results.NotFound();
+
+        var membership = await db.GroupMemberships
+            .FirstOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
+        if (membership is null) return Results.Forbid();
+
+        var tag = await db.Tags.FirstOrDefaultAsync(t => t.Id == tagId, ct);
+        if (tag is null) return Results.NotFound();
+
+        // Global tags are managed via the seed migration — endpoint can't
+        // touch them. Protect that boundary explicitly.
+        if (tag.GroupId is null)
+            return Results.BadRequest(new ErrorResponse("global_tag_protected",
+                "Globale Tags können nicht gelöscht werden."));
+
+        if (tag.GroupId != groupId)
+            return Results.NotFound();
+
+        // Only group admins may delete custom tags (PRD §10.6: Gruppen-Admin
+        // scope). Non-admin members see 403.
+        if (membership.Role != Domain.Enums.GroupRole.Admin)
+            return Results.Forbid();
+
+        db.Tags.Remove(tag);
+        await db.SaveChangesAsync(ct);
+
+        return Results.NoContent();
     }
 }
