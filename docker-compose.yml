@@ -81,6 +81,31 @@ services:
       - api
     restart: unless-stopped
 
+  python-extractor:
+    # Phase 2 recipe-extraction microservice (P2-0 scaffold — currently
+    # only exposes GET /health; business endpoints land in P2-1 onward).
+    # NOT published to the host — reachable only on the internal docker
+    # network. The .NET API will proxy in P2-6.
+    build:
+      context: ./apps/python-extractor
+      dockerfile: Dockerfile
+    container_name: familien-kochbuch-python-extractor
+    environment:
+      # Azure OpenAI (placeholders until P2-1).
+      AZURE_OPENAI_ENDPOINT: "${AZURE_OPENAI_ENDPOINT:-}"
+      AZURE_OPENAI_API_KEY: "${AZURE_OPENAI_API_KEY:-}"
+      AZURE_OPENAI_API_VERSION: "${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}"
+      AZURE_OPENAI_DEPLOYMENT_STRUCTURING: "${AZURE_OPENAI_DEPLOYMENT_STRUCTURING:-gpt-4.1-mini}"
+      AZURE_OPENAI_DEPLOYMENT_CHAT: "${AZURE_OPENAI_DEPLOYMENT_CHAT:-gpt-5.1-chat}"
+      # HMAC shared secret for the .NET ↔ Python bridge (P2-6).
+      EXTRACTOR_SHARED_SECRET: "${EXTRACTOR_SHARED_SECRET:-dev-only-shared-secret}"
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   caddy:
     image: caddy:2-alpine
     container_name: familien-kochbuch-caddy
