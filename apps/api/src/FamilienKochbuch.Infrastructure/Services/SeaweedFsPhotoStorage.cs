@@ -30,13 +30,21 @@ public class SeaweedFsPhotoStorage(
         var extension = DeriveExtension(contentType, originalFileName);
         var key = $"{Guid.NewGuid():N}{extension}";
 
+        // Buffer the payload so the AWS SDK can compute the MD5/SHA hash
+        // without needing to re-read the stream. SeaweedFS speaks plain
+        // HTTP; DisablePayloadSigning isn't an option here because
+        // AWSSDK rejects unsigned payloads over non-HTTPS endpoints.
+        await using var buffered = new MemoryStream();
+        await content.CopyToAsync(buffered, ct);
+        buffered.Position = 0;
+
         var request = new PutObjectRequest
         {
             BucketName = _options.Bucket,
             Key = key,
-            InputStream = content,
+            InputStream = buffered,
             ContentType = contentType,
-            DisablePayloadSigning = true,
+            UseChunkEncoding = false,
         };
 
         await s3.PutObjectAsync(request, ct);
@@ -112,11 +120,19 @@ public class SeaweedFsPhotoStorage(
     {
         try
         {
-            var buckets = await s3.ListBucketsAsync(ct);
-            if (buckets.Buckets.Any(b => string.Equals(b.BucketName, options.Bucket, StringComparison.Ordinal)))
-                return;
+            // Some S3-compatible servers (including certain SeaweedFS versions)
+            // reject HEAD /bucket with 403 when the bucket doesn't exist, and
+            // ListBucketsAsync can return a response with a null Buckets list.
+            // Just try PUT — S3 returns BucketAlreadyOwnedByYou when it's
+            // already there, which we treat as success.
             await s3.PutBucketAsync(options.Bucket, ct);
-            logger.LogInformation("Created SeaweedFS bucket {Bucket}", options.Bucket);
+            logger.LogInformation("Ensured SeaweedFS bucket {Bucket}", options.Bucket);
+        }
+        catch (AmazonS3Exception ex) when (
+            ex.ErrorCode == "BucketAlreadyOwnedByYou"
+            || ex.ErrorCode == "BucketAlreadyExists")
+        {
+            // Idempotent — bucket is already there.
         }
         catch (Exception ex)
         {
