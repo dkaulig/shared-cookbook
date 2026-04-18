@@ -276,16 +276,20 @@ public class RatingEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var inviteRes = await alice.PostAsJsonAsync($"/api/groups/{groupId}/invites",
             new GroupEndpoints.InviteToGroupRequest(bobId));
         inviteRes.EnsureSuccessStatusCode();
-        var invite = (await inviteRes.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteCreatedDto>())!;
+        var invite = (await inviteRes.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteDto>())!;
         var accept = await bob.PostAsync($"/api/groups/invites/{invite.Id}/accept", null);
         accept.EnsureSuccessStatusCode();
 
         var recipeId = await CreateRecipeAsync(alice, groupId);
 
-        // Alice rates first, then Bob (whose UpdatedAt is newer).
+        // Alice rates first, then Bob (whose UpdatedAt is newer). The
+        // FakeTimeProvider is the single authoritative clock; nudging it by
+        // a few seconds between writes is enough to distinguish UpdatedAt
+        // timestamps without drifting past JwtBearer's real-time ClockSkew
+        // (30s) — keeping Bob's access token valid.
         (await alice.PostAsJsonAsync($"/api/recipes/{recipeId}/ratings",
             new RatingEndpoints.UpsertRatingRequest(4, "prima"))).EnsureSuccessStatusCode();
-        await Task.Delay(50); // ensure UpdatedAt ticks differ
+        _factory.Clock.Advance(TimeSpan.FromSeconds(5));
         (await bob.PostAsJsonAsync($"/api/recipes/{recipeId}/ratings",
             new RatingEndpoints.UpsertRatingRequest(2, "nicht so meins"))).EnsureSuccessStatusCode();
 

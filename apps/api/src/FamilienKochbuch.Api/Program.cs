@@ -177,6 +177,7 @@ app.MapAuthEndpoints();
 app.MapInviteEndpoints();
 app.MapGroupEndpoints();
 app.MapRecipeEndpoints();
+app.MapRatingEndpoints();
 
 // ── Migrate + seed on startup (skipped in Testing environment) ────────
 if (!app.Environment.IsEnvironment("Testing"))
