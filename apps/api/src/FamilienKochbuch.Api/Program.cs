@@ -213,6 +213,7 @@ app.UseAuthorization();
 
 app.MapHealthEndpoints();
 app.MapAuthEndpoints();
+app.MapAccountEndpoints();
 app.MapInviteEndpoints();
 app.MapGroupEndpoints();
 app.MapRecipeEndpoints();
