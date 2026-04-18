@@ -23,13 +23,13 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS4 | Group Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 18 DS4 commits; 342 web (+60), 427 .NET, 32 shared = 801 green; lint clean; docker smoke ok; reviewer-verified |
 | DS5 | Recipe Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS5 commits; 392 web (+50), 432 .NET (+5 cook endpoint), 32 shared = 856 green; lint clean; docker smoke ok; reviewer-verified |
 | DS6 | Recipe Form | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 16 DS6 commits; 434 web (+42), 432 .NET, 32 shared = 898 green; lint clean; docker smoke ok; reviewer-verified |
-| DS7 | Polish + PWA | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched after DS6 pass — final DS slice |
+| DS7 | Polish + PWA | in_review | general-purpose (bg) | 2026-04-18 | 2026-04-18 (impl) | 14 DS7 commits; 442 web (+8), 432 .NET, 32 shared = 906 green; lint clean; docker smoke ok; 5 screenshots in docs/screenshots/; awaiting reviewer |
 
 ## Last orchestrator tick
 
-- **Time:** 2026-04-18 (DS6 review complete — pass)
-- **Action:** Independent reviewer verified DS6 Recipe Form end-to-end. Commit range `bc507fa..HEAD` contains exactly 16 DS6 implementation commits with strict TDD ordering on every new component (CharCounter, DifficultyPills, RecipeFormTopNav, AppLayout suppression, FormIntro, PhotoUploadGrid, FormActionBar) plus a single refactor commit for the RecipeFormPage restyle (pre-existing behavioural tests stayed green) and one integration coverage commit adding 8 wired tests on top. Every static check, runtime suite (432 .NET + 434 web + 32 shared = 898 green), Docker smoke, end-to-end smoke, drag-drop keyboard-reorder preservation, and mockup fidelity assertion passed.
-- **Next:** dispatch DS7 (Polish + PWA) implementation agent.
+- **Time:** 2026-04-18 (DS7 impl complete — awaiting review)
+- **Action:** DS7 Polish + PWA landed 14 impl commits. Manifest aligned to Warme-Küche cream (`background_color: #fffbeb`, orientation portrait, maskable icon split out), iOS Safari PWA meta tags + `apple-touch-icon` added to `index.html`, Skeleton primitive swapped from hardcoded `bg-stone-200/80` to the `bg-muted` token (TDD pair), ErrorBoundary fallback restyled with Cormorant serif headline + cream background + italic subtitle (TDD pair), new `NotFoundPage` wired as the React Router catch-all ("404 · Hier kocht niemand" / "Diese Seite gibt's nicht (mehr).", TDD pair), `WochenplanStub` rewritten as a Phase-3 preview with Lucide calendar icon + back-to-home button (TDD pair), `ProfilStub` expanded to show email + open `InviteDialog` via "Jemanden einladen" button + keep the Abmelden escape hatch (TDD pair). Five 375×812 screenshots captured via Playwright against the real `docker compose` stack with seeded data (Pasta al Limone, Omas Apfel-Crumble, Familien-Küche group with Admin + Oma). README extended with Warme-Küche UI section + updated quick-start + refreshed test counts. Tests: 432 .NET + 442 web + 32 shared = 906 green. Lint clean. Smoke test passes. Toast library deliberately deferred (see DS7 deviations).
+- **Next:** dispatch DS7 reviewer.
 
 ## Blockers / pauses
 
@@ -491,3 +491,159 @@ _(none)_
   Speichern" glyphs make the deferred affordance obvious. A future
   slice can implement the two-step or draft-buffer path without
   breaking the current contract.
+
+### DS7
+
+- **Toast library deliberately deferred.**
+  Rationale: DS5 already shipped an inline `aria-live` notifier on the
+  recipe-detail action bar (the sticky "Jetzt gekocht" / "In Wochenplan"
+  bar); DS6 used the same pattern on the form action bar. The plan's
+  DS7 scope calls for a toast library only "if you can do it in ≤ 3
+  commits and with proper TDD" — adding `sonner` or an equivalent
+  properly means: install dep, add a `<Toaster />` provider to
+  `AppLayout`, migrate the two existing `aria-live` surfaces (detail
+  bar + form bar) to toast calls with an equivalent SR-accessible
+  treatment, add tests for one positive path, and update the
+  impacted tests on both DS5/DS6 call sites. That is realistically
+  5–7 commits plus a dep bump, not 3 — and the existing inline
+  notifier is already proven to work on mobile (aria-live regions
+  announce cleanly to VoiceOver + TalkBack). Deferring to a post-1.5
+  slice is the correct call; when toasts land they should also pick
+  up the `role="status"` banners on invite accept/decline, rating
+  upsert, and group create/delete so the pattern is uniform across
+  the app rather than a one-off.
+- **Dark-mode toggle is a v2 feature — no UI affordance ships in DS7.**
+  Rationale: the plan's spec explicitly scopes out the toggle. The
+  `.dark` token block in `apps/web/src/index.css` (DS1) is correct
+  and produces a coherent dark palette when `<html class="dark">` is
+  set manually, but without a user-facing toggle no user can reach
+  it. A v2 toggle needs: a persisted preference (IndexedDB or
+  localStorage), an "Auto / Hell / Dunkel" tri-state control on
+  `/profil`, system-pref detection via `prefers-color-scheme`, and
+  a handful of additional contrast-pass tweaks for the recipe hero
+  gradient overlay and the red `Zufall` CTA on a stone-800
+  background. Documented here so the next design pass has a clear
+  starting point.
+- **404 catch-all changed from `<Navigate to="/" replace />` to `<NotFoundPage />`.**
+  Rationale: previously the unknown-route handler silently redirected
+  to Home, which hid typos in deep-links shared over chat (clicking a
+  broken link just opened the home page with no indication anything
+  was wrong). A dedicated page with "404 · Hier kocht niemand" and
+  a "Zur Startseite" button tells the user exactly what happened and
+  offers a clear next step. The old redirect also interacted badly
+  with shared recipe URLs: if an admin deleted a recipe, everyone
+  else's copy of the link silently sent them to Home instead of
+  explaining "this recipe doesn't exist any more".
+- **ProfilStub gained a real "Jemanden einladen" button that opens
+  the existing `InviteDialog`.**
+  Rationale: DS3 shipped ProfilStub as a pure placeholder ("Bald
+  verfügbar"); DS7 promoted it to a minimally-useful profile surface
+  so the project owner can install the PWA on their phone and
+  actually onboard family members from day one. The invite dialog is
+  the same component the Home received-invites flow already mounts,
+  so no new data fetches or provider wiring were needed. Everything
+  else (password change, device list, invite list) still defers to
+  Phase 3 per the original scope.
+
+## Phase 1.5 — Summary
+
+After DS7 implementation (pre-review):
+
+| Slice | Commits | Web tests added | .NET tests added | Total tests |
+|---|---:|---:|---:|---:|
+| DS1 — Theme Foundation | 19 | +28 | 0 | 666 |
+| DS2 — Auth Flow | 13 | +22 | 0 | 688 |
+| DS3 — Home & Navigation | 21 | +53 | 0 | 741 |
+| DS4 — Group Detail | 18 | +60 | 0 | 801 |
+| DS5 — Recipe Detail | 21 | +50 | +5 | 856 |
+| DS6 — Recipe Form | 16 | +42 | 0 | 898 |
+| DS7 — Polish + PWA | 14 | +8 | 0 | 906 |
+| **Total** | **122** | **+263** | **+5** | **906** |
+
+**Final test counts:** 432 .NET + 442 web + 32 shared = **906 green**.
+
+**Deliverables landed (Phase 1.5):**
+
+- **Theme tokens + typography** — Warme-Küche palette mapped to shadcn
+  HSL-triplet tokens, Cormorant Garamond + Inter + Libre Baskerville
+  self-hosted (no Google Fonts at runtime), light + minimal `.dark`
+  mode defined.
+- **shadcn primitives expanded** — Button (warm primary variant),
+  Card, Input, Label, Textarea, Select (native), Badge (+`mini`
+  variant), Skeleton (DS7 `bg-muted` token).
+- **Auth flow restyled** — Login, Signup (invite-aware),
+  ForgotPassword, ResetPassword share a common `AuthLayout` with a
+  parchment dotted background, serif hero headlines, italic taglines,
+  and the reusable `ChefHatLogo` brand mark.
+- **App shell (protected routes)** — `TopNav` (brand + search +
+  notifications + avatar), `BottomNav` (5 items including a primary
+  FAB), `AppLayout` with surgical TopNav suppression on recipe
+  detail + edit + create routes.
+- **Home page** — greeting with time-of-day kicker, horizontal
+  quick-filter chip row (producer-side URL preset encoding),
+  "Meine Gruppen" cards with tinted initial avatars, "Zuletzt
+  gekocht" grid, received-invites banner.
+- **Group detail** — cover banner gradient, overlapping avatar,
+  stats row, filter bar with Zufall CTA, expandable filter panel
+  (7 tag categories + rating slider + prep-time slider + creator
+  dropdown + sort dropdown), active-filter chips row, recipe grid
+  (2-col mobile / 3-4 desktop), contextual FAB.
+- **Recipe detail** — hero photo / deterministic gradient fallback,
+  overlapping title card, scroll-aware top bar, fork banner,
+  portion stepper + group-default shortcut, ingredient checklist
+  with session-local checked state, numbered step cards with inline
+  Markdown (bold/italic), rating widget, history panel, sticky
+  action bar ("In Wochenplan" + "Jetzt gekocht"). API endpoint
+  `POST /api/recipes/{id}/cook` added.
+- **Recipe form** — sticky top bar (X-cancel + serif title), form
+  intro with target-group pill, `PhotoUploadGrid` (edit-mode only),
+  drag-and-drop ingredient rows (pointer + keyboard sensors
+  preserved), drag-and-drop step rows, `DifficultyPills`, grouped
+  tag picker + create-tag dialog, sticky form action bar.
+- **Stub pages** — `WochenplanStub` (Phase-3 preview with Lucide
+  calendar + back link), `ProfilStub` (email + invite dialog +
+  logout).
+- **PWA polish (DS7)** — manifest aligned to cream background,
+  portrait orientation, split `any` + `maskable` icons; iOS Safari
+  `apple-touch-icon` + `apple-mobile-web-app-*` meta tags; scroll-
+  aware chrome hidden on detail/form routes; warm-palette skeleton;
+  warm-palette error boundary; dedicated 404 page.
+- **Docs** — 5 mobile-viewport screenshots under `docs/screenshots/`,
+  embedded in the README "UI Stand (Phase 1.5 — Warme-Küche)"
+  section, Phase 1.5 test-count update, quick-start refreshed.
+
+**Open deviations (explicitly accepted during each slice's review):**
+
+- DS1: native `<select>`; Select chevron via inline style;
+  `--primary-hover` custom token.
+- DS2: kicker as inline span; `<h2>` skipped on single-card auth
+  pages; signup copy assertion uses `findAllByText`.
+- DS3: no desktop BottomNav (`md:hidden`); Suchen icon routes to
+  `/groups`; chips encode presets as `?preset=<key>`; fractional
+  `defaultServings` shown as-is.
+- DS4: `prepTimeMinutes` optional on `RecipeGridCard`; prep-time
+  slider floor clears filter; contextual FAB offset above BottomNav;
+  cover banner gradient-only; `usePresetConsumer` extraction + search
+  initial-mount guard; `ActiveFilterChips` extraction.
+- DS5: inline `aria-live` instead of a toast library; fork-banner
+  uses current recipe title as stand-in; TopNav suppression on
+  detail route only; hand-rolled Markdown in `StepList`; `MarkCooked`
+  does not append a revision.
+- DS6: autosave dropped (static "Ungespeicherte Änderungen" subtitle);
+  AppLayout distinguishes `recipeId !== 'new'`; "nach Geschmack" unit
+  coupling forces `quantity=null` + `scalable=false`; `CreateTagDialog`
+  name instead of `CreateCustomTagDialog`; PhotoUploadGrid mounts in
+  edit mode only.
+- DS7: toast library deferred; dark-mode toggle deferred to v2; 404
+  catch-all now renders `NotFoundPage` instead of redirecting to `/`;
+  `ProfilStub` gained a functional invite button wired to the existing
+  dialog.
+
+**What's ready for the project owner:**
+
+`docker compose up --build -d` → 6/6 services healthy, `open
+http://localhost/` → Warme-Küche login, admin credentials in the
+README quick-start. The PWA is installable on iOS Safari ("Add to
+Home Screen" uses the 192px icon + `apple-mobile-web-app-title`
+"Kochbuch"). All 906 tests green. Smoke test passes. 5 visual
+references live in `docs/screenshots/`.
