@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#fffbeb" />
+    <title>Neues Rezept · Familien-Kochbuch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --primary: #b45309;
+        --primary-hover: #92400e;
+        --primary-weak: rgba(180, 83, 9, 0.08);
+        --primary-weak-strong: rgba(180, 83, 9, 0.14);
+        --accent: #dc2626;
+        --bg: #fffbeb;
+        --bg-2: #fef3c7;
+        --surface: #ffffff;
+        --surface-muted: #fafaf9;
+        --border: #e7e5e4;
+        --border-soft: #f5f5f4;
+        --border-strong: #d6d3d1;
+        --text: #1c1917;
+        --text-muted: #57534e;
+        --text-soft: #78716c;
+        --green: #15803d;
+        --red: #dc2626;
+        --ring: rgba(180, 83, 9, 0.25);
+        --radius: 12px;
+        --radius-lg: 18px;
+        --radius-xl: 24px;
+        --shadow-xs: 0 1px 2px rgba(28, 25, 23, 0.04);
+        --shadow-sm: 0 2px 6px rgba(28, 25, 23, 0.05), 0 1px 2px rgba(28, 25, 23, 0.04);
+        --shadow-md: 0 8px 24px -8px rgba(146, 64, 14, 0.14), 0 2px 6px -2px rgba(28, 25, 23, 0.04);
+        --shadow-action-bar: 0 -8px 24px -12px rgba(28, 25, 23, 0.18);
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        min-height: 100vh;
+        padding-bottom: calc(96px + var(--safe-bottom));
+      }
+      body::before {
+        content: "";
+        position: fixed; inset: 0;
+        background-image: radial-gradient(circle at 1px 1px, rgba(180, 83, 9, 0.04) 1px, transparent 0);
+        background-size: 24px 24px;
+        pointer-events: none; z-index: 0;
+      }
+
+      /* ───────── Top nav ───────── */
+      .topnav {
+        position: sticky; top: 0;
+        padding: calc(10px + var(--safe-top)) 16px 10px;
+        display: flex; align-items: center; gap: 10px;
+        background: rgba(255, 251, 235, 0.92);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border-soft);
+        z-index: 10;
+      }
+      .icon-btn {
+        width: 40px; height: 40px; display: grid; place-items: center;
+        border-radius: 10px; color: var(--text-muted);
+        background: transparent; border: 1px solid transparent;
+        cursor: pointer; flex-shrink: 0; text-decoration: none;
+        transition: background-color 150ms ease, color 150ms ease;
+      }
+      .icon-btn:hover { background: var(--primary-weak); color: var(--text); }
+      .topnav-title-wrap {
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column; gap: 1px; line-height: 1.1;
+      }
+      .topnav-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 18px; font-weight: 600; letter-spacing: -0.005em;
+      }
+      .topnav-sub {
+        font-size: 11px; color: var(--text-soft);
+      }
+
+      /* ───────── Main ───────── */
+      main {
+        max-width: 720px; margin: 0 auto;
+        padding: 20px 20px 32px;
+        position: relative; z-index: 1;
+      }
+      @media (min-width: 1024px) { main { padding: 28px 32px 40px; } }
+
+      .form-intro {
+        margin-bottom: 8px;
+      }
+      .form-intro h1 {
+        font-family: "Cormorant Garamond", serif;
+        font-size: clamp(28px, 6vw, 36px);
+        font-weight: 600; line-height: 1.05;
+        letter-spacing: -0.015em;
+        margin: 0 0 4px;
+      }
+      .form-intro p {
+        font-family: "Libre Baskerville", serif;
+        font-style: italic;
+        font-size: 15px; color: var(--text-soft);
+        margin: 0;
+      }
+      .target-group-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        margin-top: 14px;
+        padding: 6px 12px;
+        background: var(--primary-weak);
+        color: var(--primary);
+        border-radius: 999px;
+        font-size: 13px; font-weight: 600;
+      }
+      .target-group-pill svg { width: 13px; height: 13px; }
+
+      /* ───────── Section wrappers ───────── */
+      section.card {
+        margin-top: 20px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 18px 18px 20px;
+        box-shadow: var(--shadow-xs);
+      }
+      .section-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 20px; font-weight: 600;
+        letter-spacing: -0.005em;
+        margin: 0 0 4px;
+      }
+      .section-desc {
+        font-size: 13px; color: var(--text-soft);
+        line-height: 1.45; margin: 0 0 14px;
+      }
+
+      /* ───────── Form fields ───────── */
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field + .field { margin-top: 14px; }
+      label {
+        font-size: 13px; font-weight: 600; color: var(--text);
+        letter-spacing: 0.01em;
+        display: flex; align-items: center; gap: 6px;
+      }
+      label .optional {
+        font-weight: 400; color: var(--text-soft); font-size: 12px;
+      }
+      input[type="text"], input[type="number"], input[type="url"], textarea, select {
+        font-family: inherit;
+        font-size: 15px; line-height: 1.4;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius);
+        padding: 11px 13px;
+        width: 100%;
+        transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+      }
+      input::placeholder, textarea::placeholder { color: #a8a29e; }
+      input:focus, textarea:focus, select:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px var(--ring);
+        background: var(--surface);
+      }
+      textarea { resize: vertical; min-height: 72px; }
+      select {
+        -webkit-appearance: none; appearance: none;
+        background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2357534e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 12px center;
+        padding-right: 36px;
+        cursor: pointer;
+      }
+
+      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+      .char-count {
+        font-size: 11px; color: var(--text-soft);
+        text-align: right; margin-top: 2px;
+      }
+
+      /* ───────── Photo upload ───────── */
+      .photos {
+        display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+      }
+      .photo-slot {
+        aspect-ratio: 1 / 1;
+        border-radius: var(--radius);
+        overflow: hidden;
+        position: relative;
+        background: var(--surface-muted);
+      }
+      .photo-slot.filled-1 { background-image:
+        linear-gradient(135deg, rgba(146,64,14,0.3), rgba(180,83,9,0.15)),
+        radial-gradient(circle at 35% 55%, #fde68a 0%, #ca8a04 40%, #78350f 80%); }
+      .photo-slot.filled-2 { background-image:
+        linear-gradient(135deg, rgba(120,53,15,0.4), rgba(252,211,77,0.15)),
+        radial-gradient(circle at 50% 50%, #fcd34d 0%, #92400e 70%); }
+      .photo-remove {
+        position: absolute; top: 6px; right: 6px;
+        width: 26px; height: 26px; border-radius: 50%;
+        background: rgba(28,25,23,0.7); color: #fff; border: 0;
+        display: grid; place-items: center; cursor: pointer;
+        backdrop-filter: blur(6px);
+      }
+      .photo-remove:hover { background: var(--red); }
+      .photo-num {
+        position: absolute; bottom: 6px; left: 6px;
+        width: 22px; height: 22px; border-radius: 50%;
+        background: rgba(28,25,23,0.7); color: #fff;
+        font-size: 11px; font-weight: 600;
+        display: grid; place-items: center;
+      }
+      .photo-drop {
+        border: 2px dashed var(--border-strong);
+        color: var(--text-soft);
+        cursor: pointer;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 4px; font-size: 11px;
+        background: var(--bg);
+        transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+      }
+      .photo-drop:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
+      .photo-drop svg { width: 22px; height: 22px; }
+
+      /* ───────── Difficulty pill group ───────── */
+      .difficulty-group { display: flex; gap: 6px; }
+      .diff-btn {
+        flex: 1; padding: 9px 12px;
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        font-family: inherit; font-size: 14px; font-weight: 500;
+        cursor: pointer; color: var(--text-muted);
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        transition: all 150ms ease;
+      }
+      .diff-btn:hover { border-color: var(--primary); color: var(--primary); }
+      .diff-btn.is-selected {
+        background: var(--primary); color: var(--bg); border-color: var(--primary);
+      }
+      .diff-dots {
+        display: inline-flex; gap: 2px;
+      }
+      .diff-dot {
+        width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+      }
+
+      /* ───────── Draggable rows (ingredients + steps) ───────── */
+      .row-list {
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .drag-row {
+        display: grid;
+        grid-template-columns: 28px 1fr auto;
+        align-items: start; gap: 8px;
+        padding: 10px 10px 10px 4px;
+        background: var(--surface-muted);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+      }
+      .drag-row:hover { border-color: var(--border-strong); }
+      .drag-row.is-dragging {
+        background: var(--bg-2);
+        border-color: var(--primary);
+        box-shadow: var(--shadow-md);
+        transform: scale(1.005);
+      }
+      .drag-handle {
+        width: 28px; height: 100%; min-height: 40px;
+        display: grid; place-items: center;
+        color: var(--text-soft);
+        cursor: grab; touch-action: none;
+        border-radius: 6px;
+      }
+      .drag-handle:hover { color: var(--primary); background: var(--primary-weak); }
+      .drag-handle:active { cursor: grabbing; }
+      .drag-handle svg { width: 14px; height: 14px; }
+
+      .ing-body {
+        display: grid;
+        grid-template-columns: 70px 90px 1fr;
+        gap: 6px;
+        align-items: start;
+      }
+      .ing-body input, .ing-body select {
+        font-size: 14px; padding: 8px 10px;
+        background: var(--surface);
+      }
+      .ing-body .qty { text-align: right; }
+      .ing-body .note-row {
+        grid-column: 1 / -1;
+        margin-top: 4px;
+        font-size: 12px;
+      }
+      .ing-body .note-row input {
+        font-size: 12px; padding: 6px 10px;
+      }
+      .ing-actions {
+        display: flex; flex-direction: column; gap: 6px;
+        align-items: center; padding-top: 4px;
+      }
+      .scalable-toggle {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 11px; font-weight: 500;
+        background: var(--bg-2); color: var(--primary-hover);
+        cursor: pointer; border: 1px solid transparent;
+        transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+        white-space: nowrap;
+      }
+      .scalable-toggle.off {
+        background: transparent; color: var(--text-soft);
+        border-color: var(--border-strong);
+      }
+      .scalable-toggle:hover { border-color: var(--primary-hover); }
+      .row-remove {
+        width: 24px; height: 24px;
+        background: transparent; border: 0;
+        color: var(--text-soft); cursor: pointer;
+        border-radius: 6px;
+        display: grid; place-items: center;
+      }
+      .row-remove:hover { color: var(--red); background: rgba(220,38,38,0.08); }
+
+      /* Step rows */
+      .step-body { display: flex; flex-direction: column; gap: 6px; }
+      .step-num-wrap {
+        display: flex; align-items: center; gap: 10px;
+      }
+      .step-num {
+        width: 28px; height: 28px; flex-shrink: 0;
+        background: var(--primary); color: var(--bg);
+        border-radius: 50%;
+        display: grid; place-items: center;
+        font-weight: 700; font-size: 13px;
+        font-family: "Cormorant Garamond", serif;
+      }
+      .step-num-label {
+        font-size: 13px; font-weight: 600; color: var(--text-muted);
+      }
+      .step-body textarea {
+        font-size: 14px; min-height: 52px;
+        background: var(--surface);
+      }
+
+      /* Add row button */
+      .row-add {
+        margin-top: 8px;
+        padding: 11px 14px;
+        border: 1px dashed var(--border-strong);
+        border-radius: 12px;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-family: inherit; font-size: 14px; font-weight: 500;
+        display: inline-flex; align-items: center; gap: 8px;
+        width: 100%; justify-content: center;
+        transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+      }
+      .row-add:hover { background: var(--primary-weak); border-color: var(--primary); color: var(--primary); }
+      .row-add svg { width: 15px; height: 15px; }
+
+      /* ───────── Tag picker ───────── */
+      .tag-category + .tag-category { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
+      .tag-category-head {
+        font-size: 11px; font-weight: 700; color: var(--text-muted);
+        letter-spacing: 0.08em; text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .tag-chip {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 5px 10px;
+        background: transparent;
+        border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        font-size: 13px; color: var(--text-muted);
+        cursor: pointer;
+        transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+      }
+      .tag-chip:hover { border-color: var(--primary); color: var(--primary); }
+      .tag-chip.is-selected {
+        background: var(--primary); color: var(--bg); border-color: var(--primary);
+      }
+      .custom-tag-btn {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 5px 10px;
+        background: transparent;
+        border: 1px dashed var(--border-strong);
+        border-radius: 999px;
+        font-size: 13px; color: var(--text-muted);
+        cursor: pointer;
+        transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+      }
+      .custom-tag-btn:hover { background: var(--primary-weak); border-color: var(--primary); color: var(--primary); }
+      .custom-tag-btn svg { width: 12px; height: 12px; }
+
+      /* ───────── Sticky action bar ───────── */
+      .actionbar {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        background: rgba(255, 251, 235, 0.96);
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+        border-top: 1px solid var(--border);
+        box-shadow: var(--shadow-action-bar);
+        padding: 12px 16px calc(12px + var(--safe-bottom));
+        display: flex; gap: 10px;
+        z-index: 8;
+      }
+      .btn {
+        font-family: inherit; font-size: 15px; font-weight: 600;
+        padding: 13px 16px; border-radius: 12px; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 80ms ease;
+      }
+      .btn:active { transform: scale(0.99); }
+      .btn-ghost {
+        flex: 1;
+        background: var(--surface); color: var(--text);
+        border: 1px solid var(--border-strong);
+      }
+      .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
+      .btn-primary {
+        flex: 1.3;
+        background: var(--primary); color: var(--bg);
+        border: 1px solid var(--primary);
+        box-shadow: 0 4px 12px -4px rgba(180, 83, 9, 0.45);
+      }
+      .btn-primary:hover { background: var(--primary-hover); }
+      .btn svg { width: 18px; height: 18px; }
+
+      /* ───────── Variant switcher ───────── */
+      .switch {
+        position: fixed; top: calc(10px + var(--safe-top)); right: 16px;
+        font-size: 11px;
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        border-radius: 999px; padding: 4px 10px;
+        color: var(--text-muted); text-decoration: none;
+        z-index: 11; display: inline-flex; align-items: center; gap: 5px;
+      }
+      .switch:hover { color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <nav class="topnav">
+      <a href="./warme-kueche-home.html" class="icon-btn" aria-label="Abbrechen">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </a>
+      <div class="topnav-title-wrap">
+        <div class="topnav-title">Neues Rezept</div>
+        <div class="topnav-sub">Entwurf wird automatisch gespeichert</div>
+      </div>
+      <button class="icon-btn" aria-label="Mehr">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </button>
+    </nav>
+
+    <a href="./index.html" class="switch" aria-label="Alle Seiten">← Alle Seiten</a>
+
+    <main>
+      <div class="form-intro">
+        <h1>Neues Rezept</h1>
+        <p>Leg ein Rezept an — Zutaten und Schritte kannst du später jederzeit anpassen.</p>
+        <div class="target-group-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Gruppe: Example Family
+        </div>
+      </div>
+
+      <!-- Basics -->
+      <section class="card">
+        <h2 class="section-title">Grunddaten</h2>
+        <p class="section-desc">Titel und eine kurze Beschreibung, damit andere das Rezept wiedererkennen.</p>
+
+        <div class="field">
+          <label for="title">Titel</label>
+          <input type="text" id="title" value="Omas Schnitzel mit Kartoffelpüree" maxlength="200" placeholder="z.B. Mamas Apfelkuchen" />
+          <div class="char-count">34 / 200</div>
+        </div>
+
+        <div class="field">
+          <label for="desc">
+            Kurzbeschreibung
+            <span class="optional">optional</span>
+          </label>
+          <textarea id="desc" placeholder="Ein Satz oder zwei zur Einordnung …">Sonntags-Klassiker aus der Kaulig-Küche. Paniert, in Butter ausgebraten, mit dem cremigsten Püree der Welt.</textarea>
+          <div class="char-count">126 / 2000</div>
+        </div>
+      </section>
+
+      <!-- Photos -->
+      <section class="card">
+        <h2 class="section-title">Fotos</h2>
+        <p class="section-desc">Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP.</p>
+        <div class="photos">
+          <div class="photo-slot filled-1">
+            <button class="photo-remove" aria-label="Foto entfernen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <span class="photo-num">1</span>
+          </div>
+          <div class="photo-slot filled-2">
+            <button class="photo-remove" aria-label="Foto entfernen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <span class="photo-num">2</span>
+          </div>
+          <div class="photo-slot photo-drop">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div>Tippen zum Auswählen<br>oder hierhin ziehen</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Details -->
+      <section class="card">
+        <h2 class="section-title">Details</h2>
+        <p class="section-desc">Portionen, Zubereitungszeit, Schwierigkeit.</p>
+
+        <div class="two-col">
+          <div class="field">
+            <label for="servings">Portionen</label>
+            <input type="number" id="servings" value="4" min="1" max="99" />
+          </div>
+          <div class="field">
+            <label for="prep">Dauer (Min)</label>
+            <input type="number" id="prep" value="45" min="1" max="600" placeholder="45" />
+          </div>
+        </div>
+
+        <div class="field" style="margin-top: 14px">
+          <label>Schwierigkeit</label>
+          <div class="difficulty-group">
+            <button class="diff-btn" type="button">
+              <div class="diff-dots"><span class="diff-dot"></span></div>
+              Einfach
+            </button>
+            <button class="diff-btn is-selected" type="button">
+              <div class="diff-dots"><span class="diff-dot"></span><span class="diff-dot"></span></div>
+              Mittel
+            </button>
+            <button class="diff-btn" type="button">
+              <div class="diff-dots"><span class="diff-dot"></span><span class="diff-dot"></span><span class="diff-dot"></span></div>
+              Aufwendig
+            </button>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top: 14px">
+          <label for="source">
+            Quelle (URL)
+            <span class="optional">optional</span>
+          </label>
+          <input type="url" id="source" placeholder="https://… — z.B. Foodblog oder Reel-Link" />
+        </div>
+      </section>
+
+      <!-- Ingredients -->
+      <section class="card">
+        <h2 class="section-title">Zutaten</h2>
+        <p class="section-desc">Reihenfolge per Griff ziehen. Bei „nach Geschmack" skalieren wir nicht mit.</p>
+
+        <div class="row-list" id="ingredients">
+          <div class="drag-row">
+            <button class="drag-handle" aria-label="Zutat verschieben">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+            </button>
+            <div class="ing-body">
+              <input type="text" class="qty" value="500" placeholder="Menge" />
+              <select>
+                <option>g</option><option>kg</option><option>ml</option><option>l</option>
+                <option>EL</option><option>TL</option><option>Stück</option><option>Prise</option>
+              </select>
+              <input type="text" value="Schnitzelfleisch (Kalb)" placeholder="Zutat" />
+              <div class="note-row">
+                <input type="text" value="dünn geklopft" placeholder="Notiz (optional), z.B. „fein gehackt"" />
+              </div>
+            </div>
+            <div class="ing-actions">
+              <button class="scalable-toggle" title="Wird beim Portions-Umrechnen mitskaliert">skalierbar</button>
+              <button class="row-remove" aria-label="Zutat entfernen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="drag-row">
+            <button class="drag-handle" aria-label="Zutat verschieben">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+            </button>
+            <div class="ing-body">
+              <input type="text" class="qty" value="2" />
+              <select><option>Stück</option><option>g</option><option>ml</option></select>
+              <input type="text" value="Eier" />
+            </div>
+            <div class="ing-actions">
+              <button class="scalable-toggle">skalierbar</button>
+              <button class="row-remove" aria-label="Zutat entfernen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="drag-row">
+            <button class="drag-handle" aria-label="Zutat verschieben">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+            </button>
+            <div class="ing-body">
+              <input type="text" class="qty" value="150" />
+              <select><option>g</option><option>ml</option></select>
+              <input type="text" value="Semmelbrösel" />
+            </div>
+            <div class="ing-actions">
+              <button class="scalable-toggle">skalierbar</button>
+              <button class="row-remove" aria-label="Zutat entfernen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="drag-row">
+            <button class="drag-handle" aria-label="Zutat verschieben">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+            </button>
+            <div class="ing-body">
+              <input type="text" class="qty" placeholder="—" value="" />
+              <select><option>nach Geschmack</option><option>Prise</option><option>g</option></select>
+              <input type="text" value="Salz &amp; Pfeffer · Muskatnuss" />
+            </div>
+            <div class="ing-actions">
+              <button class="scalable-toggle off">nicht skalieren</button>
+              <button class="row-remove" aria-label="Zutat entfernen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button class="row-add" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Zutat hinzufügen
+        </button>
+      </section>
+
+      <!-- Steps -->
+      <section class="card">
+        <h2 class="section-title">Zubereitung</h2>
+        <p class="section-desc">Schrittweise. Reihenfolge per Griff umsortierbar.</p>
+
+        <div class="row-list" id="steps">
+          <div class="drag-row">
+            <button class="drag-handle" aria-label="Schritt verschieben">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+            </button>
+            <div class="step-body">
+              <div class="step-num-wrap">
+                <div class="step-num">1</div>
+                <span class="step-num-label">Schritt 1</span>
+              </div>
+              <textarea placeholder="Was wird in diesem Schritt gemacht?">Kartoffeln schälen, grob würfeln und in Salzwasser ca. 20 Min weich kochen.</textarea>
+            </div>
+            <div class="ing-actions">
+              <button class="row-remove" aria-label="Schritt entfernen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="drag-row">
+            <button class="drag-handle" aria-label="Schritt verschieben">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+            </button>
+            <div class="step-body">
+              <div class="step-num-wrap">
+                <div class="step-num">2</div>
+                <span class="step-num-label">Schritt 2</span>
+              </div>
+              <textarea>Schnitzelfleisch zwischen zwei Folien dünn klopfen, salzen und pfeffern.</textarea>
+            </div>
+            <div class="ing-actions">
+              <button class="row-remove" aria-label="Schritt entfernen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="drag-row">
+            <button class="drag-handle" aria-label="Schritt verschieben">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+            </button>
+            <div class="step-body">
+              <div class="step-num-wrap">
+                <div class="step-num">3</div>
+                <span class="step-num-label">Schritt 3</span>
+              </div>
+              <textarea>Drei flache Teller vorbereiten: Mehl, verquirlte Eier, Semmelbrösel. Fleisch nacheinander durch Mehl → Ei → Brösel ziehen.</textarea>
+            </div>
+            <div class="ing-actions">
+              <button class="row-remove" aria-label="Schritt entfernen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button class="row-add" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Schritt hinzufügen
+        </button>
+      </section>
+
+      <!-- Tags -->
+      <section class="card">
+        <h2 class="section-title">Tags</h2>
+        <p class="section-desc">Tagge das Rezept für Filter und „Was kochen wir heute?"</p>
+
+        <div class="tag-category">
+          <div class="tag-category-head">Mahlzeit</div>
+          <div class="tag-chips">
+            <button class="tag-chip">Frühstück</button>
+            <button class="tag-chip">Mittag</button>
+            <button class="tag-chip is-selected">Abend</button>
+            <button class="tag-chip">Snack</button>
+            <button class="tag-chip">Dessert</button>
+          </div>
+        </div>
+
+        <div class="tag-category">
+          <div class="tag-category-head">Typ</div>
+          <div class="tag-chips">
+            <button class="tag-chip is-selected">warm</button>
+            <button class="tag-chip">kalt</button>
+            <button class="tag-chip is-selected">deftig</button>
+            <button class="tag-chip">süß</button>
+            <button class="tag-chip">leicht</button>
+          </div>
+        </div>
+
+        <div class="tag-category">
+          <div class="tag-category-head">Aufwand</div>
+          <div class="tag-chips">
+            <button class="tag-chip">schnell (&lt;30 Min)</button>
+            <button class="tag-chip is-selected">mittel</button>
+            <button class="tag-chip">aufwendig</button>
+          </div>
+        </div>
+
+        <div class="tag-category">
+          <div class="tag-category-head">Küche</div>
+          <div class="tag-chips">
+            <button class="tag-chip is-selected">deutsch</button>
+            <button class="tag-chip">italienisch</button>
+            <button class="tag-chip">asiatisch</button>
+            <button class="tag-chip">mexikanisch</button>
+            <button class="tag-chip">französisch</button>
+          </div>
+        </div>
+
+        <div class="tag-category">
+          <div class="tag-category-head">Gruppen-Tags (Custom)</div>
+          <div class="tag-chips">
+            <button class="tag-chip">Omas Rezepte</button>
+            <button class="tag-chip">Kinderfreundlich</button>
+            <button class="custom-tag-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Neuen Tag erstellen
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Sticky action bar -->
+    <div class="actionbar">
+      <a href="./warme-kueche-home.html" class="btn btn-ghost">Abbrechen</a>
+      <button class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Rezept speichern
+      </button>
+    </div>
+
+    <script>
+      // Toggle tag chips
+      document.querySelectorAll(".tag-chip").forEach((c) => {
+        c.addEventListener("click", () => c.classList.toggle("is-selected"));
+      });
+
+      // Toggle scalable pill
+      document.querySelectorAll(".scalable-toggle").forEach((pill) => {
+        pill.addEventListener("click", () => {
+          const isOff = pill.classList.toggle("off");
+          pill.textContent = isOff ? "nicht skalieren" : "skalierbar";
+        });
+      });
+
+      // Toggle difficulty
+      document.querySelectorAll(".diff-btn").forEach((btn, _i, all) => {
+        btn.addEventListener("click", () => {
+          all.forEach((b) => b.classList.remove("is-selected"));
+          btn.classList.add("is-selected");
+        });
+      });
+
+      // Simple drag preview (no actual reorder logic — visual affordance only)
+      document.querySelectorAll(".drag-handle").forEach((handle) => {
+        const row = handle.closest(".drag-row");
+        handle.addEventListener("mousedown", () => row.classList.add("is-dragging"));
+        handle.addEventListener("mouseup", () => row.classList.remove("is-dragging"));
+        handle.addEventListener("mouseleave", () => row.classList.remove("is-dragging"));
+        handle.addEventListener("touchstart", () => row.classList.add("is-dragging"));
+        handle.addEventListener("touchend", () => row.classList.remove("is-dragging"));
+      });
+
+      // Auto-grow textareas
+      document.querySelectorAll("textarea").forEach((ta) => {
+        const grow = () => {
+          ta.style.height = "auto";
+          ta.style.height = ta.scrollHeight + "px";
+        };
+        ta.addEventListener("input", grow);
+        grow();
+      });
+    </script>
+  </body>
+</html>
