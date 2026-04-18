@@ -369,7 +369,7 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
 
         var delete = await _client.DeleteAsync($"/api/groups/{privateSammlung.Id}");
         Assert.Equal(HttpStatusCode.BadRequest, delete.StatusCode);
-        var error = await delete.Content.ReadFromJsonAsync<GroupEndpoints.ErrorResponse>();
+        var error = await delete.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("private_collection_protected", error!.Code);
     }
 
@@ -435,7 +435,7 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
         var invite = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
             new GroupEndpoints.InviteToGroupRequest(bobId));
         Assert.Equal(HttpStatusCode.BadRequest, invite.StatusCode);
-        var body = await invite.Content.ReadFromJsonAsync<GroupEndpoints.ErrorResponse>();
+        var body = await invite.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("already_member", body!.Code);
         _ = aliceId;
     }
@@ -459,7 +459,7 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
         var second = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
             new GroupEndpoints.InviteToGroupRequest(bobId));
         Assert.Equal(HttpStatusCode.BadRequest, second.StatusCode);
-        var body = await second.Content.ReadFromJsonAsync<GroupEndpoints.ErrorResponse>();
+        var body = await second.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("invite_pending", body!.Code);
     }
 
@@ -553,7 +553,7 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
             new GroupEndpoints.ChangeMemberRoleRequest("Member"));
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
-        var body = await res.Content.ReadFromJsonAsync<GroupEndpoints.ErrorResponse>();
+        var body = await res.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("last_admin", body!.Code);
     }
 
@@ -618,7 +618,7 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
 
         var leave = await _client.DeleteAsync($"/api/groups/{group.Id}/members/{aliceId}");
         Assert.Equal(HttpStatusCode.BadRequest, leave.StatusCode);
-        var body = await leave.Content.ReadFromJsonAsync<GroupEndpoints.ErrorResponse>();
+        var body = await leave.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("last_admin", body!.Code);
     }
 

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
@@ -63,8 +64,6 @@ public static class GroupEndpoints
 
     public record UserSearchResultDto(Guid Id, string DisplayName, string? AvatarUrl);
 
-    public record ErrorResponse(string Code, string Message);
-
     // ── Endpoint wiring ─────────────────────────────────────────────
 
     public static void MapGroupEndpoints(this WebApplication app)
@@ -118,7 +117,7 @@ public static class GroupEndpoints
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
         var summary = await LoadSummaryAsync(db, group.Id, userId, ct);
@@ -210,7 +209,7 @@ public static class GroupEndpoints
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
         await db.SaveChangesAsync(ct);
@@ -236,9 +235,9 @@ public static class GroupEndpoints
             return Results.Forbid();
 
         if (group.IsPrivateCollection)
-            return Results.BadRequest(new ErrorResponse(
+            return FamilienResults.BadRequest(
                 "private_collection_protected",
-                "Die Private Sammlung kann nicht gelöscht werden."));
+                "Die Private Sammlung kann nicht gelöscht werden.");
 
         group.SoftDelete(clock.GetUtcNow());
         await db.SaveChangesAsync(ct);
@@ -265,25 +264,25 @@ public static class GroupEndpoints
         if (!amMember) return Results.Forbid();
 
         if (body.InvitedUserId == Guid.Empty)
-            return Results.BadRequest(new ErrorResponse("invalid_input", "invitedUserId fehlt."));
+            return FamilienResults.BadRequest("invalid_input", "invitedUserId fehlt.");
         if (body.InvitedUserId == userId)
-            return Results.BadRequest(new ErrorResponse("invalid_input", "Du kannst dich nicht selbst einladen."));
+            return FamilienResults.BadRequest("invalid_input", "Du kannst dich nicht selbst einladen.");
 
         var invitedExists = await db.Users.AnyAsync(u => u.Id == body.InvitedUserId, ct);
         if (!invitedExists)
-            return Results.BadRequest(new ErrorResponse("user_not_found", "Nutzer:in nicht gefunden."));
+            return FamilienResults.BadRequest("user_not_found", "Nutzer:in nicht gefunden.");
 
         var alreadyMember = await db.GroupMemberships
             .AnyAsync(m => m.GroupId == id && m.UserId == body.InvitedUserId, ct);
         if (alreadyMember)
-            return Results.BadRequest(new ErrorResponse("already_member", "Nutzer:in ist bereits Mitglied."));
+            return FamilienResults.BadRequest("already_member", "Nutzer:in ist bereits Mitglied.");
 
         var alreadyPending = await db.GroupInvites
             .AnyAsync(i => i.GroupId == id
                            && i.InvitedUserId == body.InvitedUserId
                            && i.Status == InviteStatus.Pending, ct);
         if (alreadyPending)
-            return Results.BadRequest(new ErrorResponse("invite_pending", "Es gibt bereits eine offene Einladung."));
+            return FamilienResults.BadRequest("invite_pending", "Es gibt bereits eine offene Einladung.");
 
         var invite = new GroupInvite(id, userId, body.InvitedUserId, clock.GetUtcNow());
         db.GroupInvites.Add(invite);
@@ -325,7 +324,7 @@ public static class GroupEndpoints
         if (invite is null) return Results.NotFound();
         if (invite.InvitedUserId != userId) return Results.Forbid();
         if (invite.Status != InviteStatus.Pending)
-            return Results.BadRequest(new ErrorResponse("invite_not_pending", "Einladung bereits beantwortet."));
+            return FamilienResults.BadRequest("invite_not_pending", "Einladung bereits beantwortet.");
 
         var now = clock.GetUtcNow();
         invite.Accept(now);
@@ -357,7 +356,7 @@ public static class GroupEndpoints
         if (invite is null) return Results.NotFound();
         if (invite.InvitedUserId != userId) return Results.Forbid();
         if (invite.Status != InviteStatus.Pending)
-            return Results.BadRequest(new ErrorResponse("invite_not_pending", "Einladung bereits beantwortet."));
+            return FamilienResults.BadRequest("invite_not_pending", "Einladung bereits beantwortet.");
 
         invite.Decline(clock.GetUtcNow());
         await db.SaveChangesAsync(ct);
@@ -407,7 +406,7 @@ public static class GroupEndpoints
             return Results.Forbid();
 
         if (!Enum.TryParse<GroupRole>(body.Role, ignoreCase: false, out var targetRole))
-            return Results.BadRequest(new ErrorResponse("invalid_input", "Unbekannte Rolle."));
+            return FamilienResults.BadRequest("invalid_input", "Unbekannte Rolle.");
 
         var target = await db.GroupMemberships
             .FirstOrDefaultAsync(m => m.GroupId == id && m.UserId == userId, ct);
@@ -418,9 +417,9 @@ public static class GroupEndpoints
             var adminCount = await db.GroupMemberships
                 .CountAsync(m => m.GroupId == id && m.Role == GroupRole.Admin, ct);
             if (adminCount <= 1)
-                return Results.BadRequest(new ErrorResponse(
+                return FamilienResults.BadRequest(
                     "last_admin",
-                    "Die Gruppe muss mindestens eine:n Admin behalten."));
+                    "Die Gruppe muss mindestens eine:n Admin behalten.");
         }
 
         target.ChangeRole(targetRole);
@@ -452,9 +451,9 @@ public static class GroupEndpoints
         // PRD §4.4: Private Sammlung has a reserved single member; the record
         // cannot be removed (the group is never-deletable for the same reason).
         if (group.IsPrivateCollection)
-            return Results.BadRequest(new ErrorResponse(
+            return FamilienResults.BadRequest(
                 "private_collection_protected",
-                "Private Sammlung kann nicht verlassen werden."));
+                "Private Sammlung kann nicht verlassen werden.");
 
         var target = await db.GroupMemberships
             .FirstOrDefaultAsync(m => m.GroupId == id && m.UserId == userId, ct);
@@ -465,9 +464,9 @@ public static class GroupEndpoints
             var adminCount = await db.GroupMemberships
                 .CountAsync(m => m.GroupId == id && m.Role == GroupRole.Admin, ct);
             if (adminCount <= 1)
-                return Results.BadRequest(new ErrorResponse(
+                return FamilienResults.BadRequest(
                     "last_admin",
-                    "Die Gruppe muss mindestens eine:n Admin behalten."));
+                    "Die Gruppe muss mindestens eine:n Admin behalten.");
         }
 
         db.GroupMemberships.Remove(target);

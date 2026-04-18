@@ -117,7 +117,7 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
             new AuthEndpoints.SignupRequest("x@example.com", "Passwort123!", "X"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<AuthEndpoints.ErrorResponse>();
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.NotNull(body);
         Assert.Equal("invite_not_found", body!.Code);
     }
@@ -134,7 +134,7 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
             new AuthEndpoints.SignupRequest("x@example.com", "Passwort123!", "X"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<AuthEndpoints.ErrorResponse>();
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("invite_invalid", body!.Code);
     }
 
@@ -148,7 +148,7 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
             new AuthEndpoints.SignupRequest("x@example.com", "Passwort123!", "X"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<AuthEndpoints.ErrorResponse>();
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("invite_invalid", body!.Code);
     }
 

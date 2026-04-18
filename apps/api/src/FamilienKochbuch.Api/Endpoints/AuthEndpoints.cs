@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
@@ -26,7 +27,6 @@ public static class AuthEndpoints
 
     public record AuthUserDto(Guid Id, string Email, string DisplayName, string Role);
     public record AuthResponse(string AccessToken, AuthUserDto User);
-    public record ErrorResponse(string Code, string Message);
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
@@ -55,17 +55,17 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(token))
-            return Results.BadRequest(new ErrorResponse("invite_token_missing", "Ein Einladungstoken wird benötigt."));
+            return FamilienResults.BadRequest("invite_token_missing", "Ein Einladungstoken wird benötigt.");
 
         var now = clock.GetUtcNow();
         var invite = await db.AppInvites.SingleOrDefaultAsync(i => i.Token == token, ct);
         if (invite is null)
-            return Results.BadRequest(new ErrorResponse("invite_not_found", "Einladung existiert nicht."));
+            return FamilienResults.BadRequest("invite_not_found", "Einladung existiert nicht.");
         if (!invite.IsValid(now))
-            return Results.BadRequest(new ErrorResponse("invite_invalid", "Einladung ist abgelaufen oder bereits verwendet."));
+            return FamilienResults.BadRequest("invite_invalid", "Einladung ist abgelaufen oder bereits verwendet.");
 
         if (string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.Password) || string.IsNullOrWhiteSpace(body.DisplayName))
-            return Results.BadRequest(new ErrorResponse("missing_fields", "E-Mail, Passwort und Anzeigename sind erforderlich."));
+            return FamilienResults.BadRequest("missing_fields", "E-Mail, Passwort und Anzeigename sind erforderlich.");
 
         User user;
         try
@@ -76,19 +76,19 @@ public static class AuthEndpoints
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
         user.EmailConfirmed = true; // invite flow pre-confirms
 
         if (await users.FindByEmailAsync(user.Email!) is not null)
-            return Results.BadRequest(new ErrorResponse("email_taken", "Diese E-Mail-Adresse ist bereits registriert."));
+            return FamilienResults.BadRequest("email_taken", "Diese E-Mail-Adresse ist bereits registriert.");
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var createResult = await users.CreateAsync(user, body.Password);
         if (!createResult.Succeeded)
-            return Results.BadRequest(new ErrorResponse(
+            return FamilienResults.BadRequest(
                 "password_rejected",
-                string.Join("; ", createResult.Errors.Select(e => e.Description))));
+                string.Join("; ", createResult.Errors.Select(e => e.Description)));
 
         invite.MarkUsed(user.Id, now);
         await db.SaveChangesAsync(ct);
@@ -112,13 +112,11 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.Password))
-            return Results.Json(new ErrorResponse("invalid_credentials", "E-Mail oder Passwort ungültig."),
-                statusCode: StatusCodes.Status401Unauthorized);
+            return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
 
         var user = await users.FindByEmailAsync(body.Email.Trim().ToLowerInvariant());
         if (user is null || !await users.CheckPasswordAsync(user, body.Password))
-            return Results.Json(new ErrorResponse("invalid_credentials", "E-Mail oder Passwort ungültig."),
-                statusCode: StatusCodes.Status401Unauthorized);
+            return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
 
         var now = clock.GetUtcNow();
         var access = tokens.CreateAccessToken(user);
@@ -198,21 +196,21 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(body.Token) || string.IsNullOrWhiteSpace(body.NewPassword))
-            return Results.BadRequest(new ErrorResponse("invalid_input", "Token und neues Passwort sind erforderlich."));
+            return FamilienResults.BadRequest("invalid_input", "Token und neues Passwort sind erforderlich.");
 
         var parts = body.Token.Split('|', 2);
         if (parts.Length != 2 || !Guid.TryParse(parts[0], out var userId))
-            return Results.BadRequest(new ErrorResponse("invalid_token", "Ungültiger Reset-Link."));
+            return FamilienResults.BadRequest("invalid_token", "Ungültiger Reset-Link.");
 
         var user = await users.FindByIdAsync(userId.ToString());
         if (user is null)
-            return Results.BadRequest(new ErrorResponse("invalid_token", "Ungültiger Reset-Link."));
+            return FamilienResults.BadRequest("invalid_token", "Ungültiger Reset-Link.");
 
         var result = await users.ResetPasswordAsync(user, parts[1], body.NewPassword);
         if (!result.Succeeded)
-            return Results.BadRequest(new ErrorResponse(
+            return FamilienResults.BadRequest(
                 "reset_failed",
-                string.Join("; ", result.Errors.Select(e => e.Description))));
+                string.Join("; ", result.Errors.Select(e => e.Description)));
 
         await tokens.RevokeAllForUserAsync(user.Id, ct);
         return Results.NoContent();

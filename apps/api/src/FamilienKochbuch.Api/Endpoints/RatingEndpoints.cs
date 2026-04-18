@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
@@ -33,8 +34,6 @@ public static class RatingEndpoints
     public record UpsertRatingResponse(RatingAggregate Aggregate, RatingDto Rating);
 
     public record RatingListResponse(RatingAggregate Aggregate, RatingDto[] Ratings);
-
-    public record ErrorResponse(string Code, string Message);
 
     // ── Endpoint wiring ─────────────────────────────────────────────────
 
@@ -117,7 +116,7 @@ public static class RatingEndpoints
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
         var displayName = await db.Users.Where(u => u.Id == userId)
