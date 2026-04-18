@@ -33,7 +33,12 @@ describe('<App />', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/login')
     })
-    expect(screen.getByRole('heading', { level: 1, name: /anmelden/i })).toBeInTheDocument()
+    // DS2 restyle: the h1 is the hero headline; the "Anmelden" label
+    // lives on the card title + submit button.
+    expect(
+      screen.getByRole('heading', { level: 1, name: /was kochen wir heute\?/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^anmelden$/i })).toBeInTheDocument()
   })
 
   it('renders the Familien-Kochbuch home when silent refresh succeeds', async () => {
