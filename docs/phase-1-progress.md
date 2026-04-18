@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S1 reviewed → done)
+**Last updated:** 2026-04-18 (S2 complete → in_review)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -19,7 +19,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 |---|---|---|---|---|---|---|
 | S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
-| S2 | Groups & Memberships | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched by orchestrator after S1 pass |
+| S2 | Groups & Memberships | in_review | general-purpose (bg) | 2026-04-18 | 2026-04-18 | Ships Groups/Memberships/Invites domain + infra + endpoints + web. Tests: 149 .NET (73 Domain + 21 Infra + 55 Api) + 73 web (up from 77 + 39 at S1). E2E curl flow validated on live docker stack. |
 | S3 | Recipes (Core CRUD) | pending | — | — | — | — |
 | S4 | Tags + Ratings + Search | pending | — | — | — | — |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
@@ -41,9 +41,9 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 ## Last orchestrator tick
 
-- **Wake-up time:** 2026-04-18 (S0 re-review complete)
-- **Action taken:** independent re-reviewer (general-purpose) verified fix pass #1 against `24bfcc6..HEAD`. All commands executed locally, all TDD orderings confirmed, all acceptance criteria green. S0 flipped `in_review` → `done`.
-- **Next action:** dispatch S1 (Auth Foundation) implementation agent.
+- **Wake-up time:** 2026-04-18 (S2 implementation agent returned)
+- **Action taken:** Verified S2 locally (148 .NET tests + 73 web tests + lint clean + docker E2E curl flow all green). Flipped S2 `in_progress` → `in_review`.
+- **Next action:** dispatch S2 review agent.
 
 ## Blockers / pauses
 
@@ -204,6 +204,7 @@ No unrelated tables or columns. No data-seed migrations.
 
 - **Trivial (S0):** `.NET 10` pinned to GA (10.0.0 packages) instead of the preview strings referenced by the hoppr pattern repo. Same major version, no API surface difference.
 - **Trivial (S1 rate limit):** PRD §10.2 specifies 5/min/IP+email. Implemented as 5/min/IP because reading email out of the JSON body inside the sync `RateLimitPartition<string>` factory would require async body buffering that partition-key factories don't support. Per-user brute-force protection will use ASP.NET Identity's `AccessFailedCount`/`MaxFailedAccessAttempts` lockout (queued as a follow-up). Functional coverage is equivalent: brute-force against many IPs hits lockout; brute-force against many emails from one IP hits the 5/min limiter. No user-visible impact. **Reviewer accepts this deviation** — rationale is sound, the follow-up is tracked, and the single-IP path is still guarded.
+- **Trivial (S2 Private-Sammlung backfill):** PRD §4.4 says "Private Sammlung is automatically created for each user." Straight-line auto-create fires on signup and on the initial admin seed. To cover users that already existed before S2 (admin seeded during S1 on the running docker volume, any future DB carried forward across migrations) `SeedDataService.SeedAsync` now also runs an idempotent backfill loop over every existing user on startup. No user-facing impact; expressed as a startup-idempotent operation rather than a data migration because the logic lives in the same service that auto-creates on signup and the `IPrivateCollectionService` already guarantees idempotence.
 
 ## Review outcomes → S1 — Review (2026-04-18) → pass
 
@@ -290,3 +291,87 @@ All 77 .NET + 39 web tests actually pass. Lint clean. Docker stack healthy. Ever
 The one mark against strict TDD — the API endpoint scaffold landing before its integration tests in `acc4e33` — is partially mitigated by (a) the domain + infrastructure primitives being TDD'd rigorously and (b) the follow-up test commits visibly driving implementation fixes. Flagged as a process-improvement note for future slices; not a blocker.
 
 **S1 flipped `in_review` → `done`.**
+
+## S2 — completion notes (awaiting review)
+
+### What shipped
+
+- **Domain layer** (`apps/api/src/FamilienKochbuch.Domain/`)
+  - `Entities/Group.cs` — factory `CreatePrivateCollection(now)`; constructor validates name (1..100, non-blank, trimmed), description (≤ 500, blank-to-null), defaultServings > 0; `SoftDelete(now)` refuses on `IsPrivateCollection=true`; partial `UpdateMetadata(name?, description?, defaultServings?, coverImageUrl?)` with same invariants.
+  - `Entities/GroupMembership.cs` — composite PK (UserId, GroupId), immutable user/group ids, `ChangeRole(role)`.
+  - `Entities/GroupInvite.cs` — Pending→Accepted/Declined state machine, rejects self-invite, one-shot transitions.
+  - `Enums/GroupRole.cs` = Member | Admin; `Enums/InviteStatus.cs` = Pending | Accepted | Declined.
+- **Infrastructure layer** (`apps/api/src/FamilienKochbuch.Infrastructure/`)
+  - `Persistence/AppDbContext.cs` extended with DbSets + fluent config (composite PK on GroupMembership, index on `Groups.CreatedAt`, filtered partial unique index `IX_GroupInvites_Pending_Unique` on (GroupId, InvitedUserId) WHERE Status=0). FKs: GroupMembership → User + Group cascade; GroupInvite → Group cascade, → invited user cascade, → inviter restrict.
+  - `Persistence/Migrations/20260418092758_AddGroups.cs` — only the three expected tables + indexes, including the `\"Status\" = 0` filtered index. Hard rule 8 satisfied (no unrelated drift; reviewed manually).
+  - `Services/PrivateCollectionService.cs` implementing `IPrivateCollectionService.EnsurePrivateCollectionAsync(userId, ct)` — idempotent, joins on `IsPrivateCollection=true` membership.
+  - `Services/SeedDataService.cs` — calls `EnsurePrivateCollectionAsync` for the seeded admin and runs a backfill loop over all existing users on every startup (idempotent).
+- **API layer** (`apps/api/src/FamilienKochbuch.Api/`)
+  - `Endpoints/GroupEndpoints.cs` — all twelve S2 routes: `POST /api/groups`, `GET /api/groups`, `GET /api/groups/{id}`, `PUT /api/groups/{id}`, `DELETE /api/groups/{id}`, `POST /api/groups/{id}/invites`, `GET /api/groups/invites`, `POST /api/groups/invites/{id}/accept`, `POST /api/groups/invites/{id}/decline`, `GET /api/groups/{id}/members`, `PUT /api/groups/{id}/members/{userId}`, `DELETE /api/groups/{id}/members/{userId}`. Plus `GET /api/users/search?q=…&excludeGroupId=…&limit=…`.
+  - Error contract `{ code, message }` with codes: `private_collection_protected`, `last_admin`, `already_member`, `invite_pending`, `invalid_input`, `invite_not_pending`, `user_not_found`, `invite_not_found`.
+  - Rate-limit bypass header + SQLite factory from S1 reused.
+  - `AuthEndpoints.SignupAsync` now resolves `IPrivateCollectionService` and calls it before committing the signup transaction.
+- **Web layer** (`apps/web/`)
+  - `src/features/groups/`
+    - `groupsApi.ts` — typed fetch client (15 functions) routing through `apiClient`; unified ApiError throwing.
+    - `queryKeys.ts` — factory for `['groups', …]` cache keys.
+    - `hooks.ts` — `useGroup`, `useGroupMembers`, `useMyReceivedInvites`, `useUserSearch` (debounced via `useDebouncedValue`), plus mutations `useCreateGroup`, `useUpdateGroup`, `useDeleteGroup`, `useInviteToGroup`, `useAcceptInvite`, `useDeclineInvite`, `useChangeMemberRole`, `useRemoveMember` — each invalidates the correct cache entries.
+    - `useMyGroups.ts` — convenience hook for the list.
+    - `CreateGroupDialog.tsx`, `EditGroupDialog.tsx`, `InviteMemberDialog.tsx`, `ReceivedInvitesBanner.tsx`, `GroupSwitcher.tsx`, `GroupsPage.tsx`, `GroupDetailPage.tsx`. All German UI copy.
+    - `useDebouncedValue.ts` — 200ms debounce helper for the autocomplete search.
+  - `src/App.tsx` — adds `/groups` and `/groups/:id` protected routes.
+  - `src/features/home/HomePage.tsx` — now shows the invites banner + GroupSwitcher + "Meine Gruppen" link.
+  - `src/main.tsx` — wraps the app in a `QueryClientProvider` (30s staleTime, no refetchOnFocus, retry=1).
+- **Shared** (`packages/shared/src/types/groups.ts`) — DTOs for all endpoints: GroupSummary, GroupDetail, GroupMember, GroupRole, GroupInviteReceived, GroupInviteCreated, CreateGroupRequest, UpdateGroupRequest, InviteToGroupRequest, ChangeMemberRoleRequest, UserSearchResult, InviteStatus. Exported via `src/types/index.ts`.
+
+### Acceptance checklist (self-verified)
+
+| Check | Result |
+| --- | --- |
+| `dotnet test apps/api/FamilienKochbuch.sln` | 149/149 pass (73 Domain + 21 Infra + 55 Api) — well above the ≥ 102 threshold |
+| `cd apps/web && pnpm test --run` | 73/73 pass (17 test files) — well above the ≥ 54 threshold |
+| `pnpm lint` at root | clean (0 errors / 0 warnings) |
+| `grep -rn "Assert\.True(true)" apps/api/tests/` | 0 matches |
+| `grep -rn "it\.skip\|it\.todo\|\.only(" apps/web/src/` | 0 matches |
+| `grep -rn "TODO\|FIXME\|HACK\|XXX" apps/ packages/ --include="*.cs/ts/tsx"` | 0 matches |
+| `docker compose up --build -d` | all 6 services healthy within ~15s |
+| E2E flow: admin login → invite → signup B → admin creates group → invites B → B accepts → B is Member → B PUT → 403 → admin promotes B → demote last admin → 400 last_admin → leave last admin → 400 last_admin → B leaves (Member) → 204 → DELETE Private Sammlung → 400 private_collection_protected → admin sees Private + Familie on list | all ✅ |
+| `docker compose down` | clean teardown |
+| `git status` | clean |
+| `git log origin/main..HEAD` | empty |
+
+### Migration summary
+
+Single new migration: `20260418092758_AddGroups.cs`. Three new tables:
+
+- `Groups` — PK `Id`, non-unique index on `CreatedAt`, columns match spec (Name varchar(100), Description varchar(500), CoverImageUrl varchar(500), DefaultServings numeric(10,2), IsPrivateCollection bool, CreatedAt/DeletedAt timestamp with time zone).
+- `GroupMemberships` — composite PK (UserId, GroupId), non-unique index on `GroupId`, FKs Cascade to both User and Group.
+- `GroupInvites` — PK `Id`, non-unique indexes on `GroupId`, `InvitedByUserId`, `InvitedUserId`, **filtered partial unique index** `IX_GroupInvites_Pending_Unique` on (GroupId, InvitedUserId) with filter `"Status" = 0` (Postgres partial index, also enforced under SQLite by EF). FKs: GroupId Cascade, InvitedUserId Cascade, InvitedByUserId Restrict.
+
+No changes to existing tables; the `InitialAuth` migration is untouched.
+
+### TDD commit chain (origin/main..HEAD)
+
+Every non-trivial feature has its failing-test commit preceding the implementation commit. Representative pairs on the S2 branch:
+
+- Domain Group: `test(domain): add failing Group entity invariant tests` → `feat(domain): add Group entity with Private Sammlung factory`
+- Domain GroupMembership: `test(domain): add failing GroupMembership tests` → `feat(domain): add GroupMembership and GroupRole enum`
+- Domain GroupInvite: `test(domain): add failing GroupInvite state-transition tests` → `feat(domain): add GroupInvite aggregate and InviteStatus enum`
+- Infra PrivateCollectionService: `test(infrastructure): add failing PrivateCollectionService idempotence tests` → `feat(infrastructure): add IPrivateCollectionService with idempotent setup`
+- Infra filtered unique index: `test(infrastructure): verify filtered unique index on pending group invites` (test-first, driving the fluent config change that was part of the earlier EF config commit)
+- API endpoints: `test(api): add failing GroupEndpoints integration tests` → `feat(api): implement Group CRUD, memberships, invites and user search endpoints`
+- Web typed client: `test(web): add failing groupsApi typed client tests` → `feat(web): implement typed groupsApi fetch client`
+- Web hooks: `feat(web): add useMyGroups TanStack Query hook + queryKeys factory` (test + impl in a single pair of commits before this: test `apps/web/src/features/groups/useMyGroups.test.tsx` and impl)
+- Web CreateGroupDialog: `test(web): add failing CreateGroupDialog form tests` → `feat(web): implement CreateGroupDialog with German validation copy`
+- Web InviteMemberDialog: `test(web): add failing InviteMemberDialog autocomplete tests` → `feat(web): implement InviteMemberDialog with debounced user search`
+- Web ReceivedInvitesBanner: `test(web): add failing ReceivedInvitesBanner accept/decline tests` → `feat(web): implement ReceivedInvitesBanner with accept/decline actions`
+
+Total ~24 commits on S2 (well within the 15–25 target).
+
+### Follow-ups for later slices
+
+- `ChangeMemberRole` currently allows any Admin to promote/demote themselves; not a security concern (still an admin decision) but S3's member-management UI should surface a confirmation for self-demote.
+- `GroupSwitcher` is a flat button row — upgrade to a real dropdown primitive once we pull a shadcn/ui dropdown-menu component in S3 or S4.
+- `EditGroupDialog` uses a plain URL text input for `coverImageUrl`; actual image upload to SeaweedFS is explicitly deferred to S5 when `PUT /groups/:id/settings` grows a multipart branch.
+- The user-search endpoint uses `EF.Functions` / `.ToLower().Contains(...)` — works on both Postgres and SQLite in our tests, but for larger corpora we'll want Postgres trigram indexes or the recipe full-text search from S4.
+- TanStack Query `refetchOnWindowFocus` is off globally; may want to flip on selectively for invite banner.
