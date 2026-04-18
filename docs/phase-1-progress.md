@@ -22,7 +22,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
 | S3 | Recipes (Core CRUD) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Re-review after fix pass #1 passed — drag-drop reorder live-verified via tests + source readthrough, 246/246 .NET + 95/95 web tests, lint clean, full docker E2E curl flow (login → tags → create → GET → PUT reorder persists → 3 photos + Caddy fetch + 4th rejected → photo delete → recipe delete 204 → GET 404 → non-member 403) all confirmed with own eyes. See Review outcomes → S3 — Re-review (2026-04-18). |
 | S4 | Tags + Ratings + Search | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 321/321 .NET + 121/121 web tests verified locally, docker stack healthy (all 6 services), SearchVector tsvector + GIN + both triggers observed via psql, full E2E curl flow (login → group → 3 recipes → rate → upsert (count stays 1) → q=Nudeln → tags AND → minRating → re-rate → random ×3 + null → custom-tag create/dup/member-403/admin-204/global-protected-400) all confirmed with own eyes. See Review outcomes → S4 entry below. |
-| S5 | Portions + Fork + Group Defaults | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched by orchestrator after S4 + photo-fix pass |
+| S5 | Portions + Fork + Group Defaults | in_review | general-purpose (bg) | 2026-04-18 | — | Implementation landed: 376/376 .NET + 148/148 web + 32/32 shared tests, lint clean, docker E2E (login → create R1 w/ 3 ingredients + 2 steps + 2 tags + 1 photo → POST /fork → 201 with forkOfRecipeId + same children count + shared photo path → PUT group defaultServings=2.5 → GET=2.5 → PUT 25/0/-1 all → 400 → non-member fork → 403) all confirmed with own eyes. See S5 — completion notes below. |
 | S6 | Version History (light) | pending | — | — | — | — |
 | S7 | Polish & Local Deploy Readiness | pending | — | — | — | — |
 
@@ -1127,3 +1127,150 @@ Byte-for-byte read of `ImageSigningService.cs` against hoppr's canonical `apps/a
 All 360 .NET + 121 web tests pass. Lint clean. Docker stack healthy. **SeaweedFS confirmed unreachable from the host** (connection refused on 8333, satisfying the primary privacy acceptance criterion). Signed URL scheme matches hoppr byte-for-byte modulo the spec-noted `Jwt:SigningKey` rename. Proxy endpoint 403s on every invalid-sig/missing-sig/expired/tampered-path case, 404s on valid-sig-but-missing-object. Data migration is idempotent and handles both legacy URL shapes + bare paths + unparseable entries defensively. TDD order is clean for all five sub-steps (test commit precedes feat commit in every case). The five fix-agent adjustments are all sound — #3 (relative URLs) tracks hoppr's canonical pattern even though the review brief wanted absolute. No new shortcuts, no new suppressions, no new TODOs. Full E2E curl flow including tamper/expire/delete/404-after-delete all confirmed with my own eyes against the live stack.
 
 **Photo-storage fix pass flipped `in_review` → `done`.** Issue `docs/known-issues/photo-storage-signed-urls.md` remains correctly marked `RESOLVED`.
+
+## S5 — completion notes (awaiting review)
+
+### What shipped
+
+- **Shared utility — `packages/shared/src/utils/ingredient-scaling.ts`:**
+  - Pure `scaleIngredients(ingredients, fromServings, toServings)` that returns a list of `ScaledIngredient` rows with `originalQuantity`, `wasRounded`, and a pre-formatted `displayQuantity`.
+  - Rules enforced:
+    - `fromServings <= 0` / `toServings <= 0` → throw.
+    - `scalable:false` OR `quantity:null` → pass-through; `null` renders as `"nach Geschmack"`.
+    - Stück-family units (`Stück, Scheibe, Zehe, Blatt, Dose, Packung, Bund`) → round to nearest whole, with `wasRounded=true` and a leading `~` in the display when the unrounded value diverged by > 0.05.
+    - Decimal units (`g, kg, ml, l, EL, TL, …`) → round to 2 decimals + strip trailing zeros.
+    - `TL`/`EL` below 0.125 → `"eine Prise"` fallback.
+    - Legacy `Stueck` spelling normalized to `Stück`.
+    - Empty unit strings render as just the number.
+  - 32/32 targeted vitest specs in `ingredient-scaling.test.ts` (basic roundtrip, non-scalable passthrough, `null` passthrough, Stück rounding boundary + exact + legacy spelling, decimal stripping, Prise fallback, mixed-unit list, zero/negative throws, order preservation).
+  - Added vitest to the shared package (mirroring hoppr's `packages/shared/vitest.config.ts`); `./utils` sub-path export added.
+- **Web component — `apps/web/src/features/recipes/RecipePortionScaler.tsx`:**
+  - ±1 buttons + numeric input (clamped 1..99) + `"Für {Gruppe} umrechnen (X Portionen)"` shortcut.
+  - Drives `scaleIngredients(ingredients, defaultServings, servings)` on every change; the ingredient list below re-renders in-place.
+  - Fractional `groupDefaultServings` (e.g. 2.5) is passed through to the scaler; the button label shows the rounded integer for readability.
+  - Atomic `{servings, draft}` state — no `useEffect` sync, so the lint rule `react-hooks/set-state-in-effect` stays green.
+  - 13/13 tests in `RecipePortionScaler.test.tsx` (initial render matches unscaled, ± clamp and rescale, input types `2` halves, clamps 0/150, group-default shortcut, fractional group default, non-scalable pass-through under slider motion).
+- **Detail page — `RecipeDetailPage.tsx`:**
+  - Replaced the old placeholder portion input with `<RecipePortionScaler>`; reads `groupDefaultServings` from the already-existing `useGroup` hook.
+  - New "In andere Gruppe kopieren" button opens `<ForkRecipeDialog>`.
+  - New fork banner: when `recipe.forkOfRecipeId != null`, renders `"Dieses Rezept wurde aus [Link zu Original] geforkt."` with a `title` tooltip noting access depends on group membership.
+- **Group editor — `EditGroupDialog.tsx`:**
+  - Existing decimal input (already present from S2) now also enforces the 0.5..20 range client-side with a German error message `"Standard-Portionen darf höchstens 20 sein."`.
+  - 5/5 new tests in `EditGroupDialog.test.tsx` (seed value, fractional submit to PUT, zero rejection, cap rejection, API error surface).
+- **Group domain cap — `Group.cs`:**
+  - New constant `Group.MaxDefaultServings = 20m`; constructor + `UpdateMetadata` both reject values above the cap with `ArgumentException`.
+  - 3 new domain tests (constructor reject above max, accept at boundary, UpdateMetadata reject above max).
+- **Fork endpoint — `POST /api/recipes/{id}/fork`:**
+  - Request body `{ targetGroupId: Guid }`; response is the full `RecipeDetailDto` with `forkOfRecipeId == source.Id`.
+  - Authorization: 401 when unauthenticated; 404 when the source recipe doesn't exist; 403 when the user isn't a member of the source group OR the target group; 404 when the target group doesn't exist.
+  - Copies title, description, default servings, prep time, difficulty, source URL, source type; deep-copies all ingredients + steps in position order with fresh ids.
+  - Tags: global tags (`GroupId == null`) preserved verbatim. Group-scoped (custom) tags: if source group == target group, keep id; otherwise match by (Name, Category) in target group; unmatched custom tags are dropped with a warning logged to `FamilienKochbuch.Api.RecipeFork`.
+  - Photos: path references copied verbatim (shared underlying files — see Deviations #1 below for policy rationale).
+  - 9 new integration tests (`RecipeEndpointsTests`): happy path, 403 on not-member-target, 403 on not-member-source, same-group fork allowed, custom tag dropped, custom tag matched by (Name, Category), photo path shared, 401 unauth, 404 nonexistent recipe.
+- **Fork dialog — `ForkRecipeDialog.tsx`:**
+  - Target-group picker that excludes the source group from options.
+  - Validates: submit disabled until a target is picked; German error message shown on API 403.
+  - On success, closes and navigates to `/groups/{targetGroupId}/recipes/{newRecipeId}`.
+  - 4 new tests in `ForkRecipeDialog.test.tsx`.
+- **Shared type:** `ForkRecipeRequest { targetGroupId: string }` added to `packages/shared/src/types/recipes.ts` and re-exported from the package entrypoint.
+
+### Acceptance checklist (self-verified)
+
+| Check | Result |
+| --- | --- |
+| `dotnet test apps/api/FamilienKochbuch.sln` | 376/376 pass (158 Domain + 61 Infra + 157 Api) — up from 360 baseline; 16 new .NET tests |
+| `pnpm -C apps/web test --run` | 148/148 pass across 32 test files — up from 121 baseline; 27 new web tests |
+| `pnpm -C packages/shared test` | 32/32 pass (1 test file, new) |
+| `pnpm lint` at root | clean (0 errors, 0 warnings) |
+| Shortcut-grep battery (TODO, FIXME, HACK, XXX, Assert.True(true), it.skip, .only, NotImplementedException, new @ts-ignore / eslint-disable / pragma warning disable in slice source) | 0 new matches (existing suppressions pre-S5 only — EF designer pragmas + S1 useSession + S4 RecipeFilterPanel debounce) |
+| `docker compose up --build -d` | all 6 services healthy; `curl http://localhost/api/health` → 200 `{status:"ok",...}` |
+| E2E curl: admin login → create group G2 → create R1 w/ 3 ingredients + 2 steps + 2 tags + 1 photo → `POST /api/recipes/R1/fork {targetGroupId:G2}` → 201 with `forkOfRecipeId == R1`, 3 ingredients + 2 steps + 2 tags + 1 photo copied | ✅ |
+| E2E curl: `PUT /api/groups/G2 {defaultServings:2.5}` → GET → `defaultServings: 2.5` | ✅ |
+| E2E curl: `PUT /api/groups/G2 {defaultServings:25}` / `-1` / `0` → all 400 with `invalid_input` code | ✅ |
+| E2E curl: non-member user forks admin recipe → 403 | ✅ |
+| `docker compose down` | clean teardown |
+| `git status` | clean |
+| `git log origin/main..HEAD` | empty |
+
+### TDD commit chain (origin/main..HEAD)
+
+Grouped by sub-system; every test-commit precedes its implementation pair.
+
+**Sub-system 1 — IngredientScaler (shared utility):**
+- `test(shared): add failing IngredientScaler tests` (`6dcf4fb`)
+- `feat(shared): implement IngredientScaler utility for portion scaling` (`1349eca`)
+
+**Sub-system 2 — RecipePortionScaler component + detail-page integration:**
+- `test(web): add failing RecipePortionScaler component tests` (`439ad2e`)
+- `feat(web): implement RecipePortionScaler with live scaling and group-default shortcut` (`1caf66f`)
+- `test(web): add failing RecipeDetailPage tests for portion scaler integration` (`9a3f11b`)
+- `feat(web): wire RecipePortionScaler into RecipeDetailPage with group default` (`4de056d`)
+
+**Sub-system 3 — Group default_servings cap:**
+- `test(domain,api): add failing tests for Group.DefaultServings cap and fractional value` (`b386e73`)
+- `feat(domain): enforce Group.DefaultServings cap (max 20)` (`f3b200f`)
+- `test(web): add failing EditGroupDialog tests for default-servings cap and fractional submit` (`cd92ca1`)
+- `feat(web): enforce Standard-Portionen cap (max 20) in EditGroupDialog` (`f95a8cf`)
+
+**Sub-system 4 — Fork endpoint + dialog + banner:**
+- `test(api): add failing fork endpoint tests` (`4df1038`)
+- `feat(api): add POST /api/recipes/{id}/fork endpoint` (`eeb3401`)
+- `test(web,shared): add failing ForkRecipeDialog tests and ForkRecipeRequest shared type` (`c2eb7a1`)
+- `feat(web): implement ForkRecipeDialog with group picker and navigation on success` (`dd37ce3`)
+- `test(web): add failing RecipeDetailPage tests for fork banner and kopieren dialog` (`852e4ae`)
+- `feat(web): add fork banner and fork dialog trigger to RecipeDetailPage` (`a04f9a4`)
+
+**Post-hoc lint fix:**
+- `refactor(web): atomic scaler state to eliminate set-state-in-effect lint error` (`d85a83a`)
+
+### IngredientScaler rule ↔ test coverage
+
+| Rule | Test |
+| --- | --- |
+| fromServings ≤ 0 throws | `throws when fromServings is zero` + `throws when fromServings is negative` |
+| toServings ≤ 0 throws | `throws when toServings is zero` + `throws when toServings is negative` |
+| Fractional servings accepted | `accepts fractional servings` |
+| Factor 1 stable | `is stable when from equals to (factor 1)` |
+| Halving / doubling | `halves quantity when scaling from 4 to 2` + `doubles quantity when scaling from 2 to 4` + `round-trips 500 g at 4 → 250 g at 2 → 500 g at 4` |
+| Name preserved | `preserves ingredient name through scaling` |
+| originalQuantity exposed | `exposes original quantity in originalQuantity` + `still passes through originalQuantity for non-scalable entries` |
+| scalable:false pass-through | `leaves scalable:false ingredient unchanged regardless of factor` |
+| quantity:null pass-through | `leaves quantity:null ingredient unchanged (nach Geschmack)` |
+| Stück rounding + wasRounded | `rounds 3 Eier at 4 → 2 (from 1.5)` + `rounds 3 Eier at 4 → 5 when scaled to 6` + `does not mark wasRounded when scale lands exactly` |
+| Stück floor of 1 | `rounds to at least 1 for Stück units even when scaling tiny amounts` |
+| Stück-family coverage | `applies Stück-rounding to Scheibe/Zehe/Blatt/Dose/Packung/Bund as well` |
+| Legacy "Stueck" normalization | `normalizes the legacy "Stueck" spelling to Stück` |
+| Decimal unit rounding | `rounds g quantities to 2 decimals and strips trailing zeros` + `strips trailing zeros: 1.50 -> "1.5 TL"` + `renders a whole-number decimal without ".0" suffix` + `produces 0.25 l display` |
+| TL/EL Prise fallback | `renders "eine Prise" when TL scale goes under 0.125` + `renders "eine Prise" when EL scale goes under 0.125` + `keeps normal display when TL quantity stays >= 0.125` |
+| Prise only for TL/EL | `does NOT use "eine Prise" for g even when quantity is tiny` |
+| Mixed list handling | `scales each row independently` + `returns an empty array for an empty input` + `preserves input order` |
+| Unitless display | `omits the trailing space when unit is empty and quantity is set` |
+
+### Deviations from PRD
+
+1. **Fork photo policy: path-reference sharing (not byte copy).** When forking a recipe into another group, the new recipe's `Photos` array contains the same bare paths as the source. Both recipes render signed URLs pointing at the same underlying SeaweedFS files — no bytes are duplicated. **Trade-off:** if the source recipe's photo is deleted via `DELETE /api/recipes/{id}/photos`, the fork still lists the path but the signed URL will 404 on fetch (the proxy endpoint returns 404 when the filer has no object for the path). The fork's domain row is not affected, just its view of that path. This policy was picked over byte-copy to avoid doubling Phase 1's storage footprint; a future slice can promote to reference-counted photos or copy-on-fork. **Follow-up logged for S6+**: introduce a reference-counting layer OR migrate to byte-copy when a fork is created.
+2. **Server-side ingredient scaling is N/A for Phase 1.** The live portion slider runs entirely in the browser (shared utility), so no C# parallel implementation was written. If a future feature needs server-rendered scaled ingredient markdown (e.g. for print-to-PDF), an equivalent `IngredientScaler.cs` can be added under `FamilienKochbuch.Domain/Services/` — the math is small and the tests translate mechanically.
+3. **Custom tag category in POST /api/groups/:groupId/tags still forced to `Custom`** — this was flagged as an S4 follow-up. The current S5 slice did NOT touch the custom-tag endpoint because the scope brief said "Scope is strictly S5"; deferred to a later cleanup pass.
+4. **Same-group fork allowed by API; UI hides it.** `POST /api/recipes/R1/fork` with `targetGroupId` equal to the source's group returns 201 and creates an independent copy. The `<ForkRecipeDialog>` frontend excludes the source group from the target dropdown, so in practice users can't trigger this. The endpoint behaviour is kept permissive so degenerate cases (shell scripts, admin copy) still work. Explicit test: `Fork_Into_Same_Group_Creates_Independent_Copy`.
+5. **Group-default button label rounds fractional servings for display** (`Für Familie umrechnen (3 Portionen)` when `defaultServings=2.5`). The internal math still uses the decimal value, so scaled ingredient rows reflect the exact 2.5 multiplier. The test `handles fractional group default servings for rendering but passes through scaling math` verifies both halves.
+
+### Migration review
+
+**No EF migrations created in S5.** `Group.DefaultServings`, `Recipe.ForkOfRecipeId`, `Ingredient.Scalable`, and `Ingredient.Quantity?` all already exist from earlier slices. The domain-level cap on `DefaultServings` is a pure invariant check in `Group.cs`; no schema constraint was added (the code rejects values > 20 at the domain boundary, which is sufficient for our write paths). A future `AddCheckConstraint` migration could formalize this at the DB level but isn't required.
+
+### Follow-ups for later slices
+
+- **Photo ref-counting or copy-on-fork** (see Deviation #1) — S6 or later.
+- **Tighten `POST /groups/:groupId/tags` category handling** (S4 Deviation #3, re-surfaced) — either reject non-Custom or respect submitted category.
+- **Server-side IngredientScaler** (Deviation #2) — only if/when server-rendered scaled content is needed.
+- **RecipeRevision tracking on fork** (S6 scope) — a fork operation should record a `Created` revision on the new recipe.
+- **Print-friendly ingredient list** — could layer on top of the scaler output.
+
+### Non-regression
+
+Previous slices' test counts hold:
+- S1=77, S2=149, S3=246, S4=321, Photo-fix=360 → **S5 = 376** .NET (+16 new).
+- S1=39, S2=73, S3=95, S4=121 → **S5 = 148** web (+27 new).
+- Shared package tests: 0 → **32** (new — vitest introduced for the scaler math).
+
+**S5 flipped `in_progress` → `in_review`.**
