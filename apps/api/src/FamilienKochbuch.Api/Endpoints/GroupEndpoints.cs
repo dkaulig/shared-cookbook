@@ -55,6 +55,14 @@ public static class GroupEndpoints
         string Status,
         DateTimeOffset CreatedAt);
 
+    public record GroupInviteListItemDto(
+        Guid Id,
+        Guid GroupId,
+        Guid InvitedUserId,
+        string InvitedUserDisplayName,
+        string Status,
+        DateTimeOffset CreatedAt);
+
     public record ReceivedInviteDto(
         Guid Id,
         Guid GroupId,
@@ -81,6 +89,7 @@ public static class GroupEndpoints
         groups.MapPut("/{id:guid}", UpdateGroupAsync);
         groups.MapDelete("/{id:guid}", DeleteGroupAsync);
         groups.MapPost("/{id:guid}/invites", CreateGroupInviteAsync);
+        groups.MapGet("/{id:guid}/invites", ListGroupInvitesAsync);
         groups.MapGet("/{id:guid}/members", GetGroupMembersAsync);
         groups.MapPut("/{id:guid}/members/{userId:guid}", ChangeMemberRoleAsync);
         groups.MapDelete("/{id:guid}/members/{userId:guid}", RemoveMemberAsync);
@@ -291,6 +300,47 @@ public static class GroupEndpoints
         return Results.Created($"/api/groups/invites/{invite.Id}",
             new GroupInviteDto(invite.Id, invite.GroupId, invite.InvitedUserId,
                 invite.Status.ToString(), invite.CreatedAt));
+    }
+
+    /// <summary>
+    /// Admin-only listing of outstanding (Pending) invites for a group. Used
+    /// by the group-admin UI to show and revoke outgoing invites. Accepted /
+    /// Declined invites are filtered out at the query layer so the panel
+    /// only shows actionable entries.
+    /// </summary>
+    private static async Task<IResult> ListGroupInvitesAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == id && g.DeletedAt == null, ct);
+        if (group is null) return Results.NotFound();
+
+        var myMembership = await db.GroupMemberships
+            .FirstOrDefaultAsync(m => m.GroupId == id && m.UserId == userId, ct);
+        if (myMembership is null || myMembership.Role != GroupRole.Admin)
+            return Results.Forbid();
+
+        var rows = await db.GroupInvites
+            .Where(i => i.GroupId == id && i.Status == InviteStatus.Pending)
+            .Join(db.Users, i => i.InvitedUserId, u => u.Id,
+                (i, u) => new { i.Id, i.GroupId, i.InvitedUserId, u.DisplayName, i.Status, i.CreatedAt })
+            .ToListAsync(ct);
+
+        // SQLite can't ORDER BY DateTimeOffset and Npgsql handles it fine;
+        // we materialize first and sort in LINQ-to-Objects so the query
+        // translates identically on both providers.
+        var invites = rows
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => new GroupInviteListItemDto(
+                x.Id, x.GroupId, x.InvitedUserId, x.DisplayName,
+                x.Status.ToString(), x.CreatedAt))
+            .ToArray();
+
+        return Results.Ok(invites);
     }
 
     private static async Task<IResult> GetReceivedInvitesAsync(
