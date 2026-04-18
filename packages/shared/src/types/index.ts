@@ -12,3 +12,17 @@ export type {
   SignupRequest,
   UserRole,
 } from './auth.ts'
+export type {
+  ChangeMemberRoleRequest,
+  CreateGroupRequest,
+  GroupDetail,
+  GroupInviteCreated,
+  GroupInviteReceived,
+  GroupMember,
+  GroupRole,
+  GroupSummary,
+  InviteStatus,
+  InviteToGroupRequest,
+  UpdateGroupRequest,
+  UserSearchResult,
+} from './groups.ts'
