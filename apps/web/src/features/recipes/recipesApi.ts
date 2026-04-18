@@ -112,6 +112,20 @@ export async function forkRecipe(
   })
 }
 
+// ── Cook ────────────────────────────────────────────────────────────
+
+/**
+ * DS5 "Jetzt gekocht" — stamps `LastCookedAt` on the recipe with the
+ * server's current clock and returns the refreshed detail DTO so the
+ * UI (and the TanStack cache) can reflect the new timestamp without a
+ * follow-up GET.
+ */
+export async function markRecipeAsCooked(id: string): Promise<RecipeDetailDto> {
+  return request<RecipeDetailDto>(`/api/recipes/${encodeURIComponent(id)}/cook`, {
+    method: 'POST',
+  })
+}
+
 // ── Tags ────────────────────────────────────────────────────────────
 
 export async function fetchGroupTags(groupId: string): Promise<TagDto[]> {

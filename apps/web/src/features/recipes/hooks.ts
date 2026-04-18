@@ -18,6 +18,7 @@ import {
   fetchGroupTags,
   fetchRecipe,
   forkRecipe,
+  markRecipeAsCooked,
   updateRecipe,
   uploadRecipePhoto,
 } from './recipesApi'
@@ -115,6 +116,28 @@ export function useForkRecipe(id: string) {
       // and the new recipe's detail cache.
       void client.invalidateQueries({ queryKey: [...recipeQueryKeys.all, 'group', data.groupId] })
       void client.invalidateQueries({ queryKey: recipeQueryKeys.detail(data.id) })
+    },
+  })
+}
+
+/**
+ * DS5 "Jetzt gekocht" mutation — POSTs `/api/recipes/{id}/cook` and
+ * refreshes the recipe detail + any group list the recipe belongs to so
+ * the recency sort picks up the new `lastCookedAt`. The updated detail
+ * is seeded straight into the cache to avoid an extra round-trip.
+ */
+export function useMarkAsCooked(id: string) {
+  const client = useQueryClient()
+  return useMutation<RecipeDetailDto, Error, void>({
+    mutationFn: () => markRecipeAsCooked(id),
+    onSuccess: (detail) => {
+      client.setQueryData(recipeQueryKeys.detail(id), detail)
+      void client.invalidateQueries({
+        queryKey: [...recipeQueryKeys.all, 'group', detail.groupId],
+      })
+      // Recency sort on Home may now differ — invalidate the
+      // "recently cooked" query family so it re-runs.
+      void client.invalidateQueries({ queryKey: ['recentlyCooked'] })
     },
   })
 }
