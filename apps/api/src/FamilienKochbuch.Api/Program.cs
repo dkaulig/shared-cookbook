@@ -67,6 +67,7 @@ builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<SeedDataService>();
 builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
 builder.Services.AddScoped<IPrivateCollectionService, PrivateCollectionService>();
+builder.Services.AddScoped<IRecipeSearchService, PostgresRecipeSearchService>();
 
 // ── Photo storage (SeaweedFS via S3-compatible gateway) ──────────────
 builder.Services.Configure<PhotoStorageOptions>(builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
