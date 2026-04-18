@@ -1,5 +1,7 @@
 using System.Text;
 using System.Threading.RateLimiting;
+using Amazon.Runtime;
+using Amazon.S3;
 using FamilienKochbuch.Api.Endpoints;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Identity;
@@ -65,6 +67,24 @@ builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<SeedDataService>();
 builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
 builder.Services.AddScoped<IPrivateCollectionService, PrivateCollectionService>();
+
+// ── Photo storage (SeaweedFS via S3-compatible gateway) ──────────────
+builder.Services.Configure<PhotoStorageOptions>(builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddSingleton<IAmazonS3>(sp =>
+    {
+        var opts = sp.GetRequiredService<IOptions<PhotoStorageOptions>>().Value;
+        var config = new AmazonS3Config
+        {
+            ServiceURL = opts.Endpoint,
+            ForcePathStyle = true, // SeaweedFS requires path-style addressing.
+        };
+        var creds = new BasicAWSCredentials(opts.AccessKey, opts.SecretKey);
+        return new AmazonS3Client(creds, config);
+    });
+    builder.Services.AddScoped<IPhotoStorage, SeaweedFsPhotoStorage>();
+}
 
 // ── Auth (JWT Bearer) ─────────────────────────────────────────────────
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -155,6 +175,7 @@ app.MapHealthEndpoints();
 app.MapAuthEndpoints();
 app.MapInviteEndpoints();
 app.MapGroupEndpoints();
+app.MapRecipeEndpoints();
 
 // ── Migrate + seed on startup (skipped in Testing environment) ────────
 if (!app.Environment.IsEnvironment("Testing"))
@@ -164,6 +185,12 @@ if (!app.Environment.IsEnvironment("Testing"))
     await db.Database.MigrateAsync();
     var seeder = scope.ServiceProvider.GetRequiredService<SeedDataService>();
     await seeder.SeedAsync();
+
+    // Ensure the SeaweedFS bucket exists — idempotent, best-effort.
+    var s3 = scope.ServiceProvider.GetRequiredService<IAmazonS3>();
+    var photoOpts = scope.ServiceProvider.GetRequiredService<IOptions<PhotoStorageOptions>>().Value;
+    var photoLog = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    await SeaweedFsPhotoStorage.EnsureBucketAsync(s3, photoOpts, photoLog);
 }
 
 app.Run();
