@@ -132,9 +132,18 @@ public class RecipeRevisionPersistenceTests : IAsyncLifetime
         await _db.SaveChangesAsync();
 
         var other = await _db.Users.SingleAsync(u => u.Id == _otherUserId);
-        _db.Users.Remove(other);
 
-        await Assert.ThrowsAnyAsync<DbUpdateException>(() => _db.SaveChangesAsync());
+        // The Restrict relationship is detected by EF's change tracker the
+        // moment the principal is marked Deleted — the cascade-null pass
+        // throws InvalidOperationException because the dependent's FK is
+        // non-nullable. Either path (change-tracker reject OR
+        // DbUpdateException at SaveChangesAsync) constitutes the same
+        // guarantee: history rows can't be silently orphaned.
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        {
+            _db.Users.Remove(other);
+            return Task.CompletedTask;
+        });
     }
 
     [Fact]
