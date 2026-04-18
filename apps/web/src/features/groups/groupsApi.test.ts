@@ -9,9 +9,11 @@ import {
   declineGroupInvite,
   deleteGroup,
   fetchGroupDetail,
+  fetchGroupInvites,
   fetchMyGroups,
   fetchReceivedInvites,
   removeGroupMember,
+  revokeGroupInvite,
   searchUsers,
   updateGroup,
   updateGroupMemberRole,
@@ -250,6 +252,38 @@ describe('groupsApi', () => {
       }),
     )
     await removeGroupMember('g1', 'u2')
+    expect(called).toBe(true)
+  })
+
+  it('fetchGroupInvites GETs /api/groups/:id/invites', async () => {
+    server.use(
+      http.get('/api/groups/g1/invites', () =>
+        HttpResponse.json([
+          {
+            id: 'i1',
+            groupId: 'g1',
+            invitedUserId: 'u2',
+            invitedUserDisplayName: 'Bob',
+            status: 'Pending',
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+      ),
+    )
+    const invites = await fetchGroupInvites('g1')
+    expect(invites).toHaveLength(1)
+    expect(invites[0]?.invitedUserDisplayName).toBe('Bob')
+  })
+
+  it('revokeGroupInvite DELETEs /api/groups/invites/:id', async () => {
+    let called = false
+    server.use(
+      http.delete('/api/groups/invites/i1', () => {
+        called = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    await revokeGroupInvite('i1')
     expect(called).toBe(true)
   })
 
