@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: familien-kochbuch-postgres
+    environment:
+      POSTGRES_DB: familien_kochbuch
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: dev
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d familien_kochbuch"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: familien-kochbuch-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: familien-kochbuch-seaweedfs
+    command: server -s3 -dir=/data
+    volumes:
+      - seaweedfs-data:/data
+    ports:
+      - "8333:8333"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: familien-kochbuch-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: "Host=postgres;Database=familien_kochbuch;Username=app;Password=dev"
+      ConnectionStrings__Redis: "redis:6379"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: familien-kochbuch-web
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: familien-kochbuch-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  seaweedfs-data:
+  caddy-data:
+  caddy-config:

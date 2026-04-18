@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/build
+**/bin
+**/obj
+**/.vs
+**/.idea
+**/.vscode
+**/coverage
+**/.DS_Store
+**/*.log
+.git
+.github
+.playwright-mcp
+docs/plans
+docs/phase-0-results.md
+phase-0-test-result.png

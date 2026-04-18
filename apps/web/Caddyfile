@@ -1,0 +1,11 @@
+# Per-container Caddy inside the web image — serves the built SPA on :5173.
+# The SPA fallback ensures client-side routes resolve to index.html.
+:5173 {
+    root * /srv
+    encode zstd gzip
+    try_files {path} /index.html
+    file_server
+    header {
+        Cache-Control "public, max-age=3600"
+    }
+}
