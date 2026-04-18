@@ -112,10 +112,14 @@ describe('RecipeDetailPage', () => {
     expect(link).toHaveAttribute('href', 'https://example.com/recipe')
   })
 
-  it('renders the live portion-scaler input seeded at defaultServings', async () => {
+  it('renders the portion stepper seeded at defaultServings', async () => {
     render(withProviders('/groups/g1/recipes/r1'))
-    const input = await screen.findByLabelText(/Portionen/i)
-    expect(input).toHaveValue(4)
+    // DS5: the stepper is a pill with the numeric value rendered as
+    // text (not an <input>), alongside a 'Personen' sub-caption.
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    const stepper = screen.getByRole('group', { name: /Portionen-Stepper/i })
+    expect(stepper).toHaveTextContent(/^[−\-]?4/)
+    expect(stepper).toHaveTextContent(/Personen/i)
   })
 
   it('renders scaled ingredient list matching default servings at initial render', async () => {
@@ -138,19 +142,19 @@ describe('RecipeDetailPage', () => {
       ),
     )
     render(withProviders('/groups/g1/recipes/r1'))
-    expect(await screen.findByText(/Dieses Rezept wurde aus/i)).toBeInTheDocument()
-    expect(screen.getByText(/geforkt\./i)).toBeInTheDocument()
-    const link = screen.getByRole('link', { name: /diesem Original/i })
+    // DS5 copy lives inside RecipeForkBanner: 'Geforkt aus „{Titel}"'.
+    expect(await screen.findByText(/Geforkt aus/i)).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /Spätzle/i })
     expect(link.getAttribute('href')).toMatch(/\/recipes\/r-original$/)
   })
 
   it('does not render a fork banner when forkOfRecipeId is null', async () => {
     render(withProviders('/groups/g1/recipes/r1'))
     await screen.findByRole('heading', { name: /Spätzle/ })
-    expect(screen.queryByText(/geforkt/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Geforkt aus/i)).not.toBeInTheDocument()
   })
 
-  it('opens the fork dialog when the user clicks the "In andere Gruppe kopieren" button', async () => {
+  it('opens the fork dialog from the overflow menu "In andere Gruppe kopieren" item', async () => {
     const user = userEvent.setup()
     server.use(
       http.get('/api/groups', () =>
@@ -180,8 +184,33 @@ describe('RecipeDetailPage', () => {
     )
     render(withProviders('/groups/g1/recipes/r1'))
     await screen.findByRole('heading', { name: /Spätzle/ })
-    const trigger = screen.getByRole('button', { name: /In andere Gruppe kopieren/i })
-    await user.click(trigger)
-    expect(await screen.findByRole('heading', { name: /In andere Gruppe kopieren/i, level: 2 })).toBeInTheDocument()
+    // DS5 moved fork/edit/delete into the top-bar overflow menu.
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /In andere Gruppe kopieren/i }),
+    )
+    expect(
+      await screen.findByRole('heading', { name: /In andere Gruppe kopieren/i, level: 2 }),
+    ).toBeInTheDocument()
+  })
+
+  it('fires the mark-as-cooked mutation when the sticky "Jetzt gekocht" button is tapped', async () => {
+    const user = userEvent.setup()
+    let cookedAt: string | null = null
+    server.use(
+      http.post('/api/recipes/r1/cook', () => {
+        cookedAt = '2026-04-18T12:00:00Z'
+        return HttpResponse.json({ ...recipe, lastCookedAt: cookedAt })
+      }),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Jetzt gekocht/i }))
+    // Status message surfaces once the mutation resolves.
+    expect(
+      await screen.findByRole('status', { name: '' }, { timeout: 2000 })
+        .catch(() => null) ?? (await screen.findByText(/als gekocht markiert/i)),
+    ).toBeTruthy()
+    expect(cookedAt).toBe('2026-04-18T12:00:00Z')
   })
 })
