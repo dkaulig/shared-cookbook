@@ -6,6 +6,7 @@ using FamilienKochbuch.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace FamilienKochbuch.Api.Endpoints;
 
@@ -128,6 +129,8 @@ public static class RecipeEndpoints
 
     public record RemovePhotoRequest(string Url);
 
+    public record ForkRecipeRequest(Guid TargetGroupId);
+
     public record ErrorResponse(string Code, string Message);
 
     // ── Endpoint wiring ─────────────────────────────────────────────
@@ -155,6 +158,7 @@ public static class RecipeEndpoints
         recipe.MapDelete("/", DeleteRecipeAsync);
         recipe.MapPost("/photos", UploadPhotoAsync).DisableAntiforgery();
         recipe.MapDelete("/photos", RemovePhotoAsync);
+        recipe.MapPost("/fork", ForkRecipeAsync);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -617,6 +621,156 @@ public static class RecipeEndpoints
         await photoStorage.DeleteAsync(targetPath, ct);
 
         return Results.NoContent();
+    }
+
+    // ── POST /api/recipes/{id}/fork ─────────────────────────────────
+
+    /// <summary>
+    /// Forks a recipe into another group (PRD §4.7). The current user must
+    /// be a member of BOTH the source recipe's group AND the target group.
+    /// The new recipe carries <see cref="Recipe.ForkOfRecipeId"/> pointing
+    /// at the source. Global tags copy verbatim; group-scoped (custom)
+    /// tags are best-effort matched by (Name, Category) in the target
+    /// group — unmatched custom tags are dropped with a warning in the
+    /// log. Photos are shared by path reference (same underlying files in
+    /// SeaweedFS); see S5 Deviations in the progress tracker for the
+    /// rationale.
+    /// </summary>
+    private static async Task<IResult> ForkRecipeAsync(
+        Guid id,
+        [FromBody] ForkRecipeRequest body,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        TimeProvider clock,
+        ILoggerFactory loggerFactory,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var logger = loggerFactory.CreateLogger("FamilienKochbuch.Api.RecipeFork");
+
+        if (body.TargetGroupId == Guid.Empty)
+            return Results.BadRequest(new ErrorResponse("invalid_input", "targetGroupId ist erforderlich."));
+
+        var source = await LoadRecipeWithChildrenAsync(db, id, ct);
+        if (source is null) return Results.NotFound();
+
+        // Membership of source group is required — even the recipe's
+        // existence is effectively a 404-worthy leak for a non-member, but
+        // we return 403 here because the recipe id was guessed right, so
+        // the caller already knows it exists. Both responses are secure;
+        // 403 matches the rest of the API's RBAC semantics.
+        if (!await IsGroupMemberAsync(db, source.GroupId, userId, ct))
+            return Results.Forbid();
+
+        // Target group membership is likewise required.
+        var targetGroup = await db.Groups
+            .FirstOrDefaultAsync(g => g.Id == body.TargetGroupId && g.DeletedAt == null, ct);
+        if (targetGroup is null)
+            return Results.NotFound();
+        if (!await IsGroupMemberAsync(db, body.TargetGroupId, userId, ct))
+            return Results.Forbid();
+
+        var now = clock.GetUtcNow();
+        Recipe fork;
+        try
+        {
+            fork = new Recipe(
+                groupId: body.TargetGroupId,
+                createdByUserId: userId,
+                title: source.Title,
+                description: source.Description,
+                defaultServings: source.DefaultServings,
+                prepTimeMinutes: source.PrepTimeMinutes,
+                difficulty: source.Difficulty,
+                sourceUrl: source.SourceUrl,
+                sourceType: source.SourceType,
+                forkOfRecipeId: source.Id,
+                createdAt: now);
+
+            foreach (var ing in source.Ingredients.OrderBy(i => i.Position))
+            {
+                fork.Ingredients.Add(new Ingredient(
+                    recipeId: fork.Id,
+                    position: ing.Position,
+                    quantity: ing.Quantity,
+                    unit: ing.Unit,
+                    name: ing.Name,
+                    note: ing.Note,
+                    scalable: ing.Scalable));
+            }
+
+            foreach (var step in source.Steps.OrderBy(s => s.Position))
+            {
+                fork.Steps.Add(new RecipeStep(fork.Id, step.Position, step.Content));
+            }
+
+            // Photos: copy path references verbatim. Source and fork share
+            // the underlying files in object storage — see Deviations: this
+            // Phase 1 policy avoids doubling storage, at the cost of
+            // deletes on the source also nulling out fork references. A
+            // future slice may move to reference-counting or copy-on-fork.
+            foreach (var photo in source.Photos)
+            {
+                fork.AddPhoto(photo);
+            }
+
+            // Tag handling: global tags kept verbatim; group-scoped custom
+            // tags matched by (Name, Category) in the target group —
+            // unmatched are dropped with a warning.
+            if (source.RecipeTags.Count > 0)
+            {
+                var tagIds = source.RecipeTags.Select(rt => rt.TagId).ToArray();
+                var sourceTags = await db.Tags.Where(t => tagIds.Contains(t.Id)).ToListAsync(ct);
+
+                foreach (var sourceTag in sourceTags)
+                {
+                    if (sourceTag.GroupId is null)
+                    {
+                        // Global tag — preserve id.
+                        fork.RecipeTags.Add(new RecipeTag(fork.Id, sourceTag.Id));
+                        continue;
+                    }
+
+                    // Group-scoped tag. If the source is the target group
+                    // (same-group fork), the tag is already valid; keep
+                    // the id.
+                    if (sourceTag.GroupId == body.TargetGroupId)
+                    {
+                        fork.RecipeTags.Add(new RecipeTag(fork.Id, sourceTag.Id));
+                        continue;
+                    }
+
+                    // Otherwise, look for a matching (Name, Category) in
+                    // the target group.
+                    var match = await db.Tags.FirstOrDefaultAsync(t =>
+                        t.GroupId == body.TargetGroupId
+                        && t.Category == sourceTag.Category
+                        && t.Name == sourceTag.Name, ct);
+                    if (match is null)
+                    {
+                        logger.LogWarning(
+                            "Fork of recipe {SourceRecipeId} dropped tag {TagName} ({TagCategory}) because target group {TargetGroupId} has no matching custom tag.",
+                            source.Id, sourceTag.Name, sourceTag.Category, body.TargetGroupId);
+                        continue;
+                    }
+                    fork.RecipeTags.Add(new RecipeTag(fork.Id, match.Id));
+                }
+            }
+
+            db.Recipes.Add(fork);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
+        }
+
+        // Reload to project detail (e.g. ordered children, tag details).
+        var reloaded = (await LoadRecipeWithChildrenAsync(db, fork.Id, ct))!;
+        var detail = await ProjectDetailAsync(db, reloaded, photoStorage, ct);
+        return Results.Created($"/api/recipes/{fork.Id}", detail);
     }
 
     // ── GET /api/groups/{groupId}/tags ──────────────────────────────
