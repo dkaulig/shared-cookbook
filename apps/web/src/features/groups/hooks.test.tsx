@@ -9,8 +9,10 @@ import { useAuthStore } from '@/features/auth/authStore'
 import {
   useAcceptInvite,
   useCreateGroup,
+  useGroupInvites,
   useInviteToGroup,
   useMyReceivedInvites,
+  useRevokeInvite,
 } from './hooks'
 import { groupQueryKeys } from './queryKeys'
 
@@ -141,6 +143,67 @@ describe('group hooks', () => {
 
     const cached = client.getQueryData(groupQueryKeys.invitesReceived())
     expect(cached).toEqual(result.current.data)
+  })
+
+  it('useGroupInvites fetches /api/groups/:id/invites and caches under groupInvites(id)', async () => {
+    server.use(
+      http.get('/api/groups/g1/invites', () =>
+        HttpResponse.json([
+          {
+            id: 'i1',
+            groupId: 'g1',
+            invitedUserId: 'u2',
+            invitedUserDisplayName: 'Bob',
+            status: 'Pending',
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+      ),
+    )
+
+    const { client, Wrapper } = setupClient()
+    const { result } = renderHook(() => useGroupInvites('g1'), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toHaveLength(1)
+    expect(result.current.data?.[0]?.invitedUserDisplayName).toBe('Bob')
+
+    const cached = client.getQueryData(groupQueryKeys.groupInvites('g1'))
+    expect(cached).toEqual(result.current.data)
+  })
+
+  it('useGroupInvites is disabled when groupId is undefined', () => {
+    const { Wrapper } = setupClient()
+    const { result } = renderHook(() => useGroupInvites(undefined), { wrapper: Wrapper })
+    expect(result.current.isFetching).toBe(false)
+    expect(result.current.isSuccess).toBe(false)
+  })
+
+  it('useRevokeInvite DELETEs and invalidates groupInvites(groupId)', async () => {
+    server.use(
+      http.delete('/api/groups/invites/i1', () => HttpResponse.json(null, { status: 204 })),
+    )
+
+    const { client, Wrapper } = setupClient()
+    client.setQueryData(groupQueryKeys.groupInvites('g1'), [
+      {
+        id: 'i1',
+        groupId: 'g1',
+        invitedUserId: 'u2',
+        invitedUserDisplayName: 'Bob',
+        status: 'Pending',
+        createdAt: new Date().toISOString(),
+      },
+    ])
+
+    const { result } = renderHook(() => useRevokeInvite('g1'), { wrapper: Wrapper })
+    await act(async () => {
+      await result.current.mutateAsync('i1')
+    })
+
+    await waitFor(() => {
+      const state = client.getQueryState(groupQueryKeys.groupInvites('g1'))
+      expect(state?.isInvalidated).toBe(true)
+    })
   })
 
   it('useAcceptInvite invalidates the received-invites list so the banner hides', async () => {
