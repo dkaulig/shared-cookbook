@@ -37,6 +37,10 @@ dev = [
   # P2-1: stub the Azure Responses API in always-on tests. MSW-style
   # route matching on httpx calls; no real network.
   "respx==0.22.0",
+  # P2-2: validate the RECIPE_SCHEMA JSON Schema at test time so a typo
+  # in the schema fails the suite rather than at runtime against Azure.
+  "jsonschema==4.25.1",
+  "types-jsonschema==4.26.0.20260408",
 ]
 
 [tool.hatch.build.targets.wheel]
