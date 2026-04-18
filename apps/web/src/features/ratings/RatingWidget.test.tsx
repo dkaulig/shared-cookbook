@@ -67,10 +67,35 @@ describe('RatingWidget', () => {
   })
 
   it('submits a new rating via POST and refreshes aggregate', async () => {
-    mockRatings({ aggregate: { avg: null, count: 0, myStars: null, myComment: null }, ratings: [] })
-
+    // No initial mockRatings — the GET handler below handles both fetches.
+    let getCalls = 0
     let postBody: unknown = null
     server.use(
+      http.get('/api/recipes/r1/ratings', () => {
+        getCalls += 1
+        // First fetch: empty aggregate. Subsequent fetches (triggered by
+        // cache invalidation after the mutation) return the post-submit
+        // state.
+        if (getCalls === 1) {
+          return HttpResponse.json<RatingListResponse>({
+            aggregate: { avg: null, count: 0, myStars: null, myComment: null },
+            ratings: [],
+          })
+        }
+        return HttpResponse.json<RatingListResponse>({
+          aggregate: { avg: 5, count: 1, myStars: 5, myComment: 'top' },
+          ratings: [
+            {
+              userId: 'u1',
+              displayName: 'U',
+              stars: 5,
+              comment: 'top',
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+            },
+          ],
+        })
+      }),
       http.post('/api/recipes/r1/ratings', async ({ request }) => {
         postBody = await request.json()
         return HttpResponse.json<UpsertRatingResponse>({
@@ -85,22 +110,6 @@ describe('RatingWidget', () => {
           },
         })
       }),
-      // After submit the widget refetches ratings — return updated state.
-      http.get('/api/recipes/r1/ratings', () =>
-        HttpResponse.json<RatingListResponse>({
-          aggregate: { avg: 5, count: 1, myStars: 5, myComment: 'top' },
-          ratings: [
-            {
-              userId: 'u1',
-              displayName: 'U',
-              stars: 5,
-              comment: 'top',
-              createdAt: '2026-01-01T00:00:00Z',
-              updatedAt: '2026-01-01T00:00:00Z',
-            },
-          ],
-        }),
-      ),
     )
 
     renderWidget()
