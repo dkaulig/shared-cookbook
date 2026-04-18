@@ -7,6 +7,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Virtual PWA register module — stubbed out during tests since the
+      // real module is injected by the vite-plugin-pwa build plugin. Tests
+      // mock this stub via `vi.mock('virtual:pwa-register')`.
+      'virtual:pwa-register': path.resolve(__dirname, './src/test/stubs/pwa-register.ts'),
     },
   },
   test: {
