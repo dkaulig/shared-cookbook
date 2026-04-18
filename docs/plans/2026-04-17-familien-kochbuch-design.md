@@ -70,7 +70,7 @@ Primär: **Der Eigentümer und seine Familien-/Freundeskreise**, mit Raum für o
 ### Kern-Use-Cases
 
 1. **Social-Media-Fund → Rezept** — Während Facebook-Scrollen ein Rezept-Reel sehen, URL kopieren, in App einfügen, AI extrahiert, User reviewt Ergebnis, speichert in gewählter Gruppe. Typisch: Smartphone-Browser.
-2. **Oma-Archivierung** — Familien-Rezept wird manuell eingegeben oder per AI-Chat strukturiert ("Ich erzähl dir Omas Rezept, du formst es sauber"). Landet in Familien-Gruppe, bleibt generationenübergreifend.
+2. **Oma-Archivierung** — Familien-Rezept wird auf einem von drei Wegen in die Sammlung gebracht: **(a) manuell** per Formular, **(b) per AI-Chat** ("Ich erzähl dir Omas Rezept, du formst es sauber"), oder **(c) durch Fotografieren der handgeschriebenen/gedruckten Rezept-Karte** — Vision-LLM transkribiert und strukturiert. Landet in Familien-Gruppe, bleibt generationenübergreifend. Typisch: Partnerin/Mutter/Oma hat einen Ordner voller Papier-Rezepte, den sie Seite für Seite abfotografiert.
 3. **"Was kochen wir heute?"** — Abends vorm Kühlschrank: User filtert nach Tags (schnell, warm, wenig Zutaten) und Bewertungen, drückt "Zufalls-Vorschlag" oder blättert.
 4. **Wochen-Planung** — Sonntagnachmittag: User geht die Familien-Sammlung durch, legt 7 Rezepte in den Wochenplan, erzeugt daraus die Einkaufsliste, erledigt Samstags-Einkauf.
 5. **Persönliche Modifikation** — Oma-Rezept ist in Familien-Gruppe, User **forkt** es in seine Privat-Gruppe, passt Gewürze an, ohne das Original zu verändern.
@@ -106,8 +106,9 @@ Die tragende Basis. Danach: echte App.
 
 ### Phase 2 — AI-Assistenten *(≈ 3–4 Wochen)*
 
-- Python-Microservice für Video-Extraktion (eigener Code, `social_recipes` als Referenz)
+- Python-Microservice für Video-Extraktion (eigener Code, `social_recipes` als Referenz) inkl. Website-Fallback via JSON-LD
 - AI-Chat zum Rezept-Erfinden (Conversational UI, gleicher Review-Flow wie Video)
+- **Foto-Import** (Vision-LLM für Papier-Rezepte, Screenshots, Rezept-Karten; auch handgeschrieben)
 - Nährwert-Schätzung durch LLM
 - Integration ins C#-Backend per HTTP
 
@@ -220,7 +221,7 @@ Button "In andere Gruppe kopieren" → Ziel-Gruppe wählen → unabhängige Kopi
 
 ## 5. Phase 2 — AI-Assistenten
 
-**Ziel:** Zwei komplementäre AI-Wege, Rezepte in die Sammlung zu bringen — Video-Import und Chat-basiertes Rezept-Erfinden. Beide münden im **selben Review-Flow**, der den Menschen immer in der Schleife hält.
+**Ziel:** Drei komplementäre AI-Wege, Rezepte in die Sammlung zu bringen — **Video-Import**, **Chat-basiertes Rezept-Erfinden** und **Foto-Import für Papier-/Karten-Rezepte**. Alle drei münden im **selben Review-Flow**, der den Menschen immer in der Schleife hält.
 
 ### 5.1 Video-Import
 
@@ -267,11 +268,43 @@ Button "In andere Gruppe kopieren" → Ziel-Gruppe wählen → unabhängige Kopi
 5. Button "In Rezept umwandeln" → Strukturierungs-LLM erzeugt JSON
 6. Selber Review-Screen wie beim Video-Import → speichern
 
-### 5.3 Nährwerte (LLM-Schätzung)
+### 5.3 Foto-Import (Papier / Screenshots)
+
+**User-Flow**
+
+1. User klickt "+ Rezept aus Foto importieren"
+2. **Ein oder mehrere Fotos** hochladen (Drag-&-Drop oder Kamera-Capture auf Mobile)
+   - Typische Fälle: Oma-Handschrift, alte Rezept-Karten, Screenshot aus einem Kochbuch, PDF-Seite
+   - Mehrseitiges Rezept: Fotos in Reihenfolge hochladen
+3. Ziel-Gruppe wählen
+4. Fortschrittsanzeige (~5–15 s; deutlich schneller als Video, da kein Download/Transkript)
+5. Review-Screen mit editierbaren Feldern — identisch zu Video/Chat
+6. Speichern
+
+**Pipeline (Python-Microservice)**
+
+- Keine yt-dlp-/Whisper-Schritte
+- **Vision-LLM** (Azure OpenAI `gpt-4o` mit Vision) bekommt **alle Fotos als geordnete Sequenz**
+- Prompt-Aufgabe: Text transkribieren (auch Handschrift) → in Rezept-Schema strukturieren (Titel, Zutaten mit Mengen, Schritte, Portionen, Zubereitungszeit)
+- Fotos werden ins Object Storage gelegt und bleiben als Rezept-Fotos verknüpft (kein separater Upload nötig)
+
+**Besonderheiten**
+
+- **Handschrift**: Moderne Vision-LLMs erkennen deutsche Handschrift meist zuverlässig; bei unsicheren Stellen markiert die UI die betroffenen Zeilen (gelb, "Handschrift unsicher")
+- **Alte Maßeinheiten**: "1 Tasse", "1 Kaffeelöffel", "ein Schuss" — LLM behält ursprüngliche Einheit bei und bietet optional Umrechnung im Review (z.B. "1 Tasse → 250 ml?")
+- **Mehrseitig**: Vision-LLM sieht die Fotos als zusammenhängendes Dokument; Nummerierung der Fotos gibt Reihenfolge vor
+
+**Fehler-Handhabung**
+
+- Foto nicht lesbar (zu dunkel, verschwommen, gedreht): UI bittet um besseres Bild
+- Kein Rezept erkennbar: klare Fehlermeldung, manuelles Anlegen angeboten
+- Teilweise erkennbar: so viel wie möglich extrahieren, Lücken klar markieren
+
+### 5.4 Nährwerte (LLM-Schätzung)
 
 Beim Speichern schätzt das LLM **pro Portion** (kcal, Eiweiß, Kohlenhydrate, Fett). UI markiert als "geschätzt" und erlaubt manuelle Korrektur. Kein BLS/Open-Food-Facts-Aufwand.
 
-### 5.4 LLM-Provider: Azure OpenAI
+### 5.5 LLM-Provider: Azure OpenAI
 
 **Begründung**
 
@@ -294,15 +327,15 @@ Beim Speichern schätzt das LLM **pro Portion** (kcal, Eiweiß, Kohlenhydrate, F
 - Default-Implementation: `AzureOpenAIProvider`
 - Optional später: `OpenAIProvider`, `GeminiProvider` (Config-Wechsel, kein Code-Rewrite)
 
-### 5.5 Architektur-Entscheidungen
+### 5.6 Architektur-Entscheidungen
 
 - **Python-Microservice** (FastAPI) als eigener Docker-Container neben C#-Backend
 - Kommunikation per HTTP, Extraktion läuft als Background-Job (Queue + Polling)
 - API-Keys (Azure OpenAI) **nur im Microservice** — nie im Frontend
 
-### 5.6 Explizit NICHT in Phase 2
+### 5.7 Explizit NICHT in Phase 2
 
-- Kein direkter Video-Datei-Upload (nur URL-basierter Download)
+- Kein direkter Video-Datei-Upload (Videos nur per URL; **Foto-Upload jedoch ist in Scope**, siehe 5.3)
 - Kein Voice-Input im Chat (Text genügt)
 - Kein Self-Hosting von LLMs
 
@@ -436,7 +469,7 @@ Vereinfachte Darstellung der wichtigsten Tabellen. Phase-Zuordnung in Klammern.
 ### 8.3 Rezepte
 
 **Recipe** (P1)
-`id`, `group_id`, `created_by`, `title`, `description`, `default_servings: int`, `prep_time_minutes?`, `difficulty` (1–3), `source_url?`, `fork_of_recipe_id?`, `photos: string[]`, `last_cooked_at?`, `created_at`, `updated_at`
+`id`, `group_id`, `created_by`, `title`, `description`, `default_servings: int`, `prep_time_minutes?`, `difficulty` (1–3), `source_url?`, `source_type` (Manual | Video | Chat | Photo), `fork_of_recipe_id?`, `photos: string[]`, `last_cooked_at?`, `created_at`, `updated_at`
 *(P2 ergänzt:)* `nutrition {kcal, protein_g, carbs_g, fat_g}?`, `is_nutrition_estimated: bool`
 
 **Ingredient** (P1)
@@ -803,7 +836,7 @@ services:
 - Keine strikte Allergie-/Diät-Durchsetzung
 - Kein Voice-Input im AI-Chat
 - Kein Self-Hosting von LLMs
-- Kein direkter Video-Datei-Upload
+- Kein Video-Datei-Upload (nur URL-basierter Download; Foto-Upload für Papier-Rezepte ist in Phase 2 explizit in Scope)
 
 ### 13.4 Einkaufen / Planung
 
