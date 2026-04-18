@@ -1,5 +1,5 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
+using FamilienKochbuch.Api.Tests.Infrastructure;
 using Xunit;
 
 namespace FamilienKochbuch.Api.Tests;
@@ -8,11 +8,11 @@ namespace FamilienKochbuch.Api.Tests;
 /// Smoke test — verifies that the WebApplicationFactory boots the API host.
 /// The /api/health assertion lives in <see cref="HealthEndpointTests"/>.
 /// </summary>
-public class SmokeTests : IClassFixture<WebApplicationFactory<Program>>
+public class SmokeTests : IClassFixture<FamilienKochbuchWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly FamilienKochbuchWebApplicationFactory _factory;
 
-    public SmokeTests(WebApplicationFactory<Program> factory)
+    public SmokeTests(FamilienKochbuchWebApplicationFactory factory)
     {
         _factory = factory;
     }
