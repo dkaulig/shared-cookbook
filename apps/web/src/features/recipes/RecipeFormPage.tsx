@@ -46,6 +46,7 @@ import type { DifficultyLevel } from './DifficultyPills'
 import { FormActionBar } from './FormActionBar'
 import { FormIntro } from './FormIntro'
 import { PhotoUploadGrid } from './PhotoUploadGrid'
+import { uploadRecipePhoto } from './recipePhotoApi'
 import { RecipeFormTopNav } from './RecipeFormTopNav'
 
 const UNITS = [
@@ -215,6 +216,16 @@ function RecipeFormInner({
   )
   const [createTagOpen, setCreateTagOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // UX1-PU — File objects queued by the staged PhotoUploadGrid in create
+  // mode. After the recipe POST resolves, handleSubmit iterates these
+  // sequentially via uploadRecipePhoto(newRecipeId, file).
+  const [stagedPhotos, setStagedPhotos] = useState<File[]>([])
+  // Drives the submit-button label: 'idle' shows the primary label,
+  // 'saving' shows "Speichere …", 'uploading-photos' shows
+  // "Fotos hochladen …" during the sequential photo-upload phase.
+  const [submitPhase, setSubmitPhase] = useState<
+    'idle' | 'saving' | 'uploading-photos'
+  >('idle')
 
   const tagsByCategory = useMemo(() => {
     const grouped = new Map<TagCategory, TagDto[]>()
@@ -330,18 +341,61 @@ function RecipeFormInner({
     }
 
     try {
+      setSubmitPhase('saving')
       const result =
         mode === 'create'
           ? await createMutation.mutateAsync(payload)
           : await updateMutation.mutateAsync(payload)
+
+      // UX1-PU: if there are photos staged from create mode, upload them
+      // sequentially now that we have a real recipe id. We intentionally
+      // `await` in a plain for-loop instead of `Promise.all` so a single
+      // transient failure (e.g. 413 on one big file) doesn't cascade
+      // into the others. Errors are accumulated; the first message is
+      // surfaced in the partial-failure banner.
+      if (mode === 'create' && stagedPhotos.length > 0) {
+        setSubmitPhase('uploading-photos')
+        const failures: string[] = []
+        for (const file of stagedPhotos) {
+          try {
+            await uploadRecipePhoto(result.id, file)
+          } catch (err) {
+            const apiErr = err as ApiError
+            failures.push(apiErr.message ?? 'Upload fehlgeschlagen.')
+          }
+        }
+        if (failures.length > 0) {
+          // Partial (or total) photo-upload failure — the recipe itself
+          // was saved fine, so we show the banner on the form and keep
+          // the user here so they read it. They can navigate themselves
+          // via the nav bar / top-left back; the retry lives on the
+          // recipe's detail page. Sequentially-ordered: banner first,
+          // then clear the uploading-photos pending state so the
+          // primary button re-enables.
+          setError(
+            `Rezept gespeichert, aber ${failures.length} von ${stagedPhotos.length} Fotos konnten nicht hochgeladen werden: ${failures[0]} Du kannst sie auf der Rezept-Seite nachtragen.`,
+          )
+          setSubmitPhase('idle')
+          return
+        }
+      }
+
+      setSubmitPhase('idle')
       navigate(`/groups/${groupId}/recipes/${result.id}`)
     } catch (err) {
+      setSubmitPhase('idle')
       const apiErr = err as ApiError
       setError(apiErr.message || 'Rezept konnte nicht gespeichert werden.')
     }
   }
 
-  const isPending = createMutation.isPending || updateMutation.isPending
+  // UX1-PU — include the photo-upload phase so the button stays disabled
+  // after the recipe mutation settles but while we're still uploading the
+  // staged files.
+  const isPending =
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    submitPhase === 'uploading-photos'
   const hasCustomCategory = tagsByCategory.has('Custom')
 
   return (
@@ -388,6 +442,13 @@ function RecipeFormInner({
           </FormCard>
 
           {/* ── Fotos ─────────────────────────────────────────── */}
+          {/*
+            UX1-PU: create mode uses the staged grid so the user can drop
+            photos before the recipe exists. On submit, handleSubmit awaits
+            createRecipe, then uploads the staged files sequentially against
+            the newly-minted recipeId. Edit mode keeps the live grid so
+            photo changes hit the backend immediately.
+          */}
           {mode === 'edit' && initial ? (
             <FormCard
               title="Fotos"
@@ -398,19 +459,13 @@ function RecipeFormInner({
           ) : (
             <FormCard
               title="Fotos"
-              description="Fotos kannst du nach dem ersten Speichern hinzufügen — bis zu 3 Bilder pro Rezept."
+              description="Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP. Werden beim Speichern hochgeladen."
             >
-              <div className="grid grid-cols-3 gap-2.5">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    key={i}
-                    aria-hidden="true"
-                    className="flex aspect-square items-center justify-center rounded-[12px] border-2 border-dashed border-[hsl(var(--input))] bg-[hsl(var(--muted))] text-[11px] text-[hsl(var(--muted-foreground))]"
-                  >
-                    nach dem Speichern
-                  </div>
-                ))}
-              </div>
+              <PhotoUploadGrid
+                mode="staged"
+                files={stagedPhotos}
+                onFilesChange={setStagedPhotos}
+              />
             </FormCard>
           )}
 
@@ -619,6 +674,7 @@ function RecipeFormInner({
       <FormActionBar
         mode={mode}
         pending={isPending}
+        uploadingPhotos={submitPhase === 'uploading-photos'}
         onCancel={cancel}
         onSubmit={() => void handleSubmit()}
       />

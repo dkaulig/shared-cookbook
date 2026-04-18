@@ -5,6 +5,13 @@ export interface FormActionBarProps {
   mode: 'create' | 'edit'
   /** True while create/update mutation is in flight. Disables the primary. */
   pending: boolean
+  /**
+   * UX1-PU — when true, the primary button keeps its disabled/busy shell
+   * but swaps the label to "Fotos hochladen …". The recipe itself is
+   * already saved at this point; we're just drip-uploading the staged
+   * files before we navigate.
+   */
+  uploadingPhotos?: boolean
   onCancel: () => void
   onSubmit: () => void
   className?: string
@@ -28,11 +35,13 @@ export interface FormActionBarProps {
 export function FormActionBar({
   mode,
   pending,
+  uploadingPhotos = false,
   onCancel,
   onSubmit,
   className,
 }: FormActionBarProps) {
   const primaryLabel = mode === 'create' ? 'Rezept speichern' : 'Änderungen speichern'
+  const pendingLabel = uploadingPhotos ? 'Fotos hochladen …' : 'Speichere …'
 
   return (
     <div
@@ -62,7 +71,7 @@ export function FormActionBar({
           type="button"
           onClick={onSubmit}
           disabled={pending}
-          aria-label={pending ? 'Speichere Rezept' : primaryLabel}
+          aria-label={pending ? pendingLabel : primaryLabel}
           className={cn(
             'inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--primary))] bg-[hsl(var(--primary))] px-4 py-[13px] text-[15px] font-semibold text-[hsl(var(--primary-foreground))]',
             'shadow-[0_4px_12px_-4px_rgba(180,83,9,0.45)] transition-colors hover:bg-[hsl(var(--primary-hover,var(--primary)))] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60',
@@ -70,7 +79,7 @@ export function FormActionBar({
           )}
         >
           <Check className="h-[18px] w-[18px]" strokeWidth={2.4} aria-hidden="true" />
-          {pending ? 'Speichere …' : primaryLabel}
+          {pending ? pendingLabel : primaryLabel}
         </button>
       </div>
     </div>
