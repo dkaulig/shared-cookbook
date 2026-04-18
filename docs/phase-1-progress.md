@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S2 complete → in_review)
+**Last updated:** 2026-04-18 (S2 review → done)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -19,7 +19,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 |---|---|---|---|---|---|---|
 | S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
-| S2 | Groups & Memberships | in_review | general-purpose (bg) | 2026-04-18 | 2026-04-18 | Ships Groups/Memberships/Invites domain + infra + endpoints + web. Tests: 149 .NET (73 Domain + 21 Infra + 55 Api) + 73 web (up from 77 + 39 at S1). E2E curl flow validated on live docker stack. |
+| S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
 | S3 | Recipes (Core CRUD) | pending | — | — | — | — |
 | S4 | Tags + Ratings + Search | pending | — | — | — | — |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
@@ -41,9 +41,9 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 ## Last orchestrator tick
 
-- **Wake-up time:** 2026-04-18 (S2 implementation agent returned)
-- **Action taken:** Verified S2 locally (148 .NET tests + 73 web tests + lint clean + docker E2E curl flow all green). Flipped S2 `in_progress` → `in_review`.
-- **Next action:** dispatch S2 review agent.
+- **Wake-up time:** 2026-04-18 (S2 review pass returned)
+- **Action taken:** S2 independent review executed all verification commands locally — passed. Flipped S2 `in_review` → `done`.
+- **Next action:** dispatch S3 (Recipes core CRUD) implementation agent.
 
 ## Blockers / pauses
 
@@ -375,3 +375,105 @@ Total ~24 commits on S2 (well within the 15–25 target).
 - `EditGroupDialog` uses a plain URL text input for `coverImageUrl`; actual image upload to SeaweedFS is explicitly deferred to S5 when `PUT /groups/:id/settings` grows a multipart branch.
 - The user-search endpoint uses `EF.Functions` / `.ToLower().Contains(...)` — works on both Postgres and SQLite in our tests, but for larger corpora we'll want Postgres trigram indexes or the recipe full-text search from S4.
 - TanStack Query `refetchOnWindowFocus` is off globally; may want to flip on selectively for invite banner.
+
+## Review outcomes → S2 — Review (2026-04-18) → pass
+
+Independent reviewer (general-purpose agent, has Bash) executed every verification command on commit range `f57fd32..HEAD` (29 implementation commits, matching the claim). Nothing trusted — everything re-run locally.
+
+### Static checks
+
+- `git log --oneline f57fd32..HEAD | wc -l` → **29** (matches claim of 29 implementation commits; orchestrator's `f57fd32` dispatch itself is excluded from the range).
+- TDD commit-order spot-checks (all timestamps confirmed with `git show -s --format=%ci`):
+  - Group entity: test `918653c` (11:25:36) precedes feat `b53214c` (11:26:07) ✓
+  - GroupMembership: test `c9c6dad` (11:26:22) precedes feat `5300c74` (11:26:41) ✓
+  - GroupInvite: test `4ab8c9d` (11:27:01) precedes feat `1c32051` (11:27:25) ✓
+  - PrivateCollectionService: test `05ecc8e` (11:28:34) precedes feat `f24184b` (11:28:58) ✓
+  - GroupEndpoints integration: test `68845b3` (11:32:34) precedes feat `4ff794c` (11:37:00) ✓  (marked improvement over S1 — API endpoint tests now properly TDD'd)
+  - Web groupsApi: test `39455fc` precedes feat `c52f8b2` ✓
+  - Web CreateGroupDialog: test `50257ff` precedes feat `4092d0a` ✓
+  - Web InviteMemberDialog: test `a10f660` precedes feat `2266b56` ✓
+  - Web ReceivedInvitesBanner: test `8bd8c31` precedes feat `5f5d31d` ✓
+- `grep "Assert\.True(true|false)" apps/api/tests/` → 0 hits.
+- `grep "[Skip…|Skip=|.Skip(" apps/api/tests/ --include='*.cs'` → 0 hits.
+- `grep "it\.skip|it\.todo|describe\.skip|\.only\(|xit|xdescribe" apps/web/src/ packages/` → 0 hits.
+- `grep "TODO|FIXME|HACK|XXX" apps/ packages/ --include='*.cs/*.ts/*.tsx'` → 0 hits.
+- `grep "@ts-ignore|@ts-expect-error|eslint-disable|SuppressMessage|pragma warning disable" apps/ packages/ --include='*.cs/*.ts/*.tsx'` → 4 hits, all expected:
+  - `Migrations/20260418084257_InitialAuth.Designer.cs:21` — `#pragma warning disable 612, 618` (S1, EF-generated).
+  - `Migrations/20260418092758_AddGroups.Designer.cs:21` — same EF-generated pragma (S2, expected).
+  - `Migrations/AppDbContextModelSnapshot.cs:18` — same EF-generated pragma (expected).
+  - `apps/web/src/features/auth/useSession.ts:67` — `eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally once on mount` (S1, justified).
+- `grep "NotImplementedException|throw new Error(\"TODO\")" apps/ packages/` → 0 hits.
+- `cat apps/api/Directory.Build.props` → `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` present.
+
+### Deliverable presence
+
+- Domain entities: `User.cs`, `AppInvite.cs`, `RefreshToken.cs`, `Group.cs`, `GroupMembership.cs`, `GroupInvite.cs` ✓
+- Domain enums: `UserRole.cs` (S1), `GroupRole.cs`, `InviteStatus.cs` ✓
+- Migrations: exactly 2 (`20260418084257_InitialAuth.cs` + `20260418092758_AddGroups.cs`) with Designer + shared snapshot ✓
+- Infrastructure Services: `IPrivateCollectionService.cs` + `PrivateCollectionService.cs` + S1 services intact ✓
+- API Endpoints: `HealthEndpoints.cs`, `AuthEndpoints.cs`, `InviteEndpoints.cs`, `GroupEndpoints.cs` ✓
+- Web features: full `features/groups/` directory with dialogs, hooks, pages, switcher, banner ✓
+- Shared DTOs: `groups.ts` types exported via `types/index.ts` ✓
+- Routing: `App.tsx` wires `/groups` and `/groups/:id` as ProtectedRoute ✓
+- `HomePage.tsx` embeds `ReceivedInvitesBanner` + `GroupSwitcher` + link to `/groups` ✓
+
+### Migration review (hard rule 8)
+
+`20260418092758_AddGroups.cs` creates exactly 3 tables:
+
+- **Groups** — PK `Id`, columns Name varchar(100), Description varchar(500), CoverImageUrl varchar(500), DefaultServings numeric(10,2), IsPrivateCollection bool, CreatedAt/DeletedAt timestamp+tz; non-unique index on CreatedAt.
+- **GroupMemberships** — composite PK (UserId, GroupId), index on GroupId, FKs Cascade to User + Group.
+- **GroupInvites** — PK Id, non-unique indexes on GroupId/InvitedByUserId/InvitedUserId, **filtered partial unique index `IX_GroupInvites_Pending_Unique` on (GroupId, InvitedUserId) with filter `"Status" = 0`** (Postgres partial index). FKs: GroupId Cascade, InvitedUserId Cascade, InvitedByUserId Restrict.
+
+No changes to S1 Identity/AppInvites/RefreshTokens tables. No seed data. No unrelated drift. ✓
+
+### Runtime verification (all executed by reviewer)
+
+- `dotnet test apps/api/FamilienKochbuch.sln` → **149/149 pass** (73 Domain + 21 Infrastructure + 55 Api). 0 failed, 0 skipped.
+- `cd apps/web && pnpm test --run` → **73/73 pass** across **17 test files**. 0 failed.
+- `pnpm lint` → clean (0 errors, 0 warnings).
+- `docker compose up --build -d` → all 6 containers up; api + postgres + redis healthy within ~23 s; seaweedfs/web/caddy running.
+- `curl http://localhost/api/health` → `{"status":"ok","timestamp":"2026-04-18T09:58:41.4841413+00:00"}`.
+- **Full E2E curl flow (end-to-end on live docker stack):**
+  1. Login admin (`admin@familien-kochbuch.local`): `200`, access JWT issued, refresh cookie set.
+  2. `POST /api/invites/app/`: `200`, 64-char hex app-invite token.
+  3. Signup user B (`s2-reviewer-b@example.com`, displayName `Reviewer B`): `200`, new user id `221d119d-…`, refresh cookie set.
+  4. `POST /api/groups/` body `{"name":"Review Group","description":"S2 review"}`: `201`, group id `2dc9e823-…`, `memberCount=1`, `myRole=Admin`, `isPrivateCollection=false`.
+  5. `GET /api/groups/` as admin: returns `[Private Sammlung, Familie, Review Group]` — **Private Sammlung with `isPrivateCollection=true` confirms the startup backfill ran for pre-S2 seed admin** (admin was seeded during S1 when Groups didn't exist yet).
+  6. `GET /api/users/search?q=Reviewer` as admin: returns both "Reviewer B" + another "Reviewer Test"; `q=Admin` as admin returns `[]` — **current user excluded** ✓.
+  7. `POST /api/groups/G/invites` body `{"invitedUserId":"B"}`: `201`, invite id `1db78a74-…`, `status=Pending`.
+  8. `GET /api/groups/invites` as B: returns that invite with `groupName="Review Group"`, `inviterDisplayName="Admin"`.
+  9. `POST /api/groups/invites/I/accept` as B: `200`, `status=Accepted`.
+  10. `GET /api/groups/G` as B: `200`, `memberCount=2`, `myRole=Member`, members list includes Admin (Admin) + Reviewer B (Member).
+  11. `PUT /api/groups/G` as B body `{"name":"Hacked"}`: **`403`** ✓.
+  12. `PUT /api/groups/G/members/B` as admin body `{"role":"Admin"}`: `200`, B now Admin.
+  13. `DELETE /api/groups/<admin's-private-sammlung-id>` as admin: **`400 {"code":"private_collection_protected","message":"Die Private Sammlung kann nicht gelöscht werden."}`** ✓.
+  14. `PUT /api/groups/G/members/B` as admin body `{"role":"Member"}`: `200` (Admin still Admin — no last-admin issue).
+  15. `PUT /api/groups/G/members/<admin-id>` as admin body `{"role":"Member"}`: **`400 {"code":"last_admin","message":"Die Gruppe muss mindestens eine:n Admin behalten."}`** ✓.
+  16. Already-member rule: created Group H, invited B, accepted, then re-invited → **`400 {"code":"already_member","message":"Nutzer:in ist bereits Mitglied."}`** ✓.
+  17. Pending-duplicate rule: created Group X, invited B (Pending), then re-invited → **`400 {"code":"invite_pending","message":"Es gibt bereits eine offene Einladung."}`** ✓.
+  18. `GET /api/users/search?q=Reviewer&excludeGroupId=G` as admin: returns only "Reviewer Test" (not B, who is a member of G) → **excludeGroupId filter working** ✓.
+- `docker compose down` → clean teardown.
+- `git status` → clean. `git log origin/main..HEAD` → empty.
+
+### Security / invariants
+
+- `Group.SoftDelete` refuses `IsPrivateCollection=true` with `InvalidOperationException`. Domain test `SoftDelete_Throws_On_Private_Sammlung` in `apps/api/tests/FamilienKochbuch.Domain.Tests/Entities/GroupTests.cs:139` exercises the invariant. ✓
+- Auto-create Private Sammlung wired into both `AuthEndpoints.SignupAsync` (inside the same transaction as user creation + invite-marked-used) and `SeedDataService.SeedAsync` (after admin-user CreateAsync succeeds). ✓
+- Startup backfill (`SeedDataService.BackfillPrivateCollectionsAsync`) iterates every existing user and calls `EnsurePrivateCollectionAsync` — which itself short-circuits if the user already has a Private Sammlung (checked via the `IsPrivateCollection=true` flag joined from GroupMemberships). Verified live: re-running the seed path on a running admin did not create a duplicate. Idempotent by construction.
+- Filtered partial unique index present both in the migration (`filter: "\"Status\" = 0"`) and the model snapshot, and has a dedicated SQLite-backed test `GroupInviteUniqueIndexTests` (two scenarios: rejects second Pending, allows Accepted + new Pending). ✓
+- Last-admin rule enforced in both `ChangeMemberRoleAsync` (lines 416–423 of `GroupEndpoints.cs`) and `RemoveMemberAsync` (lines 463–471); both verified live (step 15 + code read).
+- User search excludes current user (`u.Id != userId` at `GroupEndpoints.cs:500`); verified live (step 6, admin searching "Admin" → []).
+- Web DTO alignment: `packages/shared/src/types/groups.ts` `GroupSummary` fields exactly match API's `GroupSummaryDto` JSON shape observed on the wire (`id, name, description, coverImageUrl, defaultServings, isPrivateCollection, memberCount, myRole`).
+- German UI copy spot-checks: "Gruppe erstellen", "Abbrechen", "Erstellen", "Offene Gruppen-Einladungen", "Neue Einladungen", "Annehmen", "Ablehnen", "hat dich in die Gruppe … eingeladen", "Private Sammlung kann nicht gelöscht werden.", "Die Gruppe muss mindestens eine:n Admin behalten." All idiomatic German; code/identifiers stay English.
+- TanStack Query cache invalidation spot-check: `useCreateGroup` invalidates `['groups','mine']`; `useAcceptInvite` invalidates `['groups','invites','received']` + `['groups','mine']`; `useDeclineInvite` invalidates `['groups','invites','received']`; `useInviteToGroup` invalidates `['groups','detail',id]` + `['groups','members',id]`. ✓
+
+### Deviation check
+
+- **Startup backfill for pre-S2 users (S2 agent's single documented deviation):** Accepted. Rationale: signup auto-create only fires for new users; pre-existing seed admin (or any DB carried forward across migrations) would otherwise not have a Private Sammlung. The backfill loop is strictly idempotent (short-circuits on existing membership), runs only when `anyUser` already exists (so it's a no-op on first boot when the seed path takes over), and keeps the logic co-located with the other seeding in `SeedDataService`. Verified live: admin's `GET /api/groups/` lists a Private Sammlung despite admin being seeded in S1. No user-facing impact.
+
+### Verdict
+
+All 149 .NET + 73 web tests actually pass. Lint clean. Docker stack healthy. Every endpoint in the S2 spec is implemented, secured, and behaves correctly against the real DI graph. All four business-rule error codes (`private_collection_protected`, `last_admin`, `already_member`, `invite_pending`) round-tripped against the live stack with the expected payloads. The filtered partial unique index is present in both the migration and the model snapshot, and has a dedicated idempotence test. Current-user and group-member exclusion in user search both verified live. Backfill deviation is clean, idempotent, and tested in spirit by the idempotence tests on `EnsurePrivateCollectionAsync`. TDD ordering improved over S1 — API endpoint tests now precede implementation commits.
+
+**S2 flipped `in_review` → `done`.**
