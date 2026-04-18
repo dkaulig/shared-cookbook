@@ -73,9 +73,10 @@ export function HomePage() {
       setShowCreate(true)
       return
     }
-    if (list.length === 1) {
+    const only = list[0]
+    if (list.length === 1 && only) {
       // Single group → deterministic direct navigation, no surprise jump.
-      navigateWithPreset(list[0].id, filterPreset)
+      navigateWithPreset(only.id, filterPreset)
       return
     }
     // Multiple groups → ask the user which one to filter.
