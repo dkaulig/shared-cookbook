@@ -154,6 +154,7 @@ app.UseAuthorization();
 app.MapHealthEndpoints();
 app.MapAuthEndpoints();
 app.MapInviteEndpoints();
+app.MapGroupEndpoints();
 
 // ── Migrate + seed on startup (skipped in Testing environment) ────────
 if (!app.Environment.IsEnvironment("Testing"))
