@@ -4,6 +4,7 @@ import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { RecipeList } from '@/features/recipes/RecipeList'
 import { RecipeFilterPanel } from '@/features/search/RecipeFilterPanel'
+import { Skeleton } from '@/components/ui/skeleton'
 import { EditGroupDialog } from './EditGroupDialog'
 import { InviteMemberDialog } from './InviteMemberDialog'
 import {
@@ -35,7 +36,18 @@ export function GroupDetailPage() {
 
   if (detail.isLoading) {
     return (
-      <main className="mx-auto max-w-3xl px-6 py-10 text-stone-500">Lade …</main>
+      <main className="mx-auto max-w-3xl px-6 py-10" aria-label="Gruppe wird geladen">
+        <Skeleton className="mb-4 h-4 w-32" />
+        <Skeleton className="mb-3 h-10 w-2/3" />
+        <Skeleton className="mb-6 h-4 w-1/2" />
+        <div className="mb-8 space-y-2 rounded-md bg-background p-4 ring-1 ring-border">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+        <Skeleton className="h-36 w-full" />
+      </main>
     )
   }
 

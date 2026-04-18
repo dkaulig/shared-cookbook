@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/features/auth/useAuth'
 import { CreateGroupDialog } from './CreateGroupDialog'
 import { ReceivedInvitesBanner } from './ReceivedInvitesBanner'
@@ -38,7 +39,15 @@ export function GroupsPage() {
 
       <ReceivedInvitesBanner />
 
-      {groups.isLoading && <p className="text-stone-500">Lade …</p>}
+      {groups.isLoading && (
+        <ul className="grid gap-3 sm:grid-cols-2" aria-label="Gruppen werden geladen">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <li key={i}>
+              <Skeleton className="h-28 w-full" />
+            </li>
+          ))}
+        </ul>
+      )}
       {groups.isError && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
           Gruppen konnten nicht geladen werden.

@@ -79,6 +79,22 @@ function withProviders(path: string): ReactNode {
 }
 
 describe('RecipeDetailPage', () => {
+  it('shows skeleton placeholders while the recipe is loading', async () => {
+    let resolveRecipe: ((value: RecipeDetailDto) => void) | undefined
+    server.use(
+      http.get('/api/recipes/r1', () => new Promise<Response>((resolve) => {
+        resolveRecipe = (body) => resolve(HttpResponse.json(body))
+      })),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+
+    const skeletons = await screen.findAllByRole('status')
+    expect(skeletons.length).toBeGreaterThan(3)
+
+    resolveRecipe?.(recipe)
+    expect(await screen.findByRole('heading', { name: /Spätzle/ })).toBeInTheDocument()
+  })
+
   it('renders title, description, ingredients, steps and tags', async () => {
     render(withProviders('/groups/g1/recipes/r1'))
     expect(await screen.findByRole('heading', { name: /Spätzle/ })).toBeInTheDocument()
