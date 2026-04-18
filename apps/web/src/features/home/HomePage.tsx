@@ -6,6 +6,7 @@ import { Check, Clock, Leaf, Plus, Shuffle, Soup, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/useAuth'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
+import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { ReceivedInvitesBanner } from '@/features/groups/ReceivedInvitesBanner'
 import { useMyGroups } from '@/features/groups/useMyGroups'
 import { useRecentlyCooked } from '@/features/recipes/useRecentlyCooked'
@@ -33,6 +34,11 @@ export function HomePage() {
   const navigate = useNavigate()
   const groups = useMyGroups()
   const [showCreate, setShowCreate] = useState(false)
+  // BF1 #6 — when the chip-press fires for a multi-group user we open
+  // the group-picker instead of teleporting them into "the biggest
+  // group". Holding the active preset alongside the picker state lets
+  // the picker callback navigate with the right query string.
+  const [pickerPreset, setPickerPreset] = useState<string | null>(null)
 
   const biggestGroup = useMemo<GroupSummary | undefined>(() => {
     if (!groups.data || groups.data.length === 0) return undefined
@@ -55,14 +61,25 @@ export function HomePage() {
     return map
   }, [groups.data])
 
-  function goToBiggestGroup(filterPreset: string | null) {
-    if (biggestGroup) {
-      const qs = filterPreset ? `?preset=${encodeURIComponent(filterPreset)}` : ''
-      navigate(`/groups/${biggestGroup.id}${qs}`)
+  function navigateWithPreset(groupId: string, filterPreset: string | null) {
+    const qs = filterPreset ? `?preset=${encodeURIComponent(filterPreset)}` : ''
+    navigate(`/groups/${groupId}${qs}`)
+  }
+
+  function handlePresetChip(filterPreset: string | null) {
+    const list = groups.data ?? []
+    if (list.length === 0) {
+      // No groups yet → the user needs to create one before filtering.
+      setShowCreate(true)
       return
     }
-    // No groups yet → the user needs to create one before filtering.
-    setShowCreate(true)
+    if (list.length === 1) {
+      // Single group → deterministic direct navigation, no surprise jump.
+      navigateWithPreset(list[0].id, filterPreset)
+      return
+    }
+    // Multiple groups → ask the user which one to filter.
+    setPickerPreset(filterPreset)
   }
 
   return (
@@ -85,21 +102,21 @@ export function HomePage() {
           <Chip
             primary
             icon={<Clock className="h-3.5 w-3.5" />}
-            onClick={() => goToBiggestGroup('quick')}
+            onClick={() => handlePresetChip('quick')}
           >
             Schnell (&lt; 30 Min)
           </Chip>
-          <Chip icon={<Soup className="h-3.5 w-3.5" />} onClick={() => goToBiggestGroup('warm')}>
+          <Chip icon={<Soup className="h-3.5 w-3.5" />} onClick={() => handlePresetChip('warm')}>
             Warm
           </Chip>
-          <Chip icon={<Leaf className="h-3.5 w-3.5" />} onClick={() => goToBiggestGroup('veggie')}>
+          <Chip icon={<Leaf className="h-3.5 w-3.5" />} onClick={() => handlePresetChip('veggie')}>
             Vegetarisch
           </Chip>
-          <Chip icon={<Shuffle className="h-3.5 w-3.5" />} onClick={() => goToBiggestGroup('random')}>
+          <Chip icon={<Shuffle className="h-3.5 w-3.5" />} onClick={() => handlePresetChip('random')}>
             Zufall
           </Chip>
-          <Chip onClick={() => goToBiggestGroup('season')}>{season}</Chip>
-          <Chip onClick={() => goToBiggestGroup('easy')}>Wenig Aufwand</Chip>
+          <Chip onClick={() => handlePresetChip('season')}>{season}</Chip>
+          <Chip onClick={() => handlePresetChip('easy')}>Wenig Aufwand</Chip>
         </div>
       </section>
 
@@ -197,6 +214,18 @@ export function HomePage() {
       </section>
 
       {showCreate && <CreateGroupDialog onClose={() => setShowCreate(false)} />}
+
+      {pickerPreset !== null && groups.data && groups.data.length > 1 && (
+        <GroupPickerDialog
+          groups={groups.data}
+          onPick={(group) => {
+            const preset = pickerPreset
+            setPickerPreset(null)
+            navigateWithPreset(group.id, preset)
+          }}
+          onClose={() => setPickerPreset(null)}
+        />
+      )}
     </div>
   )
 }
