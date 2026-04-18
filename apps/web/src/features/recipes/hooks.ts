@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   CreateRecipeRequest,
+  ForkRecipeRequest,
   RecipeDetailDto,
   RecipeSummaryListDto,
   TagDto,
@@ -14,6 +15,7 @@ import {
   fetchGroupRecipes,
   fetchGroupTags,
   fetchRecipe,
+  forkRecipe,
   updateRecipe,
   uploadRecipePhoto,
 } from './recipesApi'
@@ -94,6 +96,19 @@ export function useUploadRecipePhoto(id: string) {
     mutationFn: (file) => uploadRecipePhoto(id, file),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: recipeQueryKeys.detail(id) })
+    },
+  })
+}
+
+export function useForkRecipe(id: string) {
+  const client = useQueryClient()
+  return useMutation<RecipeDetailDto, Error, ForkRecipeRequest>({
+    mutationFn: (body) => forkRecipe(id, body),
+    onSuccess: (data) => {
+      // The new recipe lives in another group; refresh that group's list
+      // and the new recipe's detail cache.
+      void client.invalidateQueries({ queryKey: [...recipeQueryKeys.all, 'group', data.groupId] })
+      void client.invalidateQueries({ queryKey: recipeQueryKeys.detail(data.id) })
     },
   })
 }
