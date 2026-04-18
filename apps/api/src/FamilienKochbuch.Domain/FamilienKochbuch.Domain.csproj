@@ -3,6 +3,11 @@
     <RootNamespace>FamilienKochbuch.Domain</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- IdentityUser&lt;TKey&gt; lives in Microsoft.Extensions.Identity.Stores; the EF store lives in
+         Microsoft.AspNetCore.Identity.EntityFrameworkCore which is referenced by Infrastructure. -->
+    <PackageReference Include="Microsoft.Extensions.Identity.Stores" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="FamilienKochbuch.Domain.Tests" />
   </ItemGroup>
 </Project>
