@@ -23,7 +23,7 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS4 | Group Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 18 DS4 commits; 342 web (+60), 427 .NET, 32 shared = 801 green; lint clean; docker smoke ok; reviewer-verified |
 | DS5 | Recipe Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS5 commits; 392 web (+50), 432 .NET (+5 cook endpoint), 32 shared = 856 green; lint clean; docker smoke ok; reviewer-verified |
 | DS6 | Recipe Form | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 16 DS6 commits; 434 web (+42), 432 .NET, 32 shared = 898 green; lint clean; docker smoke ok; reviewer-verified |
-| DS7 | Polish + PWA | pending | — | — | — | — |
+| DS7 | Polish + PWA | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched after DS6 pass — final DS slice |
 
 ## Last orchestrator tick
 
