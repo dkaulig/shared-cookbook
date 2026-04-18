@@ -1,7 +1,7 @@
 {
   "name": "Familien-Kochbuch",
   "short_name": "Kochbuch",
-  "description": "Private Rezept-Sammlung fuer Familie und Freunde.",
+  "description": "Private Rezept-Sammlung für Familie und Freunde.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
