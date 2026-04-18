@@ -1,6 +1,6 @@
 # Design Implementation — Progress Tracker
 
-**Last updated:** 2026-04-18 (DS7 reviewed and approved — Phase 1.5 complete)
+**Last updated:** 2026-04-18 (GR1 Grundrezept-Tags landed on main)
 
 Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents update on every tick / completion.
 
@@ -27,17 +27,20 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 
 ## Last orchestrator tick
 
-- **Time:** 2026-04-18 (DS7 reviewed and approved — Phase 1.5 complete)
-- **Action:** DS7 Polish + PWA approved after independent review. 16 DS7 implementation commits landed plus 1 follow-up docs commit (`5ccf239`, GR1/PDF-export planning, TDD-exempt). All 5 TDD pairs verified (Skeleton, ErrorBoundary, NotFoundPage, WochenplanStub, ProfilStub — test-commit precedes feat-commit in every case). Manifest, iOS meta tags, primitives, stubs, screenshots, README embeds, and all 4 deviations accepted. Final counts pinned: 432 .NET + 442 web + 32 shared = 906 green. Docker stack healthy (6/6), manifest + icons + sw + health endpoints all 200, full smoke script (13 steps) exits 0. Phase 1.5 complete; Warme-Küche design implementation locked.
-- **Next:** orchestrator idle — await user direction on post-Phase-1.5 follow-ups (GR1 Grundrezept-Tags, PDF export v2, toast library, dark-mode toggle v2).
+- **Time:** 2026-04-18 (GR1 Grundrezept-Tags landed on main)
+- **Action:** GR1 follow-up slice complete. 7 commits (4 TDD pairs — Domain enum, Infra seed migration, Web category rendering — plus 1 type-level shared update and 1 TDD-exempt EF migration and tracker update). Enum gains `TagCategory.Komponente` at integer 7 (Custom stays at 6 so existing rows don't re-categorize); EF migration `20260418193334_AddKomponenteTagCategory` seeds 7 global tags (`Grundrezept`, `Teig`, `Sauce`, `Glasur`, `Dressing`, `Beilage`, `Topping`) with stable `a0000007-…` GUIDs; filter panel, form tag-picker, and CreateTagDialog all render the new category in source order `Mahlzeit → Saison → Typ → Aufwand → Diät → Küche → Komponente → Custom`. Final counts: 447 .NET (+15) + 446 web (+4) + 32 shared = **925 green**. Docker stack healthy 6/6, migration applied on boot, `curl … | jq '[.[] | select(.category == "Komponente")] | length'` returns 7, full smoke script (13 steps) exits 0.
+- **Next:** orchestrator idle — await user direction on remaining post-Phase-1.5 follow-ups (PDF export v2, toast library, dark-mode toggle v2).
 
 ## Blockers / pauses
 
 _(none)_
 
+## Follow-up slices
+
+- **GR1 — Grundrezept-Tags** — **done** 2026-04-18. 7 commits (`9f29ba4..d8b5a4a`); added `TagCategory.Komponente` (integer 7), seeded 7 global Komponente tags via `AddKomponenteTagCategory` migration, surfaced the new category in filter panel + form + create-tag dialog. 447 .NET + 446 web + 32 shared = 925 green; lint clean; docker smoke ok.
+
 ## Planned follow-ups (post-DS7)
 
-- **GR1 — Grundrezept-Tags**: introduce a new `TagCategory.Komponente` enum value, seed ~7 global tags (`Grundrezept`, `Teig`, `Sauce`, `Glasur`, `Dressing`, `Beilage`, `Topping`), update UI labels in filter panel + tag picker. Small slice (~6–10 commits). Unblocks users saving isolated sub-recipes like "Pizzateig für 4 Pizzen" or "Tomatensauce" with proper categorization. User-requested 2026-04-18; dispatch after DS7 passes review.
 - **Recipe composition (v2)**: cross-recipe linking where one recipe references another as a sub-ingredient (e.g. "Pizza Margherita verwendet 1× Pizzateig-Rezept"). Scales sub-recipe portions with the parent recipe. NOT in Phase 1 or 1.5; defer to Phase 2+.
 - **Recipe PDF export (v2)**: download a recipe as a PDF for printing or sharing via email/WhatsApp/Telegram. Two plausible implementations: (a) print-friendly CSS + browser-native "Save as PDF" dialog — simplest, no server dep, acceptable quality; (b) server-rendered PDF via `QuestPDF` in .NET or headless Chromium in the Python extractor microservice — better typography + branding but more infra. User-requested 2026-04-18; defer to Phase 2.
 
