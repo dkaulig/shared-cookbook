@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
+import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useDeleteRecipe, useRecipe } from './hooks'
 
 const DIFFICULTY_LABEL: Record<number, string> = {
@@ -170,6 +171,8 @@ export function RecipeDetailPage() {
           </a>
         </p>
       )}
+
+      <RatingWidget recipeId={recipe.id} />
     </main>
   )
 }

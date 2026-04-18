@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { RecipeList } from '@/features/recipes/RecipeList'
+import { RecipeFilterPanel } from '@/features/search/RecipeFilterPanel'
 import { EditGroupDialog } from './EditGroupDialog'
 import { InviteMemberDialog } from './InviteMemberDialog'
 import {
@@ -148,12 +149,22 @@ export function GroupDetailPage() {
       </section>
 
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-stone-900">Rezepte</h2>
-          <Button type="button" onClick={() => navigate(`/groups/${groupId}/recipes/new`)}>
-            + Rezept anlegen
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => navigate(`/groups/${groupId}/tags`)}
+            >
+              Tags verwalten
+            </Button>
+            <Button type="button" onClick={() => navigate(`/groups/${groupId}/recipes/new`)}>
+              + Rezept anlegen
+            </Button>
+          </div>
         </div>
+        <RecipeFilterPanel groupId={groupId} />
         <RecipeList groupId={groupId} />
       </section>
 

@@ -9,6 +9,7 @@ import { GroupsPage } from '@/features/groups/GroupsPage'
 import { GroupDetailPage } from '@/features/groups/GroupDetailPage'
 import { RecipeDetailPage } from '@/features/recipes/RecipeDetailPage'
 import { RecipeFormPage } from '@/features/recipes/RecipeFormPage'
+import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
 
 export default function App() {
   return (
@@ -39,6 +40,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <GroupDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/groups/:groupId/tags"
+          element={
+            <ProtectedRoute>
+              <TagManagementPage />
             </ProtectedRoute>
           }
         />

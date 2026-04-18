@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useGroupTags } from '@/features/recipes/hooks'
 import { useGroupMembers } from '@/features/groups/hooks'
+import { CreateTagDialog } from '@/features/tagManagement/CreateTagDialog'
 import { fetchRandomRecipe } from './searchApi'
 import { readFiltersFromSearchParams, writeFiltersToSearchParams } from './urlState'
 
@@ -49,6 +50,7 @@ export function RecipeFilterPanel({ groupId }: { groupId: string }) {
 
   const [randomError, setRandomError] = useState<string | null>(null)
   const [randomPending, setRandomPending] = useState(false)
+  const [showCreateTag, setShowCreateTag] = useState(false)
 
   function update(partial: Partial<RecipeSearchParams>) {
     const merged = { ...filters, ...partial }
@@ -112,7 +114,17 @@ export function RecipeFilterPanel({ groupId }: { groupId: string }) {
       </div>
 
       <div className="space-y-2">
-        <Label>Tags</Label>
+        <div className="flex items-center justify-between">
+          <Label>Tags</Label>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setShowCreateTag(true)}
+          >
+            + Eigenen Tag erstellen
+          </Button>
+        </div>
         {tagsQuery.isLoading ? (
           <p className="text-xs text-stone-500">Lade Tags …</p>
         ) : (
@@ -207,6 +219,10 @@ export function RecipeFilterPanel({ groupId }: { groupId: string }) {
           </select>
         </div>
       </div>
+
+      {showCreateTag && (
+        <CreateTagDialog groupId={groupId} onClose={() => setShowCreateTag(false)} />
+      )}
 
       <div className="space-y-1.5">
         <Label htmlFor="sort">Sortierung</Label>
