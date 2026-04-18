@@ -343,6 +343,37 @@ public class RecipeRevisionEndpointsTests : IClassFixture<FamilienKochbuchWebApp
         Assert.Equal(HttpStatusCode.NotFound, crossRes.StatusCode);
     }
 
+    // BF1 #2 — the seeded admin user must not surface as the literal role
+    // string "Admin" in revision history. The previous seed hard-coded
+    // DisplayName = "Admin" (the role label), confusing the recipient who
+    // expected a person's name. We assert the seed now produces a
+    // person-shaped display name that is distinct from the role enum name.
+    [Fact]
+    public async Task Seeded_Admin_Revision_Author_Is_Not_Role_Label()
+    {
+        var admin = await LoginAsync("admin@test.local", "AdminPassword123!");
+        AuthorizeClient(_client, admin.AccessToken);
+        var groupId = await CreateGroupAsync(_client, "Admin-Bezugsgruppe");
+
+        var create = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", BuildCreate("Adminrezept"));
+        create.EnsureSuccessStatusCode();
+        var recipe = (await create.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var listRes = await _client.GetAsync($"/api/recipes/{recipe.Id}/revisions");
+        Assert.Equal(HttpStatusCode.OK, listRes.StatusCode);
+        var revisions = (await listRes.Content.ReadFromJsonAsync<RecipeRevisionEndpoints.RevisionSummaryDto[]>())!;
+        var only = Assert.Single(revisions);
+
+        // Root-cause check: the projection must surface the user's
+        // DisplayName, not the application Role enum value. Equally
+        // important — the seed must not assign the role string itself
+        // as a display name.
+        Assert.False(string.IsNullOrWhiteSpace(only.ChangedBy.DisplayName));
+        Assert.NotEqual(UserRole.Admin.ToString(), only.ChangedBy.DisplayName);
+        Assert.NotEqual("Admin", only.ChangedBy.DisplayName);
+        Assert.Equal(admin.User.DisplayName, only.ChangedBy.DisplayName);
+    }
+
     [Fact]
     public async Task NonMember_Get_Specific_Revision_403()
     {
