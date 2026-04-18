@@ -35,10 +35,30 @@ describe('<ErrorBoundary />', () => {
         <Exploder />
       </ErrorBoundary>,
     )
-    expect(
-      screen.getByText(/Ups, da ist etwas schief gelaufen/i),
-    ).toBeInTheDocument()
+    const heading = screen.getByRole('heading', {
+      level: 1,
+      name: /ups, da ist etwas schief gelaufen/i,
+    })
+    expect(heading).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Neu laden/i })).toBeInTheDocument()
+  })
+
+  it('uses the warm-palette serif typography for the fallback heading (DS7)', () => {
+    render(
+      <ErrorBoundary>
+        <Exploder />
+      </ErrorBoundary>,
+    )
+    const heading = screen.getByRole('heading', {
+      level: 1,
+      name: /ups, da ist etwas schief gelaufen/i,
+    })
+    // Pin the Cormorant Garamond headline and the cream token so the
+    // fallback doesn't regress back to shadcn-neutral stone greys.
+    expect(heading.className).toMatch(/font-serif/)
+    const main = heading.closest('main')
+    expect(main).not.toBeNull()
+    expect(main!.className).toMatch(/bg-background/)
   })
 
   it('calls window.location.reload() when the reload button is clicked', async () => {
