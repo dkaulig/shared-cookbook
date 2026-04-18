@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { ApiError, AuthResponse, InvitePreview } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuthStore } from './authStore'
@@ -16,6 +23,11 @@ type PreviewState =
 /**
  * /signup?token=... — form backed by a valid AppInvite. Fetches the
  * preview so the recipient sees who invited them before they register.
+ *
+ * DS2 restyle: matches the Warme-Küche visual grammar from `LoginPage`.
+ * The kicker pill shows the inviter's display name ("{Name} lädt dich
+ * zum Familien-Kochbuch ein"). Form fields: Anzeigename, E-Mail,
+ * Passwort. Disabled until the preview is `ok`.
  */
 export function SignupPage() {
   const [params] = useSearchParams()
@@ -100,73 +112,124 @@ export function SignupPage() {
     }
   }
 
+  const inviterName = preview.status === 'ok' ? preview.preview.inviterDisplayName ?? 'Jemand' : null
+
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-12">
-      <h1 className="mb-6 text-3xl font-bold tracking-tight text-stone-900">Registrieren</h1>
-
-      {preview.status === 'loading' && (
-        <p className="mb-4 text-sm text-stone-600">Einladung wird geprüft …</p>
-      )}
-
-      {preview.status === 'error' && (
-        <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
-          {preview.message}
+    <div className="mx-auto mt-10 flex w-full max-w-[440px] flex-col md:mt-16">
+      <section className="mb-8 text-center">
+        <span className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-primary">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+          {inviterName ? `${inviterName} lädt dich ein` : 'Einladung prüfen'}
+        </span>
+        <h1 className="font-serif text-[clamp(38px,9vw,52px)] font-semibold leading-none tracking-[-0.015em]">
+          Willkommen in der Familie
+        </h1>
+        <p className="mt-4 font-serif-body text-[17px] italic leading-[1.5] text-muted-foreground">
+          {inviterName
+            ? `${inviterName} lädt dich zum Familien-Kochbuch ein.`
+            : 'Mit deinem Einladungs-Link bist du gleich dabei.'}
+          <br />
+          Leg ein Konto an und koch mit.
         </p>
-      )}
+      </section>
 
-      {preview.status === 'ok' && (
-        <p className="mb-4 text-sm text-stone-700">
-          Einladung von <strong>{preview.preview.inviterDisplayName ?? 'jemandem'}</strong>.
-        </p>
-      )}
+      <Card className="rounded-[20px] shadow-[0_10px_30px_-12px_rgba(146,64,14,0.18),0_2px_6px_-2px_rgba(28,25,23,0.06)]">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-[26px]">Registrieren</CardTitle>
+          <CardDescription>
+            Dein Anzeigename erscheint bei deinen Rezepten und Bewertungen in
+            der Gruppe.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {preview.status === 'loading' && (
+            <p className="mb-4 text-sm text-muted-foreground">Einladung wird geprüft …</p>
+          )}
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="displayName">Anzeigename</Label>
-          <Input
-            id="displayName"
-            autoComplete="nickname"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            disabled={preview.status !== 'ok'}
-          />
-        </div>
+          {preview.status === 'error' && (
+            <p
+              role="alert"
+              className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+            >
+              {preview.message}
+            </p>
+          )}
 
-        <div className="space-y-1.5">
-          <Label htmlFor="email">E-Mail</Label>
-          <Input
-            id="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={preview.status !== 'ok'}
-          />
-        </div>
+          <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="displayName">Anzeigename</Label>
+              <Input
+                id="displayName"
+                autoComplete="nickname"
+                placeholder="z.B. Oma Erna"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                disabled={preview.status !== 'ok'}
+              />
+            </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="password">Passwort</Label>
-          <Input
-            id="password"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={preview.status !== 'ok'}
-          />
-        </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="email">E-Mail-Adresse</Label>
+              <Input
+                id="email"
+                type="email"
+                inputMode="email"
+                placeholder="du@familie.de"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={preview.status !== 'ok'}
+              />
+            </div>
 
-        {error && (
-          <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
-            {error}
+            <div className="space-y-1.5">
+              <Label htmlFor="password">Passwort</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="Mindestens 8 Zeichen"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={preview.status !== 'ok'}
+              />
+            </div>
+
+            {error && (
+              <p
+                role="alert"
+                className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+              >
+                {error}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              size="lg"
+              className="mt-2 w-full"
+              disabled={submitting || preview.status !== 'ok'}
+            >
+              Registrieren
+            </Button>
+          </form>
+
+          <div className="my-6 flex items-center gap-3 text-[12px] uppercase tracking-[0.06em] text-[hsl(24_5%_47%)]">
+            <span className="h-px flex-1 bg-border" aria-hidden="true" />
+            oder
+            <span className="h-px flex-1 bg-border" aria-hidden="true" />
+          </div>
+
+          <p className="text-center text-sm leading-[1.5] text-muted-foreground">
+            Du hast bereits ein Konto?
+            <br />
+            <Link to="/login" className="font-semibold text-primary hover:underline">
+              Anmelden →
+            </Link>
           </p>
-        )}
-
-        <Button type="submit" className="w-full" disabled={submitting || preview.status !== 'ok'}>
-          Registrieren
-        </Button>
-      </form>
-    </main>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
