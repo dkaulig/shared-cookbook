@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { RecipeFormPage } from './RecipeFormPage'
+import type { CreateRecipeRequest } from '@familien-kochbuch/shared'
 
 beforeEach(() => {
   useAuthStore.setState({
@@ -108,4 +109,75 @@ describe('RecipeFormPage (create)', () => {
 
     await waitFor(() => expect(posted).toBe(true))
   })
+
+  it('reorders ingredient rows via keyboard sensor and persists the new order on submit', async () => {
+    const user = userEvent.setup()
+    let capturedPayload: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        capturedPayload = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-reordered',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+
+    // Build 3 ingredient rows with distinguishable names [Mehl, Zucker, Salz].
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.click(screen.getByRole('button', { name: /Zutat hinzufügen/i }))
+    await user.type(screen.getByLabelText(/Zutat 2 Name/i), 'Zucker')
+    await user.click(screen.getByRole('button', { name: /Zutat hinzufügen/i }))
+    await user.type(screen.getByLabelText(/Zutat 3 Name/i), 'Salz')
+
+    // Need at least one step for client validation.
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Kochen.')
+
+    // Grab the drag handle on the first ingredient and move it down one slot
+    // with the @dnd-kit keyboard sensor: Space activates, ArrowDown moves,
+    // Space drops. Expected result: [Zucker, Mehl, Salz].
+    const firstHandle = screen.getByTestId('ingredient-drag-handle-0')
+    firstHandle.focus()
+    fireEvent.keyDown(firstHandle, { key: ' ', code: 'Space' })
+    fireEvent.keyDown(firstHandle, { key: 'ArrowDown', code: 'ArrowDown' })
+    fireEvent.keyDown(firstHandle, { key: ' ', code: 'Space' })
+
+    // Visually the inputs should now reflect the new order.
+    await waitFor(() => {
+      const names = screen
+        .getAllByLabelText(/Zutat \d+ Name/i)
+        .map((el) => (el as HTMLInputElement).value)
+      expect(names).toEqual(['Zucker', 'Mehl', 'Salz'])
+    })
+
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    await waitFor(() => expect(capturedPayload).not.toBeNull())
+    expect(capturedPayload!.ingredients.map((i) => i.name)).toEqual([
+      'Zucker',
+      'Mehl',
+      'Salz',
+    ])
+    // Positions must be renumbered 0..n-1 to match the new visual order.
+    expect(capturedPayload!.ingredients.map((i) => i.position)).toEqual([0, 1, 2])
+  })
+
 })
