@@ -124,3 +124,24 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/*
+ * DS2 — scoped parchment dotted grid for the auth shell.
+ *
+ * The mockup (`docs/mockups/warme-kueche-login.html`) paints this via
+ * `body::before`. We scope it to the `<AuthLayout>` wrapper so protected
+ * routes (home, groups, recipes) get a clean background from DS3 onward.
+ */
+.auth-parchment::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    hsl(var(--primary) / 0.06) 1px,
+    transparent 0
+  );
+  background-size: 24px 24px;
+}
