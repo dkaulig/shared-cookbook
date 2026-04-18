@@ -5,6 +5,9 @@ Exposes:
   Docker HEALTHCHECK and the .NET orchestrator.
 - ``POST /extract/url`` — accepts a URL + caller hint, runs the full
   video/blog extraction pipeline, returns a structured recipe result.
+- ``POST /extract/photos`` — accepts 1..10 signed photo URLs + caller
+  hint, runs the Vision-LLM pipeline, returns the same structured
+  recipe shape (P2-3).
 - ``POST /chat`` — one conversational turn with the koch-assistent.
 - ``POST /chat/{session_id}/to-recipe`` — verdichte den Dialog zu
   einem strukturierten Rezept.
@@ -34,6 +37,7 @@ from extractor.pipeline.chat import (
     chat_to_recipe,
     chat_turn,
 )
+from extractor.pipeline.photo import extract_from_photos
 from extractor.pipeline.types import ExtractionResult
 from extractor.pipeline.url import extract_from_url
 from extractor.pipeline.video import (
@@ -84,6 +88,28 @@ class ExtractUrlRequest(BaseModel):
 
     url: HttpUrl = Field(description="Source URL — video host or blog URL.")
     hint: ExtractHint
+
+
+class ExtractPhotosRequest(BaseModel):
+    """Body of ``POST /extract/photos`` (P2-3).
+
+    ``photo_urls`` arrives as a list of ``HttpUrl`` so pydantic rejects
+    non-http[s] schemes at the edge (HTTP 422). The pipeline layer
+    enforces the 1..10 cap + non-empty strings; we don't duplicate the
+    cap in the pydantic model because the pipeline's German error
+    message ("Maximal 10 Fotos pro Import.") is what the frontend
+    wants to render verbatim, not a generic pydantic ValidationError.
+    """
+
+    photo_urls: list[HttpUrl] = Field(
+        description=(
+            "Ordered list of signed photo URLs. Order defines reading "
+            "sequence for multi-page recipes — page 1 first."
+        ),
+    )
+    hint: ExtractHint
+
+    model_config = {"extra": "forbid"}
 
 
 class ChatMessageModel(BaseModel):
@@ -211,9 +237,14 @@ def _http_from_llm_error(exc: LLMProviderError) -> HTTPException:
 
 
 def _http_from_extraction_error(exc: ExtractionError) -> HTTPException:
-    """Map :class:`ExtractionError.code` → HTTP status."""
-    if exc.code == "source_unavailable":
-        # The URL is the caller's mistake (private / dead link) — 422.
+    """Map :class:`ExtractionError.code` → HTTP status.
+
+    - ``source_unavailable`` (dead/private URL) → 422.
+    - ``invalid_input`` (P2-3: bad photo count / bad scheme) → 422.
+    - ``transcription_failed`` — Whisper model trouble → 500.
+    """
+    if exc.code in ("source_unavailable", "invalid_input"):
+        # Caller-side mistakes — surface the German message verbatim.
         return HTTPException(status_code=422, detail=str(exc))
     # transcription_failed — model trouble. 500.
     return HTTPException(status_code=500, detail=str(exc))
@@ -311,6 +342,39 @@ def create_app() -> FastAPI:
             raise _http_from_llm_error(exc) from exc
         except ExtractionError as exc:
             raise _http_from_extraction_error(exc) from exc
+
+    @application.post("/extract/photos", tags=["extract"])
+    async def extract_photos(
+        request: ExtractPhotosRequest,
+        provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+    ) -> ExtractionResult:
+        """Run the photos → structured-recipe pipeline (P2-3).
+
+        Delegates input-shape validation (http[s] scheme, list-of-URL
+        shape) to pydantic, and count + empty-string validation to the
+        pipeline (so the German error message from the pipeline is what
+        the frontend renders).
+
+        Error mapping:
+        - :class:`ExtractionError` ``invalid_input`` → 422.
+        - :class:`LLMProviderError` ``provider_unavailable`` /
+          ``rate_limited`` → 503. Other codes → 500.
+        """
+        logger.info(
+            "extract_photos request group_id=%s user_id=%s count=%d",
+            request.hint.group_id,
+            request.hint.user_id,
+            len(request.photo_urls),
+        )
+        # ``HttpUrl`` → ``str`` round-trip: the pipeline accepts plain
+        # str URLs; pydantic's HttpUrl is just the validation hop.
+        urls: list[str] = [str(u) for u in request.photo_urls]
+        try:
+            return await extract_from_photos(urls, provider=provider)
+        except ExtractionError as exc:
+            raise _http_from_extraction_error(exc) from exc
+        except LLMProviderError as exc:
+            raise _http_from_llm_error(exc) from exc
 
     @application.post("/chat", response_model=ChatResponse, tags=["chat"])
     async def chat_endpoint(
