@@ -186,4 +186,32 @@ public class GroupTests
         Assert.Throws<ArgumentException>(() =>
             group.UpdateMetadata(name: null, description: null, defaultServings: 0m, coverImageUrl: null));
     }
+
+    [Fact]
+    public void Constructor_Rejects_DefaultServings_Above_Max()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new Group("Familie", null, DateTimeOffset.UtcNow,
+                defaultServings: Group.MaxDefaultServings + 0.5m));
+    }
+
+    [Fact]
+    public void Constructor_Accepts_DefaultServings_At_Max_Boundary()
+    {
+        var group = new Group("Familie", null, DateTimeOffset.UtcNow,
+            defaultServings: Group.MaxDefaultServings);
+
+        Assert.Equal(Group.MaxDefaultServings, group.DefaultServings);
+    }
+
+    [Fact]
+    public void UpdateMetadata_Rejects_DefaultServings_Above_Max()
+    {
+        var group = new Group("Familie", null, DateTimeOffset.UtcNow);
+
+        Assert.Throws<ArgumentException>(() =>
+            group.UpdateMetadata(name: null, description: null,
+                defaultServings: Group.MaxDefaultServings + 0.5m,
+                coverImageUrl: null));
+    }
 }
