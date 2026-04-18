@@ -67,6 +67,7 @@ builder.Services.AddScoped<SeedDataService>();
 builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
 builder.Services.AddScoped<IPrivateCollectionService, PrivateCollectionService>();
 builder.Services.AddScoped<IRecipeSearchService, PostgresRecipeSearchService>();
+builder.Services.AddScoped<IRecipeRevisionService, RecipeRevisionService>();
 builder.Services.AddScoped<PhotoPathMigrationService>();
 
 // ── Photo URL signing (HMAC over path+exp, keyed off Jwt:SigningKey) ──
@@ -171,6 +172,7 @@ app.MapAuthEndpoints();
 app.MapInviteEndpoints();
 app.MapGroupEndpoints();
 app.MapRecipeEndpoints();
+app.MapRecipeRevisionEndpoints();
 app.MapRatingEndpoints();
 app.MapSearchEndpoints();
 app.MapPhotoProxyEndpoints();

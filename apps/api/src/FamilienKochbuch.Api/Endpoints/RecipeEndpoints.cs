@@ -253,6 +253,7 @@ public static class RecipeEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         IPhotoStorage photoStorage,
+        IRecipeRevisionService revisionService,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -312,6 +313,11 @@ public static class RecipeEndpoints
         {
             return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
         }
+
+        // S6: record the initial Created revision so the history panel
+        // shows authorship from day one.
+        await revisionService.RecordAsync(
+            recipe.Id, userId, RecipeChangeType.Created, clock.GetUtcNow(), ct);
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
         return Results.Created($"/api/recipes/{recipe.Id}", detail);
@@ -445,6 +451,7 @@ public static class RecipeEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         IPhotoStorage photoStorage,
+        IRecipeRevisionService revisionService,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -505,6 +512,12 @@ public static class RecipeEndpoints
 
         // Reload to project the detail DTO from fresh state.
         recipe = (await LoadRecipeWithChildrenAsync(db, recipe.Id, ct))!;
+
+        // S6: record an Edited revision. The service is a no-op when the
+        // resulting snapshot deep-equals the previous one, so PUTs that
+        // don't actually change the body don't pollute history.
+        await revisionService.RecordAsync(
+            recipe.Id, userId, RecipeChangeType.Edited, clock.GetUtcNow(), ct);
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
         return Results.Ok(detail);
@@ -642,6 +655,7 @@ public static class RecipeEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         IPhotoStorage photoStorage,
+        IRecipeRevisionService revisionService,
         TimeProvider clock,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
@@ -766,6 +780,20 @@ public static class RecipeEndpoints
         {
             return Results.BadRequest(new ErrorResponse("invalid_input", ex.Message));
         }
+
+        // S6 follow-up from S5: emit a Created revision on the fork itself
+        // with a German hint that surfaces the source. We mention the
+        // source recipe's title and originating group so the history
+        // panel reads naturally even when the original is in a group the
+        // current user can't reach.
+        var sourceGroupName = await db.Groups
+            .Where(g => g.Id == source.GroupId)
+            .Select(g => g.Name)
+            .FirstOrDefaultAsync(ct) ?? "anderer Gruppe";
+        var sourceDescription = $"Geforkt aus Gruppe {sourceGroupName}: {source.Title}";
+        await revisionService.RecordAsync(
+            fork.Id, userId, RecipeChangeType.Created, clock.GetUtcNow(), ct,
+            sourceDescription: sourceDescription);
 
         // Reload to project detail (e.g. ordered children, tag details).
         var reloaded = (await LoadRecipeWithChildrenAsync(db, fork.Id, ct))!;
