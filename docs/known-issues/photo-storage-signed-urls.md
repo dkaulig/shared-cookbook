@@ -1,3 +1,8 @@
+**Status: RESOLVED (2026-04-18).**
+Migrated to hoppr-style signed URL + proxy pattern. See commit range `5035b20..beb1966` on main.
+
+---
+
 # Known Issue — Photo Storage uses Public S3 URLs Instead of Signed Backend-Proxied URLs
 
 **Filed:** 2026-04-18 (after S3 completion)
