@@ -1,6 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+// Bundle Inter / Cormorant Garamond / Libre Baskerville locally so the
+// Warme-Küche theme works offline and does not call Google Fonts.
+import './styles/fonts'
 import './index.css'
 import App from './App.tsx'
 import { PwaUpdatePrompt } from './pwa/PwaUpdatePrompt'
