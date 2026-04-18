@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
 import { UploadCloud, X } from 'lucide-react'
 import type { ApiError } from '@familien-kochbuch/shared'
@@ -6,7 +6,28 @@ import { cn } from '@/lib/utils'
 import { recipePhotoGradient } from './recipePhotoGradient'
 import { useRemoveRecipePhoto, useUploadRecipePhoto } from './hooks'
 
-export interface PhotoUploadGridProps {
+/**
+ * UX1-PU extends the grid with a `mode` discriminated-union prop so the
+ * same visual shell serves both the edit-mode (live upload) and the
+ * create-mode (staged-in-memory files) flows:
+ *
+ *   - mode='live'   → takes `recipeId` + `photos: string[]`; fires real
+ *                     upload / remove mutations against the backend.
+ *   - mode='staged' → takes `files: File[]` + `onFilesChange(files)`;
+ *                     previews via URL.createObjectURL and revokes on
+ *                     remove/unmount. No network calls.
+ *
+ * Backward-compatible: omitting `mode` defaults to 'live' so the
+ * pre-UX1-PU call-site (`<PhotoUploadGrid recipeId={id} photos={xs} />`)
+ * keeps working unchanged.
+ */
+
+export type PhotoUploadGridProps =
+  | LiveProps
+  | StagedProps
+
+interface LiveProps {
+  mode?: 'live'
   /** Id of the recipe the photos belong to — drives the upload / remove mutations. */
   recipeId: string
   /** Current signed URLs; we show the first three, one per slot. */
@@ -14,10 +35,23 @@ export interface PhotoUploadGridProps {
   className?: string
 }
 
+interface StagedProps {
+  mode: 'staged'
+  /** Currently staged File objects (parent-controlled). */
+  files: File[]
+  /** Fired with the next files array when the user adds / removes one. */
+  onFilesChange: (files: File[]) => void
+  className?: string
+}
+
 const MAX_PHOTOS = 3
 const LIMIT_ERROR = `Maximal ${MAX_PHOTOS} Fotos pro Rezept — entferne zuerst ein vorhandenes Bild.`
 const UNSUPPORTED_TYPE_ERROR = 'Nur JPG, PNG oder WebP unterstützt.'
 const ACCEPT = ['image/jpeg', 'image/png', 'image/webp'] as const
+
+function isStaged(props: PhotoUploadGridProps): props is StagedProps {
+  return props.mode === 'staged'
+}
 
 /**
  * DS6 three-slot photo upload grid. Mirrors `.photos` + `.photo-slot` in
@@ -35,15 +69,25 @@ const ACCEPT = ['image/jpeg', 'image/png', 'image/webp'] as const
  *     `role="alert"` message instead of silently ignoring.
  *   - Rejects files whose MIME type isn't JPG/PNG/WebP — same error
  *     channel.
- *   - Delegates the actual request to `useUploadRecipePhoto` /
+ *   - Live mode: delegates the request to `useUploadRecipePhoto` /
  *     `useRemoveRecipePhoto`, so the page's TanStack cache invalidation
- *     (and photos-array refresh) is handled by the hook.
+ *     is handled by the hook.
+ *   - Staged mode: mutates the parent's `files` array via
+ *     `onFilesChange`; previews via `URL.createObjectURL` with revoke on
+ *     remove + unmount so blob refs don't leak.
  *
- * While a request is in flight, the slot shows a "Lade …" placeholder
- * over the gradient so the user gets feedback. Errors persist in
- * `role="alert"` until the next action.
+ * While a live request is in flight, the slot shows a "Lade …"
+ * placeholder over the gradient so the user gets feedback. Errors
+ * persist in `role="alert"` until the next action.
  */
-export function PhotoUploadGrid({ recipeId, photos, className }: PhotoUploadGridProps) {
+export function PhotoUploadGrid(props: PhotoUploadGridProps) {
+  if (isStaged(props)) {
+    return <StagedGrid {...props} />
+  }
+  return <LiveGrid {...props} />
+}
+
+function LiveGrid({ recipeId, photos, className }: LiveProps) {
   const upload = useUploadRecipePhoto(recipeId)
   const remove = useRemoveRecipePhoto(recipeId)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -51,12 +95,6 @@ export function PhotoUploadGrid({ recipeId, photos, className }: PhotoUploadGrid
   const [dragActive, setDragActive] = useState(false)
 
   const atLimit = photos.length >= MAX_PHOTOS
-  const emptySlots = Math.max(0, MAX_PHOTOS - photos.length)
-  // Always render exactly 3 slots — filled first, drop-zones after.
-  const slots: Array<{ kind: 'filled'; url: string; index: number } | { kind: 'empty'; index: number }> = [
-    ...photos.slice(0, MAX_PHOTOS).map((url, i) => ({ kind: 'filled' as const, url, index: i })),
-    ...Array.from({ length: emptySlots }, (_, i) => ({ kind: 'empty' as const, index: photos.length + i })),
-  ]
 
   async function acceptFiles(files: FileList | File[]) {
     setError(null)
@@ -87,15 +125,6 @@ export function PhotoUploadGrid({ recipeId, photos, className }: PhotoUploadGrid
     }
   }
 
-  function handleInputChange(e: ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files
-    if (files && files.length > 0) {
-      void acceptFiles(files)
-    }
-    // Reset so the same file can be re-selected after a remove.
-    e.target.value = ''
-  }
-
   async function handleRemove(url: string) {
     setError(null)
     try {
@@ -106,19 +135,193 @@ export function PhotoUploadGrid({ recipeId, photos, className }: PhotoUploadGrid
     }
   }
 
+  return (
+    <GridShell
+      className={className}
+      dragActive={dragActive}
+      onDragActiveChange={setDragActive}
+      acceptFiles={acceptFiles}
+      atLimit={atLimit}
+      isPending={upload.isPending}
+      inputDisabled={atLimit || upload.isPending}
+      fileInputRef={fileInputRef}
+      error={error}
+      slots={buildSlotsFromUrls(photos)}
+      onRemoveFilled={handleRemove}
+      filledPending={remove.isPending}
+    />
+  )
+}
+
+function StagedGrid({ files, onFilesChange, className }: StagedProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [dragActive, setDragActive] = useState(false)
+
+  // One blob URL per staged File, kept in state so it survives renders.
+  // The array always lines up 1:1 with `files`. We reconcile with the
+  // incoming `files` prop during render (React's set-state-during-render
+  // pattern) rather than in an effect — lets us avoid the
+  // "setState-in-effect" lint rule and keeps the URL lifecycle tied
+  // directly to when the file list changes. On unmount we revoke
+  // whatever's left.
+  const [previews, setPreviews] = useState<Array<{ file: File; url: string }>>(
+    () => files.map((f) => ({ file: f, url: URL.createObjectURL(f) })),
+  )
+  const [prevFiles, setPrevFiles] = useState(files)
+  if (files !== prevFiles) {
+    setPrevFiles(files)
+    const prevByFile = new Map(previews.map((p) => [p.file, p.url]))
+    const next = files.map((f) => {
+      const existing = prevByFile.get(f)
+      if (existing) {
+        prevByFile.delete(f)
+        return { file: f, url: existing }
+      }
+      return { file: f, url: URL.createObjectURL(f) }
+    })
+    // Anything left in `prevByFile` was removed from the list.
+    for (const stale of prevByFile.values()) {
+      URL.revokeObjectURL(stale)
+    }
+    setPreviews(next)
+  }
+
+  useEffect(() => {
+    // Revoke every remaining URL on unmount.
+    return () => {
+      for (const { url } of previews) {
+        URL.revokeObjectURL(url)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount cleanup only
+  }, [])
+
+  const atLimit = files.length >= MAX_PHOTOS
+
+  function acceptFiles(dropped: FileList | File[]) {
+    setError(null)
+    const list = Array.from(dropped)
+    if (list.length === 0) return
+    if (atLimit) {
+      setError(LIMIT_ERROR)
+      return
+    }
+    const [first, ...rest] = list
+    if (!first) return
+    if (!(ACCEPT as readonly string[]).includes(first.type)) {
+      setError(UNSUPPORTED_TYPE_ERROR)
+      return
+    }
+    if (rest.length > 0) {
+      setError('Bitte wähle immer nur ein Bild — mehrere Dateien sind nicht unterstützt.')
+      return
+    }
+    onFilesChange([...files, first])
+  }
+
+  function handleRemove(index: number) {
+    setError(null)
+    // Revoke eagerly here so the X-click assertion can observe the revoke
+    // synchronously with the state update. The reconcile-effect would
+    // otherwise only revoke after React commits, one tick too late.
+    const target = files[index]
+    const cached = previews.find((p) => p.file === target)
+    if (cached) {
+      URL.revokeObjectURL(cached.url)
+    }
+    const next = files.filter((_, i) => i !== index)
+    onFilesChange(next)
+  }
+
+  return (
+    <GridShell
+      className={className}
+      dragActive={dragActive}
+      onDragActiveChange={setDragActive}
+      acceptFiles={acceptFiles}
+      atLimit={atLimit}
+      isPending={false}
+      inputDisabled={atLimit}
+      fileInputRef={fileInputRef}
+      error={error}
+      slots={buildSlotsFromUrls(previews.map((p) => p.url))}
+      onRemoveFilled={(_url, index) => handleRemove(index)}
+      filledPending={false}
+    />
+  )
+}
+
+type Slot =
+  | { kind: 'filled'; url: string; index: number }
+  | { kind: 'empty'; index: number }
+
+function buildSlotsFromUrls(urls: string[]): Slot[] {
+  const emptySlots = Math.max(0, MAX_PHOTOS - urls.length)
+  return [
+    ...urls.slice(0, MAX_PHOTOS).map((url, i) => ({
+      kind: 'filled' as const,
+      url,
+      index: i,
+    })),
+    ...Array.from({ length: emptySlots }, (_, i) => ({
+      kind: 'empty' as const,
+      index: urls.length + i,
+    })),
+  ]
+}
+
+interface GridShellProps {
+  className?: string
+  dragActive: boolean
+  onDragActiveChange: (active: boolean) => void
+  acceptFiles: (files: FileList | File[]) => void | Promise<void>
+  atLimit: boolean
+  /** True when a live upload is in flight — hides the drop-zone click-handler text. */
+  isPending: boolean
+  inputDisabled: boolean
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  error: string | null
+  slots: Slot[]
+  onRemoveFilled: (url: string, index: number) => void
+  filledPending: boolean
+}
+
+function GridShell({
+  className,
+  dragActive,
+  onDragActiveChange,
+  acceptFiles,
+  isPending,
+  inputDisabled,
+  fileInputRef,
+  error,
+  slots,
+  onRemoveFilled,
+  filledPending,
+}: GridShellProps) {
+  function handleInputChange(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      void acceptFiles(files)
+    }
+    // Reset so the same file can be re-selected after a remove.
+    e.target.value = ''
+  }
+
   function handleDragOver(e: DragEvent<HTMLDivElement>) {
     e.preventDefault()
-    setDragActive(true)
+    onDragActiveChange(true)
   }
 
   function handleDragLeave(e: DragEvent<HTMLDivElement>) {
     e.preventDefault()
-    setDragActive(false)
+    onDragActiveChange(false)
   }
 
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault()
-    setDragActive(false)
+    onDragActiveChange(false)
     const files = e.dataTransfer.files
     void acceptFiles(files)
   }
@@ -142,8 +345,8 @@ export function PhotoUploadGrid({ recipeId, photos, className }: PhotoUploadGrid
                 key={`filled-${slot.index}`}
                 url={slot.url}
                 index={slot.index + 1}
-                onRemove={() => handleRemove(slot.url)}
-                pending={remove.isPending}
+                onRemove={() => onRemoveFilled(slot.url, slot.index)}
+                pending={filledPending}
               />
             )
           }
@@ -151,7 +354,7 @@ export function PhotoUploadGrid({ recipeId, photos, className }: PhotoUploadGrid
             <DropSlot
               key={`empty-${slot.index}`}
               onClick={() => fileInputRef.current?.click()}
-              pending={upload.isPending}
+              pending={isPending}
             />
           )
         })}
@@ -164,7 +367,7 @@ export function PhotoUploadGrid({ recipeId, photos, className }: PhotoUploadGrid
         accept={ACCEPT.join(',')}
         className="hidden"
         onChange={handleInputChange}
-        disabled={atLimit || upload.isPending}
+        disabled={inputDisabled}
       />
 
       {error && (
