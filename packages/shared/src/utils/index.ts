@@ -1,9 +1,7 @@
-export * from './types/index.ts'
 export {
   STUECK_UNITS,
   scaleIngredients,
   type ScalableIngredient,
   type ScaledIngredient,
   type Unit,
-} from './utils/ingredient-scaling.ts'
-
+} from './ingredient-scaling.ts'
