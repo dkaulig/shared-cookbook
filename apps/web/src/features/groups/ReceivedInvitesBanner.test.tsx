@@ -99,6 +99,41 @@ describe('<ReceivedInvitesBanner />', () => {
     })
   })
 
+  it('renders each pending invite as its own accent-lined banner card', async () => {
+    server.use(
+      http.get('/api/groups/invites', () =>
+        HttpResponse.json([
+          {
+            id: 'i1',
+            groupId: 'g1',
+            groupName: 'Backkurs-Crew',
+            inviterDisplayName: 'Maren',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'i2',
+            groupId: 'g2',
+            groupName: 'Sonntags-Brunch',
+            inviterDisplayName: 'Bo',
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+      ),
+    )
+
+    const { container } = renderBanner()
+    await waitFor(() => {
+      const articles = container.querySelectorAll('article')
+      expect(articles).toHaveLength(2)
+      // DS3 mockup: left amber accent border.
+      articles.forEach((a) => {
+        expect(a.className).toMatch(/border-l-primary/)
+      })
+    })
+    expect(screen.getByText(/Backkurs-Crew/)).toBeInTheDocument()
+    expect(screen.getByText(/Sonntags-Brunch/)).toBeInTheDocument()
+  })
+
   it('hides the invite row after decline', async () => {
     let declinedId: string | null = null
     server.use(

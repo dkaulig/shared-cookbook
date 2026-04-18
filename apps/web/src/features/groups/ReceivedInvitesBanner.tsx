@@ -1,10 +1,20 @@
+import { Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useAcceptInvite, useDeclineInvite, useMyReceivedInvites } from './hooks'
 
 /**
- * Compact banner that lists pending group invites for the signed-in
- * user. Shown at the top of any protected page; hides itself while the
- * query is loading or when no invites are pending.
+ * DS3-restyled pending-invite banner.
+ *
+ * Mirrors `.invite-banner` from `docs/mockups/warme-kueche-home.html`:
+ * - Cream/white surface with a 3 px amber accent line on the left.
+ * - Amber envelope icon in a tinted circle.
+ * - Inline Accept / Decline controls.
+ * - Multiple invites stack vertically as separate banners so each
+ *   decision is its own tidy card (matches the mockup's "stacked" spec).
+ *
+ * Hides itself while the query is loading or when no invites are
+ * pending, exactly like the S2 version — only the visual changed.
  */
 export function ReceivedInvitesBanner() {
   const invites = useMyReceivedInvites()
@@ -19,28 +29,30 @@ export function ReceivedInvitesBanner() {
     <section
       data-testid="invites-banner"
       aria-label="Offene Gruppen-Einladungen"
-      className="mx-auto mb-4 w-full max-w-3xl rounded-md bg-amber-50 p-4 ring-1 ring-amber-200"
+      className="space-y-2"
     >
-      <h2 className="mb-2 text-sm font-semibold text-amber-900">Neue Einladungen</h2>
-      <ul className="space-y-2">
-        {invites.data.map((invite) => (
-          <li
-            key={invite.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-background px-3 py-2 text-sm ring-1 ring-border"
+      {invites.data.map((invite) => (
+        <article
+          key={invite.id}
+          className={cn(
+            'flex items-start gap-3 rounded-[12px] border border-border bg-card p-[14px_16px] shadow-[0_1px_2px_rgba(28,25,23,0.04)]',
+            'border-l-[3px] border-l-primary',
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary)/0.08)] text-primary"
           >
-            <div className="text-stone-800">
-              <strong>{invite.inviterDisplayName}</strong> hat dich in die Gruppe{' '}
-              <strong>{invite.groupName}</strong> eingeladen.
-            </div>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => accept.mutate(invite.id)}
-                disabled={accept.isPending}
-              >
-                Annehmen
-              </Button>
+            <Mail className="h-[18px] w-[18px]" aria-hidden="true" />
+          </span>
+          <div className="flex-1">
+            <p className="text-sm leading-[1.5] text-foreground">
+              <strong className="font-semibold">{invite.inviterDisplayName}</strong>{' '}
+              lädt dich zu{' '}
+              <span className="font-semibold text-primary">„{invite.groupName}"</span>{' '}
+              ein.
+            </p>
+            <div className="mt-[10px] flex gap-2">
               <Button
                 type="button"
                 variant="ghost"
@@ -50,10 +62,18 @@ export function ReceivedInvitesBanner() {
               >
                 Ablehnen
               </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => accept.mutate(invite.id)}
+                disabled={accept.isPending}
+              >
+                Annehmen
+              </Button>
             </div>
-          </li>
-        ))}
-      </ul>
+          </div>
+        </article>
+      ))}
     </section>
   )
 }
