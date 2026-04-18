@@ -577,8 +577,8 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
     public async Task UserSearch_Matches_By_DisplayName_Substring()
     {
         var (_, aTok) = await SignupAndLoginAsync("searcher@example.com", "Searcher");
-        await SignupAndLoginAsync("thomas@example.com", "Thomas Müller");
         await SignupAndLoginAsync("tomke@example.com", "Tomke Berger");
+        await SignupAndLoginAsync("atom@example.com", "Atom Bauer");
         await SignupAndLoginAsync("bruno@example.com", "Bruno Bauer");
 
         AuthorizeClient(_client, aTok);
