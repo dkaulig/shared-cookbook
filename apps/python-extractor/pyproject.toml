@@ -36,6 +36,13 @@ dependencies = [
   "recipe-scrapers==15.11.0",
   "beautifulsoup4==4.14.3",
   "lxml==6.1.0",
+  # P2-2 video path: yt-dlp pulls the mp4 + metadata; faster-whisper
+  # (backed by CTranslate2) transcribes the audio on CPU in int8
+  # quantised mode. The `large-v3` weights are baked into the Docker
+  # image at build time — see Dockerfile.
+  "yt-dlp==2026.3.17",
+  "faster-whisper==1.2.1",
+  "ctranslate2==4.7.1",
 ]
 
 [project.optional-dependencies]
