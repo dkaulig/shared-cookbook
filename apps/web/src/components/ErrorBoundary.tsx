@@ -43,16 +43,26 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (!this.state.hasError) return this.props.children
 
     return (
-      <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 py-10 text-center">
-        <h1 className="mb-3 text-2xl font-bold tracking-tight text-stone-900">
-          Ups, da ist etwas schief gelaufen.
-        </h1>
-        <p className="mb-6 text-stone-600">
-          Bitte lade die Seite neu. Sollte das Problem bestehen bleiben, melde dich bei den anderen Gruppen-Admins.
-        </p>
-        <Button type="button" onClick={this.handleReload}>
-          Neu laden
-        </Button>
+      <main className="flex min-h-dvh flex-col items-center justify-center bg-background px-6 py-10 text-center">
+        <div className="mx-auto w-full max-w-md">
+          <span className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-2xl">
+            {/*
+              Decorative chef-hat glyph — kept as a Unicode cooking-pot
+              so the fallback has zero dependency on the app bundle (it
+              renders even if the font-loading step itself threw).
+            */}
+            <span aria-hidden="true">🍲</span>
+          </span>
+          <h1 className="mb-3 font-serif text-[clamp(28px,6vw,36px)] font-semibold leading-[1.1] tracking-[-0.015em] text-foreground">
+            Ups, da ist etwas schief gelaufen.
+          </h1>
+          <p className="mb-6 font-[Libre_Baskerville,serif] text-[15px] italic leading-[1.55] text-muted-foreground">
+            Bitte lade die Seite neu. Sollte das Problem bestehen bleiben, melde dich bei den anderen Gruppen-Admins.
+          </p>
+          <Button type="button" size="lg" onClick={this.handleReload}>
+            Neu laden
+          </Button>
+        </div>
       </main>
     )
   }
