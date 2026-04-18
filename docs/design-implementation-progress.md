@@ -35,6 +35,12 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 
 _(none)_
 
+## Planned follow-ups (post-DS7)
+
+- **GR1 — Grundrezept-Tags**: introduce a new `TagCategory.Komponente` enum value, seed ~7 global tags (`Grundrezept`, `Teig`, `Sauce`, `Glasur`, `Dressing`, `Beilage`, `Topping`), update UI labels in filter panel + tag picker. Small slice (~6–10 commits). Unblocks users saving isolated sub-recipes like "Pizzateig für 4 Pizzen" or "Tomatensauce" with proper categorization. User-requested 2026-04-18; dispatch after DS7 passes review.
+- **Recipe composition (v2)**: cross-recipe linking where one recipe references another as a sub-ingredient (e.g. "Pizza Margherita verwendet 1× Pizzateig-Rezept"). Scales sub-recipe portions with the parent recipe. NOT in Phase 1 or 1.5; defer to Phase 2+.
+- **Recipe PDF export (v2)**: download a recipe as a PDF for printing or sharing via email/WhatsApp/Telegram. Two plausible implementations: (a) print-friendly CSS + browser-native "Save as PDF" dialog — simplest, no server dep, acceptable quality; (b) server-rendered PDF via `QuestPDF` in .NET or headless Chromium in the Python extractor microservice — better typography + branding but more infra. User-requested 2026-04-18; defer to Phase 2.
+
 ## Review outcomes
 
 ### DS1 — Review (2026-04-18) → pass
