@@ -17,7 +17,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 | # | Slice | State | Agent ID | Started | Completed | Notes |
 |---|---|---|---|---|---|---|
-| S0 | Monorepo Skeleton & Tooling | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | Skeleton boots end-to-end via `docker compose up --build`; `/api/health` reachable, web shows German headline + connection badge. See S0 notes below. |
+| S0 | Monorepo Skeleton & Tooling | in_review | general-purpose (bg) → reviewer pending | 2026-04-18 | — | Implementation agent reports all acceptance criteria pass; awaiting independent reviewer verification per anti-shortcut-checklist. |
 | S1 | Auth Foundation | pending | — | — | — | — |
 | S2 | Groups & Memberships | pending | — | — | — | — |
 | S3 | Recipes (Core CRUD) | pending | — | — | — | — |
