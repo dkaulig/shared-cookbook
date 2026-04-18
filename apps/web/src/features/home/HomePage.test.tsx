@@ -228,7 +228,11 @@ describe('<HomePage />', () => {
     })
   })
 
-  it('clicking a quick-filter chip navigates to /groups (hand-off to Group list)', async () => {
+  // BF1 #6 — single-group users should land directly on their one
+  // collection so the chip behaves deterministically (no surprise jump
+  // into "the biggest group"). The preset query string is preserved so
+  // the Group page can apply the matching filter.
+  it('navigates the single-group user directly to their group when a chip is clicked', async () => {
     server.use(
       http.get('/api/groups', () =>
         HttpResponse.json<GroupSummary[]>([
@@ -244,6 +248,40 @@ describe('<HomePage />', () => {
     const user = userEvent.setup()
     await user.click(chip)
 
+    await waitFor(() => {
+      expect(screen.getByTestId('group-detail')).toBeInTheDocument()
+    })
+  })
+
+  // BF1 #6 — multi-group users get a picker so they consciously choose
+  // which collection to filter; the chip no longer routes them blindly
+  // into "the biggest group". Picking a group navigates with the preset.
+  it('opens a group-picker dialog when a chip is clicked and the user has multiple groups', async () => {
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([
+          groupSummary({ id: 'gA', name: 'Example Family', memberCount: 4 }),
+          groupSummary({ id: 'gB', name: 'WG-Donnerstage', memberCount: 3 }),
+        ]),
+      ),
+      http.get('/api/groups/invites', () => HttpResponse.json([])),
+      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+    )
+    renderHome()
+
+    const chip = await screen.findByRole('button', { name: /^warm$/i })
+    const user = userEvent.setup()
+    await user.click(chip)
+
+    // The picker should show both groups as choices and not auto-navigate.
+    const dialog = await screen.findByRole('dialog', { name: /in welcher gruppe suchen/i })
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /familie kaulig/i })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /wg-donnerstage/i })).toBeInTheDocument()
+    expect(screen.queryByTestId('group-detail')).toBeNull()
+
+    // Picking a group navigates with the preset preserved.
+    await user.click(within(dialog).getByRole('button', { name: /wg-donnerstage/i }))
     await waitFor(() => {
       expect(screen.getByTestId('group-detail')).toBeInTheDocument()
     })
