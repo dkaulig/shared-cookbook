@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S6 implementation → in_review)
+**Last updated:** 2026-04-18 (S6 review → done)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -23,7 +23,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S3 | Recipes (Core CRUD) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Re-review after fix pass #1 passed — drag-drop reorder live-verified via tests + source readthrough, 246/246 .NET + 95/95 web tests, lint clean, full docker E2E curl flow (login → tags → create → GET → PUT reorder persists → 3 photos + Caddy fetch + 4th rejected → photo delete → recipe delete 204 → GET 404 → non-member 403) all confirmed with own eyes. See Review outcomes → S3 — Re-review (2026-04-18). |
 | S4 | Tags + Ratings + Search | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 321/321 .NET + 121/121 web tests verified locally, docker stack healthy (all 6 services), SearchVector tsvector + GIN + both triggers observed via psql, full E2E curl flow (login → group → 3 recipes → rate → upsert (count stays 1) → q=Nudeln → tags AND → minRating → re-rate → random ×3 + null → custom-tag create/dup/member-403/admin-204/global-protected-400) all confirmed with own eyes. See Review outcomes → S4 entry below. |
 | S5 | Portions + Fork + Group Defaults | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 376/376 .NET + 148/148 web + 32/32 shared tests verified locally, lint clean, docker stack healthy (all 6 services), full E2E curl flow (admin login → create G2 → 3-ingredient recipe with null/non-scalable row + 2 steps + 2 global tags → PNG upload → fork to G2 → 201 with forkOfRecipeId + same ingredient/step/tag counts + identical bare photo path in both recipes → PUT defaultServings=2.5 → GET=2.5 → PUT 25/0/-1 all → 400 → outsider signup + fork → 403) all confirmed with own eyes. All 5 deviations accepted. See Review outcomes → S5 — Review (2026-04-18) → pass. |
-| S6 | Version History (light) | in_review | general-purpose (bg) | 2026-04-18 | — | Implementation complete — 414/414 .NET + 167/167 web + 32/32 shared tests, lint clean, docker stack healthy, full E2E curl flow (admin login → group → recipe → 1 Created revision → PUT V1 → 2 entries newest Edited with "Titel geändert" → 6 distinct PUTs → 5 entries (Created + first Edited dropped) → no-op PUT same body → still 5 → fork to G2 → fork's revisions = 1 Created with "Geforkt aus Gruppe S6-Test: Spätzle V6" → outsider signup + GET → 403) all confirmed with own eyes. 38 new .NET tests + 19 new web tests. AddRecipeRevisions migration generates only the expected table + 2 indexes (composite RecipeId+CreatedAt for "last 5" lookup + ChangedByUserId FK back-pointer) + 2 FKs (Recipe=Cascade, User=Restrict). |
+| S6 | Version History (light) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 414/414 .NET + 167/167 web + 32/32 shared tests verified locally, lint clean, docker stack healthy (all 6 services), `\d+ "RecipeRevisions"` confirms table structure (uuid PK, RecipeId, ChangedByUserId, ChangeType int, SnapshotJson text, DiffSummary varchar(500), CreatedAt timestamptz + 2 indexes + 2 FKs Recipe=Cascade/User=Restrict), full E2E curl flow (admin login → recipe in Private Sammlung with 3 ingredients + 2 steps + 2 global tag ids → GET revisions = 1 Created "Rezept angelegt" → PUT title-only change → 2 entries newest Edited "Titel geändert" → 5 distinct PUTs → 5 entries (Created + first Edited pruned) → no-op PUT same body → 5 entries (latest createdAt unchanged) → new group S6-Review-G2 + fork → fork's /revisions = 1 Created "Geforkt aus Gruppe Private Sammlung: …" → GET /revisions/{revId} deserializes to title/ingredients/steps/tagIds → outsider signup via invite + GET = 403) all confirmed with own eyes. All 5 deviations accepted (User FK Restrict, camelCase snapshot JSON, now-nudge +1tick, collapsed-with-preview panel, hand-rolled relativeTime). See Review outcomes → S6 — Review (2026-04-18) → pass. |
 | S7 | Polish & Local Deploy Readiness | pending | — | — | — | — |
 
 ## S0 — completion notes
@@ -1451,3 +1451,99 @@ Independent reviewer (general-purpose agent, has Bash) executed every verificati
 - Surface the revision list in the offline cache (PWA service worker scope) so the history panel renders even when the API is unreachable.
 - Wire revision count into the search-result summary for editor-style sorting ("most-edited recipes").
 - Consider a hard cap on `SnapshotJson` size (e.g., 64 KB) — currently unbounded; large recipes with hundreds of ingredients could bloat the table over time. Per-recipe pruning at 5 mitigates this, but a defensive ceiling would be cheap.
+
+## Review outcomes → S6 — Review (2026-04-18) → pass
+
+Independent reviewer (general-purpose agent, has Bash) executed every verification command on commit range `0e3edcd..HEAD` (13 in-range commits: 11 impl test/feat pairs + shared DTO feat + 1 post-hoc `noUncheckedIndexedAccess` fix + 1 progress-doc flip; the dispatch commit `0e3edcd` itself is the excluded base). Nothing trusted — everything re-run.
+
+**Static checks (all clean):**
+
+- `git log --oneline 0e3edcd..HEAD` → 13 commits; TDD order verified for every pair:
+  - Domain entity: test `8824bc8` → feat `251ca71` ✓
+  - Infra persistence: test `44dc0ad` → feat `c01f30b` ✓
+  - Infra service: test `8dc33b7` → feat `a4da778` ✓
+  - API endpoints: test `96bbc8a` → feat `46f1e0e` ✓
+  - Web bundle (revisionsApi + panel + diff modal + relativeTime): test `5fc5244` → feat `cc386a2` ✓
+  - Post-hoc `2162540 fix(web): tighten array indexing for noUncheckedIndexedAccess` — legitimate TS strictness cleanup (the project enables `noUncheckedIndexedAccess`; bounded-loop indexing now uses `!` non-null assertion, which is sound because the loop condition guarantees non-undefined).
+- `grep Assert.True(true)|Assert.True(false)` in `apps/api/tests/` → 0 matches.
+- `grep "[Skip|Skip=|.Skip("` across `apps/api/tests/*.cs` → 0 matches.
+- `grep "it.skip|it.todo|describe.skip|.only(|xit|xdescribe"` across `apps/web/src` + `packages/` → 0 matches.
+- `grep "TODO|FIXME|HACK|XXX"` across `apps/`+`packages/` `*.cs/*.ts/*.tsx` → 0 matches.
+- `grep "@ts-ignore|@ts-expect-error|eslint-disable|SuppressMessage|pragma warning disable"` → exactly the expected 6 EF pragmas (InitialAuth + AddGroups + AddRecipes + AddRatingsAndSearch + AddRecipeRevisions Designer + AppDbContextModelSnapshot) + 1 `useSession.ts` exhaustive-deps + 1 S4 RecipeFilterPanel exhaustive-deps. Nothing new in S6 prod code.
+- `grep NotImplementedException` across `apps/`+`packages/` `*.cs` → 0 matches in prod.
+- `Directory.Build.props` → `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` ✓.
+
+**Deliverables present (verified):**
+
+- `apps/api/src/FamilienKochbuch.Domain/Entities/RecipeRevision.cs` ✓
+- `apps/api/src/FamilienKochbuch.Domain/Enums/RecipeChangeType.cs` ✓
+- 5 migrations in `apps/api/src/FamilienKochbuch.Infrastructure/Persistence/Migrations/`: InitialAuth, AddGroups, AddRecipes, AddRatingsAndSearch, `20260418131619_AddRecipeRevisions` ✓
+- `apps/api/src/FamilienKochbuch.Infrastructure/Services/IRecipeRevisionService.cs` + `RecipeRevisionService.cs` ✓
+- `apps/api/src/FamilienKochbuch.Api/Endpoints/RecipeRevisionEndpoints.cs` ✓
+- Web bundle: `RecipeHistoryPanel.tsx`, `RecipeRevisionDiffModal.tsx`, `relativeTime.ts`, `revisionsApi.ts` + matching test files ✓
+- `RecipeDetailPage.tsx` imports `RecipeHistoryPanel` and renders it below the rating widget (line 10 + 193) ✓
+- `packages/shared/src/types/recipes.ts` declares `RecipeChangeType`, `RecipeRevisionChangedBy`, `RecipeRevisionSummary`, `RecipeSnapshotIngredient`, `RecipeSnapshotStep`, `RecipeSnapshot`, `RecipeRevisionDetail`; all exported through the `types/index.ts` barrel ✓.
+
+**Migration review (hard rule 8):**
+
+Opened `20260418131619_AddRecipeRevisions.cs` — single `CreateTable("RecipeRevisions")` with columns `Id uuid PK`, `RecipeId uuid`, `ChangedByUserId uuid`, `ChangeType integer`, `SnapshotJson text NOT NULL`, `DiffSummary varchar(500) NULL`, `CreatedAt timestamp with time zone`. Exactly 2 indexes (`IX_RecipeRevisions_ChangedByUserId`, `IX_RecipeRevisions_RecipeId_CreatedAt`) and exactly 2 FKs (`FK_RecipeRevisions_AspNetUsers_ChangedByUserId` RESTRICT, `FK_RecipeRevisions_Recipes_RecipeId` CASCADE). No unrelated schema drift (Identity, Groups, Recipes, Ratings tables untouched). `Down` just drops the table.
+
+**Service correctness deep-dive (`RecipeRevisionService.cs`):**
+
+- `RecordAsync` loads the recipe with Ingredients + Steps + RecipeTags via `AsNoTracking`, serializes via `System.Text.Json` with `CamelCase` naming policy pinned in a static `JsonSerializerOptions`.
+- For `Edited`: compares `snapshotJson` vs `previous.SnapshotJson` using `StringComparison.Ordinal`. Identical → early `return` (no-op guard). E2E step 36 confirmed this live.
+- `Edited` diff summary: `BuildEditedDiffSummary` is a pure function producing a German one-liner. It reports field-level changes (`"Titel geändert"`, `"Beschreibung geändert"`, `"Standard-Portionen geändert"`, `"Zubereitungszeit geändert"`, `"Schwierigkeit geändert"`, `"Quelle geändert"`) and list deltas (`"N Zutaten hinzugefügt"`, `"N Zutaten entfernt"`, `"N Zutaten geändert"` with singular/plural variants, analogous for steps and tags).
+- `Created` diff summary: `"Rezept angelegt"` when no `sourceDescription` supplied (confirmed E2E step 33).
+- `Forked` + `Created` on fork: preserves the explicit `sourceDescription`, falling back to `"Rezept geforkt"` if blank. E2E step 37 returned `"Geforkt aus Gruppe Private Sammlung: S6 Reviewer Test V7"`.
+- Prune-on-insert (lines 117-132): loads `existingRevisions`, orders by `CreatedAt` desc, skips `RetainCount - 1 = 4` and `RemoveRange`s the rest. INSERT + DELETEs ride a single `SaveChangesAsync`, so the transaction either persists the new revision and prunes or leaves history intact.
+- `GetLastAsync(recipeId, take=5)` loads all revisions for the recipe (bounded at 5), sorts in-memory `OrderByDescending(CreatedAt).Take(take)`. Materialize-then-sort is documented — SQLite can't ORDER BY DateTimeOffset server-side.
+- Now-nudge (lines 101-105): single comparison `effectiveNow <= previous.CreatedAt` triggers one `AddTicks(1)` bump. Not a loop; cannot infinite-loop. Only bumps against the most recent previous revision, so one tick is always sufficient to break the collision.
+
+**API correctness deep-dive (`RecipeRevisionEndpoints.cs`):**
+
+- `MapGroup("/api/recipes/{id:guid}/revisions").RequireAuthorization()` then `MapGet("/", …)` and `MapGet("/{revisionId:guid}", …)` — no orphan routes.
+- `ListRevisionsAsync`: resolves user from `sub`/`NameIdentifier` claim, 401 if missing; 404 if recipe doesn't exist or is soft-deleted; `IsGroupMemberAsync` check → 403 if not a member (E2E step 39 confirmed). Returns `RevisionSummaryDto[]` newest-first, limit 5, with batched `displayName` lookup.
+- `GetRevisionAsync`: same auth chain; explicitly checks `r.Id == revisionId && r.RecipeId == id` so a cross-recipe revisionId returns 404. Deserializes `SnapshotJson` into `RecipeSnapshot` via matching camelCase options. Falls through to `Results.Problem` if deserialization returns null (defensive).
+- `RecipeEndpoints.cs` hook points confirmed:
+  - `CreateRecipeAsync` (line 319-320): `revisionService.RecordAsync(recipe.Id, userId, RecipeChangeType.Created, clock.GetUtcNow(), ct)` after save.
+  - `UpdateRecipeAsync` (line 519-520): unconditionally calls `RecordAsync(…, Edited, …)`; the no-op detection lives in the service, so a PUT that doesn't change anything simply returns without writing a row.
+  - `ForkRecipeAsync` (line 794-796): emits `Created` on the fork with `sourceDescription = $"Geforkt aus Gruppe {sourceGroupName}: {source.Title}"`.
+
+**Web correctness deep-dive:**
+
+- `RecipeHistoryPanel.tsx`: collapsible card headed "Letzte Änderungen"; toggle button reads `Anzeigen (N)` collapsed / `Einklappen` open. Expanded list shows revs with `displayName`, change-type badge (emerald/sky/violet), relative time, optional diffSummary. Clicking a row sets `activeRevisionId` which mounts the lazy `RevisionModalLoader` (single per-revision hook call). Collapsed preview (deviation #4) renders the first rev via `items.slice(0, 1)` — still clickable.
+- `RecipeRevisionDiffModal.tsx`: two-column grid `Diese Version` / `Aktuelles Rezept`; metadata rows for title/description/defaultServings/prepTimeMinutes/difficulty/sourceUrl with `data-diff="changed"` highlight; ingredient + step lists rendered as two parallel columns with highlighted mismatches (ingredientsEqual deep-compares all fields, step compare uses content). Close button labeled `"Schließen"`.
+- `relativeTime.ts`: hand-rolled German formatter — `"in der Zukunft"` (neg), `"gerade eben"` (<60s), `"vor 1 Minute"`/`"vor N Minuten"`, hours, days, months, years. The sibling `relativeTime.test.ts` exercises every branch (confirmed by vitest run — 167/167 web tests pass).
+
+**Runtime:**
+
+- `dotnet test apps/api/FamilienKochbuch.sln` → 414/414 pass on second run (176 Domain + 72 Infra + 166 Api, 0 skipped). First run flaked on the S1 `Argon2idPasswordHasherTests.VerifyHashedPassword_Fails_On_Tampered_Hash` — unrelated to S6, reproduced isolated 6/6 green, historical timing sensitivity. Not an S6 regression.
+- `pnpm -C apps/web test --run` → 167/167 pass (36 test files).
+- `pnpm -C packages/shared test --run` → 32/32 pass.
+- `pnpm lint` → clean (no errors, no warnings).
+- `docker compose up --build -d` → all 6 services healthy (postgres, redis, seaweedfs, api, web, caddy).
+- `docker compose exec postgres psql -U app -d familien_kochbuch -c '\d+ "RecipeRevisions"'` → observed `Id uuid not null`, `RecipeId uuid not null`, `ChangedByUserId uuid not null`, `ChangeType integer not null`, `SnapshotJson text not null`, `DiffSummary character varying(500) null`, `CreatedAt timestamp with time zone not null`, PK `"PK_RecipeRevisions"`, indexes `"IX_RecipeRevisions_ChangedByUserId"` + `"IX_RecipeRevisions_RecipeId_CreatedAt"`, FKs `FK_RecipeRevisions_AspNetUsers_ChangedByUserId` RESTRICT + `FK_RecipeRevisions_Recipes_RecipeId` CASCADE. Matches migration exactly.
+
+**E2E curl flow (reviewer-run):**
+
+1. Admin login → `accessToken` ok (user id `53e3e7ad-…`).
+2. `POST /groups/{private}/recipes` with 3 ingredients + 2 steps + 2 global tag ids → R1 id `c1ffce23-…`.
+3. `GET /recipes/R1/revisions` → 1 entry, `changeType: "Created"`, `diffSummary: "Rezept angelegt"` ✓
+4. `PUT /recipes/R1` with only title changed → `GET` returns 2 entries; newest `Edited`, `diffSummary: "Titel geändert"` ✓
+5. 5 more distinct PUTs (V3..V7 varying title/description/defaultServings/prepTimeMinutes/steps) → `GET` returns 5 entries (Created + earliest Edited pruned; all remaining `Edited` with per-field diff summary including `"2 Schritte geändert"`) ✓
+6. PUT identical body (reflected from current GET) → `GET` still 5; latest `createdAt` unchanged (`13:48:36.763517+00:00` both before and after) — no-op guard honoured ✓
+7. `POST /groups` → new `S6-Review-G2`; `POST /recipes/R1/fork` → fork id; fork `/revisions` = 1 entry `Created`, `diffSummary: "Geforkt aus Gruppe Private Sammlung: S6 Reviewer Test V7"` ✓
+8. `GET /recipes/R1/revisions/{revId}` → deserializes snapshot with `title`, `description`, `defaultServings`, `prepTimeMinutes`, `difficulty`, `sourceUrl`, `ingredients[]` (position/quantity/unit/name/note/scalable), `steps[]` (position/content), `tagIds[]` ✓
+9. Fresh invite via `POST /api/invites/app` → signup via `POST /api/auth/signup?token=…` → outsider `GET /recipes/R1/revisions` → **HTTP 403** ✓
+10. `docker compose down` → clean teardown.
+11. `git status` clean; `git log origin/main..HEAD` empty (before this review commit).
+
+**Deviation assessments (all 5):**
+
+1. **FK User→Revision Restrict (not Cascade).** Agent acknowledges the S6 spec's "consistent with S4's Rating FK" line is technically inaccurate (Rating User FK is actually Cascade), but chose Restrict per the literal spec text and for correct audit-trail semantics — preserving authorship history is the whole point. **Accept.**
+2. **Snapshot JSON uses CamelCase.** Wire-symmetric with the TS `RecipeSnapshot` shape; naming policy pinned explicitly as a `static readonly JsonSerializerOptions`. Spec didn't require a particular policy. **Accept.**
+3. **Now-nudge on collision.** Source read: single comparison `effectiveNow <= previous.CreatedAt` → single `AddTicks(1)` bump against the newest previous. No loop, one tick is always enough to break the tie. Guarantees strictly-monotonic per-recipe history under FakeTimeProvider and production burst writes. **Accept.**
+4. **Panel collapsed by default with preview.** Collapsed state shows `items.slice(0, 1)` as a single-row preview; full list still requires the explicit `"Anzeigen (N)"` toggle. The spec's "collapsible" contract is honoured; the preview row is a UX win that doesn't violate it. **Accept.**
+5. **Hand-rolled `relativeTime` vs date-fns.** 30-line pure function covering every time branch, exhaustive unit tests; saves bundle size and keeps the utility deterministic for testing. Spec said date-fns was optional. **Accept.**
+
+**Recommendation:** none — STATUS=pass. Flipped S6 state `in_review` → `done`, set completion date `2026-04-18`, and kept all four follow-ups for S7.
