@@ -1,0 +1,115 @@
+# Production docker-compose. Expects the API + web images to be prebuilt
+# and pushed to GHCR by .github/workflows/deploy.yml.
+#
+# On the target server, run:
+#   CADDY_DOMAIN=kochbuch.example.com docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# For local prod-mode sanity testing, set CADDY_DOMAIN=localhost and
+# disable TLS in the Caddyfile (see comment inline there).
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: familien-kochbuch-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-familien_kochbuch}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-familien_kochbuch}"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: familien-kochbuch-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: familien-kochbuch-seaweedfs
+    command: server -filer -dir=/data -filer.port=8333
+    volumes:
+      - seaweedfs-data:/data
+    expose:
+      - "8333"
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/kay-solutions/familien-kochbuch-api:latest
+    container_name: familien-kochbuch-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-familien_kochbuch};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Redis: "redis:6379"
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # CRITICAL: must be set in production — used for JWT signing AND
+      # photo URL HMACs. Rotate via CI/CD + rolling restart.
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+      App__FrontendBaseUrl: "https://${CADDY_DOMAIN}"
+      SeaweedFS__FilerUrl: "http://seaweedfs:8333"
+      Images__SignatureValidityHours: "${IMAGES_SIGNATURE_VALIDITY_HOURS:-2}"
+      # SMTP for password-reset emails — configure a Migadu/Posteo account.
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-587}
+      Smtp__User: ${SMTP_USER:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-}
+      Smtp__FromName: ${SMTP_FROM_NAME:-Familien-Kochbuch}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_started
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
+
+  web:
+    image: ghcr.io/kay-solutions/familien-kochbuch-web:latest
+    container_name: familien-kochbuch-web
+    depends_on:
+      - api
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.25
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: familien-kochbuch-caddy
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  seaweedfs-data:
+  caddy-data:
+  caddy-config:

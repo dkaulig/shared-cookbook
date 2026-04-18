@@ -29,7 +29,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return { hasError: true }
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     // Log to the console for devtools inspection; structured telemetry
     // (Sentry etc.) can hook here later without reshuffling the class.
     console.error('Uncaught render error', error, info)
@@ -39,7 +39,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     window.location.reload()
   }
 
-  render() {
+  override render() {
     if (!this.state.hasError) return this.props.children
 
     return (
