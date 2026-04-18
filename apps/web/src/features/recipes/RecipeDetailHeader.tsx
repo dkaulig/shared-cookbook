@@ -245,6 +245,11 @@ export function RecipeDetailHeader({
           </div>
 
           {recipe.forkOfRecipeId && (
+            // The detail DTO doesn't carry the original's title — forks
+            // start with an identical title on creation, so using the
+            // current recipe's title is a close-enough stand-in. A
+            // follow-up slice could fetch the original (if the current
+            // user has access) for an authoritative label.
             <RecipeForkBanner
               className="mt-3.5"
               originalRecipeId={recipe.forkOfRecipeId}
