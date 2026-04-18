@@ -20,12 +20,15 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         orientation: 'portrait',
-        background_color: '#fafaf9',
+        // Warme-Küche cream background shown on the PWA splash screen —
+        // matches the `--background` token (#FFFBEB amber-50) so the
+        // transition from splash to app has no visible seam.
+        background_color: '#fffbeb',
         // Matches the Tailwind `amber-700` accent used on the UI shell.
         theme_color: '#b45309',
         icons: [
-          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
