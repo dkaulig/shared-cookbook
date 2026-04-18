@@ -287,6 +287,29 @@ describe('<HomePage />', () => {
     })
   })
 
+  // BF1 #6 — zero-group branch: when the user has no collections yet, a
+  // chip press should open the create-group dialog instead of navigating
+  // somewhere broken. Mirrors the "+ Neue Gruppe anlegen" card behaviour
+  // so the chip row stays useful before the user has any groups.
+  it('opens the create-group dialog when a chip is clicked and the user has zero groups', async () => {
+    server.use(
+      http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
+      http.get('/api/groups/invites', () => HttpResponse.json([])),
+      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+    )
+    renderHome()
+
+    const chip = await screen.findByRole('button', { name: /^schnell/i })
+    const user = userEvent.setup()
+    await user.click(chip)
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /gruppe erstellen/i })).toBeInTheDocument()
+    // No navigation should have occurred.
+    expect(screen.queryByTestId('group-detail')).toBeNull()
+    expect(screen.queryByTestId('groups-page')).toBeNull()
+  })
+
   it('renders the "Alle ansehen →" link under the groups section pointing to /groups', async () => {
     server.use(
       http.get('/api/groups', () =>
