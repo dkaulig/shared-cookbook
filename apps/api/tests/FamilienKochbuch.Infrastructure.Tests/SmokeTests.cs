@@ -1,16 +1,22 @@
+using FamilienKochbuch.Infrastructure;
 using Xunit;
 
 namespace FamilienKochbuch.Infrastructure.Tests;
 
 /// <summary>
-/// Smoke test — verifies that the test harness and project references compile.
+/// Smoke test — verifies that the Infrastructure assembly is wired up and its
+/// public marker type is reachable. The test fails if the project reference is
+/// missing, the assembly name drifts, or the marker constant is altered.
 /// Real Infrastructure tests (EF, migrations) arrive with S1.
 /// </summary>
 public class SmokeTests
 {
     [Fact]
-    public void Infrastructure_Test_Project_Compiles_And_Runs()
+    public void InfrastructureMarker_Name_Matches_Assembly_Name()
     {
-        Assert.True(true);
+        var assemblyName = typeof(InfrastructureMarker).Assembly.GetName().Name;
+
+        Assert.Equal("FamilienKochbuch.Infrastructure", InfrastructureMarker.Name);
+        Assert.Equal("FamilienKochbuch.Infrastructure", assemblyName);
     }
 }
