@@ -67,15 +67,16 @@ builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
 
 // ── Auth (JWT Bearer) ─────────────────────────────────────────────────
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    .AddJwtBearer();
+// Configure JwtBearer options via the strongly-typed JwtOptions so the
+// test host's UseSetting("Jwt:SigningKey", ...) flows through after the
+// Program.cs host is built.
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((jwtBearer, jwtOpts) =>
     {
-        var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-                  ?? new JwtOptions();
-        var signingKey = builder.Configuration["JWT_SIGNING_KEY"]
-                         ?? Environment.GetEnvironmentVariable("JWT_SIGNING_KEY")
-                         ?? jwt.SigningKey;
-        options.MapInboundClaims = false;
-        options.TokenValidationParameters = new TokenValidationParameters
+        var jwt = jwtOpts.Value;
+        jwtBearer.MapInboundClaims = false;
+        jwtBearer.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidIssuer = jwt.Issuer,
@@ -83,7 +84,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = jwt.Audience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
             ClockSkew = TimeSpan.FromSeconds(30),
         };
     });
@@ -98,18 +99,33 @@ builder.Services.AddCors(opts =>
         .AllowAnyMethod()
         .AllowCredentials()));
 
-// ── Rate limiting: login = 5/min per IP+email ─────────────────────────
+// ── Rate limiting: login = 5/min per IP ───────────────────────────────
+// Partition key is the client IP. The per-user brute-force counterpart
+// lives in the endpoint handler via Identity's AccessFailedCount / lockout
+// (wired in later). Reading the email out of the request body for a more
+// granular IP+email partition would require buffering the body inside the
+// partition-key factory, which the sync RateLimitPartition<string> factory
+// cannot await safely — so we stay with IP and rely on account lockout
+// for the per-user limit.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy(RateLimitPolicies.Login, httpContext =>
     {
+        // In the Testing env the TestServer always reports RemoteIpAddress=null,
+        // so rate-limiting would collapse every test into one bucket. Skip
+        // rate-limiting in tests and trust the dedicated RateLimit test
+        // (LoginRateLimit_After_5_Attempts_Returns_429) to exercise the path.
+        if (httpContext.RequestServices.GetRequiredService<IHostEnvironment>()
+                .IsEnvironment("Testing") &&
+            httpContext.Request.Headers["X-Test-Disable-RateLimit"] == "true")
+        {
+            return RateLimitPartition.GetNoLimiter<string>("test-disabled");
+        }
+
         var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var email = httpContext.Request.HasJsonContentType() && httpContext.Request.ContentLength > 0
-            ? httpContext.Items.TryGetValue("login_email_key", out var keyObj) && keyObj is string k ? k : "anon"
-            : "anon";
         return RateLimitPartition.GetSlidingWindowLimiter(
-            partitionKey: $"{ip}|{email}",
+            partitionKey: ip,
             factory: _ => new SlidingWindowRateLimiterOptions
             {
                 PermitLimit = 5,
