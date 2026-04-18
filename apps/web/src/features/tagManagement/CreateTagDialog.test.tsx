@@ -77,4 +77,13 @@ describe('CreateTagDialog', () => {
     expect(called).toBe(false)
     expect(screen.getByText(/Name ist erforderlich/i)).toBeInTheDocument()
   })
+
+  // GR1 — Komponente is offered in the category <select> so groups can
+  // create their own sub-recipe-style tags alongside the seeded ones.
+  it('offers "Komponente" as a selectable category', () => {
+    renderDialog()
+    const select = screen.getByLabelText(/Kategorie/i) as HTMLSelectElement
+    const values = Array.from(select.options).map((o) => o.value)
+    expect(values).toContain('Komponente')
+  })
 })

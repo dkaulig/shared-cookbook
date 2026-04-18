@@ -20,6 +20,7 @@ beforeEach(() => {
       HttpResponse.json([
         { id: 't1', name: 'vegan', category: 'Diaet', isGlobal: true },
         { id: 't2', name: 'schnell', category: 'Aufwand', isGlobal: true },
+        { id: 't3', name: 'Pizzateig', category: 'Komponente', isGlobal: true },
       ]),
     ),
   )
@@ -96,6 +97,14 @@ describe('RecipeFormPage (create)', () => {
     render(withProviders('/groups/g1/recipes/new'))
     expect(await screen.findByRole('button', { name: /vegan/i })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: /schnell/i })).toBeInTheDocument()
+  })
+
+  // GR1 — Komponente section header and chip render alongside the
+  // existing Aufwand/Diät groups in the tag-picker grid.
+  it('renders the Komponente section with its chips in the tag picker', async () => {
+    render(withProviders('/groups/g1/recipes/new'))
+    expect(await screen.findByRole('button', { name: /Pizzateig/ })).toBeInTheDocument()
+    expect(screen.getByText('Komponente')).toBeInTheDocument()
   })
 
   it('POSTs to /api/groups/g1/recipes on submit and navigates to detail', async () => {

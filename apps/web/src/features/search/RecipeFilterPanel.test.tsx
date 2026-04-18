@@ -22,6 +22,8 @@ beforeEach(() => {
         { id: 't2', name: 'vegan', category: 'Diaet', isGlobal: true, groupId: null, createdByUserId: null },
         { id: 't3', name: 'warm', category: 'Typ', isGlobal: true, groupId: null, createdByUserId: null },
         { id: 't4', name: 'vegetarisch', category: 'Diaet', isGlobal: true, groupId: null, createdByUserId: null },
+        { id: 't5', name: 'Teig', category: 'Komponente', isGlobal: true, groupId: null, createdByUserId: null },
+        { id: 't6', name: 'Sauce', category: 'Komponente', isGlobal: true, groupId: null, createdByUserId: null },
       ]),
     ),
     http.get('/api/groups/g1/members', () =>
@@ -151,6 +153,30 @@ describe('RecipeFilterPanel', () => {
     renderPanel('/groups/g1?tags=t1,t2')
     await waitFor(() => {
       expect(screen.getByText(/2 ausgewählt/i)).toBeInTheDocument()
+    })
+  })
+
+  // GR1 — Grundrezept-Tags. The filter panel must surface the new
+  // Komponente category with its German label and render the seeded
+  // Teig/Sauce chips grouped underneath.
+  it('renders the "Komponente" section header for GR1 sub-recipe tags', async () => {
+    renderPanel()
+    await screen.findByRole('button', { name: /schnell/i })
+
+    expect(screen.getByText('Komponente')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Teig/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Sauce/ })).toBeInTheDocument()
+  })
+
+  it('clicking a Komponente chip toggles the tag in the URL', async () => {
+    renderPanel()
+    const chip = await screen.findByRole('button', { name: /Teig/ })
+    const user = userEvent.setup()
+    await user.click(chip)
+
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      expect(loc).toContain('tags=t5')
     })
   })
 })
