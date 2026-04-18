@@ -1,29 +1,28 @@
-import { Bell, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ChefHatLogo } from '@/components/brand/ChefHatLogo'
 import { useAuth } from '@/features/auth/useAuth'
-import { useMyReceivedInvites } from '@/features/groups/hooks'
 import { cn } from '@/lib/utils'
 
 /**
- * DS3 top navigation bar (retinted for DS8 Sage Modern).
+ * DS3 top navigation bar (retinted for DS8 Sage Modern, trimmed for BF1).
  *
  * Mirrors `.topnav` in `docs/mockups/variant-a-home.html`:
  * - Brand lockup (sage-tile chef-hat + display name) on the left.
- * - Three "nav actions" on the right: Suchen, Benachrichtigungen (with
- *   a red dot when `useMyReceivedInvites()` > 0), and an avatar chip
- *   whose initial is the signed-in user's displayName[0].
+ * - Suchen icon (disabled placeholder) + avatar chip on the right.
  * - Sticky at `top: 0` with a neutral/blur background so scrolled
  *   content floats underneath.
  *
- * Kept intentionally lean: the Suchen button is a placeholder click
- * target today (routes to `/groups` where real search lives). DS7 will
- * upgrade it to a command-palette modal.
+ * BF1 changes:
+ * - The Suchen icon used to navigate to `/groups`, which was a confusing
+ *   teleport rather than a real search. Render it as a disabled button
+ *   with a "bald verfügbar" tooltip until a proper search lands.
+ * - The Benachrichtigungen bell had no backing notification feature; it
+ *   was removed entirely and will return in Phase 2 alongside the real
+ *   notification API.
  */
 export function TopNav() {
   const { user } = useAuth()
-  const invites = useMyReceivedInvites()
-  const hasInvites = (invites.data?.length ?? 0) > 0
   const initial = user?.displayName?.trim()?.charAt(0)?.toUpperCase() || '·'
 
   return (
@@ -51,26 +50,14 @@ export function TopNav() {
       </Link>
 
       <nav aria-label="Kontonavigation" className="flex items-center gap-1">
-        <Link
-          to="/groups"
-          aria-label="Suchen"
-          className="grid h-10 w-10 place-items-center rounded-[10px] text-muted-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          <Search className="h-5 w-5" aria-hidden="true" />
-        </Link>
         <button
           type="button"
-          aria-label="Benachrichtigungen"
-          className="relative grid h-10 w-10 place-items-center rounded-[10px] text-muted-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          disabled
+          aria-label="Suche (bald verfügbar)"
+          title="Suche kommt bald"
+          className="grid h-10 w-10 cursor-not-allowed place-items-center rounded-[10px] text-muted-foreground/70"
         >
-          <Bell className="h-5 w-5" aria-hidden="true" />
-          {hasInvites && (
-            <span
-              data-testid="invites-dot"
-              aria-hidden="true"
-              className="absolute right-1.5 top-1.5 h-[9px] w-[9px] rounded-full border-2 border-background bg-destructive"
-            />
-          )}
+          <Search className="h-5 w-5" aria-hidden="true" />
         </button>
         <Link
           to="/profil"
