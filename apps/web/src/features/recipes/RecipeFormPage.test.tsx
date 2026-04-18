@@ -496,4 +496,23 @@ describe('RecipeFormPage (create)', () => {
     await waitFor(() => expect(captured).not.toBeNull())
     expect(captured!.defaultServings).toBeGreaterThanOrEqual(1)
   })
+
+  // BF1 #1 — the German "Menge" placeholder was being clipped because the
+  // amount column was only 70px wide. The grid template that lays out the
+  // ingredient row's three primary inputs (qty | unit | name) must reserve
+  // enough space for the placeholder to render in full. We assert via the
+  // declared Tailwind class because jsdom can't measure actual text width.
+  it('reserves enough width on the amount input for the "Menge" placeholder', () => {
+    render(withProviders('/groups/g1/recipes/new'))
+    const mengeInput = screen.getByLabelText(/Zutat 1 Menge/i) as HTMLInputElement
+    expect(mengeInput).toHaveAttribute('placeholder', 'Menge')
+    // The amount input lives inside a CSS grid whose first column governs
+    // its width. Walk up to the grid container and check the template.
+    const gridContainer = mengeInput.closest('div.grid') as HTMLElement | null
+    expect(gridContainer).not.toBeNull()
+    // Min ≥ 90px for the amount column so a 5-char German placeholder
+    // renders without clipping at the typical 14px input font-size +
+    // 13px horizontal padding (90 - 26 = 64px usable, comfortably > "Menge").
+    expect(gridContainer!.className).toMatch(/grid-cols-\[(?:min\(|)9\d|grid-cols-\[1\d\d/)
+  })
 })
