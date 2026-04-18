@@ -1,3 +1,4 @@
+using FamilienKochbuch.Api.Endpoints;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +10,8 @@ builder.Host.UseSerilog((ctx, services, cfg) => cfg
     .WriteTo.Console());
 
 var app = builder.Build();
+
+app.MapHealthEndpoints();
 
 app.Run();
 
