@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
+import { RecipeList } from '@/features/recipes/RecipeList'
 import { EditGroupDialog } from './EditGroupDialog'
 import { InviteMemberDialog } from './InviteMemberDialog'
 import {
@@ -18,6 +19,7 @@ import {
  */
 export function GroupDetailPage() {
   const params = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const groupId = params.id ?? ''
   const detail = useGroup(groupId)
   const changeRole = useChangeMemberRole(groupId)
@@ -145,8 +147,14 @@ export function GroupDetailPage() {
         </ul>
       </section>
 
-      <section className="rounded-md border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">
-        Rezepte erscheinen hier, sobald Phase 1 S3 fertig ist.
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-stone-900">Rezepte</h2>
+          <Button type="button" onClick={() => navigate(`/groups/${groupId}/recipes/new`)}>
+            + Rezept anlegen
+          </Button>
+        </div>
+        <RecipeList groupId={groupId} />
       </section>
 
       {showEdit && (
