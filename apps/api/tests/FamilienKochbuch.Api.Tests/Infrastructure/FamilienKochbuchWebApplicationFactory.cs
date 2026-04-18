@@ -28,6 +28,8 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
 
     public FakeEmailSender Email { get; } = new();
 
+    public FakePhotoStorage Photos { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -57,6 +59,10 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
             // Spy email sender so password-reset tests can capture the outgoing URL.
             services.RemoveAll<IEmailSender>();
             services.AddSingleton<IEmailSender>(Email);
+
+            // Hermetic photo storage — no SeaweedFS required.
+            services.RemoveAll<IPhotoStorage>();
+            services.AddSingleton<IPhotoStorage>(Photos);
         });
     }
 
