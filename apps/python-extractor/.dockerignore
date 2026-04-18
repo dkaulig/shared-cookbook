@@ -1,0 +1,30 @@
+# Version-control + editor noise
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Python build + cache artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+*.egg
+build
+dist
+.venv
+venv
+env
+
+# Test + tooling artifacts
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Docs + local notes (not needed in the image)
+README.md
