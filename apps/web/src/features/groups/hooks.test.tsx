@@ -78,7 +78,7 @@ describe('group hooks', () => {
     })
   })
 
-  it('useInviteToGroup POSTs and invalidates the group detail cache', async () => {
+  it('useInviteToGroup POSTs and invalidates the group detail, members, and invites caches', async () => {
     server.use(
       http.post('/api/groups/g1/invites', () =>
         HttpResponse.json(
@@ -106,6 +106,10 @@ describe('group hooks', () => {
       myRole: 'Admin',
       members: [],
     })
+    // Seed the members + invites caches too so we can assert all three
+    // get invalidated — without seeded data TanStack has no entry to mark.
+    client.setQueryData(groupQueryKeys.members('g1'), [])
+    client.setQueryData(groupQueryKeys.groupInvites('g1'), [])
 
     const { result } = renderHook(() => useInviteToGroup('g1'), { wrapper: Wrapper })
 
@@ -116,8 +120,9 @@ describe('group hooks', () => {
 
     expect(mutationResult?.id).toBe('i1')
     await waitFor(() => {
-      const state = client.getQueryState(groupQueryKeys.detail('g1'))
-      expect(state?.isInvalidated).toBe(true)
+      expect(client.getQueryState(groupQueryKeys.detail('g1'))?.isInvalidated).toBe(true)
+      expect(client.getQueryState(groupQueryKeys.members('g1'))?.isInvalidated).toBe(true)
+      expect(client.getQueryState(groupQueryKeys.groupInvites('g1'))?.isInvalidated).toBe(true)
     })
   })
 
