@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text;
+using FamilienKochbuch.Api.Endpoints;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Api.Tests.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
@@ -196,7 +197,8 @@ public class PhotoProxyEndpointsTests : IClassFixture<PhotoProxyEndpointsTests.F
     public class Factory : FamilienKochbuchWebApplicationFactory
     {
         public FakeSeaweedFsFiler Filer { get; } = new();
-        public ImageSigningService Signing { get; private set; } = null!;
+
+        public ImageSigningService Signing => Services.GetRequiredService<ImageSigningService>();
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -211,12 +213,6 @@ public class PhotoProxyEndpointsTests : IClassFixture<PhotoProxyEndpointsTests.F
                     .AddHttpClient(PhotoProxyEndpointsConstants.FilerClientName)
                     .ConfigurePrimaryHttpMessageHandler(() => Filer.Handler);
             });
-        }
-
-        public new async Task InitializeAsync()
-        {
-            await base.InitializeAsync();
-            Signing = Services.GetRequiredService<ImageSigningService>();
         }
     }
 }
