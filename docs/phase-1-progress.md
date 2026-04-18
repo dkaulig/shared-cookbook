@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S3 impl → in_review)
+**Last updated:** 2026-04-18 (S3 review → fix_needed)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -20,7 +20,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
-| S3 | Recipes (Core CRUD) | in_review | general-purpose (bg) | 2026-04-18 | — | Impl complete. 247/247 .NET tests (+98), 93/93 web tests (+20), lint clean, docker stack healthy, full E2E curl flow (30 seeded tags, recipe create + list + PUT replace + photo upload via SeaweedFS + photo delete + recipe soft-delete → 404) passes live. See notes below. |
+| S3 | Recipes (Core CRUD) | fix_needed | general-purpose (bg) | 2026-04-18 | — | Review #1 (2026-04-18): drag-drop reorder is a missing deliverable with no alternative reorder UI (up/down buttons). All other verifications green (247/247 .NET, 93/93 web, lint clean, static checks clean, 20 commits with correct TDD ordering, migration clean). See Review outcomes → S3 — Review (2026-04-18) → fix_needed. |
 | S4 | Tags + Ratings + Search | pending | — | — | — | — |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
 | S6 | Version History (light) | pending | — | — | — | — |
@@ -41,9 +41,9 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 ## Last orchestrator tick
 
-- **Wake-up time:** 2026-04-18 (S3 implementation agent returned)
-- **Action taken:** S3 implementation agent completed all deliverables + acceptance checks. Flipped S3 `in_progress` → `in_review`.
-- **Next action:** dispatch S3 independent review agent.
+- **Wake-up time:** 2026-04-18 (S3 independent reviewer returned)
+- **Action taken:** Independent reviewer (general-purpose agent) found one blocking issue: drag-drop reorder for ingredients + steps is a missing deliverable with no reorder UI of any kind (no up/down buttons, no drag handles). `@dnd-kit/sortable` is installed in `apps/web/package.json` but never imported anywhere in `apps/web/src/`. All other verifications pass: 247/247 .NET tests, 93/93 web tests, lint clean, 20 commits since dispatch with clean TDD ordering, migration clean, domain invariants solid, wiki-style auth correct, TanStack invalidation correct, German copy idiomatic. Flipped S3 `in_review` → `fix_needed`.
+- **Next action:** dispatch S3 fix agent to wire reorder UI (drag-drop via `@dnd-kit/sortable` preferred; up/down buttons acceptable) on BOTH ingredients and steps, with dedicated tests (TDD: failing reorder test → wiring implementation). Then re-review.
 
 ## Blockers / pauses
 
@@ -577,3 +577,108 @@ No changes to S1 Identity/AppInvites/RefreshTokens tables. No seed data. No unre
 All 149 .NET + 73 web tests actually pass. Lint clean. Docker stack healthy. Every endpoint in the S2 spec is implemented, secured, and behaves correctly against the real DI graph. All four business-rule error codes (`private_collection_protected`, `last_admin`, `already_member`, `invite_pending`) round-tripped against the live stack with the expected payloads. The filtered partial unique index is present in both the migration and the model snapshot, and has a dedicated idempotence test. Current-user and group-member exclusion in user search both verified live. Backfill deviation is clean, idempotent, and tested in spirit by the idempotence tests on `EnsurePrivateCollectionAsync`. TDD ordering improved over S1 — API endpoint tests now precede implementation commits.
 
 **S2 flipped `in_review` → `done`.**
+
+## Review outcomes → S3 — Review (2026-04-18) → fix_needed
+
+Independent reviewer (general-purpose agent, has Bash) executed every verification command on commit range `bc57c57..HEAD` (20 commits, matching the claim of "20 implementation + 1 orchestrator dispatch excluded = 20"). Nothing trusted — everything re-run locally.
+
+### Static checks
+
+- `git log --oneline bc57c57..HEAD | wc -l` → **20** (matches claim).
+- TDD commit-order spot-checks (paste order: test → feat):
+  - Domain entities: test `10b115e` precedes feat `95777e5` ✓
+  - Infrastructure persistence: test `1161d4e` precedes feat `21b1f86` ✓ (followed by migration-with-seeds `515a0ec`)
+  - PhotoStorage: `bedc883` is a single commit with interface + SeaweedFS impl + FakePhotoStorage — the test fake is a test utility so the test commits live in the same commit (acceptable, noted).
+  - API integration: test `0f7d9f0` (shared types preceded tests because the API tests need the DTO shape) → API endpoint tests `0f1115c` precede feat `84e8a79` ✓
+  - Web typed client: test `7daef1d` precedes feat `7227cc7` ✓
+  - Web hooks (no dedicated test commit visible — `50b9d96` bundles hooks + queryKeys; `hooks.test.tsx` exists but committed with implementation. Minor TDD lapse, same as earlier slices)
+  - Web form: test `2c94a46` precedes feat `beeabe0` ✓
+  - Web detail: test `b35854d` precedes feat `d1af2ef` ✓
+- `grep "Assert\.True(true|false)" apps/api/tests/` → 0 hits.
+- `grep "[Skip…|Skip=|.Skip(" apps/api/tests/ --include='*.cs'` → 0 hits.
+- `grep "it\.skip|it\.todo|describe\.skip|\.only\(|xit|xdescribe" apps/web/src/ packages/` → 0 real hits (false-positive on `exit` substring in `packages/*/package.json` test-scripts — not a real skip).
+- `grep "TODO|FIXME|HACK|XXX" apps/ packages/ --include='*.cs/*.ts/*.tsx'` → 0 hits.
+- `grep "@ts-ignore|@ts-expect-error|eslint-disable|SuppressMessage|pragma warning disable" apps/ packages/ --include='*.cs/*.ts/*.tsx'` → 5 hits, all expected:
+  - `Migrations/20260418084257_InitialAuth.Designer.cs:21` — EF-generated (S1).
+  - `Migrations/20260418092758_AddGroups.Designer.cs:21` — EF-generated (S2).
+  - **`Migrations/20260418101312_AddRecipes.Designer.cs:21` — EF-generated (S3, new, expected).**
+  - `Migrations/AppDbContextModelSnapshot.cs:18` — EF-generated (shared).
+  - `apps/web/src/features/auth/useSession.ts:67` — `-- intentionally once on mount` (S1, justified).
+  - No NEW unjustified suppressions.
+- `grep "NotImplementedException|throw new Error(\"TODO\")" apps/ packages/` → 0 hits.
+- `cat apps/api/Directory.Build.props` → `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` present.
+
+### Deliverable presence
+
+- Domain entities (all slices): `User.cs, AppInvite.cs, RefreshToken.cs, Group.cs, GroupMembership.cs, GroupInvite.cs, Recipe.cs, Ingredient.cs, RecipeStep.cs, Tag.cs, RecipeTag.cs` ✓
+- Domain enums: `UserRole, GroupRole, InviteStatus, RecipeSourceType, TagCategory` ✓
+- Migrations (3 total + shared snapshot): `20260418084257_InitialAuth.{cs,Designer.cs}`, `20260418092758_AddGroups.{cs,Designer.cs}`, `20260418101312_AddRecipes.{cs,Designer.cs}`, `AppDbContextModelSnapshot.cs` ✓
+- Infrastructure Services: `IPhotoStorage.cs`, `SeaweedFsPhotoStorage.cs`, `PhotoStorageOptions.cs` + pre-existing S1/S2 services ✓
+- Test fake: `apps/api/tests/FamilienKochbuch.Api.Tests/Infrastructure/FakePhotoStorage.cs` ✓ (lives under tests, byte-array storage, deterministic `fake://…` URLs)
+- API Endpoints: `HealthEndpoints, AuthEndpoints, InviteEndpoints, GroupEndpoints, RecipeEndpoints` ✓. RecipeEndpoints.cs wires 8 routes (5 recipe + 1 group-recipes list + 1 group-tags list + 1 create-recipe).
+- Web feature folder: `recipesApi{,.test}.ts, hooks{,.test}.tsx, queryKeys.ts, RecipeFormPage{,.test}.tsx, RecipeDetailPage{,.test}.tsx, RecipeList.tsx, PhotoUploader.tsx` ✓
+- Shared DTOs: `packages/shared/src/types/recipes.ts` has `RecipeSourceType, TagCategory, IngredientDto, RecipeStepDto, TagDto, RecipeSummaryDto, RecipeSummaryListDto, RecipeDetailDto, CreateRecipeRequest, UpdateRecipeRequest, UploadPhotoResponse, RemovePhotoRequest` (≥ 8 required types, all re-exported via `packages/shared/src/types/index.ts`) ✓
+- Routes: `apps/web/src/App.tsx` wires `/groups/:groupId/recipes/new`, `/groups/:groupId/recipes/:recipeId`, `/groups/:groupId/recipes/:recipeId/edit` as ProtectedRoute ✓
+- **Gap (blocking): reorder UI missing.** RecipeFormPage.tsx has add + remove buttons but NO drag handles, NO up/down buttons, NO keyboard reorder affordance. `@dnd-kit/sortable` is listed in `apps/web/package.json` but `grep -rn "dnd-kit|SortableContext|useSortable" apps/web/src/` → 0 hits. Users cannot reorder ingredients or steps at all once created; their only recourse is deleting and re-adding in the desired order. This is not "ergonomic polish" — it is the difference between the deliverable existing and not existing. Spec (phase-1-implementation-plan.md § S3 web-form deliverable) explicitly lists "reorder via drag-and-drop" and "Steps: ordered list with reorder".
+
+### Migration review (hard rule 8)
+
+`20260418101312_AddRecipes.cs` creates exactly 5 tables and no unrelated schema drift:
+
+- **Recipes** — PK `Id`, indexes on GroupId, CreatedAt, CreatedByUserId, DeletedAt; `Photos` as `text` (JSON blob per the documented deviation). FKs: GroupId → Groups Restrict ✓, CreatedByUserId → AspNetUsers Restrict ✓. ForkOfRecipeId is a plain nullable uuid column with no FK — acceptable for now (soft-delete would orphan it otherwise).
+- **Ingredients** — PK `Id`, composite unique index `IX_Ingredients_RecipeId_Position` ✓, FK Cascade → Recipes ✓.
+- **RecipeSteps** — PK `Id`, composite unique index `IX_RecipeSteps_RecipeId_Position` ✓, FK Cascade → Recipes ✓.
+- **Tags** — PK `Id`, composite unique index `IX_Tags_Name_Category_GroupId` ✓ (NULLS-DISTINCT caveat documented as deviation), FKs: GroupId → Groups Cascade, CreatedByUserId → AspNetUsers Restrict ✓.
+- **RecipeTags** — composite PK (RecipeId, TagId), FKs Cascade to both Recipes and Tags ✓.
+- **Seed**: `InsertData` adds 30 global tags (5 Mahlzeit + 5 Saison + 5 Typ + 3 Aufwand + 4 Diaet + 8 Kueche = 30) with stable `a0000nnn-0000-0000-0000-nnnnnnnnnnnn` GUIDs ✓.
+- **Photos-as-text deviation coherent:** ✓ — EF `ValueConverter` in `AppDbContext.cs` serializes `List<string>` via `JsonSerializer` with a `ValueComparer` wired to `SequenceEqual`/`Aggregate hash` so change tracking works. DTO round-trip (`RecipeDetailDto.Photos: string[]`) is unaffected; `Recipe.MaxPhotos = 3` caps the payload size to trivial.
+
+### Runtime verification (executed by reviewer)
+
+- **`dotnet test apps/api/FamilienKochbuch.sln`** → **247/247 pass** (133 Domain + 34 Infrastructure + 80 Api). 0 skipped. First pass had a flaky Argon2 test failure under memory contention (`VerifyHashedPassword_Fails_On_Tampered_Hash` — 64 MiB × multiple parallel test classes = transient OOM-ish behaviour on the Argon2 verify path). Re-run in isolation and the second full-suite run both passed 6/6 and 247/247 respectively; flake not deterministic and not caused by S3 code. Flagged for future slices to investigate xUnit `[Collection]` grouping on Argon2 tests if it re-appears.
+- **`cd apps/web && pnpm test --run`** → **93/93 pass** across 21 test files.
+- **`pnpm lint`** → clean (0 errors, 0 warnings).
+- **Docker + full E2E curl:** NOT executed. With a blocking client-side deliverable gap already confirmed (no reorder UI), running the full docker+E2E would not change the verdict. The server-side story is well-tested via the 80 Api integration tests that exercise POST/GET/PUT/DELETE/photo-upload/photo-delete/tag-list against WebApplicationFactory with SQLite + FakePhotoStorage; those 80 pass. A fresh reviewer on the re-review after fix should run docker + full E2E curl, and should spot-check the reorder UI live as well.
+
+### Security / invariants
+
+- **Ingredient quantity-null implies scalable-false:** ✓ enforced in `Ingredient.cs` ctor lines 55–70 (throws `ArgumentException` for `scalable=true, quantity=null`) AND tested in `IngredientTests.cs:QuantityNull_Requires_ScalableFalse` (line 121) + `QuantityNull_With_ScalableFalse_Succeeds` (line 129).
+- **Recipe.AddPhoto 4th-photo throws:** ✓ `Recipe.cs:127-129` enforces `Photos.Count >= MaxPhotos` (3). Test `RecipeTests.cs:AddPhoto_Rejects_Fourth_Photo` (line 220) exercises it. API endpoint maps the invariant to `photo_limit_reached` (400) at `RecipeEndpoints.cs:513-516`.
+- **UpdatedAt on PUT, not POST:** ✓ `RecipeEndpoints.cs` POST path calls `new Recipe(..., createdAt: now)` which sets both `CreatedAt=now` AND `UpdatedAt=now` (constructor line 62). PUT path calls `recipe.UpdateMetadata(..., updatedAt: now)` which sets `UpdatedAt=now` (method line 120). The dedicated `Recipe.MarkUpdated` method exists but is dead code — `UpdateMetadata` subsumes it. Behaviour is correct; minor dead-code note, not a finding.
+- **Wiki-style edit (any member can edit):** ✓ `RecipeEndpoints.cs` uses `IsGroupMemberAsync` as the only authorization predicate for PUT (line 406), DELETE (line 477), and photo endpoints (498, 553). No ownership check — any group member can mutate any recipe in the group, per PRD §4.4 (Wiki-Stil innerhalb der Gruppe).
+- **TanStack Query invalidation correct:** ✓
+  - `useCreateRecipe` → invalidates `['recipes', 'group', groupId]` + group detail.
+  - `useUpdateRecipe` → invalidates `recipeQueryKeys.detail(id)` + group-scoped recipe list.
+  - `useDeleteRecipe` → removes `recipeQueryKeys.detail(id)` + invalidates group-scoped recipe list.
+  - `useUploadRecipePhoto` → invalidates `recipeQueryKeys.detail(id)`.
+  - `useRemoveRecipePhoto` → invalidates `recipeQueryKeys.detail(id)`.
+- **Tag validation on create/update:** ✓ `AreTagIdsValidForGroupAsync` (line 300) rejects tag ids that are neither global nor scoped to the owning group, returning `invalid_tag` / 400.
+- **Photo storage:** ✓ `SeaweedFsPhotoStorage` uses `AWSSDK.S3.IAmazonS3` (not naive HttpClient PUT) with proper AWS signing (`UseChunkEncoding = false` because SeaweedFS rejects chunked). `EnsureBucketAsync` is idempotent (swallows `BucketAlreadyOwnedByYou` / `BucketAlreadyExists`). Content-type + size (5 MB) + MIME whitelist (jpeg/png/webp) all validated at the endpoint layer before streaming to storage. FakePhotoStorage is under tests only.
+- **German UI copy:** ✓ `RecipeFormPage.tsx` uses idiomatic German — "Neues Rezept anlegen", "Rezept bearbeiten", "Titel", "Beschreibung", "Portionen", "Zubereitungszeit (Min)", "Schwierigkeit", "Quellen-Link", "Zutaten", "+ Zutat hinzufügen", "Menge / Einheit / Zutat", "skalierbar", "nach Geschmack", "Notiz", "Schritte", "+ Schritt hinzufügen", "Tags", "Rezept speichern", "Abbrechen", "Titel ist erforderlich.", "Mindestens eine Zutat ist erforderlich.", "Mindestens ein Schritt ist erforderlich." `RecipeDetailPage.tsx` uses "Rezept wirklich löschen?", "Rezept konnte nicht geladen werden." — idiomatic. Code/identifiers remain English.
+
+### Drag-drop deviation assessment (KEY JUDGMENT CALL)
+
+**Finding:** Reorder UI is ENTIRELY MISSING. There is no drag-drop, no up/down buttons, no "move to top" / "move to bottom", nothing. The ingredient list (`RecipeFormPage.tsx:334-438`) renders `<li>` rows with input fields + a single "✕ entfernen" button. The step list (`RecipeFormPage.tsx:454-487`) renders `<li>` rows with textarea + a single "✕ entfernen" button. The agent's deviation note says "the form ships with add/remove + per-row position renumbering on submit, which covers the 'users can reorder' requirement functionally but not ergonomically" — that claim is false. Users cannot reorder without deleting and re-adding in the desired sequence. That is not "reorder" — that is retyping.
+
+Recommendation per the review protocol decision rule ("Drag-drop entirely missing with no reorder alternative → STATUS=fix_needed, require wiring `@dnd-kit/sortable` OR up/down buttons on both ingredients and steps with dedicated tests"): **require a fix.**
+
+Acceptable remediation paths for the fix agent (pick one, apply consistently to both ingredients AND steps):
+
+1. **Preferred — drag-drop:** import `@dnd-kit/core` + `@dnd-kit/sortable` + `@dnd-kit/utilities` (already installed). Wrap the `<ul>` / `<ol>` in `DndContext` + `SortableContext` with `verticalListSortingStrategy`. Each `<li>` becomes a `useSortable({ id: row.key })` consumer with a visible drag handle (Lucide `GripVertical`). Reorder by updating `setIngredients(arrayMove(prev, oldIndex, newIndex))`.
+2. **Acceptable fallback — up/down buttons:** two extra `<Button>` per row with `aria-label="Nach oben verschieben"` / `"Nach unten verschieben"`. Disable the up button on index 0, disable the down button on last index. Reorder via the same `arrayMove` helper.
+
+Either way, failing tests MUST precede the implementation (vitest + React Testing Library): a failing test that renders the form with 3 ingredient rows, dispatches a reorder interaction (drag-drop via `@testing-library/user-event` drag / or a click on the up/down button), and asserts the new order in the submit payload. Same for steps.
+
+### Deviation check (all 3 S3 deviations)
+
+- **Photos as JSON text (instead of Postgres text[]):** **Accept.** Rationale: keeps the EF model portable across SQLite (integration tests) and Postgres (production) without per-provider EF conventions; bounded to 3 photos by domain invariant so payload is trivial; `ValueComparer` is correctly wired so change-tracking works; DTO round-trip is `string[]` either way. PRD §8.5 says "Arrays für `photos`" but the deviation is documented, coherent with the rest of the model, and has zero user-visible impact.
+- **Unique-index NULLS DISTINCT on Tags (Name, Category, GroupId):** **Accept.** Rationale: (a) the seed migration uses stable GUIDs so the 30 global tags cannot duplicate themselves, (b) S4 is the only runtime producer of non-null `GroupId` rows where the index actually bites (custom tags per group), (c) the dedicated test `Group_Scoped_Tag_Uniqueness_Prevents_Duplicate_Within_Group` proves the constraint works for the S4 code path, (d) Postgres 15+ supports `NULLS NOT DISTINCT` but EF Core 10's `HasIndex` doesn't emit the modifier yet without a raw SQL hack. Documented in the fluent config and in the deviations section. No user-visible impact.
+- **Drag-drop not wired (logged as "partial"):** **Reject as a deferral; require fix.** Rationale detailed above. The agent's claim that add/remove + submit-time renumbering "covers the 'users can reorder' requirement functionally" is incorrect — users cannot reorder at all without destructive edits. This is a missing deliverable, not a polish follow-up. The fix is small and isolated (single file, ~40 LoC for dnd-kit or ~25 LoC for up/down buttons, plus tests).
+
+### Verdict
+
+247 .NET + 93 web tests pass. Static hygiene is impeccable (no `Assert.True(true)`, no `TODO/FIXME/HACK/XXX`, no unjustified suppressions, `TreatWarningsAsErrors=true` intact). Migration is clean (hard-rule 8 satisfied, 5 expected tables + 30 seeded tags, no drift). Domain invariants are tight and tested (quantity-null ⇒ scalable-false; 4th photo rejected). API endpoint authorization is correct (member-only, wiki-style). TanStack Query invalidation is correct. German UI copy is idiomatic. Two of three deviations are well-reasoned and acceptable.
+
+**The drag-drop deviation is not an acceptable deferral.** The spec clearly lists reorder as part of the deliverable, and no reorder UI of any kind exists in the shipped form. Users cannot meaningfully reorder ingredients or steps today. Per the orchestrator's decision rule, this triggers `fix_needed`.
+
+**S3 flipped `in_review` → `fix_needed`.** Fix agent should wire reorder UI (drag-drop preferred, up/down buttons acceptable) on BOTH ingredients AND steps, TDD-style (failing test → implementation), then re-review.
