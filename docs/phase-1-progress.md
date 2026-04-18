@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S3 review → fix_needed)
+**Last updated:** 2026-04-18 (S3 fix pass #1 → in_review)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -20,7 +20,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
-| S3 | Recipes (Core CRUD) | fix_needed | general-purpose (bg) | 2026-04-18 | — | Review #1 (2026-04-18): drag-drop reorder is a missing deliverable with no alternative reorder UI (up/down buttons). All other verifications green (247/247 .NET, 93/93 web, lint clean, static checks clean, 20 commits with correct TDD ordering, migration clean). See Review outcomes → S3 — Review (2026-04-18) → fix_needed. |
+| S3 | Recipes (Core CRUD) | in_review | general-purpose (fix agent) | 2026-04-18 | — | Fix pass #1 (2026-04-18): drag-drop reorder wired on both ingredient and step rows via `@dnd-kit` with KeyboardSensor + PointerSensor (accessible out of the box); dead `Recipe.MarkUpdated` dropped. 246/246 .NET + 95/95 web tests pass, lint clean, docker health green. Awaiting re-review. See Review outcomes → S3 — Fix pass #1 (2026-04-18). |
 | S4 | Tags + Ratings + Search | pending | — | — | — | — |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
 | S6 | Version History (light) | pending | — | — | — | — |
@@ -41,9 +41,9 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 ## Last orchestrator tick
 
-- **Wake-up time:** 2026-04-18 (S3 independent reviewer returned)
-- **Action taken:** Independent reviewer (general-purpose agent) found one blocking issue: drag-drop reorder for ingredients + steps is a missing deliverable with no reorder UI of any kind (no up/down buttons, no drag handles). `@dnd-kit/sortable` is installed in `apps/web/package.json` but never imported anywhere in `apps/web/src/`. All other verifications pass: 247/247 .NET tests, 93/93 web tests, lint clean, 20 commits since dispatch with clean TDD ordering, migration clean, domain invariants solid, wiki-style auth correct, TanStack invalidation correct, German copy idiomatic. Flipped S3 `in_review` → `fix_needed`.
-- **Next action:** dispatch S3 fix agent to wire reorder UI (drag-drop via `@dnd-kit/sortable` preferred; up/down buttons acceptable) on BOTH ingredients and steps, with dedicated tests (TDD: failing reorder test → wiring implementation). Then re-review.
+- **Wake-up time:** 2026-04-18 (S3 fix agent returned)
+- **Action taken:** S3 fix agent wired drag-drop reorder on both ingredient and step rows using `@dnd-kit/core` + `@dnd-kit/sortable` + `@dnd-kit/utilities` (all already installed per S3 deviation note). Each list has its own `DndContext` with `closestCenter` collision detection + `verticalListSortingStrategy`. Sensors: shared `PointerSensor` + `KeyboardSensor` wired with `sortableKeyboardCoordinates`, so reorder works with mouse/touch AND Space→ArrowUp/Down→Space keyboard — accessibility out of the box. Drag handle: `lucide-react`'s `GripVertical` icon inside a `<button>` with German `aria-label`s (`"Zutat verschieben"` / `"Schritt verschieben"`). Submit-time `position: 0..n-1` renumbering already in place before the fix, so the new array order flows straight through to the payload. TDD ordering: four commits (red → green pair for ingredients, red → green pair for steps); plus one follow-up removing the dead `Recipe.MarkUpdated` method (reviewer's optional Priority-2 note). Flipped S3 `fix_needed` → `in_review`.
+- **Next action:** dispatch S3 re-review against `421f67b..HEAD` (the fix-pass commit range starts with `f03f7f4`). Reviewer should re-verify the anti-shortcut checklist + confirm the live UI actually reorders in a browser (Docker + manual click-through on the GripVertical handle).
 
 ## Blockers / pauses
 
@@ -682,3 +682,69 @@ Either way, failing tests MUST precede the implementation (vitest + React Testin
 **The drag-drop deviation is not an acceptable deferral.** The spec clearly lists reorder as part of the deliverable, and no reorder UI of any kind exists in the shipped form. Users cannot meaningfully reorder ingredients or steps today. Per the orchestrator's decision rule, this triggers `fix_needed`.
 
 **S3 flipped `in_review` → `fix_needed`.** Fix agent should wire reorder UI (drag-drop preferred, up/down buttons acceptable) on BOTH ingredients AND steps, TDD-style (failing test → implementation), then re-review.
+
+## Review outcomes → S3 — Fix pass #1 (2026-04-18) → in_review
+
+Fix agent addressed the single blocking finding from Review #1 (drag-drop reorder UI) plus the reviewer's optional Priority-2 dead-code note.
+
+### Scope of the fix pass
+
+Five commits on top of `421f67b` (review commit):
+
+1. `f03f7f4 test(web): add failing ingredient-reorder test for RecipeFormPage` — red
+2. `0359ca2 feat(web): wire dnd-kit reorder on ingredient rows` — green
+3. `278376c test(web): add failing step-reorder test for RecipeFormPage` — red
+4. `f0e4683 feat(web): wire dnd-kit reorder on step rows` — green
+5. `e80cbde refactor(domain): remove dead Recipe.MarkUpdated method` — optional dead-code cleanup
+
+### What changed
+
+- **`apps/web/src/features/recipes/RecipeFormPage.tsx`** — the ingredient `<ul>` and step `<ol>` are now each wrapped in their own `DndContext` (two separate contexts so collision detection stays scoped per list) plus a `SortableContext` with `verticalListSortingStrategy`. Each row is a dedicated sortable sub-component (`SortableIngredientRow`, `SortableStepRow`) that calls `useSortable({ id: row.key })` and renders a `GripVertical` (lucide-react) drag handle as a `<button>` with:
+  - `aria-label="Zutat verschieben"` / `aria-label="Schritt verschieben"` (German UI copy)
+  - `data-testid="ingredient-drag-handle-{index}"` / `data-testid="step-drag-handle-{index}"` (stable handles for tests)
+  - `{...attributes} {...listeners}` spread from `useSortable` — this is what carries both the pointer and keyboard listeners
+- **Sensors**: shared `useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))`. Keyboard activation is standard @dnd-kit: Space → ArrowUp/Down → Space. Pointer works for mouse and touch. Both are accessibility-compliant out of the box (the keyboard path is a real usability win for screen-reader + keyboard-only users).
+- **`onDragEnd` handlers** call `arrayMove` on local state keyed by the row's `key`; the existing submit-time renumbering (`position: idx` inside the `.map((row, idx) => ...)` at `handleSubmit`) already flows the new order into the POST/PUT payload — no payload-shape changes, no API contract changes.
+- **`apps/web/src/features/recipes/RecipeFormPage.test.tsx`** — two new reorder tests (one per list) that:
+  - Build 3 ingredient or step rows with distinguishable content
+  - Grab the first drag handle by `data-testid`, focus it, `fireEvent.keyDown(..., {code: 'Space'})`, then (after flushing the KeyboardSensor's `setTimeout(0)` listener registration via `act(async () => { await new Promise(r => setTimeout(r, 0)) })`) `fireEvent.keyDown(document.activeElement, {code: 'ArrowDown'})` and finally `{code: 'Space'}` to drop
+  - Assert the visual DOM order updates (via `getAllByLabelText` on the input/textarea values)
+  - Submit the form and assert the POST body's `ingredients[*].name` or `steps[*].content` array reflects the new order with `position: [0, 1, 2]`
+  - Also monkey-patch `Element.prototype.getBoundingClientRect` in `beforeEach` to give elements a synthetic vertical layout (jsdom returns all-zero rects, which breaks `sortableKeyboardCoordinates`'s `rect.top`-delta filter)
+- **`apps/api/src/FamilienKochbuch.Domain/Entities/Recipe.cs`** — removed the 1-line `MarkUpdated(DateTimeOffset at)` method that had no callers outside its own unit test (confirmed via `grep -rn "MarkUpdated" apps/api/src/FamilienKochbuch.Api/` → 0 hits; the PUT path uses `UpdateMetadata(..., updatedAt: now)` instead). Also removed `RecipeTests.MarkUpdated_Advances_UpdatedAt`.
+
+### Fix 3 decision
+
+**Removed `Recipe.MarkUpdated`** (reviewer's optional Priority-2 item). It was genuinely dead — zero production callers, exactly one test (which was only validating the dead method itself). The PUT path calls `recipe.UpdateMetadata(..., updatedAt: now)` which subsumes the `MarkUpdated` behaviour. .NET test count changes 247 → 246, exactly the dropped self-referential test.
+
+### Verification (executed by fix agent before handoff)
+
+| Command | Result |
+| --- | --- |
+| `pnpm -C apps/web test --run` | **95/95 pass** (93 baseline + 2 new reorder tests) |
+| `pnpm lint` | 0 errors, 0 warnings |
+| `dotnet test apps/api/FamilienKochbuch.sln` | **246/246 pass** (132 Domain + 34 Infrastructure + 80 Api). Hit the documented flaky Argon2 test (`VerifyHashedPassword_Fails_On_Tampered_Hash`) on the first run; clean 246/246 on the immediate re-run. Same non-deterministic behaviour the S3 reviewer flagged — not S3-fix-related, tracked for a future slice. |
+| `docker compose up --build -d`, wait for health, `curl -s http://localhost/api/health` | `{"status":"ok","timestamp":"2026-04-18T11:00:07...+00:00"}` |
+| `docker compose down` | clean teardown |
+| `git status` | clean |
+| `git log origin/main..HEAD` | empty (all five commits pushed) |
+
+### Test count delta
+
+- Web: 93 → **95** (+2 reorder tests, one per list)
+- .NET: 247 → **246** (−1 for the dropped `MarkUpdated_Advances_UpdatedAt` test)
+
+### Anti-shortcut checklist self-assessment
+
+- No `it.skip` / `.only` / `xit` / `describe.skip` introduced.
+- No `Assert.True(true)` / `expect(1).toBe(1)` / placeholder assertions.
+- No `TODO` / `FIXME` / `HACK` / `XXX` in the diff.
+- No `@ts-ignore` / `@ts-expect-error` / `eslint-disable` / `#pragma warning disable` / `[SuppressMessage]` introduced.
+- No new dependencies (everything required by the plan was pre-installed).
+- TDD commit order: `test(…red)` → `feat(…green)` for both lists (ingredient pair `f03f7f4` → `0359ca2`; step pair `278376c` → `f0e4683`). Reviewer can verify with `git log --oneline 421f67b..HEAD`.
+- Small commits, each pushed to `origin/main`.
+- No Co-Authored-By footer.
+- German user-facing copy (`"Zutat verschieben"`, `"Schritt verschieben"`); code/identifiers English.
+- `TreatWarningsAsErrors=true` and TypeScript `strict: true` unchanged.
+
+**S3 flipped `fix_needed` → `in_review`.** Re-reviewer should re-run the anti-shortcut checklist and spot-check the UI live in a browser (Docker up, navigate to `/groups/:id/recipes/new`, confirm the `GripVertical` handles render and both mouse-drag and keyboard-reorder work).
