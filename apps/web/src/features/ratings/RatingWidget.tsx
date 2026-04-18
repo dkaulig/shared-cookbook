@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
@@ -18,23 +18,55 @@ import { useDeleteRating, useRatings, useUpsertRating } from './hooks'
  */
 export function RatingWidget({ recipeId }: { recipeId: string }) {
   const ratings = useRatings(recipeId)
+  const aggregate = ratings.data?.aggregate
+
+  if (ratings.isLoading || !aggregate) {
+    return (
+      <section className="space-y-3 rounded-md bg-background p-4 ring-1 ring-border">
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-stone-900">Bewertungen</h2>
+          <span className="text-sm text-stone-500">Lade …</span>
+        </header>
+      </section>
+    )
+  }
+
+  // Keyed so the inner form re-mounts whenever the caller's own rating
+  // changes — simpler than an effect-driven sync, and avoids the
+  // "setState-in-effect" anti-pattern.
+  return (
+    <RatingForm
+      key={`${aggregate.myStars ?? 'none'}|${aggregate.myComment ?? ''}`}
+      recipeId={recipeId}
+      initialStars={aggregate.myStars ?? 0}
+      initialComment={aggregate.myComment ?? ''}
+      aggregateAvg={aggregate.avg}
+      aggregateCount={aggregate.count}
+      hasRated={aggregate.myStars != null}
+    />
+  )
+}
+
+function RatingForm({
+  recipeId,
+  initialStars,
+  initialComment,
+  aggregateAvg,
+  aggregateCount,
+  hasRated,
+}: {
+  recipeId: string
+  initialStars: number
+  initialComment: string
+  aggregateAvg: number | null
+  aggregateCount: number
+  hasRated: boolean
+}) {
   const upsert = useUpsertRating(recipeId)
   const deleteMutation = useDeleteRating(recipeId)
-
-  const aggregate = ratings.data?.aggregate
-  const [stars, setStars] = useState<number>(0)
-  const [comment, setComment] = useState<string>('')
+  const [stars, setStars] = useState<number>(initialStars)
+  const [comment, setComment] = useState<string>(initialComment)
   const [error, setError] = useState<string | null>(null)
-
-  // Initialise form state from the server response once loaded, so the
-  // user sees their existing rating without re-typing.
-  useEffect(() => {
-    if (!aggregate) return
-    setStars(aggregate.myStars ?? 0)
-    setComment(aggregate.myComment ?? '')
-  }, [aggregate?.myStars, aggregate?.myComment])
-
-  const hasRated = (aggregate?.myStars ?? null) != null
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -70,12 +102,10 @@ export function RatingWidget({ recipeId }: { recipeId: string }) {
     <section className="space-y-3 rounded-md bg-background p-4 ring-1 ring-border">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-stone-900">Bewertungen</h2>
-        {ratings.isLoading ? (
-          <span className="text-sm text-stone-500">Lade …</span>
-        ) : aggregate && aggregate.count > 0 ? (
+        {aggregateCount > 0 ? (
           <p className="text-sm text-stone-700">
-            Ø <span className="font-semibold">{formatAvg(aggregate.avg)}</span>{' '}
-            ({aggregate.count} {aggregate.count === 1 ? 'Bewertung' : 'Bewertungen'})
+            Ø <span className="font-semibold">{formatAvg(aggregateAvg)}</span>{' '}
+            ({aggregateCount} {aggregateCount === 1 ? 'Bewertung' : 'Bewertungen'})
           </p>
         ) : (
           <p className="text-sm text-stone-500">Noch keine Bewertung.</p>

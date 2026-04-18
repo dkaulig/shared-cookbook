@@ -1,19 +1,23 @@
-import { Link } from 'react-router-dom'
-import { useGroupRecipes } from './hooks'
+import { Link, useSearchParams } from 'react-router-dom'
+import { useRecipeSearch } from '@/features/search/hooks'
+import { readFiltersFromSearchParams } from '@/features/search/urlState'
 
 /**
- * Inline recipe list embedded on GroupDetailPage. Renders cards with the
- * first photo, title, truncated description. Empty state + error state
- * handled in German.
+ * Inline recipe list embedded on GroupDetailPage. Drives content off
+ * useRecipeSearch so any filter set by <RecipeFilterPanel /> on the same
+ * page applies live. Cards show first photo, title, truncated
+ * description, rating badge, and creator display name.
  */
 export function RecipeList({ groupId }: { groupId: string }) {
-  const list = useGroupRecipes(groupId)
+  const [params] = useSearchParams()
+  const filters = readFiltersFromSearchParams(params)
+  const result = useRecipeSearch(groupId, filters)
 
-  if (list.isLoading) {
+  if (result.isLoading) {
     return <p className="text-sm text-stone-500">Lade Rezepte …</p>
   }
 
-  if (list.isError) {
+  if (result.isError) {
     return (
       <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
         Rezepte konnten nicht geladen werden.
@@ -21,9 +25,9 @@ export function RecipeList({ groupId }: { groupId: string }) {
     )
   }
 
-  const items = list.data?.items ?? []
+  const items = result.data?.items ?? []
   if (items.length === 0) {
-    return <p className="text-sm text-stone-500">Noch keine Rezepte angelegt.</p>
+    return <p className="text-sm text-stone-500">Keine Rezepte passen zu den aktuellen Filtern.</p>
   }
 
   return (
@@ -42,7 +46,16 @@ export function RecipeList({ groupId }: { groupId: string }) {
               </div>
             )}
             <div className="p-3">
-              <h3 className="font-semibold text-stone-900">{recipe.title}</h3>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-semibold text-stone-900">{recipe.title}</h3>
+                {recipe.avgRating != null && recipe.ratingCount > 0 && (
+                  <span className="flex items-center gap-1 text-xs text-amber-600">
+                    <span className="text-sm leading-none">★</span>
+                    {recipe.avgRating.toFixed(1).replace('.', ',')}
+                    <span className="text-stone-400">({recipe.ratingCount})</span>
+                  </span>
+                )}
+              </div>
               {recipe.description && (
                 <p className="mt-1 line-clamp-2 text-sm text-stone-600">{recipe.description}</p>
               )}
