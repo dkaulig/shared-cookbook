@@ -24,7 +24,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S4 | Tags + Ratings + Search | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 321/321 .NET + 121/121 web tests verified locally, docker stack healthy (all 6 services), SearchVector tsvector + GIN + both triggers observed via psql, full E2E curl flow (login → group → 3 recipes → rate → upsert (count stays 1) → q=Nudeln → tags AND → minRating → re-rate → random ×3 + null → custom-tag create/dup/member-403/admin-204/global-protected-400) all confirmed with own eyes. See Review outcomes → S4 entry below. |
 | S5 | Portions + Fork + Group Defaults | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 376/376 .NET + 148/148 web + 32/32 shared tests verified locally, lint clean, docker stack healthy (all 6 services), full E2E curl flow (admin login → create G2 → 3-ingredient recipe with null/non-scalable row + 2 steps + 2 global tags → PNG upload → fork to G2 → 201 with forkOfRecipeId + same ingredient/step/tag counts + identical bare photo path in both recipes → PUT defaultServings=2.5 → GET=2.5 → PUT 25/0/-1 all → 400 → outsider signup + fork → 403) all confirmed with own eyes. All 5 deviations accepted. See Review outcomes → S5 — Review (2026-04-18) → pass. |
 | S6 | Version History (light) | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 414/414 .NET + 167/167 web + 32/32 shared tests verified locally, lint clean, docker stack healthy (all 6 services), `\d+ "RecipeRevisions"` confirms table structure (uuid PK, RecipeId, ChangedByUserId, ChangeType int, SnapshotJson text, DiffSummary varchar(500), CreatedAt timestamptz + 2 indexes + 2 FKs Recipe=Cascade/User=Restrict), full E2E curl flow (admin login → recipe in Private Sammlung with 3 ingredients + 2 steps + 2 global tag ids → GET revisions = 1 Created "Rezept angelegt" → PUT title-only change → 2 entries newest Edited "Titel geändert" → 5 distinct PUTs → 5 entries (Created + first Edited pruned) → no-op PUT same body → 5 entries (latest createdAt unchanged) → new group S6-Review-G2 + fork → fork's /revisions = 1 Created "Geforkt aus Gruppe Private Sammlung: …" → GET /revisions/{revId} deserializes to title/ingredients/steps/tagIds → outsider signup via invite + GET = 403) all confirmed with own eyes. All 5 deviations accepted (User FK Restrict, camelCase snapshot JSON, now-nudge +1tick, collapsed-with-preview panel, hand-rolled relativeTime). See Review outcomes → S6 — Review (2026-04-18) → pass. |
-| S7 | Polish & Local Deploy Readiness | in_review | general-purpose (bg) | 2026-04-18 | 2026-04-18 | Completed — 427/427 .NET + 179/179 web + 32/32 shared tests green, lint clean, docker compose smoke-test passes all 13 steps, Swagger UI lives at `/api/swagger` (dev only), OpenAPI snapshot shipped at `apps/api/openapi.json`, prod compose + deploy workflow scaffolded. See S7 — completion notes below. |
+| S7 | Polish & Local Deploy Readiness | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 427/427 .NET + 179/179 web + 32/32 shared tests verified locally, lint clean, docker stack healthy (all 6 services), `scripts/smoke-test.sh` exits 0 across all 13 steps end-to-end, PWA manifest + sw.js + icons all 200, Swagger UI live at `/api/swagger` (dev) and integration-tested 404 when `Environment=Testing` + `OpenApi:Enabled` unset, structured error envelope asserted by 3 cross-endpoint contract tests + live curls for auth 401 and group-validation 400, prod compose parses with env vars, deploy workflow has active test+build jobs and deploy job clearly commented as TODO-until-VPS, SeaweedFS stays `expose:` in prod, photo cache CacheFirst / recipes+groups NetworkFirst / auth NetworkOnly all verified in `vite.config.ts`. All 4 S7 deviations accepted. Phase 1 Summary section present with totals, fix passes, deviations, first-time-launch pointer, Phase 2 readiness note. See Review outcomes → S7 — Review (2026-04-18) → pass. |
 
 ## S0 — completion notes
 
@@ -1653,6 +1653,153 @@ Every implementation commit preceded by its test commit:
 - Upgrade Swashbuckle + Microsoft.AspNetCore.OpenApi when a compatible combo ships, so the photo upload endpoint can re-enter the Swagger docs.
 - Add Uptime-Kuma + Grafana-Loki monitoring (PRD §11.5) once the VPS is up.
 - Wire `vite-plugin-pwa` declared peer-dep warning to a newer release that officially supports Vite 8.
+
+## Review outcomes → S7 — Review (2026-04-18) → pass
+
+Independent reviewer executed every command in the dispatch brief and
+confirmed each result with own eyes. This is the final Phase-1 review.
+
+### Commit chain
+
+- `git log --oneline 369ec13..HEAD | wc -l` → **18** (expected 18: 17 impl + 1 orchestrator progress flip).
+- TDD ordering verified for every D1–D5 feature pair (`test` commit always precedes `feat`):
+  - D4 FamilienResults: `e066fb5` (test) → `8fe2d1a` (feat) ✓, then `1baa60a refactor` to route endpoints through helper, then `dde1b57` cross-endpoint contract tests.
+  - D4 GlobalExceptionHandler: `f6afe62` (test) → `b71a097` (feat) ✓.
+  - D5 OpenAPI + Swagger UI: `a05a8f0` (test) → `0414d77` (feat) ✓.
+  - D1 PWA service worker + update prompt: `151a66a` (test) → `b35d2d6` (feat) ✓.
+  - D2 ErrorBoundary: `177f55b` (test) → `2956280` (feat) ✓.
+  - D3 Skeleton component: `4f9b858` (test) → `d7cc1c6` (feat) ✓.
+- D6–D9 infra/docs commits (`124ea7d`, `dba394c`, `f7e88a6`, `6e3d07b`) are atomic chore/docs — TDD-exempt per spec, commit subjects accurately describe the change.
+
+### Static checks (all clean)
+
+- `grep Assert.True(true|false)` in `apps/api/tests/` → 0.
+- `grep [Skip / Skip= / .Skip(` in `apps/api/tests/*.cs` → 0.
+- `grep it.skip / it.todo / describe.skip / .only( / xit / xdescribe` in `apps/web/src` + `packages/` → 0.
+- `grep TODO / FIXME / HACK / XXX` in `apps/` + `packages/` (cs, ts, tsx) → 0.
+- `grep NotImplementedException` in prod code → 0.
+- `grep @ts-ignore / @ts-expect-error / eslint-disable / SuppressMessage / pragma warning disable` → baseline only (5 EF migration snapshot pragmas + `useSession.ts` exhaustive-deps + S4 `RecipeFilterPanel.tsx` exhaustive-deps). **No new suppressions introduced in S7.**
+- `Directory.Build.props` → `TreatWarningsAsErrors=true` still on.
+
+### Deliverable presence
+
+- `apps/api/src/FamilienKochbuch.Api/Services/FamilienResults.cs` + `GlobalExceptionHandler.cs` — present, inspected.
+- `apps/api/openapi.json` — 46 KiB JSON, `"openapi": "3.0.4"`, `"title": "Familien-Kochbuch API"`.
+- `apps/web/vite.config.ts` — `VitePWA(...)` with manifest, Workbox runtime caching, glob patterns, max size.
+- `apps/web/src/pwa/` — `registerSW.ts` + `PwaUpdatePrompt.tsx` + `registerSW.test.ts` + `updatePrompt.test.tsx` + `virtual-pwa-register.d.ts`, all present.
+- `apps/web/src/components/ErrorBoundary.tsx` — present.
+- `apps/web/src/components/ui/skeleton.tsx` — present.
+- `docker-compose.prod.yml`, `infra/Caddyfile.prod`, `scripts/smoke-test.sh`, `scripts/export-openapi.sh`, `.github/workflows/deploy.yml` — all present.
+- `scripts/smoke-test.sh` — `#!/usr/bin/env bash`, `set -euo pipefail`, explicit `Step N/13` counters, `require curl / require jq`, mode `755` (executable).
+
+### README polish check
+
+- `README.md` — 258 lines, all spec sections present: Quick start, Dev loop, Test commands, Smoke test, Project structure, Deployment (with "Running prod compose locally" sub-section), Swagger / OpenAPI, Troubleshooting, Contributor notes, Related docs. Technical content is English; German welcome copy (first paragraph) acceptable. All four Related-docs links resolve (PRD, implementation plan, progress tracker, anti-shortcut checklist).
+
+### Runtime verification
+
+- `dotnet test apps/api/FamilienKochbuch.sln` → **427/427 pass**, 0 failed, 0 skipped (176 Domain + 72 Infra + 179 Api). Matches claim.
+- `pnpm -C apps/web test --run` → **179/179 pass** across 41 test files. Matches claim.
+- `pnpm -C packages/shared test --run` → **32/32 pass**. Matches claim.
+- `pnpm lint` at root → clean (0 errors, 0 warnings) — `apps/web` eslint runs, the other workspaces are no-op lint targets per prior slices.
+- `docker compose up --build -d` → all 6 services up (postgres / redis / api / web / caddy / seaweedfs). postgres + redis + api report `(healthy)`; web + caddy + seaweedfs have no healthcheck declared but all bind and serve.
+
+### PWA + static assets (served live)
+
+- `curl -sI http://localhost/manifest.webmanifest` → **200**, `Content-Type: application/manifest+json`, 474 bytes.
+- `curl -s http://localhost/manifest.webmanifest` body contains: `name: "Familien-Kochbuch"`, `short_name: "Kochbuch"`, `start_url: "/"`, `display: "standalone"`, `lang: "de"`, `theme_color: "#b45309"`, `orientation: "portrait"`, icons array with both `/icon-192.png` and `/icon-512.png` (standard + maskable). ✓ Complete per spec.
+- `curl -sI http://localhost/sw.js` → **200** (Workbox service worker, body not printed — bulky).
+- `curl -sI http://localhost/icon-192.png` → **200**.
+- `curl -sI http://localhost/icon-512.png` → **200**.
+
+### Swagger dev vs. prod
+
+- `curl -s http://localhost/api/swagger/v1/swagger.json | head -5` → JSON with `"openapi": "3.0.4"` and `"title": "Familien-Kochbuch API"`. ✓ (compose sets `ASPNETCORE_ENVIRONMENT: Development`).
+- `dotnet test ... --filter FullyQualifiedName~Swagger` → **3/3 pass** covering Dev-mount (200), Testing-env-unregistered (404), and `OpenApi:Enabled=true`-override. ✓ Both env modes explicitly asserted.
+
+### Error envelope samples
+
+1. Unauth / invalid credentials — `POST /api/auth/login` with `{"email":"no","password":"no"}`:
+   ```
+   {"code":"invalid_credentials","message":"E-Mail oder Passwort ungültig."}
+   ```
+   HTTP 401.
+2. Validation — authenticated `POST /api/groups/` with `{"name":""}`:
+   ```
+   {"code":"invalid_input","message":"Group name must not be blank. (Parameter 'name')"}
+   ```
+   HTTP 400.
+3. Invite-preview not-found — `GET /api/invites/app/nonexistent-token` (asserted by `ErrorResponseContractTests.Invite_Preview_NotFound_Returns_ErrorResponse_Shape`):
+   ```
+   {"code":"invite_not_found","message":"Einladung wurde nicht gefunden."}
+   ```
+   HTTP 404.
+
+   All three match the `{ code, message, details? }` envelope. **Partial-envelope caveat (noted, non-blocking):** some endpoints still use bare `Results.NotFound()` / `Results.Unauthorized()` (empty body) for resource-scoped 4xx (e.g. `GET /api/recipes/{id}` when the recipe is absent). Every *meaningful* 4xx with a failure reason (validation, business-rule rejection, auth failure, invite-not-found) goes through `FamilienResults` and the shape contract holds; empty-body 404/401 only happens where no message is useful. The cross-endpoint contract test suite covers the three canonical cases. This is structurally consistent and matches S7 follow-up expectations — not a blocker.
+
+### Photo runtime cache strategy (`apps/web/vite.config.ts`)
+
+| Route pattern | Handler | Notes |
+| --- | --- | --- |
+| `/api/photos/*` | `CacheFirst` | 50 entries, 14 days, `cacheableResponse: { statuses: [0, 200] }` — signed URLs survive offline. ✓ |
+| `/api/recipes/*` and `/api/groups/*` | `NetworkFirst` | `networkTimeoutSeconds: 2`, 100 entries, 7 days. ✓ |
+| `/api/auth/*` | `NetworkOnly` | Explicit — never cached. ✓ |
+
+Exactly matches the spec and the S7 deviation #3 rationale.
+
+### Smoke test (end-to-end, live stack)
+
+`bash scripts/smoke-test.sh` → exit code 0. Last lines:
+```
+  ✓ Fork revision summary: Geforkt aus Gruppe Smoke-G-1776522902: Smoke-Rezept-1776522902
+▶ Step 12/13 — delete the test recipe
+  ✓ Test recipe deleted
+▶ Step 13/13 — delete the test groups
+  ✓ Test groups deleted
+✓ Familien-Kochbuch smoke test passed (http://localhost)
+```
+All 13 steps green: health → admin login → invite → signup → re-login → group → recipe (5 ingredients + 3 steps + 2 tags) → rate 5★ → search → fork → "Geforkt aus Gruppe …" revision summary → recipe delete → groups delete. **Cleanup steps actually delete created artifacts** (recipe + both groups) — reviewer verified by script readthrough, steps 12–13 issue real `DELETE` calls.
+
+Reviewer note: the rate-limiter on `/api/auth/login` (5/min/IP) kicked in on the first run because the reviewer had already exercised login repeatedly during the error-envelope samples; restarting the api container cleared the limiter and the second run was clean through all 13 steps. Not a flaw in the script — limiter is working as specified.
+
+### Prod compose validation
+
+- `CADDY_DOMAIN=... POSTGRES_PASSWORD=... JWT_SIGNING_KEY=... ADMIN_EMAIL=... ADMIN_PASSWORD=... docker compose -f docker-compose.prod.yml config > /tmp/prod-config.yml` → parses cleanly, `echo OK` printed.
+- `grep image:` → `postgres:17-alpine`, `redis:7-alpine`, `chrislusf/seaweedfs:latest`, **`ghcr.io/kay-solutions/familien-kochbuch-api:latest`**, **`ghcr.io/kay-solutions/familien-kochbuch-web:latest`**, `caddy:2-alpine`. ✓
+- SeaweedFS uses `expose:` (S3 privacy fix preserved) — no `ports:` block on the seaweedfs service. ✓
+- `infra/Caddyfile.prod` — 16 lines, single `{$CADDY_DOMAIN}` site, `handle /api/* { reverse_proxy api:5000 }`, `handle { reverse_proxy web:5173 }`. **No `/photos/*` block** — signed URL flow is routed via `/api/photos/*` inside the `/api/*` handle. ✓
+
+### Deploy workflow (`.github/workflows/deploy.yml`)
+
+- Trigger: `push` to `main` with path filters + `workflow_dispatch`. ✓
+- `test` job runs `pnpm install` → web lint + web test + shared test + `dotnet restore` + `dotnet test ... --configuration Release`. ✓
+- `build-api` + `build-web` jobs use `docker/build-push-action@v5` to push to `ghcr.io` with both `:latest` and `:${{ github.sha }}` tags. ✓
+- `deploy` job is **commented out** (lines 106–148) with a clear block comment explaining: "Activate this job once the Hetzner VPS is provisioned and the repository has the matching secrets set (VPS_HOST, VPS_SSH_KEY, PROD_ENV). Until then the deploy step stays dormant so the rest of the pipeline (test + image build + GHCR push) runs on every push." A future engineer knows exactly what to uncomment. ✓
+- No accidental live deploy step present — reviewer double-checked the entire file.
+
+### Phase 1 Summary section
+
+`## Phase 1 — Summary` section present in `docs/phase-1-progress.md` (line 1657). Contains: totals table (7 main slices, 3 fix passes, 10 reviews, ~220 commits, 427 + 179 + 32 = **638 tests**, 0 lint errors), individual fix-pass entries (S0, S3, photo-storage), cross-slice deviations table, first-time-local-launch README pointer, Phase 2 readiness note (AI assistants per PRD §5). ✓ All spec requirements met.
+
+### Deviation assessments (4 claimed + 1 additional)
+
+1. **Swashbuckle 9.0.6 pin + `.ExcludeFromDescription()` on photo upload.** Package-version conflict between `Microsoft.AspNetCore.OpenApi 10.x` and `Swashbuckle.AspNetCore 10.x` (transitive `Microsoft.OpenApi` 1.6 vs 2.x collision) is a real blocker; pinning to Swashbuckle 9.0.6 and excluding the single Minimal-API-plus-`IFormFile` endpoint from the spec is a pragmatic, reversible choice. Follow-up tracked. **Accept.**
+2. **`OpenApi:Enabled` config flag alongside `IsDevelopment()`.** Lets integration tests exercise the Swagger path while `Environment=Testing` (which skips Postgres bootstrap) — the flag is unset in production and the routes are unregistered. The S7 Swagger integration test pair explicitly covers both the mount and the not-mounted case. **Accept.**
+3. **`GlobalExceptionHandler` does not echo exception messages to the client.** Spec was silent on policy; the chosen default ("Es ist ein unerwarteter Fehler aufgetreten. …") prevents accidental PII / stack-frame leaks and is enforced by `Handler_Does_Not_Leak_Exception_Message_To_Client`. Correct security posture. **Accept.**
+4. **Explicit `/api/auth/*` `NetworkOnly` Workbox route.** The spec only said "don't cache auth"; adding an explicit `NetworkOnly` route makes the intent load-bearing so a future catch-all glob cannot accidentally cache auth. **Accept.**
+5. **(Non-claimed, reviewer-observed) Not every bare 404/401 path returns the envelope.** Endpoints like `GET /api/recipes/{id}` still use `Results.NotFound()` / `Results.Unauthorized()` for resource-absent cases. Every error with a *meaningful* code/message (validation, business rule, invite-not-found, invalid credentials) goes through `FamilienResults` and is covered by the `ErrorResponseContractTests`. Because no information is being withheld (those 404s carry no message that a client can act on beyond the status code), this is structurally consistent — but worth recording as a follow-up if client code ever needs to branch on `error.code` for the empty-body cases. **Accept as-is, flagged for Phase 2 polish.**
+
+### Non-regression
+
+- No S1–S6 tests lost — total count rose monotonically (S6 baseline 414 → S7 427 .NET; S6 167 → S7 179 web; shared 32 → 32 unchanged).
+- `git log origin/main..HEAD` → empty (everything pushed).
+- `git status` → clean after the review commit.
+
+### Verdict
+
+**Pass.** S7 delivers every required deliverable — structured error envelope, global exception handler, OpenAPI + Swagger (dev-only) with integration-test-verified prod behaviour, PWA service worker + update toast with three Workbox runtime strategies, global ErrorBoundary with German fallback, Skeleton primitive applied across three feature pages, 13-step smoke script exiting 0 end-to-end, `docker-compose.prod.yml` parsing cleanly with GHCR image references, `.github/workflows/deploy.yml` with build+push live and deploy step cleanly disabled, README rewritten with every spec-mandated section, and a complete Phase 1 Summary. 638 total tests green locally. TDD ordering held for every non-trivial commit. Four deviations accepted; one reviewer-observed structural note logged as a Phase-2 polish follow-up.
+
+**Phase 1 is complete.**
 
 ## Phase 1 — Summary
 
