@@ -968,4 +968,91 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             new { targetGroupId = groupId });
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
+
+    // ── POST /api/recipes/{id}/cook (DS5 "Jetzt gekocht") ───────────────
+
+    [Fact]
+    public async Task MarkCooked_Sets_LastCookedAt_And_Returns_Updated_Detail()
+    {
+        var (_, token) = await SignupAndLoginAsync("cook@ex.com", "C");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Gekocht"));
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Null(created.LastCookedAt);
+
+        var before = DateTimeOffset.UtcNow.AddSeconds(-5);
+        var response = await _client.PostAsync($"/api/recipes/{created.Id}/cook", content: null);
+        var after = DateTimeOffset.UtcNow.AddSeconds(5);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.NotNull(body.LastCookedAt);
+        Assert.InRange(body.LastCookedAt!.Value, before, after);
+
+        // Persisted.
+        var fetch = await _client.GetFromJsonAsync<RecipeEndpoints.RecipeDetailDto>(
+            $"/api/recipes/{created.Id}");
+        Assert.NotNull(fetch!.LastCookedAt);
+    }
+
+    [Fact]
+    public async Task MarkCooked_Returns_403_For_Non_Member()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("cook-a@ex.com", "A");
+        var (_, bTok) = await SignupAndLoginAsync("cook-b@ex.com", "B");
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var groupId = await CreateGroupAsync(clientA);
+        var createRes = await clientA.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest());
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var response = await clientB.PostAsync($"/api/recipes/{created.Id}/cook", content: null);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MarkCooked_Returns_404_For_Unknown_Recipe()
+    {
+        var (_, token) = await SignupAndLoginAsync("cook-nf@ex.com", "NF");
+        AuthorizeClient(_client, token);
+
+        var response = await _client.PostAsync($"/api/recipes/{Guid.NewGuid()}/cook", content: null);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MarkCooked_Returns_401_When_Unauthenticated()
+    {
+        var response = await _client.PostAsync($"/api/recipes/{Guid.NewGuid()}/cook", content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MarkCooked_Does_Not_Append_Revision()
+    {
+        // Cooking a recipe is an activity signal, not an edit — we don't
+        // want every "gekocht" tap to bloat the history panel. The revision
+        // count must be unchanged after the call.
+        var (_, token) = await SignupAndLoginAsync("cook-rev@ex.com", "R");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Kochn"));
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var beforeRevs = await _client.GetFromJsonAsync<RecipeRevisionEndpoints.RevisionSummaryDto[]>(
+            $"/api/recipes/{created.Id}/revisions");
+
+        var response = await _client.PostAsync($"/api/recipes/{created.Id}/cook", content: null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var afterRevs = await _client.GetFromJsonAsync<RecipeRevisionEndpoints.RevisionSummaryDto[]>(
+            $"/api/recipes/{created.Id}/revisions");
+        Assert.Equal(beforeRevs!.Length, afterRevs!.Length);
+    }
 }
