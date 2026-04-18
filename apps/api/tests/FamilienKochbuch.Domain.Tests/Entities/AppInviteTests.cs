@@ -9,8 +9,13 @@ namespace FamilienKochbuch.Domain.Tests.Entities;
 /// </summary>
 public class AppInviteTests
 {
+    // Exactly 64 chars — pads with 'x' so the token-length invariant can be
+    // tested separately via the dedicated test below.
+    private const string ValidToken =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     private static AppInvite NewInvite(
-        string token = "tok_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd",
+        string token = ValidToken,
         DateTimeOffset? createdAt = null,
         DateTimeOffset? expiresAt = null,
         string? email = null)
