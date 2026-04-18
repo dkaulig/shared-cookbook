@@ -14,8 +14,10 @@ Rules:
 - Ingredients have their own confidence literal with ``"missing"``
   because post-processing flags quantity-less ingredients distinctly
   from low-confidence LLM guesses.
-- Steps and the overall result use the three-level ``ConfidenceLevel``
-  literal.
+- The overall ``ExtractionConfidence`` level uses the three-value
+  ``ConfidenceLevel`` literal. Steps use :data:`StepConfidenceLevel`
+  which widens it with ``"handwritten_uncertain"`` for the photo path
+  (P2-3).
 """
 
 from __future__ import annotations
@@ -23,19 +25,35 @@ from __future__ import annotations
 from typing import Final, Literal, TypedDict, get_args
 
 ConfidenceLevel = Literal["high", "medium", "low"]
-"""Generic confidence classification — used for step-level + overall."""
+"""Aggregate confidence classification — used for the overall badge.
 
-IngredientConfidenceLevel = Literal["high", "medium", "low", "missing"]
-"""Ingredient-specific confidence: adds ``missing`` for quantity-less items.
+Stays at the three canonical levels because the frontend renders one
+of three badge colours; the photo path's ``"handwritten_uncertain"``
+literal is per-item, not aggregate.
+"""
 
-Post-processing flags every ingredient without a quantity as ``missing``
-so the frontend highlights them for manual review. Distinct from
-``low`` which means "LLM produced a value but is not sure".
+StepConfidenceLevel = Literal["high", "medium", "low", "handwritten_uncertain"]
+"""Step-level confidence.
+
+The base three levels plus ``"handwritten_uncertain"`` for the photo
+path (P2-3). Printed / digital sources only ever use the first three;
+the extra literal lets a handwritten step carry an explicit
+"hard-to-read" flag distinct from a low-confidence guess.
+"""
+
+IngredientConfidenceLevel = Literal["high", "medium", "low", "missing", "handwritten_uncertain"]
+"""Ingredient-specific confidence.
+
+- ``"missing"`` — post-processing flag for quantity-less items.
+- ``"handwritten_uncertain"`` — photo path (P2-3); the Vision-LLM
+  could not read the handwriting confidently but still emitted a
+  best-guess value.
 """
 
 # Runtime-accessible tuples for tests and iteration. Drift-guarded by
 # pairs of tests that pin them to ``get_args`` of the literals.
 CONFIDENCE_LEVELS: Final[tuple[ConfidenceLevel, ...]] = get_args(ConfidenceLevel)
+STEP_CONFIDENCE_LEVELS: Final[tuple[StepConfidenceLevel, ...]] = get_args(StepConfidenceLevel)
 INGREDIENT_CONFIDENCE_LEVELS: Final[tuple[IngredientConfidenceLevel, ...]] = get_args(
     IngredientConfidenceLevel
 )
@@ -65,12 +83,14 @@ class ExtractedStep(TypedDict):
     - ``position`` is 1-indexed (PRD §5.1). The frontend renders it verbatim.
     - ``content`` is the step's plain-text instruction.
     - ``confidence`` is ``"high"`` unless the step is paraphrased from a
-      low-quality transcript; the LLM picks.
+      low-quality transcript or handwritten source. The photo path
+      (P2-3) may emit ``"handwritten_uncertain"`` for barely-legible
+      rows; the URL path never does.
     """
 
     position: int
     content: str
-    confidence: ConfidenceLevel
+    confidence: StepConfidenceLevel
 
 
 class ExtractedRecipe(TypedDict):
@@ -118,6 +138,7 @@ class ExtractionResult(TypedDict):
 __all__ = [
     "CONFIDENCE_LEVELS",
     "INGREDIENT_CONFIDENCE_LEVELS",
+    "STEP_CONFIDENCE_LEVELS",
     "ConfidenceLevel",
     "ExtractedIngredient",
     "ExtractedRecipe",
@@ -125,4 +146,5 @@ __all__ = [
     "ExtractionConfidence",
     "ExtractionResult",
     "IngredientConfidenceLevel",
+    "StepConfidenceLevel",
 ]

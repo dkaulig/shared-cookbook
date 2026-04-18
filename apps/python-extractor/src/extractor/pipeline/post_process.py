@@ -30,6 +30,7 @@ from extractor.pipeline.types import (
     ExtractionConfidence,
     ExtractionResult,
     IngredientConfidenceLevel,
+    StepConfidenceLevel,
 )
 
 _SERVINGS_MIN: int = 1
@@ -162,9 +163,18 @@ def _normalise_ingredient(raw: dict[str, Any]) -> ExtractedIngredient | None:
     confidence: IngredientConfidenceLevel
     if quantity is None:
         # The plan: empty-quantity items always get ``missing`` regardless
-        # of what the LLM claimed.
+        # of what the LLM claimed. A photo-path ingredient whose
+        # handwriting is legible but whose quantity is still blank
+        # surfaces as ``missing`` so the review UI can prompt for
+        # manual entry.
         confidence = "missing"
-    elif raw_confidence in ("high", "medium", "low", "missing"):
+    elif raw_confidence in (
+        "high",
+        "medium",
+        "low",
+        "missing",
+        "handwritten_uncertain",
+    ):
         confidence = raw_confidence
     else:
         confidence = "low"
@@ -178,7 +188,12 @@ def _normalise_ingredient(raw: dict[str, Any]) -> ExtractedIngredient | None:
 
 
 def _normalise_step(raw: dict[str, Any]) -> ExtractedStep | None:
-    """Build an :class:`ExtractedStep`; drop malformed rows."""
+    """Build an :class:`ExtractedStep`; drop malformed rows.
+
+    Accepts the three canonical confidence levels *and* the photo-path
+    ``"handwritten_uncertain"`` literal so the Vision-LLM can flag
+    barely-legible handwritten steps without being silently downgraded.
+    """
     position = raw.get("position")
     content = raw.get("content")
     confidence_raw = raw.get("confidence")
@@ -186,12 +201,13 @@ def _normalise_step(raw: dict[str, Any]) -> ExtractedStep | None:
         return None
     if not isinstance(content, str) or not content.strip():
         return None
-    if confidence_raw not in ("high", "medium", "low"):
+    if confidence_raw not in ("high", "medium", "low", "handwritten_uncertain"):
         return None
+    confidence: StepConfidenceLevel = confidence_raw
     return {
         "position": position,
         "content": content.strip(),
-        "confidence": confidence_raw,
+        "confidence": confidence,
     }
 
 
@@ -219,7 +235,9 @@ def _aggregate_confidence(
     Rules:
     - If nothing was extracted → ``"low"`` (no evidence).
     - If ``>= 50 %`` of the ingredients are ``"missing"`` → ``"low"``.
-    - If any step or ingredient is ``"low"`` → ``"medium"``.
+    - If any step or ingredient is ``"low"`` or
+      ``"handwritten_uncertain"`` → ``"medium"`` (a handwritten
+      uncertainty is a reviewer prompt, not a failure).
     - Else → ``"high"``.
     """
     total_ingredients = len(ingredients)
@@ -234,10 +252,11 @@ def _aggregate_confidence(
     if missing_ratio >= 0.5:
         return "low"
 
-    has_low = any(i["confidence"] == "low" for i in ingredients) or any(
-        s["confidence"] == "low" for s in steps
+    shaky = {"low", "handwritten_uncertain"}
+    has_shaky = any(i["confidence"] in shaky for i in ingredients) or any(
+        s["confidence"] in shaky for s in steps
     )
-    if has_low:
+    if has_shaky:
         return "medium"
 
     return "high"

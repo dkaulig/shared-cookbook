@@ -12,6 +12,7 @@ from typing import get_args
 from extractor.pipeline.types import (
     CONFIDENCE_LEVELS,
     INGREDIENT_CONFIDENCE_LEVELS,
+    STEP_CONFIDENCE_LEVELS,
     ConfidenceLevel,
     ExtractedIngredient,
     ExtractedRecipe,
@@ -19,21 +20,37 @@ from extractor.pipeline.types import (
     ExtractionConfidence,
     ExtractionResult,
     IngredientConfidenceLevel,
+    StepConfidenceLevel,
 )
 
 
 def test_confidence_level_literal_contains_expected_values() -> None:
-    """``high | medium | low`` — the three levels our frontend renders."""
+    """``high | medium | low`` — the three levels the overall badge uses."""
     assert set(get_args(ConfidenceLevel)) == {"high", "medium", "low"}
 
 
-def test_ingredient_confidence_level_literal_adds_missing() -> None:
-    """Ingredients can also be ``missing`` — frontend highlights for review."""
+def test_ingredient_confidence_level_literal_adds_missing_and_handwritten() -> None:
+    """Ingredients get ``missing`` (post-process flag) and
+    ``handwritten_uncertain`` (photo path, P2-3) in addition to the
+    three base levels."""
     assert set(get_args(IngredientConfidenceLevel)) == {
         "high",
         "medium",
         "low",
         "missing",
+        "handwritten_uncertain",
+    }
+
+
+def test_step_confidence_level_literal_adds_handwritten_uncertain() -> None:
+    """Steps can also be flagged ``handwritten_uncertain`` on the
+    photo path — a barely-legible step still makes it into the
+    response instead of being silently dropped."""
+    assert set(get_args(StepConfidenceLevel)) == {
+        "high",
+        "medium",
+        "low",
+        "handwritten_uncertain",
     }
 
 
@@ -45,6 +62,11 @@ def test_confidence_levels_tuple_matches_literal() -> None:
 def test_ingredient_confidence_levels_tuple_matches_literal() -> None:
     """Runtime-accessible tuple stays in sync with the literal."""
     assert set(INGREDIENT_CONFIDENCE_LEVELS) == set(get_args(IngredientConfidenceLevel))
+
+
+def test_step_confidence_levels_tuple_matches_literal() -> None:
+    """Runtime-accessible tuple stays in sync with the literal."""
+    assert set(STEP_CONFIDENCE_LEVELS) == set(get_args(StepConfidenceLevel))
 
 
 def test_extracted_ingredient_shape() -> None:
