@@ -45,6 +45,21 @@ export interface GroupInviteCreated {
   createdAt: string
 }
 
+/**
+ * Row shape for `GET /api/groups/{id}/invites` (admin-only listing of
+ * outstanding invites for a group). Unlike `GroupInviteCreated`, this
+ * carries the invited user's display name so the admin UI can render
+ * the list without a second lookup.
+ */
+export interface GroupInviteListItem {
+  id: string
+  groupId: string
+  invitedUserId: string
+  invitedUserDisplayName: string
+  status: InviteStatus
+  createdAt: string
+}
+
 export interface CreateGroupRequest {
   name: string
   description?: string
