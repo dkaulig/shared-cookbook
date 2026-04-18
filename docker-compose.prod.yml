@@ -57,6 +57,7 @@ services:
       ConnectionStrings__Redis: "redis:6379"
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_DISPLAY_NAME: ${ADMIN_DISPLAY_NAME:-Familienkoch}
       # CRITICAL: must be set in production — used for JWT signing AND
       # photo URL HMACs. Rotate via CI/CD + rolling restart.
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}

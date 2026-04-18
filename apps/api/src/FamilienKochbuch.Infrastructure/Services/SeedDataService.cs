@@ -21,6 +21,11 @@ public class SeedDataService(
 {
     internal const string DefaultAdminEmail = "admin@familien-kochbuch.local";
     internal const string DefaultAdminPassword = "ChangeMe!Admin2026";
+    // BF1 #2 — the previous default ("Admin") was the role label, which
+    // surfaced in revision history as if the role were the author's name.
+    // Default to a person-shaped placeholder; deployers should override
+    // via ADMIN_DISPLAY_NAME so collaborators see a real name.
+    internal const string DefaultAdminDisplayName = "Familienkoch";
 
     public async Task SeedAsync(CancellationToken ct = default)
     {
@@ -36,6 +41,7 @@ public class SeedDataService(
 
         var email = config["ADMIN_EMAIL"];
         var password = config["ADMIN_PASSWORD"];
+        var displayName = config["ADMIN_DISPLAY_NAME"];
 
         var usingDefault = false;
         if (string.IsNullOrWhiteSpace(email))
@@ -47,6 +53,10 @@ public class SeedDataService(
         {
             password = DefaultAdminPassword;
             usingDefault = true;
+        }
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            displayName = DefaultAdminDisplayName;
         }
 
         if (usingDefault)
@@ -60,7 +70,7 @@ public class SeedDataService(
 
         var admin = new User { Role = UserRole.Admin };
         admin.SetEmail(email!);
-        admin.SetDisplayName("Admin");
+        admin.SetDisplayName(displayName!);
         admin.EmailConfirmed = true;
 
         var result = await users.CreateAsync(admin, password!);
