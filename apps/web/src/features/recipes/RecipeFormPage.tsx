@@ -845,7 +845,7 @@ function SortableIngredientRow({
         <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
 
-      <div className="grid grid-cols-[70px_90px_1fr] items-start gap-1.5">
+      <div className="grid grid-cols-[92px_96px_1fr] items-start gap-1.5">
         <FormInput
           type="text"
           inputMode="decimal"
