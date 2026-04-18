@@ -21,6 +21,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
       shared: ${{ steps.filter.outputs.shared }}
+      python: ${{ steps.filter.outputs.python }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -40,6 +41,8 @@ jobs:
               - 'package.json'
               - 'pnpm-workspace.yaml'
               - 'pnpm-lock.yaml'
+            python:
+              - 'apps/python-extractor/**'
 
   test-api:
     name: test-api
@@ -93,3 +96,33 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Test
         run: pnpm --filter @familien-kochbuch/shared test
+
+  test-python:
+    name: test-python
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    defaults:
+      run:
+        working-directory: apps/python-extractor
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        # Pinned uv version matches the one baked into the Dockerfile;
+        # bump both together.
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.7"
+          enable-cache: true
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+      - name: Sync dependencies (frozen)
+        run: uv sync --all-extras --frozen
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Mypy (strict)
+        run: uv run mypy --strict src tests
+      - name: Pytest
+        run: uv run pytest -v
