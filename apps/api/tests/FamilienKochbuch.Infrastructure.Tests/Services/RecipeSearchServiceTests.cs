@@ -112,7 +112,7 @@ public class RecipeSearchServiceTests : IAsyncLifetime
         await _db.SaveChangesAsync();
     }
 
-    private async Task Tag(Recipe recipe, params Tag[] tags)
+    private async Task TagRecipe(Recipe recipe, params Tag[] tags)
     {
         foreach (var t in tags)
         {
@@ -187,8 +187,8 @@ public class RecipeSearchServiceTests : IAsyncLifetime
         var none = AddRecipe("Keine");
         await _db.SaveChangesAsync();
 
-        await Tag(both, _tagSchnell, _tagVegetarisch);
-        await Tag(onlyOne, _tagSchnell);
+        await TagRecipe(both, _tagSchnell, _tagVegetarisch);
+        await TagRecipe(onlyOne, _tagSchnell);
 
         var hits = await _service.SearchAsync(_groupId, new RecipeSearchQuery
         {
@@ -303,8 +303,8 @@ public class RecipeSearchServiceTests : IAsyncLifetime
         var off = AddRecipe("Reis");
         await _db.SaveChangesAsync();
 
-        await Tag(winner, _tagSchnell);
-        await Tag(lowRated, _tagSchnell);
+        await TagRecipe(winner, _tagSchnell);
+        await TagRecipe(lowRated, _tagSchnell);
         await Rate(winner, _userId, 5);
         await Rate(lowRated, _userId, 1);
 
@@ -402,8 +402,8 @@ public class RecipeSearchServiceTests : IAsyncLifetime
         var other = AddRecipe("Pizza Classico");
         await _db.SaveChangesAsync();
 
-        await Tag(winner, _tagSchnell);
-        await Tag(other, _tagVegetarisch);
+        await TagRecipe(winner, _tagSchnell);
+        await TagRecipe(other, _tagVegetarisch);
 
         // Filter on Q="Nudeln" + tag=schnell — only `winner` qualifies. Run
         // multiple times to make sure it never returns `other`.
