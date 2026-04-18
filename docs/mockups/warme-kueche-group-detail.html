@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#fffbeb" />
+    <title>Familie Kaulig · Familien-Kochbuch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --primary: #b45309;
+        --primary-hover: #92400e;
+        --primary-weak: rgba(180, 83, 9, 0.08);
+        --primary-weak-strong: rgba(180, 83, 9, 0.14);
+        --accent: #dc2626;
+        --bg: #fffbeb;
+        --bg-2: #fef3c7;
+        --surface: #ffffff;
+        --surface-muted: #fafaf9;
+        --border: #e7e5e4;
+        --border-soft: #f5f5f4;
+        --border-strong: #d6d3d1;
+        --text: #1c1917;
+        --text-muted: #57534e;
+        --text-soft: #78716c;
+        --star: #d97706;
+        --green: #15803d;
+        --ring: rgba(180, 83, 9, 0.25);
+        --radius: 12px;
+        --radius-lg: 18px;
+        --radius-xl: 24px;
+        --shadow-xs: 0 1px 2px rgba(28, 25, 23, 0.04);
+        --shadow-md: 0 8px 24px -8px rgba(146, 64, 14, 0.14), 0 2px 6px -2px rgba(28, 25, 23, 0.04);
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        min-height: 100vh;
+        padding-bottom: calc(32px + var(--safe-bottom));
+      }
+      body::before {
+        content: "";
+        position: fixed; inset: 0;
+        background-image: radial-gradient(circle at 1px 1px, rgba(180, 83, 9, 0.05) 1px, transparent 0);
+        background-size: 24px 24px;
+        pointer-events: none; z-index: 0;
+      }
+      .wrap { position: relative; z-index: 1; }
+
+      /* ───────── Top nav ───────── */
+      .topnav {
+        position: sticky; top: 0;
+        padding: calc(10px + var(--safe-top)) 16px 10px;
+        display: flex; align-items: center; gap: 10px;
+        background: rgba(255, 251, 235, 0.88);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border-soft);
+        z-index: 10;
+      }
+      .icon-btn {
+        width: 40px; height: 40px; display: grid; place-items: center;
+        border-radius: 10px; color: var(--text-muted);
+        background: transparent; border: 1px solid transparent;
+        cursor: pointer; flex-shrink: 0;
+        text-decoration: none;
+        transition: background-color 150ms ease, color 150ms ease;
+      }
+      .icon-btn:hover { background: var(--primary-weak); color: var(--text); }
+      .topnav-title-wrap {
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column; gap: 1px; line-height: 1.1;
+      }
+      .topnav-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 18px; font-weight: 600;
+        letter-spacing: -0.005em;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .topnav-sub {
+        font-size: 11px; color: var(--text-soft);
+        display: flex; gap: 4px; align-items: center;
+      }
+      .topnav-sub .dot { color: var(--border-strong); }
+
+      /* ───────── Group header ───────── */
+      main { max-width: 1120px; margin: 0 auto; }
+      .group-header {
+        padding: 0 20px;
+        margin-top: 8px;
+      }
+      @media (min-width: 768px) { .group-header { padding: 0 32px; margin-top: 16px; } }
+      .cover {
+        height: 120px;
+        border-radius: var(--radius-xl);
+        background:
+          linear-gradient(135deg, rgba(180,83,9,0.15), rgba(217,119,6,0.1) 50%, rgba(252,211,77,0.2)),
+          radial-gradient(circle at 20% 40%, #fde68a 0%, transparent 55%),
+          radial-gradient(circle at 85% 75%, #fed7aa 0%, transparent 55%),
+          #fef3c7;
+        position: relative;
+        border: 1px solid #fde68a;
+      }
+      @media (min-width: 768px) { .cover { height: 180px; } }
+      .group-avatar-wrap {
+        margin-top: -36px;
+        padding-left: 6px;
+        position: relative;
+        z-index: 1;
+      }
+      .group-avatar-big {
+        width: 72px; height: 72px; border-radius: 20px;
+        background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
+        color: #713f12;
+        font-family: "Cormorant Garamond", serif;
+        font-size: 34px; font-weight: 600;
+        display: grid; place-items: center;
+        box-shadow: 0 4px 18px -4px rgba(146, 64, 14, 0.3);
+        border: 4px solid var(--bg);
+      }
+      .group-heading { padding: 14px 6px 0; }
+      .group-heading h1 {
+        font-family: "Cormorant Garamond", serif;
+        font-size: clamp(24px, 5.5vw, 32px);
+        font-weight: 600; line-height: 1.1;
+        letter-spacing: -0.015em;
+        margin: 0 0 4px;
+      }
+      .group-heading .desc {
+        font-size: 13px; color: var(--text-soft); line-height: 1.4;
+      }
+      .group-stats-row {
+        margin-top: 14px; padding: 0 4px;
+        display: flex; flex-wrap: wrap; gap: 14px;
+        font-size: 13px; color: var(--text-muted);
+      }
+      .group-stat { display: inline-flex; align-items: center; gap: 6px; }
+      .group-stat svg { width: 14px; height: 14px; color: var(--text-soft); }
+      .group-stat strong { color: var(--text); font-weight: 600; }
+      .members-stack {
+        display: inline-flex;
+      }
+      .member-chip {
+        width: 26px; height: 26px; border-radius: 50%;
+        border: 2px solid var(--bg);
+        font-size: 11px; font-weight: 600;
+        display: grid; place-items: center;
+        color: #7c2d12;
+      }
+      .member-chip + .member-chip { margin-left: -8px; }
+      .member-chip.m1 { background: linear-gradient(135deg, #fed7aa, #fdba74); }
+      .member-chip.m2 { background: linear-gradient(135deg, #fecaca, #fca5a5); color: #7f1d1d; }
+      .member-chip.m3 { background: linear-gradient(135deg, #d9f99d, #a3e635); color: #365314; }
+      .member-chip.m-count {
+        background: var(--primary-weak);
+        color: var(--primary); font-size: 10px;
+      }
+
+      /* ───────── Filter bar ───────── */
+      .filter-bar-wrap {
+        padding: 22px 20px 0;
+      }
+      @media (min-width: 768px) { .filter-bar-wrap { padding: 28px 32px 0; } }
+      .filter-bar {
+        display: flex; gap: 10px;
+        align-items: stretch;
+      }
+      .search {
+        flex: 1;
+        display: flex; align-items: center; gap: 8px;
+        padding: 0 14px;
+        background: var(--surface); border: 1px solid var(--border-strong);
+        border-radius: 12px;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+      }
+      .search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 4px var(--ring); }
+      .search svg { width: 17px; height: 17px; color: var(--text-soft); flex-shrink: 0; }
+      .search input {
+        flex: 1; border: 0; background: transparent; outline: none;
+        font-family: inherit; font-size: 15px; padding: 10px 0;
+        color: var(--text);
+      }
+      .search input::placeholder { color: var(--text-soft); }
+      .filter-btn, .zufall-btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        padding: 10px 14px;
+        font-family: inherit; font-size: 14px; font-weight: 600;
+        border-radius: 12px; cursor: pointer;
+        transition: background-color 150ms ease, border-color 150ms ease, transform 80ms ease;
+      }
+      .filter-btn {
+        background: var(--surface); color: var(--text);
+        border: 1px solid var(--border-strong);
+      }
+      .filter-btn:hover { border-color: var(--primary); color: var(--primary); }
+      .filter-btn .count {
+        background: var(--primary); color: var(--bg);
+        font-size: 11px; padding: 1px 7px; border-radius: 999px;
+      }
+      .zufall-btn {
+        background: var(--accent); color: #fff; border: 1px solid var(--accent);
+        box-shadow: 0 3px 12px -4px rgba(220, 38, 38, 0.5);
+      }
+      .zufall-btn:hover { background: #b91c1c; }
+      .zufall-btn:active { transform: scale(0.98); }
+
+      /* Active filter chips row */
+      .active-filters {
+        margin-top: 10px;
+        display: flex; gap: 6px; flex-wrap: wrap;
+      }
+      .active-filter {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px 4px 11px;
+        background: var(--primary-weak); color: var(--primary);
+        border-radius: 999px; font-size: 13px; font-weight: 500;
+      }
+      .active-filter button {
+        background: transparent; border: 0; color: var(--primary);
+        cursor: pointer; padding: 0; display: grid; place-items: center;
+        opacity: 0.8;
+      }
+      .active-filter button:hover { opacity: 1; }
+      .active-clear {
+        font-size: 13px; color: var(--text-muted);
+        background: transparent; border: 0; cursor: pointer;
+        padding: 4px 8px;
+      }
+      .active-clear:hover { color: var(--accent); }
+
+      /* Expanded filter panel */
+      .filter-panel {
+        margin-top: 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 20px 20px 18px;
+        box-shadow: var(--shadow-xs);
+      }
+      .filter-group + .filter-group { margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--border); }
+      .filter-group-label {
+        font-size: 12px; font-weight: 700;
+        letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 10px;
+        display: flex; justify-content: space-between; align-items: center;
+      }
+      .filter-group-label .filter-value {
+        font-weight: 600;
+        color: var(--primary);
+        text-transform: none; letter-spacing: 0;
+      }
+      .tag-group { margin-bottom: 10px; }
+      .tag-group-head {
+        font-size: 11px; font-weight: 500; color: var(--text-soft);
+        margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em;
+      }
+      .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .tag-chip {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 5px 10px;
+        background: transparent;
+        border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        font-size: 13px; color: var(--text-muted);
+        cursor: pointer;
+        transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+      }
+      .tag-chip:hover { border-color: var(--primary); color: var(--primary); }
+      .tag-chip.is-selected {
+        background: var(--primary); color: var(--bg); border-color: var(--primary);
+      }
+      .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+      input[type="range"] {
+        flex: 1;
+        height: 3px; background: var(--border-strong);
+        border-radius: 999px; outline: none;
+        -webkit-appearance: none; appearance: none;
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 18px; height: 18px; border-radius: 50%;
+        background: var(--primary); cursor: pointer;
+        border: 2px solid var(--bg);
+        box-shadow: 0 2px 4px rgba(146,64,14,0.4);
+      }
+      input[type="range"]::-moz-range-thumb {
+        width: 18px; height: 18px; border-radius: 50%;
+        background: var(--primary); cursor: pointer;
+        border: 2px solid var(--bg);
+      }
+      .filter-row {
+        display: flex; gap: 10px; align-items: center;
+        margin-top: 6px;
+      }
+      select {
+        font-family: inherit; font-size: 14px;
+        padding: 10px 14px; padding-right: 32px;
+        border: 1px solid var(--border-strong);
+        background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2357534e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 10px center;
+        -webkit-appearance: none; appearance: none;
+        border-radius: 10px; color: var(--text);
+        cursor: pointer;
+      }
+      select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px var(--ring); }
+
+      /* Custom tag create inline */
+      .custom-tag-btn {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 5px 10px;
+        background: transparent;
+        border: 1px dashed var(--border-strong);
+        border-radius: 999px;
+        font-size: 13px; color: var(--text-muted);
+        cursor: pointer;
+        transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+      }
+      .custom-tag-btn:hover { background: var(--primary-weak); border-color: var(--primary); color: var(--primary); }
+
+      /* ───────── Results header ───────── */
+      .results-head {
+        padding: 18px 20px 8px;
+        display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+      }
+      @media (min-width: 768px) { .results-head { padding: 22px 32px 10px; } }
+      .result-count {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 22px; font-weight: 600;
+      }
+      .result-count .count {
+        font-family: "Inter", sans-serif;
+        font-size: 13px; font-weight: 500;
+        color: var(--text-soft);
+        margin-left: 6px;
+      }
+      .sort-display {
+        font-size: 13px; color: var(--text-muted);
+        display: inline-flex; align-items: center; gap: 4px;
+      }
+
+      /* ───────── Recipe grid ───────── */
+      .recipes {
+        padding: 10px 20px 32px;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      }
+      @media (min-width: 768px) { .recipes { padding: 10px 32px 40px; grid-template-columns: 1fr 1fr 1fr; gap: 16px; } }
+      @media (min-width: 1024px) { .recipes { grid-template-columns: 1fr 1fr 1fr 1fr; } }
+      .recipe-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        cursor: pointer; text-decoration: none; color: inherit;
+        transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+        box-shadow: var(--shadow-xs);
+        display: flex; flex-direction: column;
+      }
+      .recipe-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+      .recipe-photo {
+        aspect-ratio: 4 / 3;
+        background-size: cover; background-position: center;
+        position: relative;
+      }
+      .recipe-photo-1 { background-image: linear-gradient(135deg, rgba(146,64,14,0.35), rgba(180,83,9,0.2)), radial-gradient(circle at 30% 40%, #fbbf24 0%, #b45309 60%); }
+      .recipe-photo-2 { background-image: linear-gradient(135deg, rgba(127,29,29,0.3), rgba(220,38,38,0.15)), radial-gradient(circle at 70% 60%, #fca5a5 0%, #991b1b 60%); }
+      .recipe-photo-3 { background-image: linear-gradient(135deg, rgba(22,101,52,0.2), rgba(132,204,22,0.15)), radial-gradient(circle at 40% 60%, #bef264 0%, #4d7c0f 60%); }
+      .recipe-photo-4 { background-image: linear-gradient(135deg, rgba(180,83,9,0.25), rgba(252,211,77,0.1)), radial-gradient(circle at 60% 40%, #fde68a 0%, #78350f 70%); }
+      .recipe-photo-5 { background-image: linear-gradient(135deg, rgba(120,53,15,0.35), rgba(234,88,12,0.2)), radial-gradient(circle at 50% 50%, #fed7aa 0%, #c2410c 65%); }
+      .recipe-photo-6 { background-image: linear-gradient(135deg, rgba(148,163,184,0.3), rgba(249,250,251,0.1)), radial-gradient(circle at 45% 45%, #e2e8f0 0%, #64748b 60%); }
+      .recipe-photo-7 { background-image: linear-gradient(135deg, rgba(127,29,29,0.4), rgba(234,88,12,0.2)), radial-gradient(circle at 55% 55%, #fca5a5 0%, #7f1d1d 65%); }
+      .recipe-photo-8 { background-image: linear-gradient(135deg, rgba(132,204,22,0.2), rgba(251,191,36,0.1)), radial-gradient(circle at 45% 55%, #ecfccb 0%, #65a30d 65%); }
+      .recipe-rating-pill {
+        position: absolute; top: 8px; right: 8px;
+        background: rgba(28,25,23,0.78); color: #fefce8;
+        backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        padding: 3px 8px; border-radius: 999px;
+        font-size: 11px; font-weight: 600;
+        display: inline-flex; align-items: center; gap: 3px;
+      }
+      .recipe-info { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
+      .recipe-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 17px; font-weight: 600; line-height: 1.15;
+        letter-spacing: -0.005em;
+      }
+      .recipe-meta {
+        font-size: 12px; color: var(--text-soft);
+        display: flex; gap: 6px; flex-wrap: wrap;
+      }
+      .recipe-meta-dot { color: var(--border-strong); }
+      .recipe-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+      .mini-tag {
+        font-size: 10.5px; font-weight: 500;
+        padding: 1px 6px; border-radius: 4px;
+        background: var(--bg-2); color: var(--primary-hover);
+      }
+
+      /* ───────── Floating action button (mobile) ───────── */
+      .fab {
+        position: fixed; right: 16px; bottom: calc(16px + var(--safe-bottom));
+        width: 56px; height: 56px; border-radius: 50%;
+        background: var(--primary); color: var(--bg);
+        border: 0; display: grid; place-items: center;
+        cursor: pointer;
+        box-shadow: 0 8px 24px -6px rgba(180,83,9,0.55), 0 2px 6px rgba(0,0,0,0.08);
+        transition: background-color 150ms ease, transform 100ms ease;
+        z-index: 9;
+      }
+      .fab:hover { background: var(--primary-hover); }
+      .fab:active { transform: scale(0.95); }
+
+      /* ───────── Variant switcher ───────── */
+      .switch {
+        position: fixed; top: calc(10px + var(--safe-top)); right: 16px;
+        font-size: 11px;
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        border-radius: 999px; padding: 4px 10px;
+        color: var(--text-muted); text-decoration: none;
+        z-index: 11; display: inline-flex; align-items: center; gap: 5px;
+      }
+      .switch:hover { color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <nav class="topnav">
+        <a href="./warme-kueche-home.html" class="icon-btn" aria-label="Zurück">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </a>
+        <div class="topnav-title-wrap">
+          <div class="topnav-title">Familie Kaulig</div>
+          <div class="topnav-sub">
+            <span>47 Rezepte</span><span class="dot">·</span>
+            <span>4 Mitglieder</span><span class="dot">·</span>
+            <span>Admin</span>
+          </div>
+        </div>
+        <a href="#" class="icon-btn" aria-label="Einstellungen">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+      </nav>
+
+      <a href="./index.html" class="switch" aria-label="Alle Seiten">← Alle Seiten</a>
+
+      <main>
+        <!-- Group header -->
+        <section class="group-header">
+          <div class="cover"></div>
+          <div class="group-avatar-wrap">
+            <div class="group-avatar-big" aria-hidden="true">K</div>
+          </div>
+          <div class="group-heading">
+            <h1>Familie Kaulig</h1>
+            <div class="desc">Sonntags kocht Oma, unter der Woche wir.</div>
+          </div>
+          <div class="group-stats-row">
+            <div class="group-stat">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+              <strong>47</strong> Rezepte
+            </div>
+            <div class="group-stat">
+              <div class="members-stack" aria-label="Mitglieder">
+                <div class="member-chip m1">D</div>
+                <div class="member-chip m2">M</div>
+                <div class="member-chip m3">I</div>
+                <div class="member-chip m-count">+1</div>
+              </div>
+              <strong>4</strong> Mitglieder
+            </div>
+            <div class="group-stat">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Standard <strong>3 Portionen</strong>
+            </div>
+          </div>
+        </section>
+
+        <!-- Filter bar -->
+        <div class="filter-bar-wrap">
+          <div class="filter-bar">
+            <label class="search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              <input type="search" placeholder="Rezept oder Zutat suchen…" value="Schnitzel" />
+            </label>
+            <button class="filter-btn" id="toggleFilter" aria-expanded="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              Filter
+              <span class="count">3</span>
+            </button>
+            <button class="zufall-btn" title="Zufälliges Rezept">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="4"/><path d="M16 8h.01"/><path d="M8 16h.01"/><path d="M12 12h.01"/><path d="M16 16h.01"/><path d="M8 8h.01"/></svg>
+              Zufall
+            </button>
+          </div>
+
+          <!-- Active filters chips -->
+          <div class="active-filters">
+            <span class="active-filter">
+              Abend
+              <button aria-label="Filter entfernen">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </span>
+            <span class="active-filter">
+              &ge; 4 Sterne
+              <button aria-label="Filter entfernen">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </span>
+            <span class="active-filter">
+              &le; 60 Min
+              <button aria-label="Filter entfernen">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </span>
+            <button class="active-clear">Filter zurücksetzen</button>
+          </div>
+
+          <!-- Expanded filter panel -->
+          <div class="filter-panel" id="filterPanel">
+            <!-- Tags by category -->
+            <div class="filter-group">
+              <div class="filter-group-label">Tags <span class="filter-value">1 ausgewählt</span></div>
+
+              <div class="tag-group">
+                <div class="tag-group-head">Mahlzeit</div>
+                <div class="tag-chips">
+                  <button class="tag-chip">Frühstück</button>
+                  <button class="tag-chip">Mittag</button>
+                  <button class="tag-chip is-selected">Abend</button>
+                  <button class="tag-chip">Snack</button>
+                  <button class="tag-chip">Dessert</button>
+                </div>
+              </div>
+
+              <div class="tag-group">
+                <div class="tag-group-head">Typ</div>
+                <div class="tag-chips">
+                  <button class="tag-chip">warm</button>
+                  <button class="tag-chip">kalt</button>
+                  <button class="tag-chip">deftig</button>
+                  <button class="tag-chip">süß</button>
+                  <button class="tag-chip">leicht</button>
+                </div>
+              </div>
+
+              <div class="tag-group">
+                <div class="tag-group-head">Aufwand</div>
+                <div class="tag-chips">
+                  <button class="tag-chip">schnell (&lt;30 Min)</button>
+                  <button class="tag-chip">mittel</button>
+                  <button class="tag-chip">aufwendig</button>
+                </div>
+              </div>
+
+              <div class="tag-group">
+                <div class="tag-group-head">Diät</div>
+                <div class="tag-chips">
+                  <button class="tag-chip">vegetarisch</button>
+                  <button class="tag-chip">vegan</button>
+                  <button class="tag-chip">glutenfrei</button>
+                  <button class="tag-chip">laktosefrei</button>
+                </div>
+              </div>
+
+              <div class="tag-group">
+                <div class="tag-group-head">Küche</div>
+                <div class="tag-chips">
+                  <button class="tag-chip">deutsch</button>
+                  <button class="tag-chip">italienisch</button>
+                  <button class="tag-chip">asiatisch</button>
+                  <button class="tag-chip">mexikanisch</button>
+                  <button class="tag-chip">französisch</button>
+                  <button class="tag-chip">spanisch</button>
+                </div>
+              </div>
+
+              <div class="tag-group">
+                <div class="tag-group-head">Custom</div>
+                <div class="tag-chips">
+                  <button class="tag-chip">Omas Rezepte</button>
+                  <button class="tag-chip">Kinderfreundlich</button>
+                  <button class="custom-tag-btn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Eigenen Tag erstellen
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Rating slider -->
+            <div class="filter-group">
+              <div class="filter-group-label">Mindest-Bewertung <span class="filter-value">ab 4 Sternen</span></div>
+              <div class="slider-row">
+                <input type="range" min="0" max="5" step="1" value="4" />
+                <div style="display:inline-flex;align-items:center;gap:3px;color:var(--star);font-weight:700;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>
+                  4
+                </div>
+              </div>
+            </div>
+
+            <!-- Prep time slider -->
+            <div class="filter-group">
+              <div class="filter-group-label">Maximale Zubereitung <span class="filter-value">bis 60 Min</span></div>
+              <div class="slider-row">
+                <input type="range" min="10" max="240" step="5" value="60" />
+                <div style="font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;min-width:50px;text-align:right;">60 Min</div>
+              </div>
+            </div>
+
+            <!-- Creator + Sort -->
+            <div class="filter-group">
+              <div class="filter-group-label">Ersteller &amp; Sortierung</div>
+              <div class="filter-row">
+                <select>
+                  <option>Alle Mitglieder</option>
+                  <option>David</option>
+                  <option>Partner</option>
+                  <option>Oma Ilse</option>
+                </select>
+                <select>
+                  <option>Sortieren: Neueste</option>
+                  <option>Am besten bewertet</option>
+                  <option>Zuletzt gekocht</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div class="results-head">
+          <div class="result-count">
+            8 Rezepte
+            <span class="count">in Familie Kaulig</span>
+          </div>
+          <div class="sort-display">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M7 12h10M10 18h4"/></svg>
+            Neueste zuerst
+          </div>
+        </div>
+
+        <div class="recipes">
+          <a href="./warme-kueche-recipe-detail.html" class="recipe-card">
+            <div class="recipe-photo recipe-photo-1" aria-hidden="true">
+              <div class="recipe-rating-pill">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>
+                4,8
+              </div>
+            </div>
+            <div class="recipe-info">
+              <div class="recipe-title">Omas Schnitzel</div>
+              <div class="recipe-meta"><span>45 Min</span><span class="recipe-meta-dot">·</span><span>Oma</span></div>
+              <div class="recipe-tags"><span class="mini-tag">Abend</span><span class="mini-tag">deftig</span></div>
+            </div>
+          </a>
+
+          <a href="#" class="recipe-card">
+            <div class="recipe-photo recipe-photo-2">
+              <div class="recipe-rating-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>4,5</div>
+            </div>
+            <div class="recipe-info">
+              <div class="recipe-title">Bacon-Cheeseburger Hot Pockets</div>
+              <div class="recipe-meta"><span>60 Min</span><span class="recipe-meta-dot">·</span><span>David</span></div>
+              <div class="recipe-tags"><span class="mini-tag">Abend</span><span class="mini-tag">einfrierbar</span></div>
+            </div>
+          </a>
+
+          <a href="#" class="recipe-card">
+            <div class="recipe-photo recipe-photo-4">
+              <div class="recipe-rating-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>5,0</div>
+            </div>
+            <div class="recipe-info">
+              <div class="recipe-title">Mamas Apfelkuchen mit Streusel</div>
+              <div class="recipe-meta"><span>75 Min</span><span class="recipe-meta-dot">·</span><span>Partner</span></div>
+              <div class="recipe-tags"><span class="mini-tag">Dessert</span><span class="mini-tag">Herbst</span></div>
+            </div>
+          </a>
+
+          <a href="#" class="recipe-card">
+            <div class="recipe-photo recipe-photo-5">
+              <div class="recipe-rating-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>4,6</div>
+            </div>
+            <div class="recipe-info">
+              <div class="recipe-title">Gulasch nach Papas Art</div>
+              <div class="recipe-meta"><span>120 Min</span><span class="recipe-meta-dot">·</span><span>Oma</span></div>
+              <div class="recipe-tags"><span class="mini-tag">Abend</span><span class="mini-tag">deftig</span><span class="mini-tag">Winter</span></div>
+            </div>
+          </a>
+
+          <a href="#" class="recipe-card">
+            <div class="recipe-photo recipe-photo-3">
+              <div class="recipe-rating-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>4,4</div>
+            </div>
+            <div class="recipe-info">
+              <div class="recipe-title">Kartoffelsalat (ohne Mayo)</div>
+              <div class="recipe-meta"><span>40 Min</span><span class="recipe-meta-dot">·</span><span>David</span></div>
+              <div class="recipe-tags"><span class="mini-tag">kalt</span><span class="mini-tag">Sommer</span></div>
+            </div>
+          </a>
+
+          <a href="#" class="recipe-card">
+            <div class="recipe-photo recipe-photo-7">
+              <div class="recipe-rating-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>4,7</div>
+            </div>
+            <div class="recipe-info">
+              <div class="recipe-title">Rotkohl zum Festessen</div>
+              <div class="recipe-meta"><span>90 Min</span><span class="recipe-meta-dot">·</span><span>Oma</span></div>
+              <div class="recipe-tags"><span class="mini-tag">Beilage</span><span class="mini-tag">Winter</span></div>
+            </div>
+          </a>
+
+          <a href="#" class="recipe-card">
+            <div class="recipe-photo recipe-photo-8">
+              <div class="recipe-rating-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>4,9</div>
+            </div>
+            <div class="recipe-info">
+              <div class="recipe-title">Grüne Soße mit Kartoffeln</div>
+              <div class="recipe-meta"><span>35 Min</span><span class="recipe-meta-dot">·</span><span>Partner</span></div>
+              <div class="recipe-tags"><span class="mini-tag">Frühling</span><span class="mini-tag">veggie</span></div>
+            </div>
+          </a>
+
+          <a href="#" class="recipe-card">
+            <div class="recipe-photo recipe-photo-6">
+              <div class="recipe-rating-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>4,2</div>
+            </div>
+            <div class="recipe-info">
+              <div class="recipe-title">Milchreis mit Zimtzucker</div>
+              <div class="recipe-meta"><span>30 Min</span><span class="recipe-meta-dot">·</span><span>Oma</span></div>
+              <div class="recipe-tags"><span class="mini-tag">Dessert</span><span class="mini-tag">süß</span></div>
+            </div>
+          </a>
+        </div>
+      </main>
+
+      <button class="fab" aria-label="Neues Rezept anlegen">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+
+    <script>
+      // Filter panel toggle
+      const btn = document.getElementById("toggleFilter");
+      const panel = document.getElementById("filterPanel");
+      let open = true;
+      btn.addEventListener("click", () => {
+        open = !open;
+        panel.style.display = open ? "block" : "none";
+        btn.setAttribute("aria-expanded", String(open));
+      });
+
+      // Tag chip toggle
+      document.querySelectorAll(".tag-chip").forEach((chip) => {
+        chip.addEventListener("click", () => chip.classList.toggle("is-selected"));
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#fffbeb" />
+    <title>Mockup-Hub · Familien-Kochbuch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --primary: #b45309;
+        --primary-hover: #92400e;
+        --primary-weak: rgba(180, 83, 9, 0.08);
+        --accent: #dc2626;
+        --bg: #fffbeb;
+        --bg-2: #fef3c7;
+        --surface: #ffffff;
+        --border: #e7e5e4;
+        --border-soft: #f5f5f4;
+        --border-strong: #d6d3d1;
+        --text: #1c1917;
+        --text-muted: #57534e;
+        --text-soft: #78716c;
+        --radius: 14px;
+        --radius-lg: 20px;
+        --shadow-xs: 0 1px 2px rgba(28, 25, 23, 0.04);
+        --shadow-md: 0 10px 28px -12px rgba(146, 64, 14, 0.2), 0 2px 6px -2px rgba(28, 25, 23, 0.05);
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        min-height: 100vh;
+        padding: calc(24px + var(--safe-top)) 20px calc(32px + var(--safe-bottom));
+      }
+      body::before {
+        content: "";
+        position: fixed; inset: 0;
+        background-image: radial-gradient(circle at 1px 1px, rgba(180, 83, 9, 0.05) 1px, transparent 0);
+        background-size: 24px 24px;
+        pointer-events: none; z-index: 0;
+      }
+      .container {
+        position: relative; z-index: 1;
+        max-width: 880px; margin: 0 auto;
+      }
+
+      /* ───────── Header ───────── */
+      header { margin-bottom: 32px; }
+      .brand-row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+      .logo {
+        width: 44px; height: 44px; display: grid; place-items: center;
+        background: var(--primary); color: var(--bg);
+        border-radius: 12px;
+        box-shadow: 0 4px 14px -4px rgba(180, 83, 9, 0.45);
+      }
+      .brand { font-family: "Cormorant Garamond", serif; font-weight: 600; font-size: 22px; line-height: 1; }
+      .brand-sub { display: block; font-family: "Inter", sans-serif; font-size: 11px; font-weight: 500; color: var(--text-soft); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 3px; }
+
+      h1 {
+        font-family: "Cormorant Garamond", serif;
+        font-size: clamp(34px, 7vw, 48px);
+        font-weight: 600; line-height: 1.05;
+        letter-spacing: -0.015em;
+        margin: 0 0 8px;
+      }
+      .tagline {
+        font-family: "Libre Baskerville", serif;
+        font-style: italic;
+        font-size: 16px;
+        color: var(--text-muted);
+        line-height: 1.5; margin: 0;
+        max-width: 520px;
+      }
+
+      /* ───────── Pages grid ───────── */
+      section { margin-top: 28px; }
+      .section-label {
+        font-size: 12px; font-weight: 700;
+        letter-spacing: 0.1em; text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 14px;
+        display: flex; align-items: center; gap: 8px;
+      }
+      .section-label::before {
+        content: ""; width: 18px; height: 1px; background: var(--border-strong); display: inline-block;
+      }
+      .grid {
+        display: grid; grid-template-columns: 1fr; gap: 14px;
+      }
+      @media (min-width: 680px) { .grid { grid-template-columns: 1fr 1fr; gap: 16px; } }
+
+      .page-card {
+        display: grid;
+        grid-template-columns: 56px 1fr auto;
+        align-items: center; gap: 16px;
+        padding: 18px 20px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        text-decoration: none; color: inherit;
+        box-shadow: var(--shadow-xs);
+        transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+        min-height: 84px;
+      }
+      .page-card:hover, .page-card:focus-visible {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-md);
+        border-color: var(--border-strong);
+        outline: none;
+      }
+      .page-card:active { transform: translateY(0); }
+      .page-icon {
+        width: 48px; height: 48px;
+        background: var(--bg-2); color: var(--primary);
+        border-radius: 12px;
+        display: grid; place-items: center;
+        flex-shrink: 0;
+      }
+      .page-icon svg { width: 22px; height: 22px; }
+      .page-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 22px; font-weight: 600;
+        letter-spacing: -0.005em;
+        line-height: 1.15;
+      }
+      .page-sub {
+        font-size: 13px; color: var(--text-soft);
+        line-height: 1.45; margin-top: 2px;
+      }
+      .arrow {
+        width: 28px; height: 28px;
+        border-radius: 50%;
+        background: var(--primary-weak);
+        color: var(--primary);
+        display: grid; place-items: center;
+        flex-shrink: 0;
+        transition: transform 150ms ease, background-color 150ms ease;
+      }
+      .page-card:hover .arrow { background: var(--primary); color: var(--bg); transform: translateX(2px); }
+
+      /* Number badge on each card (so user knows their journey) */
+      .page-num {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 13px; font-weight: 500;
+        color: var(--text-soft);
+        letter-spacing: 0.04em;
+        margin-bottom: 2px;
+      }
+
+      /* ───────── Variant archive ───────── */
+      .variants {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      }
+      .variant-card {
+        padding: 14px 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        text-decoration: none; color: inherit;
+        display: flex; align-items: center; gap: 12px;
+        transition: border-color 150ms ease;
+      }
+      .variant-card:hover { border-color: var(--border-strong); }
+      .variant-swatch {
+        width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+      }
+      .variant-swatch-wk { background: linear-gradient(135deg, #fef3c7, #b45309); }
+      .variant-swatch-df { background: linear-gradient(135deg, #292524, #f59e0b); }
+      .variant-name { font-size: 13px; font-weight: 600; }
+      .variant-sub { font-size: 11px; color: var(--text-soft); margin-top: 1px; }
+
+      /* ───────── Footer ───────── */
+      .foot {
+        margin-top: 40px; padding-top: 24px;
+        border-top: 1px dashed var(--border);
+        font-size: 13px; color: var(--text-muted); line-height: 1.5;
+      }
+      .foot code {
+        background: var(--bg-2); padding: 2px 7px;
+        border-radius: 5px; font-size: 12px; color: var(--primary-hover);
+      }
+      .foot .tip {
+        margin-top: 12px; padding: 12px 14px;
+        background: var(--bg-2); border-radius: 10px;
+        border-left: 3px solid var(--primary);
+      }
+      .foot .tip strong { color: var(--text); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="brand-row">
+          <div class="logo" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21a1 1 0 0 0 1-1v-5.35c0-.457.316-.844.727-1.041a4 4 0 0 0-2.134-7.589 5 5 0 0 0-9.186 0 4 4 0 0 0-2.134 7.588c.411.198.727.585.727 1.041V20a1 1 0 0 0 1 1Z"/>
+              <path d="M6 17h12"/>
+            </svg>
+          </div>
+          <div>
+            <div class="brand">Familien-Kochbuch</div>
+            <span class="brand-sub">Mockup-Hub · Warme Küche</span>
+          </div>
+        </div>
+        <h1>Alle Design-Seiten</h1>
+        <p class="tagline">Tipp eine Karte an, um den Mockup zu öffnen. Jede Seite hat oben einen „← Alle Seiten"-Link zurück hierher.</p>
+      </header>
+
+      <!-- Main mockup pages -->
+      <section>
+        <div class="section-label">Haupt-Flow</div>
+        <div class="grid">
+          <a href="./warme-kueche-login.html" class="page-card">
+            <div class="page-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                <polyline points="10 17 15 12 10 7"/>
+                <line x1="15" y1="12" x2="3" y2="12"/>
+              </svg>
+            </div>
+            <div>
+              <div class="page-num">01</div>
+              <div class="page-title">Login</div>
+              <div class="page-sub">Anmelden-Seite mit Greeting, E-Mail-Formular, Einladungs-Link</div>
+            </div>
+            <div class="arrow" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+
+          <a href="./warme-kueche-home.html" class="page-card">
+            <div class="page-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </div>
+            <div>
+              <div class="page-num">02</div>
+              <div class="page-title">Startseite</div>
+              <div class="page-sub">Dashboard nach Login — Gruppen, Einladung, letzte Rezepte, Bottom-Nav</div>
+            </div>
+            <div class="arrow" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+
+          <a href="./warme-kueche-recipe-detail.html" class="page-card">
+            <div class="page-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+              </svg>
+            </div>
+            <div>
+              <div class="page-num">03</div>
+              <div class="page-title">Rezept-Detail</div>
+              <div class="page-sub">Foto, Portions-Slider, Zutaten-Checkliste, Schritte, Bewertung, Historie</div>
+            </div>
+            <div class="arrow" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+
+          <a href="./warme-kueche-group-detail.html" class="page-card">
+            <div class="page-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </div>
+            <div>
+              <div class="page-num">04</div>
+              <div class="page-title">Gruppen-Detail</div>
+              <div class="page-sub">Gruppe mit Cover, Filter-Panel (Tags + Slider), Zufall-Button, Rezept-Grid</div>
+            </div>
+            <div class="arrow" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+
+          <a href="./warme-kueche-recipe-form.html" class="page-card">
+            <div class="page-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 20h9"/>
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+            </div>
+            <div>
+              <div class="page-num">05</div>
+              <div class="page-title">Rezept-Formular</div>
+              <div class="page-sub">Neues Rezept anlegen — Foto, Zutaten mit Drag-Drop, Steps, Tag-Picker</div>
+            </div>
+            <div class="arrow" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        </div>
+      </section>
+
+      <!-- Variant archive -->
+      <section>
+        <div class="section-label">Varianten-Archiv</div>
+        <div class="variants">
+          <a href="./warme-kueche-login.html" class="variant-card">
+            <div class="variant-swatch variant-swatch-wk"></div>
+            <div>
+              <div class="variant-name">Warme Küche ✓</div>
+              <div class="variant-sub">Gewählte Richtung</div>
+            </div>
+          </a>
+          <a href="./dunkler-foodie-login.html" class="variant-card">
+            <div class="variant-swatch variant-swatch-df"></div>
+            <div>
+              <div class="variant-name">Dunkler Foodie</div>
+              <div class="variant-sub">Zum Vergleich (nur Login)</div>
+            </div>
+          </a>
+        </div>
+      </section>
+
+      <div class="foot">
+        <div>
+          <strong>Alle Kern-Bildschirme stehen.</strong> Nächster Schritt wäre, die Mockups als echte React-Komponenten ins <code>apps/web/</code> zu ziehen.
+        </div>
+        <div class="tip">
+          <strong>💡 Tipp fürs Handy:</strong> Starte den Mockup-Server mit <code>python3 -m http.server 8765 --bind 0.0.0.0</code> (aus <code>docs/mockups/</code>) und speicher <code>&lt;deine-lan-ip&gt;:8765</code> als Home-Screen-Lesezeichen in Safari.
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

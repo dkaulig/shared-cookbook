@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#fffbeb" />
+    <title>Omas Schnitzel · Familien-Kochbuch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;1,400;0,700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --primary: #b45309;
+        --primary-hover: #92400e;
+        --primary-weak: rgba(180, 83, 9, 0.08);
+        --primary-weak-strong: rgba(180, 83, 9, 0.14);
+        --accent: #dc2626;
+        --accent-hover: #b91c1c;
+        --bg: #fffbeb;
+        --bg-2: #fef3c7;
+        --surface: #ffffff;
+        --surface-muted: #fafaf9;
+        --border: #e7e5e4;
+        --border-soft: #f5f5f4;
+        --border-strong: #d6d3d1;
+        --text: #1c1917;
+        --text-muted: #57534e;
+        --text-soft: #78716c;
+        --star: #d97706;
+        --green: #15803d;
+        --ring: rgba(180, 83, 9, 0.25);
+        --radius: 12px;
+        --radius-lg: 18px;
+        --radius-xl: 24px;
+        --shadow-xs: 0 1px 2px rgba(28, 25, 23, 0.04);
+        --shadow-sm: 0 2px 6px rgba(28, 25, 23, 0.05), 0 1px 2px rgba(28, 25, 23, 0.04);
+        --shadow-md: 0 8px 24px -8px rgba(146, 64, 14, 0.14), 0 2px 6px -2px rgba(28, 25, 23, 0.04);
+        --shadow-action-bar: 0 -8px 24px -12px rgba(28, 25, 23, 0.18);
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        min-height: 100vh;
+        padding-bottom: calc(96px + var(--safe-bottom));
+      }
+
+      /* ───────── Top bar (overlay on hero) ───────── */
+      .topbar {
+        position: fixed; top: 0; left: 0; right: 0;
+        padding: calc(12px + var(--safe-top)) 16px 12px;
+        display: flex; align-items: center; justify-content: space-between;
+        z-index: 10;
+        transition: background-color 200ms ease, border-color 200ms ease;
+      }
+      .topbar.scrolled {
+        background: rgba(255, 251, 235, 0.92);
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--border);
+      }
+      .icon-btn-overlay {
+        width: 40px; height: 40px; display: grid; place-items: center;
+        background: rgba(28,25,23,0.55);
+        backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+        color: #fff;
+        border-radius: 50%; border: 1px solid rgba(255,255,255,0.1);
+        cursor: pointer;
+        transition: background-color 150ms ease, transform 150ms ease;
+      }
+      .icon-btn-overlay:hover { background: rgba(28,25,23,0.8); }
+      .icon-btn-overlay:active { transform: scale(0.95); }
+      .topbar-right { display: flex; gap: 8px; }
+
+      /* ───────── Hero ───────── */
+      .hero {
+        position: relative;
+        aspect-ratio: 4 / 3;
+        background-image:
+          linear-gradient(180deg, rgba(28,25,23,0) 50%, rgba(28,25,23,0.45) 100%),
+          linear-gradient(135deg, rgba(120,53,15,0.35) 0%, rgba(252,211,77,0.1) 100%),
+          radial-gradient(circle at 35% 55%, #fde68a 0%, #ca8a04 40%, #78350f 80%);
+        overflow: hidden;
+      }
+      @media (min-width: 768px) {
+        .hero { aspect-ratio: 21 / 9; max-height: 420px; }
+      }
+      .hero-photo-indicator {
+        position: absolute; bottom: 16px; right: 16px;
+        padding: 5px 10px; border-radius: 999px;
+        background: rgba(28,25,23,0.6);
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        color: #fff; font-size: 12px; font-weight: 500;
+        display: inline-flex; align-items: center; gap: 5px;
+      }
+
+      /* ───────── Main content ───────── */
+      main { max-width: 720px; margin: 0 auto; padding: 0 20px 32px; }
+      @media (min-width: 1024px) {
+        main { max-width: 920px; padding: 0 32px 40px; }
+      }
+
+      /* ───────── Title block ───────── */
+      .title-block {
+        margin-top: -40px; position: relative; z-index: 2;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        padding: 22px 22px 20px;
+        box-shadow: var(--shadow-md);
+      }
+      .title-tags-row {
+        display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+      }
+      .chip-small {
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 11px; font-weight: 600;
+        padding: 3px 8px; border-radius: 6px;
+        letter-spacing: 0.02em;
+        background: var(--bg-2); color: var(--primary-hover);
+      }
+      .chip-small.is-green {
+        background: rgba(21, 128, 61, 0.09); color: var(--green);
+      }
+      h1 {
+        font-family: "Cormorant Garamond", serif;
+        font-size: clamp(28px, 6.5vw, 38px);
+        font-weight: 600; line-height: 1.1;
+        letter-spacing: -0.015em;
+        margin: 0 0 8px;
+      }
+      .sub {
+        font-family: "Libre Baskerville", serif;
+        font-style: italic;
+        font-size: 15px;
+        color: var(--text-soft);
+        line-height: 1.5;
+        margin: 0 0 14px;
+      }
+      .stat-row {
+        display: flex; flex-wrap: wrap; gap: 16px;
+        padding-top: 12px;
+        border-top: 1px dashed var(--border);
+        font-size: 13px; color: var(--text-muted);
+      }
+      .stat { display: inline-flex; align-items: center; gap: 6px; }
+      .stat svg { width: 15px; height: 15px; color: var(--text-soft); flex-shrink: 0; }
+      .stat strong { color: var(--text); font-weight: 600; }
+      .rating-inline {
+        display: inline-flex; align-items: center; gap: 4px;
+        color: var(--star); font-weight: 700;
+      }
+      .rating-inline .count { color: var(--text-muted); font-weight: 500; }
+
+      /* ───────── Fork banner ───────── */
+      .fork-banner {
+        margin-top: 14px;
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 14px;
+        background: var(--bg-2);
+        border: 1px solid #fde68a;
+        border-radius: var(--radius);
+        font-size: 13px;
+      }
+      .fork-banner .fork-icon {
+        width: 28px; height: 28px; flex-shrink: 0;
+        color: var(--primary-hover);
+        display: grid; place-items: center;
+      }
+      .fork-banner-text { color: var(--text); line-height: 1.4; }
+      .fork-banner-text a {
+        color: var(--primary); font-weight: 600; text-decoration: none;
+      }
+      .fork-banner-text a:hover { text-decoration: underline; }
+
+      /* ───────── Portion control ───────── */
+      .portion-card {
+        margin-top: 20px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 18px 20px;
+        box-shadow: var(--shadow-xs);
+      }
+      .portion-head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px;
+      }
+      .portion-label {
+        font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
+        text-transform: uppercase; color: var(--text-muted);
+      }
+      .portion-stepper {
+        display: inline-flex; align-items: stretch;
+        background: var(--bg); border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .step-btn {
+        width: 40px;
+        display: grid; place-items: center;
+        background: transparent; border: 0; cursor: pointer;
+        color: var(--text-muted);
+        font-size: 18px; font-weight: 600;
+        transition: background-color 150ms ease, color 150ms ease;
+      }
+      .step-btn:hover { background: var(--primary-weak); color: var(--primary); }
+      .step-btn:active { transform: scale(0.95); }
+      .step-value {
+        min-width: 70px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        padding: 6px 10px;
+        font-weight: 700; font-size: 17px; color: var(--text);
+        line-height: 1.1;
+      }
+      .step-value small {
+        font-size: 10px; font-weight: 500; color: var(--text-soft);
+        letter-spacing: 0.04em; text-transform: uppercase;
+      }
+      .portion-shortcut {
+        margin-top: 12px;
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 13px;
+        background: transparent; border: 1px dashed var(--border-strong);
+        border-radius: 10px; font-size: 13px;
+        color: var(--primary); font-weight: 600; cursor: pointer;
+        transition: background-color 150ms ease, border-color 150ms ease;
+      }
+      .portion-shortcut:hover { background: var(--primary-weak); border-color: var(--primary); }
+      .portion-shortcut svg { width: 14px; height: 14px; }
+
+      /* ───────── Section heads ───────── */
+      section { margin-top: 28px; }
+      .section-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 24px; font-weight: 600;
+        letter-spacing: -0.005em;
+        margin: 0 0 14px;
+      }
+      .section-hint {
+        font-size: 12px; color: var(--text-soft); margin-left: 8px; font-weight: 400;
+      }
+
+      /* ───────── Zutaten list ───────── */
+      .ingredients {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: var(--shadow-xs);
+      }
+      .ing-row {
+        display: flex; align-items: center; gap: 14px;
+        padding: 13px 16px;
+        border-bottom: 1px solid var(--border-soft);
+        cursor: pointer;
+        transition: background-color 150ms ease;
+      }
+      .ing-row:last-child { border-bottom: 0; }
+      .ing-row:hover { background: var(--surface-muted); }
+      .ing-check {
+        width: 22px; height: 22px; flex-shrink: 0;
+        border: 1.5px solid var(--border-strong);
+        border-radius: 6px;
+        display: grid; place-items: center;
+        color: transparent;
+        transition: all 150ms ease;
+      }
+      .ing-row.is-checked .ing-check {
+        background: var(--green); border-color: var(--green); color: #fff;
+      }
+      .ing-row.is-checked .ing-label { text-decoration: line-through; color: var(--text-soft); }
+      .ing-row.is-checked .ing-amount { color: var(--text-soft); }
+      .ing-amount {
+        min-width: 80px; flex-shrink: 0;
+        font-weight: 600; color: var(--text);
+        font-variant-numeric: tabular-nums;
+        font-size: 15px;
+      }
+      .ing-amount em {
+        font-family: "Libre Baskerville", serif;
+        font-style: italic; font-weight: 400;
+        color: var(--text-muted);
+        font-size: 13px;
+      }
+      .ing-label { flex: 1; font-size: 15px; color: var(--text); }
+      .ing-label .note {
+        display: block; font-size: 12.5px; color: var(--text-soft); margin-top: 2px;
+      }
+      .ing-scaled-indicator {
+        font-size: 11px; color: var(--primary); font-weight: 500;
+        margin-left: 4px; white-space: nowrap;
+      }
+
+      /* ───────── Schritte ───────── */
+      .steps { display: flex; flex-direction: column; gap: 12px; }
+      .step-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 14px 16px 16px;
+        display: grid; grid-template-columns: auto 1fr; gap: 14px;
+        box-shadow: var(--shadow-xs);
+      }
+      .step-num {
+        width: 32px; height: 32px; flex-shrink: 0;
+        background: var(--primary); color: var(--bg);
+        border-radius: 50%;
+        display: grid; place-items: center;
+        font-weight: 700; font-size: 14px;
+        font-family: "Cormorant Garamond", serif;
+        letter-spacing: 0;
+      }
+      .step-content { font-size: 15px; line-height: 1.55; }
+      .step-content strong { color: var(--primary-hover); font-weight: 600; }
+
+      /* ───────── Rating widget ───────── */
+      .rating-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 18px 20px 16px;
+        box-shadow: var(--shadow-xs);
+      }
+      .rating-head {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+        margin-bottom: 14px;
+      }
+      .rating-head-left { display: flex; flex-direction: column; gap: 2px; }
+      .rating-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 20px; font-weight: 600;
+      }
+      .rating-sub { font-size: 12.5px; color: var(--text-soft); }
+      .rating-agg {
+        display: flex; align-items: baseline; gap: 4px;
+        font-weight: 700; font-size: 22px;
+        color: var(--star);
+        font-variant-numeric: tabular-nums;
+      }
+      .rating-agg .total-count {
+        color: var(--text-soft); font-size: 13px; font-weight: 500;
+      }
+      .stars-picker { display: flex; gap: 4px; margin-bottom: 12px; }
+      .star-btn {
+        background: transparent; border: 0; padding: 4px; cursor: pointer;
+        color: var(--border-strong);
+        transition: color 120ms ease, transform 80ms ease;
+      }
+      .star-btn.is-selected { color: var(--star); }
+      .star-btn:hover { color: var(--star); }
+      .star-btn:active { transform: scale(1.15); }
+      .star-btn svg { width: 28px; height: 28px; }
+      textarea.rating-comment {
+        font-family: inherit;
+        width: 100%; min-height: 64px;
+        padding: 10px 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        background: var(--bg);
+        font-size: 14px; line-height: 1.5; color: var(--text);
+        resize: vertical;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+      }
+      textarea.rating-comment:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px var(--ring);
+      }
+      .rating-footer {
+        display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end;
+      }
+
+      /* ───────── History panel ───────── */
+      .history-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-xs);
+        overflow: hidden;
+      }
+      .history-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 18px;
+        cursor: pointer; user-select: none;
+      }
+      .history-head:hover { background: var(--surface-muted); }
+      .history-title-row { display: flex; align-items: center; gap: 10px; }
+      .history-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 18px; font-weight: 600;
+      }
+      .history-count {
+        font-size: 11px; padding: 2px 7px;
+        background: var(--primary-weak); color: var(--primary);
+        border-radius: 999px; font-weight: 600;
+      }
+      .history-body {
+        border-top: 1px solid var(--border-soft);
+        padding: 6px 0;
+      }
+      .history-item {
+        padding: 10px 18px;
+        display: grid; grid-template-columns: 28px 1fr auto; gap: 12px;
+        align-items: center;
+        font-size: 13px;
+      }
+      .history-item + .history-item { border-top: 1px solid var(--border-soft); }
+      .history-item-icon {
+        width: 28px; height: 28px;
+        background: var(--bg-2); color: var(--primary);
+        border-radius: 50%;
+        display: grid; place-items: center;
+      }
+      .history-item-icon.is-fork { background: rgba(124,58,237,0.08); color: #6d28d9; }
+      .history-item-icon.is-edit { background: var(--primary-weak); color: var(--primary); }
+      .history-item-icon.is-create { background: rgba(21,128,61,0.08); color: var(--green); }
+      .history-item-body { line-height: 1.4; }
+      .history-item-body strong { font-weight: 600; }
+      .history-item-summary { color: var(--text-soft); font-size: 12px; }
+      .history-item-time { color: var(--text-soft); font-size: 12px; white-space: nowrap; }
+
+      /* ───────── Sticky action bar ───────── */
+      .actionbar {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        background: rgba(255, 251, 235, 0.96);
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+        border-top: 1px solid var(--border);
+        box-shadow: var(--shadow-action-bar);
+        padding: 12px 16px calc(12px + var(--safe-bottom));
+        display: flex; gap: 10px;
+        z-index: 8;
+      }
+      .btn {
+        font-family: inherit; font-size: 15px; font-weight: 600;
+        padding: 13px 16px; border-radius: 12px; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 80ms ease;
+      }
+      .btn:active { transform: scale(0.99); }
+      .btn-ghost {
+        flex: 1;
+        background: var(--surface); color: var(--text);
+        border: 1px solid var(--border-strong);
+      }
+      .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
+      .btn-primary {
+        flex: 1.3;
+        background: var(--primary); color: var(--bg);
+        border: 1px solid var(--primary);
+        box-shadow: 0 4px 12px -4px rgba(180, 83, 9, 0.45);
+      }
+      .btn-primary:hover { background: var(--primary-hover); }
+      .btn svg { width: 18px; height: 18px; }
+
+      /* ───────── Variant switcher ───────── */
+      .switch {
+        position: fixed; top: calc(12px + var(--safe-top)); left: 50%;
+        transform: translateX(-50%);
+        font-size: 11px;
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        border-radius: 999px; padding: 5px 12px;
+        color: var(--text-muted); text-decoration: none;
+        z-index: 11; display: inline-flex; align-items: center; gap: 5px;
+      }
+      .switch:hover { color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <!-- Top bar overlaid on hero -->
+    <div class="topbar" id="topbar">
+      <a class="icon-btn-overlay" href="./warme-kueche-home.html" aria-label="Zurück">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+      </a>
+      <div class="topbar-right">
+        <button class="icon-btn-overlay" aria-label="Teilen">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <button class="icon-btn-overlay" aria-label="Merken">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
+        <button class="icon-btn-overlay" aria-label="Mehr">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <a href="./index.html" class="switch" aria-label="Alle Seiten">
+      ← Alle Seiten
+    </a>
+
+    <!-- Hero image -->
+    <div class="hero">
+      <div class="hero-photo-indicator">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Foto 1 / 3
+      </div>
+    </div>
+
+    <main>
+      <!-- Title block -->
+      <div class="title-block">
+        <div class="title-tags-row">
+          <span class="chip-small">Abend</span>
+          <span class="chip-small">warm</span>
+          <span class="chip-small">deutsch</span>
+          <span class="chip-small">deftig</span>
+        </div>
+        <h1>Omas Schnitzel mit Kartoffelpüree</h1>
+        <p class="sub">
+          Sonntags-Klassiker aus der Kaulig-Küche. Paniert, in Butter ausgebraten, mit dem cremigsten Püree der Welt.
+        </p>
+
+        <div class="stat-row">
+          <span class="stat rating-inline">
+            <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>
+            4,8 <span class="count">(12)</span>
+          </span>
+          <span class="stat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <strong>45 Min</strong>
+          </span>
+          <span class="stat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+            Mittel
+          </span>
+          <span class="stat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
+            Oma Ilse
+          </span>
+        </div>
+
+        <!-- Fork banner -->
+        <div class="fork-banner">
+          <div class="fork-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 2-2 3-3 3H9c-1 0-3-1-3-3V9"/><path d="M12 12v3"/></svg>
+          </div>
+          <div class="fork-banner-text">
+            Geforkt aus <a href="#">„Omas Schnitzel"</a> · Gruppe <strong>Familie Müller</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Portion control -->
+      <div class="portion-card">
+        <div class="portion-head">
+          <div class="portion-label">Portionen</div>
+          <div class="portion-stepper">
+            <button class="step-btn" aria-label="Weniger Portionen">−</button>
+            <div class="step-value">4<small>Personen</small></div>
+            <button class="step-btn" aria-label="Mehr Portionen">+</button>
+          </div>
+        </div>
+        <button class="portion-shortcut">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Für Familie Kaulig umrechnen (3 Portionen)
+        </button>
+      </div>
+
+      <!-- Zutaten -->
+      <section>
+        <h2 class="section-title">
+          Zutaten
+          <span class="section-hint">Abhaken was du schon hast</span>
+        </h2>
+        <div class="ingredients">
+          <div class="ing-row">
+            <div class="ing-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="ing-amount">500 g</div>
+            <div class="ing-label">Schnitzelfleisch (Kalb)<span class="note">dünn geklopft</span></div>
+          </div>
+          <div class="ing-row">
+            <div class="ing-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="ing-amount">2 <em>Stück</em></div>
+            <div class="ing-label">Eier</div>
+          </div>
+          <div class="ing-row is-checked">
+            <div class="ing-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="ing-amount">100 g</div>
+            <div class="ing-label">Mehl</div>
+          </div>
+          <div class="ing-row is-checked">
+            <div class="ing-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="ing-amount">150 g</div>
+            <div class="ing-label">Semmelbrösel</div>
+          </div>
+          <div class="ing-row">
+            <div class="ing-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="ing-amount">800 g</div>
+            <div class="ing-label">mehlig kochende Kartoffeln</div>
+          </div>
+          <div class="ing-row">
+            <div class="ing-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="ing-amount">150 ml</div>
+            <div class="ing-label">warme Milch</div>
+          </div>
+          <div class="ing-row">
+            <div class="ing-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="ing-amount">60 g</div>
+            <div class="ing-label">Butter<span class="note">zum Ausbraten und für das Püree</span></div>
+          </div>
+          <div class="ing-row">
+            <div class="ing-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="ing-amount"><em>n. Geschmack</em></div>
+            <div class="ing-label">Salz &amp; Pfeffer · Muskatnuss</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Schritte -->
+      <section>
+        <h2 class="section-title">Zubereitung</h2>
+        <div class="steps">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-content">Kartoffeln schälen, grob würfeln und in Salzwasser <strong>ca. 20 Min</strong> weich kochen.</div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-content">Parallel das Schnitzelfleisch zwischen zwei Folien <strong>dünn klopfen</strong>, salzen und pfeffern.</div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-content">Drei flache Teller vorbereiten: Mehl, verquirlte Eier, Semmelbrösel. Fleisch nacheinander durch <strong>Mehl → Ei → Brösel</strong> ziehen, Brösel nur locker andrücken.</div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-content">Butter in einer großen Pfanne schmelzen und Schnitzel <strong>3 Min pro Seite</strong> goldbraun braten. Auf Küchenpapier abtropfen lassen.</div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">5</div>
+            <div class="step-content">Kartoffeln abgießen, durch die Presse drücken oder stampfen. Warme Milch und Butter einarbeiten, mit Salz, Pfeffer und einer <strong>Prise Muskat</strong> abschmecken.</div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">6</div>
+            <div class="step-content">Mit einer Scheibe Zitrone auf warmem Teller servieren.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Rating widget -->
+      <section>
+        <h2 class="section-title">Bewertungen</h2>
+        <div class="rating-card">
+          <div class="rating-head">
+            <div class="rating-head-left">
+              <div class="rating-title">Deine Bewertung</div>
+              <div class="rating-sub">Wie war's? 12 Personen aus der Familie haben schon bewertet.</div>
+            </div>
+            <div class="rating-agg">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg>
+              4,8
+            </div>
+          </div>
+          <div class="stars-picker" role="radiogroup" aria-label="Bewertung abgeben">
+            <button class="star-btn is-selected" aria-label="1 Stern"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg></button>
+            <button class="star-btn is-selected" aria-label="2 Sterne"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg></button>
+            <button class="star-btn is-selected" aria-label="3 Sterne"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg></button>
+            <button class="star-btn is-selected" aria-label="4 Sterne"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg></button>
+            <button class="star-btn is-selected" aria-label="5 Sterne"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l2.5 7h7l-5.5 4.5 2 7L12 16l-6 4.5 2-7L2.5 9h7z"/></svg></button>
+          </div>
+          <textarea class="rating-comment" placeholder="Optional: Notiz für beim nächsten Mal — was hat besonders gut geklappt?">Die Kinder wollen's jede Woche. Beim nächsten Mal etwas mehr Muskat ins Püree.</textarea>
+          <div class="rating-footer">
+            <button class="btn btn-ghost" style="flex:0;padding:9px 14px;font-size:13px">Löschen</button>
+            <button class="btn btn-primary" style="flex:0;padding:9px 16px;font-size:13px">Speichern</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- History -->
+      <section>
+        <div class="history-card">
+          <div class="history-head">
+            <div class="history-title-row">
+              <div class="history-title">Letzte Änderungen</div>
+              <div class="history-count">3</div>
+            </div>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-soft)"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="history-body">
+            <div class="history-item">
+              <div class="history-item-icon is-edit">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </div>
+              <div class="history-item-body">
+                <div><strong>Partner</strong> hat Muskat zum Püree ergänzt</div>
+                <div class="history-item-summary">Zubereitung geändert · 1 Zutat hinzugefügt</div>
+              </div>
+              <div class="history-item-time">vor 2 Tagen</div>
+            </div>
+            <div class="history-item">
+              <div class="history-item-icon is-edit">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </div>
+              <div class="history-item-body">
+                <div><strong>David</strong> hat Foto aktualisiert</div>
+                <div class="history-item-summary">Foto 1 geändert</div>
+              </div>
+              <div class="history-item-time">vor 1 Woche</div>
+            </div>
+            <div class="history-item">
+              <div class="history-item-icon is-fork">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 2-2 3-3 3H9c-1 0-3-1-3-3V9"/><path d="M12 12v3"/></svg>
+              </div>
+              <div class="history-item-body">
+                <div><strong>David</strong> hat Rezept geforkt</div>
+                <div class="history-item-summary">Geforkt aus Familie Müller</div>
+              </div>
+              <div class="history-item-time">vor 3 Wochen</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Sticky action bar -->
+    <div class="actionbar">
+      <button class="btn btn-ghost">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        In Wochenplan
+      </button>
+      <button class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Jetzt gekocht
+      </button>
+    </div>
+
+    <script>
+      // Make top bar opaque once scrolled past hero
+      const topbar = document.getElementById("topbar");
+      const hero = document.querySelector(".hero");
+      function onScroll() {
+        const threshold = hero.offsetHeight - 56;
+        if (window.scrollY > threshold) {
+          topbar.classList.add("scrolled");
+        } else {
+          topbar.classList.remove("scrolled");
+        }
+      }
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+
+      // Ingredient row check toggle
+      document.querySelectorAll(".ing-row").forEach((row) => {
+        row.addEventListener("click", () => row.classList.toggle("is-checked"));
+      });
+
+      // History panel toggle (kept simple — always open, chevron could animate)
+      const historyHead = document.querySelector(".history-head");
+      const historyBody = document.querySelector(".history-body");
+      let open = true;
+      historyHead.addEventListener("click", () => {
+        open = !open;
+        historyBody.style.display = open ? "block" : "none";
+      });
+    </script>
+  </body>
+</html>

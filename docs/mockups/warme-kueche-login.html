@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#fef3c7" />
+    <title>Anmelden · Familien-Kochbuch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --primary: #b45309;
+        --primary-hover: #92400e;
+        --accent: #dc2626;
+        --bg: #fffbeb;
+        --bg-2: #fef3c7;
+        --surface: #ffffff;
+        --border: #e7e5e4;
+        --border-strong: #d6d3d1;
+        --text: #1c1917;
+        --text-muted: #57534e;
+        --text-soft: #78716c;
+        --ring: rgba(180, 83, 9, 0.25);
+        --radius: 12px;
+        --radius-lg: 20px;
+        --shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.04);
+        --shadow-md:
+          0 10px 30px -12px rgba(146, 64, 14, 0.18),
+          0 2px 6px -2px rgba(28, 25, 23, 0.06);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      /* Decorative pattern: subtle dotted grid, evokes parchment */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: radial-gradient(
+          circle at 1px 1px,
+          rgba(180, 83, 9, 0.06) 1px,
+          transparent 0
+        );
+        background-size: 24px 24px;
+        pointer-events: none;
+        z-index: 0;
+      }
+      .wrap {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 24px 20px 40px;
+      }
+      @media (min-width: 768px) {
+        .wrap {
+          padding: 48px 32px 40px;
+        }
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: auto;
+      }
+      .logo {
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        background: var(--primary);
+        color: var(--bg);
+        border-radius: 14px;
+        box-shadow: 0 4px 12px -4px rgba(180, 83, 9, 0.45);
+      }
+      .brand {
+        font-family: "Cormorant Garamond", serif;
+        font-weight: 600;
+        font-size: 22px;
+        letter-spacing: -0.005em;
+      }
+      .brand-sub {
+        display: block;
+        font-family: "Inter", sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-soft);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .hero {
+        max-width: 440px;
+        margin: 48px auto 0;
+        text-align: center;
+      }
+      .kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--primary);
+        padding: 6px 12px;
+        background: rgba(180, 83, 9, 0.08);
+        border-radius: 999px;
+        margin-bottom: 24px;
+      }
+      .kicker-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--primary);
+      }
+      h1 {
+        font-family: "Cormorant Garamond", serif;
+        font-size: clamp(38px, 9vw, 52px);
+        font-weight: 600;
+        line-height: 1;
+        letter-spacing: -0.015em;
+        margin: 0 0 16px;
+      }
+      .tagline {
+        font-family: "Libre Baskerville", serif;
+        font-style: italic;
+        font-size: 17px;
+        line-height: 1.5;
+        color: var(--text-muted);
+        margin: 0 0 36px;
+      }
+      .card {
+        max-width: 440px;
+        margin: 0 auto;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-md);
+        padding: 32px 28px 28px;
+        width: 100%;
+      }
+      @media (min-width: 480px) {
+        .card {
+          padding: 36px 36px 32px;
+        }
+      }
+      .card-title {
+        font-family: "Cormorant Garamond", serif;
+        font-size: 26px;
+        font-weight: 600;
+        margin: 0 0 6px;
+        letter-spacing: -0.005em;
+      }
+      .card-sub {
+        font-size: 14px;
+        color: var(--text-soft);
+        margin: 0 0 24px;
+      }
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+        letter-spacing: 0.01em;
+      }
+      input[type="email"],
+      input[type="password"] {
+        font-family: inherit;
+        font-size: 16px;
+        line-height: 1.4;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius);
+        padding: 13px 14px;
+        width: 100%;
+        transition:
+          border-color 150ms ease,
+          box-shadow 150ms ease,
+          background-color 150ms ease;
+      }
+      input[type="email"]::placeholder,
+      input[type="password"]::placeholder {
+        color: #a8a29e;
+      }
+      input[type="email"]:focus,
+      input[type="password"]:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px var(--ring);
+        background: #fff;
+      }
+      .between {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 13px;
+      }
+      .remember {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-muted);
+        cursor: pointer;
+        user-select: none;
+      }
+      .remember input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--primary);
+        cursor: pointer;
+      }
+      .forgot {
+        color: var(--primary);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .forgot:hover {
+        text-decoration: underline;
+      }
+      button.primary {
+        margin-top: 8px;
+        font-family: inherit;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--bg);
+        background: var(--primary);
+        border: 1px solid var(--primary);
+        border-radius: var(--radius);
+        padding: 14px 20px;
+        cursor: pointer;
+        letter-spacing: 0.01em;
+        transition:
+          background-color 150ms ease,
+          box-shadow 150ms ease,
+          transform 80ms ease;
+        box-shadow:
+          0 1px 2px rgba(120, 53, 15, 0.1),
+          0 4px 12px -4px rgba(180, 83, 9, 0.4);
+      }
+      button.primary:hover {
+        background: var(--primary-hover);
+      }
+      button.primary:active {
+        transform: scale(0.99);
+      }
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 24px 0 20px;
+        color: var(--text-soft);
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .divider::before,
+      .divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+      .invite-note {
+        text-align: center;
+        font-size: 14px;
+        color: var(--text-muted);
+        line-height: 1.5;
+      }
+      .invite-note a {
+        color: var(--primary);
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .invite-note a:hover {
+        text-decoration: underline;
+      }
+      .foot {
+        margin-top: 40px;
+        text-align: center;
+        font-size: 12px;
+        color: var(--text-soft);
+      }
+      .switch {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 12px;
+        color: var(--text-muted);
+        text-decoration: none;
+        z-index: 10;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .switch:hover {
+        color: var(--text);
+      }
+    </style>
+  </head>
+  <body>
+    <a href="./index.html" class="switch" aria-label="Zurück zur Mockup-Auswahl">
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M15 18l-6-6 6-6" />
+      </svg>
+      Alle Seiten
+    </a>
+
+    <div class="wrap">
+      <header class="top">
+        <div class="logo" aria-hidden="true">
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M17 21a1 1 0 0 0 1-1v-5.35c0-.457.316-.844.727-1.041a4 4 0 0 0-2.134-7.589 5 5 0 0 0-9.186 0 4 4 0 0 0-2.134 7.588c.411.198.727.585.727 1.041V20a1 1 0 0 0 1 1Z"
+            />
+            <path d="M6 17h12" />
+          </svg>
+        </div>
+        <div>
+          <div class="brand">Familien-Kochbuch</div>
+          <span class="brand-sub">Seit immer · für uns alle</span>
+        </div>
+      </header>
+
+      <div class="hero">
+        <div class="kicker">
+          <span class="kicker-dot"></span>
+          Willkommen zurück
+        </div>
+        <h1>Was kochen wir heute?</h1>
+        <p class="tagline">
+          Rezepte aus der Familie. Videos vom Handy. Omas Schnitzel.<br />
+          Alles an einem Ort.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Anmelden</h2>
+        <p class="card-sub">
+          Schön, dass du wieder da bist. Mit deiner E-Mail und deinem Passwort
+          geht's los.
+        </p>
+
+        <form onsubmit="event.preventDefault()">
+          <div class="field">
+            <label for="email">E-Mail-Adresse</label>
+            <input
+              id="email"
+              type="email"
+              placeholder="du@familie.de"
+              autocomplete="email"
+              inputmode="email"
+            />
+          </div>
+
+          <div class="field">
+            <label for="pw">Passwort</label>
+            <input
+              id="pw"
+              type="password"
+              placeholder="••••••••"
+              autocomplete="current-password"
+            />
+          </div>
+
+          <div class="between">
+            <label class="remember">
+              <input type="checkbox" /> 30 Tage angemeldet bleiben
+            </label>
+            <a class="forgot" href="#">Passwort vergessen?</a>
+          </div>
+
+          <button type="submit" class="primary">Anmelden</button>
+        </form>
+
+        <div class="divider">oder</div>
+
+        <p class="invite-note">
+          Du hast einen Einladungs-Link bekommen?<br />
+          <a href="#">Jetzt registrieren →</a>
+        </p>
+      </div>
+
+      <p class="foot">© Familien-Kochbuch · privat & Gruppen-gated</p>
+    </div>
+  </body>
+</html>
