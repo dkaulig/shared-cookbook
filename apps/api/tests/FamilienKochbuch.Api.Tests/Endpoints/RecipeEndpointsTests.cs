@@ -683,4 +683,289 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var response = await clientB.GetAsync($"/api/groups/{groupId}/tags");
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
+
+    // ── POST /api/recipes/{id}/fork ─────────────────────────────────
+
+    private async Task AddMembershipAsync(Guid groupId, Guid userId, Domain.Enums.GroupRole role)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var existing = await db.GroupMemberships
+            .FirstOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId);
+        if (existing is not null) return;
+        var m = new Domain.Entities.GroupMembership(userId, groupId, role, DateTimeOffset.UtcNow);
+        db.GroupMemberships.Add(m);
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Fork_Happy_Path_Copies_Recipe_Into_Target_Group()
+    {
+        var (_, token) = await SignupAndLoginAsync("fork-1@ex.com", "Forker");
+        AuthorizeClient(_client, token);
+        var sourceGroupId = await CreateGroupAsync(_client, "Source");
+        var targetGroupId = await CreateGroupAsync(_client, "Target");
+        var tagIds = await GetSeededTagIdsAsync(2);
+
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{sourceGroupId}/recipes",
+            BuildCreateRequest("Original", tagIds));
+        var original = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var forkRes = await _client.PostAsJsonAsync(
+            $"/api/recipes/{original.Id}/fork",
+            new { targetGroupId });
+
+        Assert.Equal(HttpStatusCode.Created, forkRes.StatusCode);
+        var forked = (await forkRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.NotEqual(original.Id, forked.Id);
+        Assert.Equal(targetGroupId, forked.GroupId);
+        Assert.Equal(original.Id, forked.ForkOfRecipeId);
+        Assert.Equal(original.Title, forked.Title);
+        Assert.Equal(original.Description, forked.Description);
+        Assert.Equal(original.DefaultServings, forked.DefaultServings);
+        Assert.Equal(original.PrepTimeMinutes, forked.PrepTimeMinutes);
+        Assert.Equal(original.Difficulty, forked.Difficulty);
+        Assert.Equal(original.Ingredients.Length, forked.Ingredients.Length);
+        Assert.Equal(original.Steps.Length, forked.Steps.Length);
+        Assert.Equal(original.Tags.Length, forked.Tags.Length);
+        // Global tag ids preserved verbatim.
+        var originalTagIds = original.Tags.Select(t => t.Id).OrderBy(x => x).ToArray();
+        var forkedTagIds = forked.Tags.Select(t => t.Id).OrderBy(x => x).ToArray();
+        Assert.Equal(originalTagIds, forkedTagIds);
+
+        // Ingredient & step order preserved.
+        for (int i = 0; i < original.Ingredients.Length; i++)
+        {
+            Assert.Equal(original.Ingredients[i].Position, forked.Ingredients[i].Position);
+            Assert.Equal(original.Ingredients[i].Name, forked.Ingredients[i].Name);
+            Assert.Equal(original.Ingredients[i].Quantity, forked.Ingredients[i].Quantity);
+            Assert.Equal(original.Ingredients[i].Unit, forked.Ingredients[i].Unit);
+            Assert.Equal(original.Ingredients[i].Scalable, forked.Ingredients[i].Scalable);
+            // New row → different id.
+            Assert.NotEqual(original.Ingredients[i].Id, forked.Ingredients[i].Id);
+        }
+        for (int i = 0; i < original.Steps.Length; i++)
+        {
+            Assert.Equal(original.Steps[i].Position, forked.Steps[i].Position);
+            Assert.Equal(original.Steps[i].Content, forked.Steps[i].Content);
+            Assert.NotEqual(original.Steps[i].Id, forked.Steps[i].Id);
+        }
+    }
+
+    [Fact]
+    public async Task Fork_Returns_403_When_User_Is_Not_Member_Of_Target_Group()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("fork-a@ex.com", "A");
+        var (_, bTok) = await SignupAndLoginAsync("fork-b@ex.com", "B");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var aGroup = await CreateGroupAsync(clientA, "A-Group");
+        var createRes = await clientA.PostAsJsonAsync(
+            $"/api/groups/{aGroup}/recipes",
+            BuildCreateRequest("Only-A"));
+        var original = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var bGroup = await CreateGroupAsync(clientB, "B-Group");
+
+        // A attempts to fork into B's group — A isn't a member of B's group.
+        var forkRes = await clientA.PostAsJsonAsync(
+            $"/api/recipes/{original.Id}/fork",
+            new { targetGroupId = bGroup });
+        Assert.Equal(HttpStatusCode.Forbidden, forkRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Fork_Returns_403_When_User_Is_Not_Member_Of_Source_Group()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("fork-src-a@ex.com", "A");
+        var (_, bTok) = await SignupAndLoginAsync("fork-src-b@ex.com", "B");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var aGroup = await CreateGroupAsync(clientA, "A-Secret");
+        var createRes = await clientA.PostAsJsonAsync(
+            $"/api/groups/{aGroup}/recipes",
+            BuildCreateRequest("A-Secret"));
+        var original = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var bGroup = await CreateGroupAsync(clientB, "B-Group");
+
+        // B attempts to fork A's recipe (B isn't a member of A's group).
+        var forkRes = await clientB.PostAsJsonAsync(
+            $"/api/recipes/{original.Id}/fork",
+            new { targetGroupId = bGroup });
+        Assert.Equal(HttpStatusCode.Forbidden, forkRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Fork_Into_Same_Group_Creates_Independent_Copy()
+    {
+        var (_, token) = await SignupAndLoginAsync("fork-same@ex.com", "Same");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client, "Only-Group");
+
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Echo"));
+        var original = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var forkRes = await _client.PostAsJsonAsync(
+            $"/api/recipes/{original.Id}/fork",
+            new { targetGroupId = groupId });
+        Assert.Equal(HttpStatusCode.Created, forkRes.StatusCode);
+        var forked = (await forkRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Equal(groupId, forked.GroupId);
+        Assert.NotEqual(original.Id, forked.Id);
+        Assert.Equal(original.Id, forked.ForkOfRecipeId);
+    }
+
+    [Fact]
+    public async Task Fork_Drops_Group_Scoped_Tag_When_Target_Has_No_Matching_Custom_Tag()
+    {
+        var (userId, token) = await SignupAndLoginAsync("fork-tag@ex.com", "T");
+        AuthorizeClient(_client, token);
+        var sourceGroupId = await CreateGroupAsync(_client, "Source");
+        var targetGroupId = await CreateGroupAsync(_client, "Target");
+
+        // Create a custom tag in the source group only.
+        Guid customTagId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var t = Domain.Entities.Tag.CreateGroupScoped(userId, sourceGroupId, "HauptgerichtX");
+            db.Tags.Add(t);
+            await db.SaveChangesAsync();
+            customTagId = t.Id;
+        }
+
+        var globalTagIds = await GetSeededTagIdsAsync(1);
+        var allTagIds = globalTagIds.Concat(new[] { customTagId }).ToArray();
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{sourceGroupId}/recipes",
+            BuildCreateRequest("WithCustom", allTagIds));
+        var original = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Equal(2, original.Tags.Length);
+
+        var forkRes = await _client.PostAsJsonAsync(
+            $"/api/recipes/{original.Id}/fork",
+            new { targetGroupId });
+        Assert.Equal(HttpStatusCode.Created, forkRes.StatusCode);
+        var forked = (await forkRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        // Global tag preserved; source-scoped custom tag dropped because
+        // target has no matching (Name, Category).
+        Assert.Single(forked.Tags);
+        Assert.Equal(globalTagIds[0], forked.Tags[0].Id);
+    }
+
+    [Fact]
+    public async Task Fork_Matches_Group_Scoped_Tag_By_Name_And_Category_In_Target()
+    {
+        var (userId, token) = await SignupAndLoginAsync("fork-tag-match@ex.com", "M");
+        AuthorizeClient(_client, token);
+        var sourceGroupId = await CreateGroupAsync(_client, "SourceMatch");
+        var targetGroupId = await CreateGroupAsync(_client, "TargetMatch");
+
+        // Create identically-named custom tags in BOTH groups (same name +
+        // category). The fork should wire up the target's tag id, not
+        // reuse the source's id.
+        Guid sourceTagId;
+        Guid targetTagId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var s = Domain.Entities.Tag.CreateGroupScoped(userId, sourceGroupId, "Lieblingsgericht");
+            var t = Domain.Entities.Tag.CreateGroupScoped(userId, targetGroupId, "Lieblingsgericht");
+            db.Tags.Add(s);
+            db.Tags.Add(t);
+            await db.SaveChangesAsync();
+            sourceTagId = s.Id;
+            targetTagId = t.Id;
+        }
+
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{sourceGroupId}/recipes",
+            BuildCreateRequest("LiebMatch", new[] { sourceTagId }));
+        var original = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var forkRes = await _client.PostAsJsonAsync(
+            $"/api/recipes/{original.Id}/fork",
+            new { targetGroupId });
+        Assert.Equal(HttpStatusCode.Created, forkRes.StatusCode);
+        var forked = (await forkRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Single(forked.Tags);
+        Assert.Equal(targetTagId, forked.Tags[0].Id);
+        Assert.NotEqual(sourceTagId, forked.Tags[0].Id);
+    }
+
+    [Fact]
+    public async Task Fork_Copies_Photo_Path_References_Sharing_Underlying_Files()
+    {
+        var (_, token) = await SignupAndLoginAsync("fork-photo@ex.com", "P");
+        AuthorizeClient(_client, token);
+        var sourceGroupId = await CreateGroupAsync(_client, "SourcePh");
+        var targetGroupId = await CreateGroupAsync(_client, "TargetPh");
+
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{sourceGroupId}/recipes",
+            BuildCreateRequest("WithPhoto"));
+        var original = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        using (var form = new MultipartFormDataContent())
+        {
+            var bytes = new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 };
+            var fileContent = new ByteArrayContent(bytes);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            form.Add(fileContent, "file", "test.png");
+            var photoRes = await _client.PostAsync($"/api/recipes/{original.Id}/photos", form);
+            Assert.Equal(HttpStatusCode.OK, photoRes.StatusCode);
+        }
+
+        var detailAfterPhoto = await _client.GetAsync($"/api/recipes/{original.Id}");
+        var originalWithPhoto = (await detailAfterPhoto.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Single(originalWithPhoto.Photos);
+
+        var forkRes = await _client.PostAsJsonAsync(
+            $"/api/recipes/{original.Id}/fork",
+            new { targetGroupId });
+        Assert.Equal(HttpStatusCode.Created, forkRes.StatusCode);
+        var forked = (await forkRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Single(forked.Photos);
+
+        // Underlying stored path is the same in both recipes (shared reference
+        // policy per S5 Deviations); signed URLs both point to that path.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var origRow = await db.Recipes.AsNoTracking().SingleAsync(r => r.Id == original.Id);
+        var forkedRow = await db.Recipes.AsNoTracking().SingleAsync(r => r.Id == forked.Id);
+        Assert.Single(origRow.Photos);
+        Assert.Single(forkedRow.Photos);
+        Assert.Equal(origRow.Photos[0], forkedRow.Photos[0]);
+    }
+
+    [Fact]
+    public async Task Fork_Unauthenticated_Returns_401()
+    {
+        var response = await _client.PostAsJsonAsync(
+            $"/api/recipes/{Guid.NewGuid()}/fork",
+            new { targetGroupId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Fork_Nonexistent_Recipe_Returns_404()
+    {
+        var (_, token) = await SignupAndLoginAsync("fork-404@ex.com", "N");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client, "Any");
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/recipes/{Guid.NewGuid()}/fork",
+            new { targetGroupId = groupId });
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 }
