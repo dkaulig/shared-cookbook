@@ -13,7 +13,12 @@ describe('PortionStepperCard — visual shell', () => {
         groupName="Familie"
       />,
     )
-    expect(screen.getByText(/Portionen/i)).toBeInTheDocument()
+    // The word "Portionen" appears twice (label + the shortcut button's
+    // copy); the uppercase label element is the one we're asserting here.
+    const label = screen
+      .getAllByText(/Portionen/i)
+      .find((el) => el.className.includes('uppercase'))
+    expect(label).toBeTruthy()
     expect(screen.getByText('4')).toBeInTheDocument()
     expect(screen.getByText(/Personen/i)).toBeInTheDocument()
   })
