@@ -122,6 +122,11 @@ async def test_extract_structured_sends_correct_request(
     fmt = body["response_format"]
     assert fmt["type"] == "json_schema"
     assert fmt["json_schema"]["schema"]["required"] == ["title"]
+    # P2-1 plan §3 explicitly requires ``strict: true`` so the LLM enforces
+    # the schema rather than returning loose JSON. A ``name`` field is also
+    # part of the Responses-API contract for json_schema responses.
+    assert fmt["json_schema"]["strict"] is True
+    assert fmt["json_schema"]["name"] == "extractor_response"
 
 
 @respx.mock
@@ -375,6 +380,24 @@ async def test_network_error_retries_as_provider_unavailable(
     """Connection errors retry up to ``max_retries`` then surface as
     ``provider_unavailable``."""
     route = respx.post(_URL).mock(side_effect=httpx.ConnectError("simulated network failure"))
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        await provider.chat(
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "x"}],
+        )
+    assert exc_info.value.code == "provider_unavailable"
+    assert route.call_count == 3
+
+
+@respx.mock
+async def test_timeout_retries_as_provider_unavailable(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """Per plan anti-shortcut: every retry scenario has a test. httpx
+    timeouts should follow the same path as connection errors —
+    wrapped into ``provider_unavailable`` and retried up to 3 times."""
+    route = respx.post(_URL).mock(side_effect=httpx.TimeoutException("simulated timeout"))
 
     with pytest.raises(LLMProviderError) as exc_info:
         await provider.chat(
