@@ -3,7 +3,9 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { RatingWidget } from '@/features/ratings/RatingWidget'
+import { useGroup } from '@/features/groups/hooks'
 import { useDeleteRecipe, useRecipe } from './hooks'
+import { RecipePortionScaler } from './RecipePortionScaler'
 
 const DIFFICULTY_LABEL: Record<number, string> = {
   1: 'einfach',
@@ -13,9 +15,11 @@ const DIFFICULTY_LABEL: Record<number, string> = {
 
 /**
  * /groups/:groupId/recipes/:recipeId — detail view. Renders hero photo,
- * title, description, portion placeholder (live scaling is S5),
- * ingredient list, ordered steps, tag chips, and the source-URL link if
- * present.
+ * title, description, live portion-scaler, ingredient list, ordered
+ * steps, tag chips, and the source-URL link if present. The scaler
+ * (S5) reads the owning group's `defaultServings` so the "umrechnen"
+ * shortcut is wired; while the group fetch is in flight we fall back to
+ * the recipe's own default to render immediately.
  */
 export function RecipeDetailPage() {
   const params = useParams<{ groupId: string; recipeId: string }>()
@@ -23,9 +27,9 @@ export function RecipeDetailPage() {
   const recipeId = params.recipeId ?? ''
   const groupId = params.groupId ?? ''
   const detail = useRecipe(recipeId)
+  const group = useGroup(groupId)
   const deleteMutation = useDeleteRecipe(groupId)
 
-  const [portions, setPortions] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   if (!recipeId) return <Navigate to={`/groups/${groupId}`} replace />
@@ -48,7 +52,8 @@ export function RecipeDetailPage() {
   }
 
   const recipe = detail.data
-  const shownPortions = portions ?? recipe.defaultServings
+  const groupDefaultServings = group.data?.defaultServings ?? recipe.defaultServings
+  const groupName = group.data?.name ?? 'Gruppe'
 
   async function handleDelete() {
     setError(null)
@@ -119,30 +124,12 @@ export function RecipeDetailPage() {
 
       <section className="mb-8 rounded-md bg-background p-4 ring-1 ring-border">
         <h2 className="mb-3 text-lg font-semibold text-stone-900">Zutaten</h2>
-        <label className="mb-3 flex items-center gap-2 text-sm text-stone-600">
-          Portionen
-          <input
-            type="number"
-            min={1}
-            value={shownPortions}
-            onChange={(e) => setPortions(Math.max(1, Number(e.target.value) || 1))}
-            className="h-8 w-20 rounded-md border border-input bg-transparent px-2 text-sm"
-          />
-          <span className="text-xs text-stone-400">(Live-Skalierung kommt in Phase 1 S5)</span>
-        </label>
-        <ul className="divide-y">
-          {recipe.ingredients.map((i) => (
-            <li key={i.id ?? `${i.position}-${i.name}`} className="flex gap-3 py-2 text-sm">
-              <span className="w-28 shrink-0 text-stone-700">
-                {i.quantity != null ? `${i.quantity} ${i.unit}`.trim() : 'nach Geschmack'}
-              </span>
-              <span className="text-stone-900">
-                {i.name}
-                {i.note && <span className="text-stone-500"> — {i.note}</span>}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <RecipePortionScaler
+          defaultServings={recipe.defaultServings}
+          groupDefaultServings={groupDefaultServings}
+          groupName={groupName}
+          ingredients={recipe.ingredients}
+        />
       </section>
 
       <section className="mb-8 rounded-md bg-background p-4 ring-1 ring-border">
