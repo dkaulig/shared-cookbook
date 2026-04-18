@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import type { RecipeDetailDto } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
@@ -108,5 +109,60 @@ describe('RecipeDetailPage', () => {
     expect(
       await screen.findByRole('button', { name: /Für Familie umrechnen \(2 Portionen\)/i }),
     ).toBeInTheDocument()
+  })
+
+  it('renders a fork banner with a link to the original when forkOfRecipeId is set', async () => {
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json({ ...recipe, forkOfRecipeId: 'r-original' }),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    expect(
+      await screen.findByText(/Dieses Rezept wurde aus .* geforkt\./i),
+    ).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /Original/i })
+    expect(link.getAttribute('href')).toMatch(/\/recipes\/r-original$/)
+  })
+
+  it('does not render a fork banner when forkOfRecipeId is null', async () => {
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    expect(screen.queryByText(/geforkt/i)).not.toBeInTheDocument()
+  })
+
+  it('opens the fork dialog when the user clicks the "In andere Gruppe kopieren" button', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json([
+          {
+            id: 'g1',
+            name: 'Familie',
+            description: null,
+            coverImageUrl: null,
+            defaultServings: 2,
+            isPrivateCollection: true,
+            memberCount: 1,
+            myRole: 'Admin',
+          },
+          {
+            id: 'g2',
+            name: 'Sonstige',
+            description: null,
+            coverImageUrl: null,
+            defaultServings: 4,
+            isPrivateCollection: false,
+            memberCount: 2,
+            myRole: 'Member',
+          },
+        ]),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    const trigger = screen.getByRole('button', { name: /In andere Gruppe kopieren/i })
+    await user.click(trigger)
+    expect(await screen.findByRole('heading', { name: /In andere Gruppe kopieren/i, level: 2 })).toBeInTheDocument()
   })
 })
