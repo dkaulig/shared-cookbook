@@ -41,7 +41,7 @@ public class TokenService
 
     public record AccessTokenResult(string Token, string Jti, DateTimeOffset ExpiresAt);
 
-    public record RotationResult(string NewRawToken, DateTimeOffset ExpiresAt);
+    public record RotationResult(string NewRawToken, DateTimeOffset ExpiresAt, Guid UserId);
 
     public AccessTokenResult CreateAccessToken(User user)
     {
@@ -134,7 +134,7 @@ public class TokenService
 
         await _db.SaveChangesAsync(ct);
 
-        return new RotationResult(newRaw, successor.ExpiresAt);
+        return new RotationResult(newRaw, successor.ExpiresAt, stored.UserId);
     }
 
     /// <summary>Revokes the specific refresh token. Idempotent — returns false
@@ -182,7 +182,7 @@ public class TokenService
             .TrimEnd('=');
     }
 
-    internal static string HashToken(string rawToken)
+    public static string HashToken(string rawToken)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(rawToken));
         return Convert.ToHexString(bytes);

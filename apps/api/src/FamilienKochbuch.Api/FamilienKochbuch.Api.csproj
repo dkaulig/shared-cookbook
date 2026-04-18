@@ -4,6 +4,10 @@
     <AssemblyName>FamilienKochbuch.Api</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="FluentValidation" Version="11.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
   </ItemGroup>
   <ItemGroup>

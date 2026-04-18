@@ -1,6 +1,6 @@
 using System.Net;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
+using FamilienKochbuch.Api.Tests.Infrastructure;
 using Xunit;
 
 namespace FamilienKochbuch.Api.Tests;
@@ -9,11 +9,11 @@ namespace FamilienKochbuch.Api.Tests;
 /// Contract tests for the <c>GET /api/health</c> endpoint.
 /// Shape: <c>{ "status": "ok", "timestamp": "&lt;ISO-8601 UTC&gt;" }</c>.
 /// </summary>
-public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class HealthEndpointTests : IClassFixture<FamilienKochbuchWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly FamilienKochbuchWebApplicationFactory _factory;
 
-    public HealthEndpointTests(WebApplicationFactory<Program> factory)
+    public HealthEndpointTests(FamilienKochbuchWebApplicationFactory factory)
     {
         _factory = factory;
     }
