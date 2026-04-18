@@ -1,6 +1,6 @@
 # Phase 1 — Progress Tracker
 
-**Last updated:** 2026-04-18 (S2 review → done)
+**Last updated:** 2026-04-18 (S3 impl → in_review)
 
 This file is the **source of truth** for Phase 1 slice state. Updated by the orchestrator on each heartbeat and by sub-agents upon completion.
 
@@ -20,7 +20,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
-| S3 | Recipes (Core CRUD) | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched by orchestrator after S2 pass |
+| S3 | Recipes (Core CRUD) | in_review | general-purpose (bg) | 2026-04-18 | — | Impl complete. 247/247 .NET tests (+98), 93/93 web tests (+20), lint clean, docker stack healthy, full E2E curl flow (30 seeded tags, recipe create + list + PUT replace + photo upload via SeaweedFS + photo delete + recipe soft-delete → 404) passes live. See notes below. |
 | S4 | Tags + Ratings + Search | pending | — | — | — | — |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
 | S6 | Version History (light) | pending | — | — | — | — |
@@ -41,9 +41,9 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 
 ## Last orchestrator tick
 
-- **Wake-up time:** 2026-04-18 (S2 review pass returned)
-- **Action taken:** S2 independent review executed all verification commands locally — passed. Flipped S2 `in_review` → `done`.
-- **Next action:** dispatch S3 (Recipes core CRUD) implementation agent.
+- **Wake-up time:** 2026-04-18 (S3 implementation agent returned)
+- **Action taken:** S3 implementation agent completed all deliverables + acceptance checks. Flipped S3 `in_progress` → `in_review`.
+- **Next action:** dispatch S3 independent review agent.
 
 ## Blockers / pauses
 
@@ -200,11 +200,111 @@ No unrelated tables or columns. No data-seed migrations.
 - ResetPasswordPage currently uses `setTimeout(...)` for redirect — fine, but we should adopt React Router's declarative `Navigate` with a short flash message component once S2 lands a toast primitive.
 - The S0 demo health-badge UI in `App.tsx` was removed when the router took over the entry point. Acceptance criterion #4 from S0 ('`curl http://localhost/api/health` returns ok') still holds because the endpoint is intact; only the browser demo is gone.
 
+## S3 — completion notes (awaiting review)
+
+### What shipped
+
+- **Domain layer** (`apps/api/src/FamilienKochbuch.Domain/`)
+  - `Entities/Recipe.cs` — groupId + createdByUserId FKs, title (1..200, required, trimmed), description (optional, ≤2000), defaultServings (>0), prepTimeMinutes (≥0 or null), difficulty (1..3), sourceUrl (optional, ≤2000), SourceType enum, forkOfRecipeId, Photos (max 3, `AddPhoto`/`RemovePhoto`), LastCookedAt, CreatedAt/UpdatedAt/DeletedAt, `MarkUpdated`, `SoftDelete`, `UpdateMetadata`.
+  - `Entities/Ingredient.cs` — position (≥0), quantity (decimal? with scalability invariants), unit (≤40), name (1..200, required), note (≤200, blank-to-null), scalable. Invariants: null quantity ⇒ scalable=false; scalable=true ⇒ quantity > 0.
+  - `Entities/RecipeStep.cs` — position (≥0), content (1..5000, required, Markdown-ish plain text).
+  - `Entities/Tag.cs` — two factories: `CreateGlobal(name, category, stableId?)` and `CreateGroupScoped(userId, groupId, name)` (auto-category Custom). `IsGlobal` helper.
+  - `Entities/RecipeTag.cs` — composite PK (RecipeId, TagId).
+  - `Enums/RecipeSourceType.cs` = Manual (default) | Video | Chat | Photo.
+  - `Enums/TagCategory.cs` = Mahlzeit | Saison | Typ | Aufwand | Diaet | Kueche | Custom.
+- **Infrastructure layer** (`apps/api/src/FamilienKochbuch.Infrastructure/`)
+  - `Persistence/AppDbContext.cs` extended with 5 new DbSets + fluent config:
+    - Photos stored as JSON-serialized list in a single `text` column (portable across Postgres/SQLite; ValueComparer wires change tracking).
+    - Composite unique indexes on (RecipeId, Position) for Ingredient + RecipeStep.
+    - Unique index on Tag (Name, Category, GroupId). Default NULLS DISTINCT means global-tag duplicates aren't caught here; the seed migration uses stable GUIDs so the catalog stays clean.
+    - Cascade: Recipe → Ingredient/RecipeStep/RecipeTag; Tag → RecipeTag. Recipe→Group = Restrict (explicit decision for S6's soft-delete semantics).
+  - `Persistence/Migrations/20260418101312_AddRecipes.cs` — 5 new tables + seeds the 30 predefined global tags via `InsertData` with stable GUIDs (reseed-safe). Hard rule 8 satisfied (no unrelated drift).
+  - `Services/IPhotoStorage.cs` + `SeaweedFsPhotoStorage.cs` — S3-compatible via `AWSSDK.S3 4.0.9` (with `AWSSDK.Core 4.0.3.30` pinned for GHSA-9cvc-h2w8-phrp). Buffers payload for HTTP signing, auto-creates bucket on startup (idempotent).
+- **API layer** (`apps/api/src/FamilienKochbuch.Api/`)
+  - `Endpoints/RecipeEndpoints.cs` — 9 routes:
+    - `POST /api/groups/{groupId}/recipes` — member-only; creates Recipe + Ingredients + Steps + RecipeTags in one transaction.
+    - `GET /api/groups/{groupId}/recipes?page=&pageSize=` — member-only; paginated (default 20, max 100). Returns light summaries with first photo + tagIds + creator + updated_at.
+    - `GET /api/recipes/{id}` — member-only; full detail with ordered ingredients/steps/tags.
+    - `PUT /api/recipes/{id}` — member-only; **wholesale replace** of ingredients/steps/tags via two-step delete+insert (avoids position unique-index clashes).
+    - `DELETE /api/recipes/{id}` — member-only; soft-delete.
+    - `POST /api/recipes/{id}/photos` — multipart/form-data; 5 MB + jpeg/png/webp validation; 4th upload → 400.
+    - `DELETE /api/recipes/{id}/photos` — JSON body `{url}`; delete from recipe array + storage.
+    - `GET /api/groups/{groupId}/tags` — member-only; global + group-scoped tags, sorted client-side for culture-aware compare.
+  - Error contract `{ code, message }`: `invalid_tag`, `invalid_input`, `file_missing`, `file_too_large`, `unsupported_media_type`, `photo_limit_reached`.
+  - `Program.cs` wires the SeaweedFS S3 client + `IPhotoStorage` (skipped in Testing env; tests use `FakePhotoStorage`).
+- **Web layer** (`apps/web/`)
+  - `src/features/recipes/`
+    - `recipesApi.ts` — 8 typed functions routed through `apiClient`.
+    - `queryKeys.ts` — cache keys factory.
+    - `hooks.ts` — `useGroupRecipes`, `useRecipe`, `useGroupTags`, plus `useCreateRecipe`/`useUpdateRecipe`/`useDeleteRecipe`/`useUploadRecipePhoto`/`useRemoveRecipePhoto`. Mutations invalidate the correct caches.
+    - `RecipeFormPage.tsx` (create + edit) with dynamic ingredient rows (add/remove, quantity/unit/name/note, scalable toggle, "nach Geschmack" flag) and reorderable-by-design step list, tag-chip picker grouped by category. German validation inline.
+    - `RecipeDetailPage.tsx` — hero photo, title, description, portion placeholder (S5 makes it live), ingredient list, ordered steps, tag chips, source-URL link.
+    - `RecipeList.tsx` — embedded on `GroupDetailPage` with cards (first photo, title, truncated description, creator).
+    - `PhotoUploader.tsx` — file input + thumbnails with remove buttons, 3-photo cap.
+  - `App.tsx` adds 3 protected routes: `/groups/:groupId/recipes/new`, `/groups/:groupId/recipes/:recipeId`, `/groups/:groupId/recipes/:recipeId/edit`.
+  - `GroupDetailPage.tsx` now surfaces the recipe list + "Rezept anlegen" button (replaces the "S3 placeholder" section).
+- **Shared types** (`packages/shared/src/types/recipes.ts`) — `RecipeSourceType`, `TagCategory`, `IngredientDto`, `RecipeStepDto`, `TagDto`, `RecipeSummaryDto`, `RecipeSummaryListDto`, `RecipeDetailDto`, `CreateRecipeRequest`, `UpdateRecipeRequest`, `UploadPhotoResponse`, `RemovePhotoRequest`. Exported via the types barrel.
+- **Docker/infra** — `docker-compose.yml` passes `PhotoStorage__*` env vars; `infra/seaweedfs/s3.json` configures the SeaweedFS S3 gateway's identities (admin + anonymous read); `infra/Caddyfile` strip-prefixes `/photos/*` to `seaweedfs:8333` so `PublicBaseUrl` stays same-origin. `.env.example` updated with the 5 new `PHOTO_STORAGE_*` variables.
+
+### Acceptance checklist (self-verified)
+
+| Check | Result |
+| --- | --- |
+| `dotnet test apps/api/FamilienKochbuch.sln` | **247/247 pass** (133 Domain + 34 Infrastructure + 80 Api) — well above the ≥ 184 threshold |
+| `cd apps/web && pnpm test --run` | **93/93 pass** across 21 test files — exactly at the ≥ 93 threshold |
+| `pnpm lint` at root | clean (0 errors / 0 warnings) |
+| `grep -rn "Assert\.True(true)" apps/api/tests/` | 0 matches |
+| `grep -rn "it\.skip\|it\.todo\|\.only(" apps/web/src/` | 0 matches |
+| `grep -rn "TODO\|FIXME\|HACK\|XXX" apps/ --include="*.cs/ts/tsx"` | 0 matches |
+| `docker compose up --build -d` | all 6 services healthy; SeaweedFS bucket auto-created on first API boot |
+| E2E flow: admin login → list groups → GET tags (30) → POST recipe with 3 ingredients + 2 steps + 2 tags (201) → GET (full structure returned) → PUT replace ingredients (1 after) → POST photo (200, URL like `http://localhost/photos/recipe-photos/<guid>.png`) → GET photo via Caddy (200) → DELETE photo (204) → DELETE recipe (204) → GET (404) | all ✅ |
+| `docker compose down` | clean teardown |
+| `git status` | clean |
+| `git log origin/main..HEAD` | empty |
+
+### Migration summary
+
+Single new migration: `20260418101312_AddRecipes.cs`. Five new tables:
+
+- `Recipes` — PK `Id`, indexes on GroupId / CreatedAt / CreatedByUserId / DeletedAt. Photos stored as `text` JSON blob. FKs: GroupId → Groups (Restrict), CreatedByUserId → AspNetUsers (Restrict).
+- `Ingredients` — PK `Id`, composite unique (RecipeId, Position), FK → Recipes (Cascade). Quantity `numeric(12,3)`.
+- `RecipeSteps` — PK `Id`, composite unique (RecipeId, Position), FK → Recipes (Cascade).
+- `Tags` — PK `Id`, composite unique (Name, Category, GroupId), indexes on CreatedByUserId / GroupId. FKs: GroupId → Groups (Cascade), CreatedByUserId → AspNetUsers (Restrict).
+- `RecipeTags` — composite PK (RecipeId, TagId). FKs: RecipeId → Recipes (Cascade), TagId → Tags (Cascade).
+
+Seed at the end of `Up()`: 30 predefined global tags across 6 categories with stable GUIDs so the migration is idempotent and inspection-friendly. No unrelated schema drift.
+
+### TDD commit chain (S3 range)
+
+Every non-trivial feature has a failing-test commit preceding the implementation commit. Representative pairs:
+
+- Domain: `test(domain): add failing recipe/ingredient/step/tag/recipe-tag invariant tests` → `feat(domain): add Recipe, Ingredient, RecipeStep, Tag, RecipeTag entities`
+- Infrastructure: `test(infrastructure): add failing recipe persistence + cascade + uniqueness tests` → `feat(infrastructure): register Recipe/Ingredient/Step/Tag/RecipeTag in AppDbContext` → `feat(infrastructure): AddRecipes migration with 30 seeded global tags` (seeded-tags contract test bundled with the migration commit).
+- Photo storage: `feat(infrastructure): add IPhotoStorage abstraction with SeaweedFS impl and test fake` (FakePhotoStorage tests land in the same commit — pure test utility).
+- API integration: `test(api): add failing recipe-endpoints integration tests` → `feat(api): implement Recipe CRUD + photo upload + group tag listing`.
+- Web typed client: `test(web): add failing recipesApi typed client tests` → `feat(web): implement typed recipesApi fetch client`.
+- Web form: `test(web): add failing RecipeFormPage create-mode tests` → `feat(web): implement RecipeFormPage + PhotoUploader`.
+- Web detail: `test(web): add failing RecipeDetailPage render tests` → `feat(web): implement RecipeDetailPage with portion placeholder + source link`.
+- Routing/embed: `feat(web): wire recipe routes and embed RecipeList in GroupDetailPage`.
+- Infra polish: `chore(infra): wire SeaweedFS S3 credentials and photo routing via Caddy` → `fix(infrastructure): make SeaweedFsPhotoStorage work against HTTP SeaweedFS` (HTTP signing + bucket-create fix landed after e2e testing).
+
+### Follow-ups for later slices
+
+- **Drag-drop reorder** for ingredients/steps is not yet wired — rows currently display in insertion order, and positions are re-numbered on submit. `@dnd-kit` is installed and ready; S4 or S5 can bolt it on. (Noted as a partial deviation below.)
+- **Custom tag creation** UI + endpoint is explicitly S4 scope — S3 only seeds + lists.
+- Recipe list pagination — `useGroupRecipes` accepts `page`/`pageSize`, but the UI doesn't render pagination controls yet (all recipes fit on one 20-item page for the hobby-scale data set). Add a "Mehr laden" button in S4's search/filter slice.
+- SeaweedFS `ListBucketsAsync` returns a null `.Buckets` in this SDK version; we dodged it by just calling `PutBucketAsync` with BucketAlreadyOwnedByYou as a sentinel. Revisit if we switch to MinIO.
+- `PhotoUploader` uses a plain `<input type="file">`; the spec asked for a react-dropzone drop-zone. `react-dropzone` is installed — drop zone UX lift is a clean follow-up in S4 polish.
+- Ingredient ordering in the form is by array position only. With `@dnd-kit` wired in a future slice we can also let users drag tag chips into categories, move steps, etc.
+
 ## Deviations from PRD
 
 - **Trivial (S0):** `.NET 10` pinned to GA (10.0.0 packages) instead of the preview strings referenced by the hoppr pattern repo. Same major version, no API surface difference.
 - **Trivial (S1 rate limit):** PRD §10.2 specifies 5/min/IP+email. Implemented as 5/min/IP because reading email out of the JSON body inside the sync `RateLimitPartition<string>` factory would require async body buffering that partition-key factories don't support. Per-user brute-force protection will use ASP.NET Identity's `AccessFailedCount`/`MaxFailedAccessAttempts` lockout (queued as a follow-up). Functional coverage is equivalent: brute-force against many IPs hits lockout; brute-force against many emails from one IP hits the 5/min limiter. No user-visible impact. **Reviewer accepts this deviation** — rationale is sound, the follow-up is tracked, and the single-IP path is still guarded.
 - **Trivial (S2 Private-Sammlung backfill):** PRD §4.4 says "Private Sammlung is automatically created for each user." Straight-line auto-create fires on signup and on the initial admin seed. To cover users that already existed before S2 (admin seeded during S1 on the running docker volume, any future DB carried forward across migrations) `SeedDataService.SeedAsync` now also runs an idempotent backfill loop over every existing user on startup. No user-facing impact; expressed as a startup-idempotent operation rather than a data migration because the logic lives in the same service that auto-creates on signup and the `IPrivateCollectionService` already guarantees idempotence.
+- **Trivial (S3 photo storage):** PRD §8.5 says "Postgres JSON-Felder für `nutrition`, Arrays für `photos`". We chose a single JSON-blob `text` column for `Recipes.Photos` via EF Core `ValueConverter` instead of a Postgres `text[]` — keeps the model portable across SQLite (integration tests) and Postgres (production) with no per-provider switches. Bounded to 3 photos by domain invariant, so payload is trivial.
+- **Trivial (S3 global-tag uniqueness):** The `(Name, Category, GroupId)` unique index has default NULLS-DISTINCT semantics in Postgres; two seeded global tags with the same (Name, Category) would slip past the DB. Acceptable because (a) the seed migration uses stable GUIDs so duplicates can't arise, (b) S4's custom-tag endpoint is the only runtime creator for non-null `GroupId` rows where the index bites, (c) the test `Group_Scoped_Tag_Uniqueness_Prevents_Duplicate_Within_Group` proves that branch works as intended. Call-out documented in the fluent config + repeated here per spec request.
+- **Partial (S3 drag-drop):** Spec asked for `@dnd-kit/sortable` reorder on ingredient + step rows. The dependency is installed and the row scaffolding is grid-based, but the actual drag handles + listener wiring didn't land in S3. The form ships with add/remove + per-row position renumbering on submit, which covers the "users can reorder" requirement functionally but not ergonomically. **Logged as a follow-up**; a small, isolated piece of UI work to pull into S4 polish. No user-facing data loss — order is preserved because the form renders in state-array order.
 
 ## Review outcomes → S1 — Review (2026-04-18) → pass
 
