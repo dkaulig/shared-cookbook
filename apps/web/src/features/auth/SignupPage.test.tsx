@@ -63,7 +63,10 @@ describe('<SignupPage />', () => {
 
     renderSignup()
 
-    expect(await screen.findByText(/tante herta lädt dich/i)).toBeInTheDocument()
+    // Both the kicker pill and the italic tagline reference the inviter.
+    const mentions = await screen.findAllByText(/tante herta/i)
+    expect(mentions.length).toBeGreaterThanOrEqual(1)
+    expect(mentions[0]).toHaveTextContent(/tante herta/i)
   })
 
   it('shows an error when the invite is invalid', async () => {
@@ -120,7 +123,7 @@ describe('<SignupPage />', () => {
     renderSignup()
 
     // Wait for invite preview so the form is enabled.
-    await screen.findByText(/oma lädt dich/i)
+    await screen.findAllByText(/oma/i)
 
     await user.type(screen.getByLabelText(/anzeigename/i), 'Neuer Nutzer')
     await user.type(screen.getByLabelText(/e-mail/i), 'new@example.com')
