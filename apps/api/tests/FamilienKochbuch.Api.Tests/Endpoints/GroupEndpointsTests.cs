@@ -250,6 +250,71 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
     }
 
     [Fact]
+    public async Task UpdateGroup_With_Fractional_DefaultServings_Persists_And_Returns_Same_Value()
+    {
+        var (_, accessToken) = await SignupAndLoginAsync("frac-servings@example.com", "Frac");
+        AuthorizeClient(_client, accessToken);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Frac", null, null));
+        var created = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var update = await _client.PutAsJsonAsync(
+            $"/api/groups/{created.Id}",
+            new GroupEndpoints.UpdateGroupRequest(null, null, 2.5m, null));
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+
+        var detail = await _client.GetAsync($"/api/groups/{created.Id}");
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        var body = (await detail.Content.ReadFromJsonAsync<GroupEndpoints.GroupDetailDto>())!;
+        Assert.Equal(2.5m, body.DefaultServings);
+    }
+
+    [Fact]
+    public async Task UpdateGroup_With_Negative_DefaultServings_Returns_400()
+    {
+        var (_, accessToken) = await SignupAndLoginAsync("neg-servings@example.com", "Neg");
+        AuthorizeClient(_client, accessToken);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Neg", null, null));
+        var created = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var update = await _client.PutAsJsonAsync(
+            $"/api/groups/{created.Id}",
+            new GroupEndpoints.UpdateGroupRequest(null, null, -1m, null));
+        Assert.Equal(HttpStatusCode.BadRequest, update.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateGroup_With_Zero_DefaultServings_Returns_400()
+    {
+        var (_, accessToken) = await SignupAndLoginAsync("zero-servings@example.com", "Zero");
+        AuthorizeClient(_client, accessToken);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Zero", null, null));
+        var created = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var update = await _client.PutAsJsonAsync(
+            $"/api/groups/{created.Id}",
+            new GroupEndpoints.UpdateGroupRequest(null, null, 0m, null));
+        Assert.Equal(HttpStatusCode.BadRequest, update.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateGroup_With_DefaultServings_Above_Cap_Returns_400()
+    {
+        var (_, accessToken) = await SignupAndLoginAsync("cap-servings@example.com", "Cap");
+        AuthorizeClient(_client, accessToken);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Cap", null, null));
+        var created = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var update = await _client.PutAsJsonAsync(
+            $"/api/groups/{created.Id}",
+            new GroupEndpoints.UpdateGroupRequest(null, null, 21m, null));
+        Assert.Equal(HttpStatusCode.BadRequest, update.StatusCode);
+    }
+
+    [Fact]
     public async Task UpdateGroup_As_Member_Returns_403()
     {
         var (_, aTok) = await SignupAndLoginAsync("upd-a@example.com", "UA");
