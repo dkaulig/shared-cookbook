@@ -20,7 +20,7 @@ This file is the **source of truth** for Phase 1 slice state. Updated by the orc
 | S0 | Monorepo Skeleton & Tooling | done | general-purpose (fix agent) | 2026-04-18 | 2026-04-18 | Fix pass #1 landed and re-reviewed: 6/6 dotnet tests, 14/14 web tests, lint clean, docker stack healthy, endpoints return expected payloads. See Review outcomes below. |
 | S1 | Auth Foundation | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 77/77 .NET + 39/39 web tests verified locally, docker stack healthy, E2E curl flow + refresh rotation + reuse-detection + 5/min rate limit all confirmed with own eyes. See Review outcomes → S1 entry below. |
 | S2 | Groups & Memberships | done | general-purpose (reviewer) | 2026-04-18 | 2026-04-18 | Independent review pass — 149/149 .NET + 73/73 web tests verified locally, docker stack healthy, full E2E curl flow including Private-Sammlung protection, last-admin rule, already-member, invite-pending, and excludeGroupId search filter all confirmed with own eyes. See Review outcomes → S2 entry below. |
-| S3 | Recipes (Core CRUD) | pending | — | — | — | — |
+| S3 | Recipes (Core CRUD) | in_progress | general-purpose (bg) | 2026-04-18 | — | dispatched by orchestrator after S2 pass |
 | S4 | Tags + Ratings + Search | pending | — | — | — | — |
 | S5 | Portions + Fork + Group Defaults | pending | — | — | — | — |
 | S6 | Version History (light) | pending | — | — | — | — |
