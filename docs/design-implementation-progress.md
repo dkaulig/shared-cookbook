@@ -1,6 +1,6 @@
 # Design Implementation — Progress Tracker
 
-**Last updated:** 2026-04-18 (DS6 reviewed and approved)
+**Last updated:** 2026-04-18 (DS7 reviewed and approved — Phase 1.5 complete)
 
 Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents update on every tick / completion.
 
@@ -23,13 +23,13 @@ Source-of-truth file for DS1–DS7 slice state. Orchestrator and sub-agents upda
 | DS4 | Group Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 18 DS4 commits; 342 web (+60), 427 .NET, 32 shared = 801 green; lint clean; docker smoke ok; reviewer-verified |
 | DS5 | Recipe Detail | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 21 DS5 commits; 392 web (+50), 432 .NET (+5 cook endpoint), 32 shared = 856 green; lint clean; docker smoke ok; reviewer-verified |
 | DS6 | Recipe Form | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 16 DS6 commits; 434 web (+42), 432 .NET, 32 shared = 898 green; lint clean; docker smoke ok; reviewer-verified |
-| DS7 | Polish + PWA | in_review | general-purpose (bg) | 2026-04-18 | 2026-04-18 (impl) | 14 DS7 commits; 442 web (+8), 432 .NET, 32 shared = 906 green; lint clean; docker smoke ok; 5 screenshots in docs/screenshots/; awaiting reviewer |
+| DS7 | Polish + PWA | done | general-purpose (bg) | 2026-04-18 | 2026-04-18 | 16 DS7 commits (+1 follow-up docs commit for GR1/PDF-export planning, TDD-exempt); 442 web (+8), 432 .NET, 32 shared = 906 green; lint clean; docker smoke ok; 5 screenshots in docs/screenshots/; reviewer-verified. Phase 1.5 complete. |
 
 ## Last orchestrator tick
 
-- **Time:** 2026-04-18 (DS7 impl complete — awaiting review)
-- **Action:** DS7 Polish + PWA landed 14 impl commits. Manifest aligned to Warme-Küche cream (`background_color: #fffbeb`, orientation portrait, maskable icon split out), iOS Safari PWA meta tags + `apple-touch-icon` added to `index.html`, Skeleton primitive swapped from hardcoded `bg-stone-200/80` to the `bg-muted` token (TDD pair), ErrorBoundary fallback restyled with Cormorant serif headline + cream background + italic subtitle (TDD pair), new `NotFoundPage` wired as the React Router catch-all ("404 · Hier kocht niemand" / "Diese Seite gibt's nicht (mehr).", TDD pair), `WochenplanStub` rewritten as a Phase-3 preview with Lucide calendar icon + back-to-home button (TDD pair), `ProfilStub` expanded to show email + open `InviteDialog` via "Jemanden einladen" button + keep the Abmelden escape hatch (TDD pair). Five 375×812 screenshots captured via Playwright against the real `docker compose` stack with seeded data (Pasta al Limone, Omas Apfel-Crumble, Familien-Küche group with Admin + Oma). README extended with Warme-Küche UI section + updated quick-start + refreshed test counts. Tests: 432 .NET + 442 web + 32 shared = 906 green. Lint clean. Smoke test passes. Toast library deliberately deferred (see DS7 deviations).
-- **Next:** dispatch DS7 reviewer.
+- **Time:** 2026-04-18 (DS7 reviewed and approved — Phase 1.5 complete)
+- **Action:** DS7 Polish + PWA approved after independent review. 16 DS7 implementation commits landed plus 1 follow-up docs commit (`5ccf239`, GR1/PDF-export planning, TDD-exempt). All 5 TDD pairs verified (Skeleton, ErrorBoundary, NotFoundPage, WochenplanStub, ProfilStub — test-commit precedes feat-commit in every case). Manifest, iOS meta tags, primitives, stubs, screenshots, README embeds, and all 4 deviations accepted. Final counts pinned: 432 .NET + 442 web + 32 shared = 906 green. Docker stack healthy (6/6), manifest + icons + sw + health endpoints all 200, full smoke script (13 steps) exits 0. Phase 1.5 complete; Warme-Küche design implementation locked.
+- **Next:** orchestrator idle — await user direction on post-Phase-1.5 follow-ups (GR1 Grundrezept-Tags, PDF export v2, toast library, dark-mode toggle v2).
 
 ## Blockers / pauses
 
@@ -262,6 +262,48 @@ _(none)_
 - **Cleanup:** `git status` clean after docker teardown, `git log origin/main..HEAD` empty before the review commit (the 16 DS6 impl commits + dispatch `bc507fa` were all pushed by the implementation agent; this review adds only the tracker update + review commit on top).
 
 **Verdict:** STATUS=pass. DS6 flipped to `done`, Completed 2026-04-18.
+
+### DS7 — Review (2026-04-18) → pass
+
+- **Commit count:** `git log --oneline e00fb19..HEAD | wc -l` → 17. Breakdown: 16 DS7 implementation commits + 1 follow-up docs commit (`5ccf239` — GR1 Grundrezept-Tags + PDF-export v2 planning notes landed during the DS7 window; TDD-exempt per plan rules as a pure documentation commit). `e00fb19` is the orchestrator dispatch itself and is correctly excluded by the `..` syntax.
+- **TDD pairs verified (strict ordering — test-commit precedes feat-commit in every case):**
+  - Skeleton warm palette — test `84cac18` → feat `f90e819` ✓
+  - ErrorBoundary restyle — test `0d3eb8a` → feat `eef8130` ✓
+  - NotFoundPage — test `759f290` → feat `7e03c30` ✓
+  - WochenplanStub polish — test `1edfab2` → feat `01dff32` ✓
+  - ProfilStub polish — test `51edfa0` → feat `a40aae1` ✓
+  - PWA manifest alignment `220b43d` + iOS meta tags `2c9410a` — config / index.html edits, TDD-exempt per plan rules (existing `sw.js` precache integrity is regenerated by the Vite PWA plugin on every build).
+  - Screenshots `0f687dd` + README embeds `b6d9525` — asset + docs commits, TDD-exempt.
+  - Tracker addendums `e0c4e9e` + `79875dc` — docs-only commits, TDD-exempt.
+  - Follow-up planning `5ccf239` — docs commit for GR1 + PDF-export v2 scoping, TDD-exempt.
+- **Static checks:** zero `Assert.True(true)`/`Assert.True(false)`, zero `[Skip]`/`.Skip(`, zero `it.skip`/`it.todo`/`describe.skip`/`.only(`/`xit`/`xdescribe` in production tests, zero new `TODO`/`FIXME`/`HACK`/`XXX` across `apps/` + `packages/`, zero `NotImplementedException`, `TreatWarningsAsErrors=true` confirmed in `apps/api/Directory.Build.props`.
+- **`eslint-disable` / `pragma warning disable` baseline unchanged (no DS7 additions):** 5 EF migration auto-generated designer files + `useSession.ts` (S2) + `usePresetConsumer.ts` (DS4) + `GroupDetailPage.tsx` (DS4) — exactly the same 9 files as after DS6. Zero new disables introduced by DS7.
+- **PWA manifest (`apps/web/public/manifest.webmanifest`) verified:** `name: "Familien-Kochbuch"`, `short_name: "Kochbuch"`, `lang: "de"`, `theme_color: "#b45309"`, `background_color: "#fffbeb"`, `display: "standalone"`, `orientation: "portrait"`, `start_url: "/"`, `scope: "/"`. Icons array has exactly 3 entries: `/icon-192.png` 192×192 `any`, `/icon-512.png` 512×512 `any`, `/icon-512.png` 512×512 `maskable`. Splitting `any` + `maskable` as separate entries (rather than the `"any maskable"` shorthand) lets Chrome and iOS each pick the correct rendering path on install.
+- **iOS Safari meta tags (`apps/web/index.html`) verified:** `<meta name="theme-color" content="#b45309">`, `<link rel="apple-touch-icon" href="/icon-192.png">` + a `sizes="180x180"` variant, `<meta name="apple-mobile-web-app-capable" content="yes">`, `<meta name="apple-mobile-web-app-status-bar-style" content="default">`, `<meta name="apple-mobile-web-app-title" content="Kochbuch">`. `lang="de"` present on the `<html>` tag. Viewport uses `viewport-fit=cover` so the safe-area insets the DS3 BottomNav and DS5 action bar rely on resolve correctly on notched iPhones.
+- **NotFoundPage (`apps/web/src/components/NotFoundPage.tsx`) verified:** exports `NotFoundPage`, renders serif `<h1>404 · Hier kocht niemand</h1>` with `font-serif text-[clamp(30px,7vw,44px)]`, italic Libre-Baskerville tagline `Diese Seite gibt's nicht (mehr).`, primary "Zur Startseite" Button (`size="lg"`) wrapped in `<Link to="/">`. Decorative cooking-pot glyph in amber-tinted rounded square. `App.tsx:76` wires `<Route path="*" element={<NotFoundPage />} />` inside the protected-route subtree so authenticated catch-all lands here; unauthenticated requests hit the login redirect first. Co-located test file exists at `NotFoundPage.test.tsx`.
+- **ErrorBoundary (`apps/web/src/components/ErrorBoundary.tsx`) verified:** class component (correct — React's error-boundary API is still class-only), warm palette applied (`bg-background` on the main wrapper, `font-serif` on the h1, `font-[Libre_Baskerville,serif] italic` on the tagline, Unicode cooking-pot glyph in amber-tinted rounded square). "Neu laden" Button calls `window.location.reload()` via `handleReload`. Behaviour preserved from the S7 baseline — no test regressions.
+- **Skeleton audit (`apps/web/src/components/ui/skeleton.tsx`) verified:** uses `bg-muted` token (plus `animate-pulse rounded-md`), no hardcoded `bg-stone-*`, `bg-neutral-*`, or `bg-gray-*`. Header comment documents the DS7 change ("Previously this was a hardcoded `bg-stone-200/80` which read cold on the cream background."). Role + `aria-busy` preserved for a11y.
+- **Stub pages verified:**
+  - **WochenplanStub (`apps/web/src/features/stubs/WochenplanStub.tsx`):** serif `<h1>Wochenplan kommt in Phase 3</h1>` (clamp(30px,7vw,40px)), italic Libre-Baskerville tagline "Rezepte planen. Einkaufsliste generieren. Saisonale Vorschläge.", Lucide `Calendar` icon in amber-tinted rounded square, "Zurück zur Startseite" outline Button wrapping `<Link to="/">`. Decorative wrapper carries `aria-hidden="true"`.
+  - **ProfilStub (`apps/web/src/features/stubs/ProfilStub.tsx`):** serif `<h1>Mein Profil</h1>`, italic "Angemeldet als {displayName}" tagline, three Cards — "Konto" (email via `Mail` icon + fallback copy), "Familie erweitern" (primary "Jemanden einladen" button mounts `<InviteDialog />` conditionally via `inviteOpen` state — wires to the same invite endpoint as the HomePage banner, zero new data plumbing), "Abmelden" (outline button calling `logout()` + `navigate('/login', { replace: true })`). DS3 logout contract preserved.
+- **Screenshots verified:** `ls docs/screenshots/` shows exactly 5 PNGs: `login.png` (59.9 KB), `home.png` (71.9 KB), `group-detail.png` (121.3 KB), `recipe-detail.png` (127.0 KB), `recipe-form.png` (62.2 KB). All well above the ≥ 10 KB sanity threshold; all 375×812 mobile-viewport captures taken against the real `docker compose` stack with seeded data.
+- **README embeds verified:** `README.md` section "UI Stand (Phase 1.5 — Warme-Küche)" (line 52) contains 5 `![…](docs/screenshots/…)` references — login, home, group-detail, recipe-detail, recipe-form — each with a descriptive German alt text. Quick-start and test-counts section above the images reflects the final Phase-1.5 numbers.
+- **Runtime:**
+  - `dotnet test apps/api/FamilienKochbuch.sln` → **432 passed** (176 Domain + 72 Infrastructure + 184 API), 0 failed, 0 skipped.
+  - `pnpm -C apps/web test --run` → **442 passed** across 80 files (+8 vs. DS6's 434 — matches the agent's 442 claim exactly).
+  - `pnpm -C packages/shared test --run` → **32/32**.
+  - `pnpm lint` → clean (ESLint passes with zero errors; pre-existing baseline warnings unchanged).
+  - `pnpm -C apps/web build` → succeeds in 226 ms (65 PWA precache entries, 503 kB JS / 81.9 kB CSS, self-hosted fonts, no Google Fonts network references).
+  - **Total: 432 + 442 + 32 = 906 green (matches the agent's claim exactly).**
+- **Docker smoke:** `docker compose up --build -d` brought all 6 services up (api / postgres / redis healthy; caddy, web, seaweedfs Up without healthcheck by design). `curl -sI http://localhost/manifest.webmanifest` → 200. `curl -sI http://localhost/icon-192.png` → 200. `curl -sI http://localhost/icon-512.png` → 200. `curl -sI http://localhost/sw.js` → 200. `curl -s http://localhost/api/health` → `{"status":"ok","timestamp":"2026-04-18T19:23:43.1876230+00:00"}`. `curl -s -o /dev/null -w "%{http_code}" http://localhost/this-route-does-not-exist` → **200** (SPA shell serves correctly; `NotFoundPage` hydrates client-side as intended). Full E2E `bash scripts/smoke-test.sh` → all 13 steps green (login, app-invite, signup, re-login, group create, recipe create, rating, search, fork, revision log, recipe delete, group delete), exits 0. Stack cleanly torn down via `docker compose down`.
+- **Deviation assessments (all 4):**
+  - **Toast library deliberately deferred** — **accept**. DS5 already shipped an inline `aria-live` notifier on the recipe-detail action bar; DS6 used the same pattern on the form action bar. Adding a toast library "properly" means: install dep (`sonner` or equivalent), add a `<Toaster />` provider to `AppLayout`, migrate the two DS5/DS6 `aria-live` surfaces to toast calls with equivalent SR-accessible treatment, add tests for one positive path, and update impacted tests on both call sites. That is realistically 5–7 commits plus a dep bump, not the plan's `≤ 3 commits` ceiling. The existing inline notifier is proven to announce cleanly to VoiceOver + TalkBack (polite + assertive aria-live regions). Deferring to a post-1.5 slice (where the same pass can pick up `role="status"` banners on invite accept/decline, rating upsert, group create/delete for app-wide uniformity) is the correct sequencing.
+  - **Dark-mode toggle v2** — **accept**. The plan's DS7 spec explicitly scopes the toggle out ("Full dark-mode polish is NOT in DS1 — just ensure nothing looks broken"). The `.dark` token block in `apps/web/src/index.css` (DS1) produces a coherent palette when `<html class="dark">` is set manually, but without a user-facing toggle no user can reach it. A proper v2 toggle needs: persisted preference (IndexedDB or localStorage), an "Auto / Hell / Dunkel" tri-state control on `/profil`, system-pref detection via `prefers-color-scheme`, and additional contrast-pass tweaks for the recipe hero gradient overlay + red Zufall CTA on stone-800. All documented in the deviations block for the next design pass.
+  - **404 as a real page (not `<Navigate to="/" replace />`)** — **accept**. The previous silent redirect to Home hid typos in deep-links shared over chat (clicking a broken link just opened Home with no indication anything was wrong). A dedicated page with `"404 · Hier kocht niemand"` + "Zur Startseite" button tells the user exactly what happened. The old redirect also interacted badly with shared recipe URLs: if an admin deleted a recipe, every other member's copy of the link silently bounced them to Home. Better UX than silent redirect; negligible bundle cost (one component + a Link).
+  - **ProfilStub functional invite button** — **accept**. DS3 shipped ProfilStub as a pure placeholder ("Bald verfügbar"); DS7 promoted it to a minimally-useful profile surface so the project owner can install the PWA on a phone and actually onboard family members from day one. The invite dialog is the same `InviteDialog` component the Home received-invites flow already mounts — no new data fetches, no new provider wiring. Everything else on the page (password change, device list, invite list) still defers to Phase 3. Pragmatic unblock, no scope creep.
+- **Cleanup:** `git status` clean after docker teardown, `git log origin/main..HEAD` empty at review start (0 unpushed commits).
+
+**Verdict:** STATUS=pass. DS7 flipped to `done`, Completed 2026-04-18. **Phase 1.5 complete.**
 
 **Review standard:** Every review applies `docs/reviewing/anti-shortcut-checklist.md`. Reviewers execute verification commands themselves (dotnet test, pnpm test, lint, docker compose up, visual check against mockup HTML). They do not rely on the implementation agent's claims.
 
@@ -547,7 +589,7 @@ _(none)_
 
 ## Phase 1.5 — Summary
 
-After DS7 implementation (pre-review):
+After DS7 review and approval (Phase 1.5 complete):
 
 | Slice | Commits | Web tests added | .NET tests added | Total tests |
 |---|---:|---:|---:|---:|
@@ -557,8 +599,8 @@ After DS7 implementation (pre-review):
 | DS4 — Group Detail | 18 | +60 | 0 | 801 |
 | DS5 — Recipe Detail | 21 | +50 | +5 | 856 |
 | DS6 — Recipe Form | 16 | +42 | 0 | 898 |
-| DS7 — Polish + PWA | 14 | +8 | 0 | 906 |
-| **Total** | **122** | **+263** | **+5** | **906** |
+| DS7 — Polish + PWA | 16 | +8 | 0 | 906 |
+| **Total (impl)** | **124** | **+263** | **+5** | **906** |
 
 **Final test counts:** 432 .NET + 442 web + 32 shared = **906 green**.
 
