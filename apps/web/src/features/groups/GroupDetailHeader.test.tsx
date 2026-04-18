@@ -86,7 +86,7 @@ describe('<GroupDetailHeader />', () => {
     expect(avatar).toHaveTextContent('F')
   })
 
-  it('renders a cover banner element with the DS4 amber gradient placeholder', () => {
+  it('renders a cover banner element with the DS4 sage gradient placeholder', () => {
     render(<GroupDetailHeader group={baseGroup} recipeCount={47} />)
     expect(screen.getByTestId('group-cover')).toBeInTheDocument()
   })

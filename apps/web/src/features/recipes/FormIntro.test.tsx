@@ -15,10 +15,11 @@ describe('<FormIntro />', () => {
     expect(h1).toHaveTextContent('Rezept bearbeiten')
   })
 
-  it('renders the italic tagline with a Libre-Baskerville serif body class', () => {
+  it('renders the italic tagline with the serif-body utility (Inter under DS8)', () => {
     const { container } = render(<FormIntro mode="create" groupName="Example Family" />)
-    // The tagline is a <p> that uses the DS1 font-serif-body family and is
-    // wrapped in <em> (or similar) for the italic styling.
+    // The tagline is a <p> that uses the font-serif-body family and is
+    // wrapped in <em> (or similar) for the italic styling. DS8 Sage
+    // Modern routes `--font-serif-body` to Inter.
     const tagline = container.querySelector('p')
     expect(tagline).not.toBeNull()
     expect(tagline?.className).toMatch(/serif-body|italic/)

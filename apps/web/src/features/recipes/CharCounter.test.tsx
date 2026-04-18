@@ -11,13 +11,19 @@ describe('<CharCounter />', () => {
   it('uses the neutral style when well under the limit', () => {
     const { container } = render(<CharCounter value="x" max={100} />)
     const el = container.firstElementChild as HTMLElement
-    expect(el.className).not.toMatch(/text-(?:amber|red)/)
+    // Neutral tone uses the muted-foreground token; the warn + hard-limit
+    // branches use the accent + destructive tokens respectively.
+    expect(el.className).toMatch(/text-\[hsl\(var\(--muted-foreground\)\)\]/)
+    expect(el.className).not.toMatch(/--accent/)
+    expect(el.className).not.toMatch(/--destructive/)
   })
 
-  it('turns amber once the value crosses the 80% warn threshold', () => {
+  it('switches to the warn accent tone once the value crosses the 80% threshold', () => {
     const { container } = render(<CharCounter value={'x'.repeat(85)} max={100} />)
     const el = container.firstElementChild as HTMLElement
-    expect(el.className).toMatch(/amber/)
+    // DS8 Sage Modern routes the warn tone through the coral --accent
+    // token.
+    expect(el.className).toMatch(/text-\[hsl\(var\(--accent\)\)\]/)
   })
 
   it('turns red once the value reaches the hard limit', () => {
