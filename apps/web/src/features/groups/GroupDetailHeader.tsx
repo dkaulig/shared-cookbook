@@ -28,6 +28,7 @@ export function GroupDetailHeader({
   const initial = group.name.trim().charAt(0).toUpperCase() || '·'
   const swatch = getGroupAvatarGradient(group.id)
   const portionsLabel = group.defaultServings === 1 ? 'Portion' : 'Portionen'
+  const recipesLabel = recipeCount === 1 ? 'Rezept' : 'Rezepte'
 
   // Avatar stack: first three members inline, remainder collapsed into a
   // "+N" chip so a 10-person group doesn't push the row off the page.
@@ -81,7 +82,7 @@ export function GroupDetailHeader({
         <span className="inline-flex items-center gap-1.5">
           <BookOpen className="h-[14px] w-[14px] text-[hsl(var(--muted-foreground))]" aria-hidden="true" />
           <strong className="font-semibold text-foreground">{recipeCount}</strong>{' '}
-          Rezepte
+          {recipesLabel}
         </span>
 
         <span className="inline-flex items-center gap-1.5">

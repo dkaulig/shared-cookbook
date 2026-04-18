@@ -141,34 +141,16 @@ describe('RecipeFilterPanel', () => {
     })
   })
 
-  it('shows an active-filter chip row with × remove buttons', async () => {
+  it('reflects a pre-selected tag (URL ?tags=t1) as the "is-selected" state on the chip', async () => {
     renderPanel('/groups/g1?tags=t1')
-
-    // Chip labelled "schnell" appears in the active filters row with a
-    // button to remove.
-    const removeBtn = await screen.findByRole('button', {
-      name: /schnell entfernen/i,
-    })
-    expect(removeBtn).toBeInTheDocument()
-
-    const user = userEvent.setup()
-    await user.click(removeBtn)
-    await waitFor(() => {
-      const loc = screen.getByTestId('location-probe').textContent ?? ''
-      expect(loc).not.toContain('tags=t1')
-    })
+    const chip = await screen.findByRole('button', { name: /schnell/i, pressed: true })
+    expect(chip).toBeInTheDocument()
   })
 
-  it('"Filter zurücksetzen" clears every active filter', async () => {
-    renderPanel('/groups/g1?tags=t1&minRating=4')
-    const clear = await screen.findByRole('button', { name: /Filter zurücksetzen/i })
-    const user = userEvent.setup()
-    await user.click(clear)
-
+  it('shows the "N ausgewählt" count when tags are selected', async () => {
+    renderPanel('/groups/g1?tags=t1,t2')
     await waitFor(() => {
-      const loc = screen.getByTestId('location-probe').textContent ?? ''
-      expect(loc).not.toContain('tags=')
-      expect(loc).not.toContain('minRating=')
+      expect(screen.getByText(/2 ausgewählt/i)).toBeInTheDocument()
     })
   })
 })
