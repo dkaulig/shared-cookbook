@@ -46,11 +46,13 @@ describe('<TopNav />', () => {
     expect(banner.querySelector('svg')).not.toBeNull()
   })
 
-  it('exposes the Suchen and Benachrichtigungen icon buttons with aria-labels', () => {
+  it('exposes the Suchen and Benachrichtigungen controls with aria-labels', () => {
     server.use(http.get('/api/groups/invites', () => HttpResponse.json([])))
     renderTopNav()
 
-    expect(screen.getByRole('button', { name: /suchen/i })).toBeInTheDocument()
+    // Suchen routes to /groups (list view) for now; Benachrichtigungen
+    // is a button that will open a notifications tray in DS7.
+    expect(screen.getByRole('link', { name: /suchen/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /benachrichtigungen/i })).toBeInTheDocument()
   })
 
