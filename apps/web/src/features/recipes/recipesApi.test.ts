@@ -15,6 +15,7 @@ import {
   fetchGroupRecipes,
   fetchGroupTags,
   fetchRecipe,
+  markRecipeAsCooked,
   updateRecipe,
   uploadRecipePhoto,
 } from './recipesApi'
@@ -165,5 +166,43 @@ describe('recipesApi', () => {
     const r = await fetchGroupTags('g1')
     expect(r).toHaveLength(1)
     expect(r[0].name).toBe('vegan')
+  })
+
+  it('markRecipeAsCooked POSTs to /cook and returns updated detail', async () => {
+    let hitUrl = ''
+    let hitMethod = ''
+    const stub: RecipeDetailDto = {
+      id: 'r1',
+      groupId: 'g1',
+      createdByUserId: 'u1',
+      createdByDisplayName: 'T',
+      title: 'Spätzle',
+      description: null,
+      defaultServings: 4,
+      prepTimeMinutes: null,
+      difficulty: 1,
+      sourceUrl: null,
+      sourceType: 'Manual',
+      forkOfRecipeId: null,
+      photos: [],
+      lastCookedAt: '2026-04-18T00:00:05Z',
+      createdAt: '2026-04-18T00:00:00Z',
+      updatedAt: '2026-04-18T00:00:05Z',
+      ingredients: [],
+      steps: [],
+      tags: [],
+    }
+    server.use(
+      http.post('/api/recipes/r1/cook', ({ request }) => {
+        hitUrl = request.url
+        hitMethod = request.method
+        return HttpResponse.json(stub)
+      }),
+    )
+
+    const result = await markRecipeAsCooked('r1')
+    expect(hitUrl).toMatch(/\/api\/recipes\/r1\/cook$/)
+    expect(hitMethod).toBe('POST')
+    expect(result.lastCookedAt).toBe('2026-04-18T00:00:05Z')
   })
 })

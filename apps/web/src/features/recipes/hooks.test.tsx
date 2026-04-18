@@ -5,7 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import { useCreateRecipe, useGroupRecipes, useGroupTags, useRecipe } from './hooks'
+import {
+  useCreateRecipe,
+  useGroupRecipes,
+  useGroupTags,
+  useMarkAsCooked,
+  useRecipe,
+} from './hooks'
 
 beforeEach(() => {
   useAuthStore.setState({
@@ -65,5 +71,20 @@ describe('recipes hooks', () => {
       tagIds: [],
     })
     expect(detail.id).toBe('r1')
+  })
+
+  it('useMarkAsCooked POSTs to /cook and resolves with refreshed detail', async () => {
+    server.use(
+      http.post('/api/recipes/r1/cook', () =>
+        HttpResponse.json({
+          id: 'r1',
+          groupId: 'g1',
+          lastCookedAt: '2026-04-18T12:00:00Z',
+        }),
+      ),
+    )
+    const { result } = renderHook(() => useMarkAsCooked('r1'), { wrapper: makeWrapper() })
+    const detail = await result.current.mutateAsync()
+    expect(detail.lastCookedAt).toBe('2026-04-18T12:00:00Z')
   })
 })
