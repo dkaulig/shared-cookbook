@@ -662,7 +662,7 @@ describe('RecipeFormPage (create)', () => {
     await waitFor(() => expect(photosPosted).toHaveLength(1))
   })
 
-  it('shows partial-failure banner when 1 of 2 staged photos fails to upload (still navigates)', async () => {
+  it('shows partial-failure banner when 1 of 2 staged photos fails to upload (recipe saved, user stays on form)', async () => {
     const user = userEvent.setup()
     let photoCallCount = 0
     server.use(

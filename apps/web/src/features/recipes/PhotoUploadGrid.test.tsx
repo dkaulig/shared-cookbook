@@ -171,11 +171,19 @@ describe('<PhotoUploadGrid mode="staged" />', () => {
   })
 
   it('rejects files whose MIME type is not an image with a German error', async () => {
-    const user = userEvent.setup()
     render(withProviders(<StagedHarness />))
-    const input = screen.getAllByTestId('photo-upload-input')[0] as HTMLInputElement
+    // Simulate a drag-drop of a non-image file — userEvent.upload would
+    // pre-filter by the <input accept=""> attribute, which hides the
+    // client-side guard this test is meant to verify.
+    const dropTarget = screen.getByTestId('photo-upload-grid')
     const file = new File(['x'], 'doc.pdf', { type: 'application/pdf' })
-    await user.upload(input, file)
+    const dataTransfer = {
+      files: [file],
+      items: [{ kind: 'file', type: 'application/pdf', getAsFile: () => file }],
+      types: ['Files'],
+    }
+    const { fireEvent } = await import('@testing-library/react')
+    fireEvent.drop(dropTarget, { dataTransfer })
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(/JPG, PNG oder WebP/i)
     })
