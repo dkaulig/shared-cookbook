@@ -32,6 +32,10 @@ function renderAt(initialPath: string) {
           path="/groups/:groupId/recipes/:recipeId/edit"
           element={<div data-testid="recipe-edit-child">Edit</div>}
         />
+        <Route
+          path="/groups/:groupId/recipes/new"
+          element={<div data-testid="recipe-new-child">New</div>}
+        />
       </Route>
     </Routes>,
     { wrapper: Wrapper },
@@ -88,9 +92,15 @@ describe('<AppLayout />', () => {
     expect(screen.getByTestId('recipe-child')).toBeInTheDocument()
   })
 
-  it('keeps the shared TopNav on the recipe edit route', () => {
+  it('hides the shared TopNav on the recipe edit route (DS6 form owns its own top bar)', () => {
     renderAt('/groups/g1/recipes/r1/edit')
-    expect(screen.getByRole('banner')).toBeInTheDocument()
+    expect(screen.queryByRole('banner')).toBeNull()
     expect(screen.getByTestId('recipe-edit-child')).toBeInTheDocument()
+  })
+
+  it('hides the shared TopNav on the new-recipe route', () => {
+    renderAt('/groups/g1/recipes/new')
+    expect(screen.queryByRole('banner')).toBeNull()
+    expect(screen.getByTestId('recipe-new-child')).toBeInTheDocument()
   })
 })
