@@ -10,11 +10,11 @@ describe('<Badge />', () => {
     expect(badge.tagName).toBe('SPAN')
   })
 
-  it('applies the default (secondary/amber) variant classes', () => {
+  it('applies the default (secondary/sage-tint) variant classes', () => {
     render(<Badge data-testid="b">Admin</Badge>)
     const badge = screen.getByTestId('b')
-    // Mockup `.mini-tag` is amber-100 bg + amber-800 text, mapped to
-    // the shadcn secondary + secondary-foreground tokens.
+    // DS8 Sage Modern: `.mini-tag` is sage-tint bg + deep-sage text,
+    // mapped to the shadcn secondary + secondary-foreground tokens.
     expect(badge.className).toMatch(/bg-secondary/)
     expect(badge.className).toMatch(/text-secondary-foreground/)
   })

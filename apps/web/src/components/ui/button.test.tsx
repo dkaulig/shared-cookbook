@@ -17,17 +17,17 @@ describe('<Button />', () => {
     expect(button.className).toMatch(/bg-primary/)
   })
 
-  it('uses the Warme-Küche amber hover on the default variant', () => {
-    // Mockup: hover state switches from amber-700 (#B45309) to amber-800
-    // (#92400E). DS1 routes that through the --primary-hover CSS var so
+  it('uses the Sage Modern sage-dark hover on the default variant', () => {
+    // DS8 Sage Modern: hover swaps primary (#4f7961) → primary-hover
+    // (#3e6450). DS1 routes that through the --primary-hover CSS var so
     // dark-mode can override it cleanly.
     render(<Button>Speichern</Button>)
     const button = screen.getByRole('button', { name: 'Speichern' })
-    expect(button.className).toMatch(/hover:bg-\[var\(--primary-hover\)\]/)
+    expect(button.className).toMatch(/hover:bg-\[hsl\(var\(--primary-hover\)\)\]/)
   })
 
-  it('carries the amber shadow + tap-scale motion on the default variant', () => {
-    // Matches `button.primary` in warme-kueche-login.html — soft amber
+  it('carries the sage shadow + tap-scale motion on the default variant', () => {
+    // Matches the primary button in variant-a-home.html — soft sage
     // glow beneath + 99% scale on :active.
     render(<Button>Speichern</Button>)
     const button = screen.getByRole('button', { name: 'Speichern' })

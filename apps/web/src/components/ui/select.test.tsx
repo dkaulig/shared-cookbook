@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { Select } from './select'
 
 describe('<Select />', () => {
-  it('renders a native <select> with Warme-Küche tokens', () => {
+  it('renders a native <select> with Sage Modern tokens', () => {
     render(
       <Select data-testid="sel" defaultValue="b">
         <option value="a">Alpha</option>
@@ -17,7 +17,7 @@ describe('<Select />', () => {
     expect(select.className).toMatch(/h-11/)
   })
 
-  it('uses the amber 4-ring focus state', () => {
+  it('uses the sage 4-ring focus state', () => {
     render(
       <Select data-testid="sel">
         <option>Eins</option>

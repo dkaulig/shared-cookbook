@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { Label } from './label'
 
 describe('<Label />', () => {
-  it('renders a <label> with the Warme-Küche 13 px semibold style', () => {
+  it('renders a <label> with the Sage Modern 13 px semibold style', () => {
     render(<Label htmlFor="email">E-Mail-Adresse</Label>)
     const label = screen.getByText('E-Mail-Adresse')
     expect(label.tagName).toBe('LABEL')

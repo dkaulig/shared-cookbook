@@ -22,8 +22,8 @@ describe('<Card />', () => {
       </Card>,
     )
     const card = screen.getByTestId('card')
-    // Uses shadcn tokens so the Warme-Küche cream/amber palette flows in
-    // automatically. bg-card / border must be present.
+    // Uses shadcn tokens so the Sage Modern white / sage palette flows
+    // in automatically. bg-card / border must be present.
     expect(card.className).toMatch(/bg-card/)
     expect(card.className).toMatch(/border/)
     expect(card.className).toMatch(/rounded-/)
@@ -58,8 +58,9 @@ describe('<Card />', () => {
   it('renders CardTitle as a heading with serif-display typography', () => {
     render(<CardTitle>Rezept</CardTitle>)
     const title = screen.getByText('Rezept')
-    // Cormorant Garamond is the display face — Tailwind utility
-    // `font-serif` maps to `--font-serif` via @theme inline.
+    // DS8 Sage Modern: `--font-serif` resolves to Inter, but we keep the
+    // `font-serif` utility on the heading so the token mapping stays a
+    // single lever.
     expect(title.className).toMatch(/font-serif/)
   })
 })

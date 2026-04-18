@@ -3,24 +3,24 @@ import { describe, expect, it } from 'vitest'
 import { Input } from './input'
 
 describe('<Input />', () => {
-  it('renders an <input> element with Warme-Küche padding + border tokens', () => {
+  it('renders an <input> element with Sage Modern padding + border tokens', () => {
     render(<Input placeholder="du@familie.de" />)
     const input = screen.getByPlaceholderText('du@familie.de')
     expect(input.tagName).toBe('INPUT')
-    // DS1 bumps the height to ~44px (h-11) and switches to the Warme-Küche
-    // border-input token so the cream background / stone-300 border combo
+    // DS1 bumps the height to ~44px (h-11) and uses the Sage Modern
+    // border-input token so the neutral background / stone-border combo
     // from the mockup comes through without a per-call override.
     expect(input.className).toMatch(/h-11/)
     expect(input.className).toMatch(/border-input/)
     expect(input.className).toMatch(/text-base/)
   })
 
-  it('carries the 4-ring amber focus style from the mockup', () => {
+  it('carries the 4-ring sage focus style from the mockup', () => {
     render(<Input placeholder="p" />)
     const input = screen.getByPlaceholderText('p')
-    // Mockup uses `box-shadow: 0 0 0 4px rgba(180,83,9,0.25)` on :focus.
-    // We translate that into Tailwind's focus-visible:ring-4 +
-    // focus-visible:ring-ring/25 (amber-700 @ 25% alpha).
+    // DS8 Sage Modern: the focus ring leans on the sage --ring token at
+    // 25% alpha, translated to Tailwind's focus-visible:ring-4 +
+    // focus-visible:ring-ring/25.
     expect(input.className).toMatch(/focus-visible:ring-4/)
     expect(input.className).toMatch(/focus-visible:ring-ring/)
   })

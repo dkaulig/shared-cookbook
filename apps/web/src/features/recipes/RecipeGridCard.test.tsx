@@ -6,9 +6,10 @@ import { RecipeGridCard } from './RecipeGridCard'
 
 /**
  * DS4 compact recipe card used in the Group Detail grid
- * (`.recipe-card` in the mockup). Renders a 4:3 photo (gradient or URL
- * fallback) with an optional rating pill overlay, a Cormorant-Garamond
- * title, a minute/creator meta line, and up to two mini-tag chips.
+ * (`.recipe-card` in the mockup, retinted for DS8 Sage Modern).
+ * Renders a 4:3 photo (gradient or URL fallback) with an optional
+ * rating pill overlay, a display `font-serif` title (Inter under
+ * DS8), a minute/creator meta line, and up to two mini-tag chips.
  */
 
 const base: RecipeSummaryDto = {

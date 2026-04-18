@@ -22,13 +22,15 @@ describe('<WochenplanStub />', () => {
     expect(heading.className).toMatch(/font-serif/)
   })
 
-  it('renders the italic Libre-Baskerville tagline describing the Phase 3 scope', () => {
+  it('renders the italic serif-body tagline describing the Phase 3 scope', () => {
     renderStub()
     const tagline = screen.getByText(
       /rezepte planen\. einkaufsliste generieren\. saisonale vorschläge\./i,
     )
     expect(tagline).toBeInTheDocument()
+    // DS8 Sage Modern: italic taglines use `font-serif-body` (Inter).
     expect(tagline.className).toMatch(/italic/)
+    expect(tagline.className).toMatch(/font-serif-body/)
   })
 
   it('renders a decorative calendar illustration', () => {

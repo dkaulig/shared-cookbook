@@ -43,7 +43,7 @@ describe('<ErrorBoundary />', () => {
     expect(screen.getByRole('button', { name: /Neu laden/i })).toBeInTheDocument()
   })
 
-  it('uses the warm-palette serif typography for the fallback heading (DS7)', () => {
+  it('uses the display serif typography for the fallback heading (DS7 / DS8)', () => {
     render(
       <ErrorBoundary>
         <Exploder />
@@ -53,8 +53,9 @@ describe('<ErrorBoundary />', () => {
       level: 1,
       name: /ups, da ist etwas schief gelaufen/i,
     })
-    // Pin the Cormorant Garamond headline and the cream token so the
-    // fallback doesn't regress back to shadcn-neutral stone greys.
+    // DS8 Sage Modern: `font-serif` resolves to Inter but we keep the
+    // utility opt-in + the --background token so the fallback stays on
+    // the themed surface instead of a default white.
     expect(heading.className).toMatch(/font-serif/)
     const main = heading.closest('main')
     expect(main).not.toBeNull()

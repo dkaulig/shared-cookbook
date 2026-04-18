@@ -12,13 +12,11 @@ describe('<Skeleton />', () => {
     expect(node.className).toMatch(/animate-pulse/)
   })
 
-  it('uses the warm-palette muted token (not hardcoded stone greys)', () => {
-    // DS7: the skeleton has to auto-adopt the Warme-Küche palette so
-    // loading states feel coherent with the rest of the cream surface.
-    // Pin `bg-muted` (which maps to `--muted: #F5F5F4 stone-100` in
-    // light mode + the stone-800 equivalent in `.dark`) instead of a
-    // hardcoded `bg-stone-200/*` utility that breaks in dark mode and
-    // looks cold on cream.
+  it('uses the themed muted token (not hardcoded stone greys)', () => {
+    // DS7/DS8: the skeleton has to auto-adopt the active palette so
+    // loading states feel coherent with the rest of the surface. Pin
+    // `bg-muted` (which maps to the --muted token in both light + dark)
+    // instead of a hardcoded `bg-stone-200/*` utility.
     render(<Skeleton data-testid="sk" />)
     const node = screen.getByTestId('sk')
     expect(node.className).toMatch(/bg-muted/)
