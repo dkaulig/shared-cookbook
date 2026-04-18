@@ -1,21 +1,48 @@
-using Amazon.S3;
-using Amazon.S3.Model;
+using System.Net;
+using System.Net.Http.Headers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace FamilienKochbuch.Infrastructure.Services;
 
 /// <summary>
-/// <see cref="IPhotoStorage"/> backed by SeaweedFS's S3-compatible gateway.
-/// Constructed once per scope; the underlying <see cref="IAmazonS3"/> is a
-/// singleton registered in <c>Program.cs</c>.
+/// <see cref="IPhotoStorage"/> backed by the SeaweedFS <b>filer</b> REST
+/// API over plain HTTP. No S3 SDK, no bucket concept, no payload signing
+/// — just <c>PUT /{path}</c>, <c>DELETE /{path}</c>. Public URLs are
+/// produced via <see cref="IPhotoUrlSigner"/> and served by the backend's
+/// photo-proxy endpoint; SeaweedFS itself is never exposed to the
+/// public network.
 /// </summary>
-public class SeaweedFsPhotoStorage(
-    IAmazonS3 s3,
-    IOptions<PhotoStorageOptions> options,
-    ILogger<SeaweedFsPhotoStorage> logger) : IPhotoStorage
+public class SeaweedFsPhotoStorage : IPhotoStorage
 {
-    private readonly PhotoStorageOptions _options = options.Value;
+    /// <summary>Path prefix on the filer for all recipe photo objects.</summary>
+    public const string PathPrefix = "recipes";
+
+    /// <summary>Public-facing proxy base path; stripped when parsing URLs
+    /// that a client echoes back to <see cref="DeleteAsync"/>.</summary>
+    public const string PublicApiPrefix = "/api/photos/";
+
+    /// <summary>Named <see cref="IHttpClientFactory"/> client used for filer I/O.
+    /// Kept in sync with the proxy-endpoint's client so both sides share a
+    /// single HttpClient configuration point.</summary>
+    public const string FilerHttpClientName = "seaweedfs-filer";
+
+    private readonly IHttpClientFactory _httpFactory;
+    private readonly IPhotoUrlSigner _signer;
+    private readonly ILogger<SeaweedFsPhotoStorage> _logger;
+    private readonly string _filerBaseUrl;
+
+    public SeaweedFsPhotoStorage(
+        IHttpClientFactory httpFactory,
+        IOptions<PhotoStorageOptions> options,
+        IPhotoUrlSigner signer,
+        ILogger<SeaweedFsPhotoStorage> logger)
+    {
+        _httpFactory = httpFactory;
+        _signer = signer;
+        _logger = logger;
+        _filerBaseUrl = options.Value.FilerUrl.TrimEnd('/');
+    }
 
     public async Task<string> UploadAsync(
         Stream content,
@@ -23,72 +50,91 @@ public class SeaweedFsPhotoStorage(
         string originalFileName,
         CancellationToken ct = default)
     {
-        if (content is null) throw new ArgumentNullException(nameof(content));
+        ArgumentNullException.ThrowIfNull(content);
         if (string.IsNullOrWhiteSpace(contentType))
             throw new ArgumentException("Content type must not be blank.", nameof(contentType));
 
         var extension = DeriveExtension(contentType, originalFileName);
-        var key = $"{Guid.NewGuid():N}{extension}";
+        var path = $"{PathPrefix}/{Guid.NewGuid():N}{extension}";
 
-        // Buffer the payload so the AWS SDK can compute the MD5/SHA hash
-        // without needing to re-read the stream. SeaweedFS speaks plain
-        // HTTP; DisablePayloadSigning isn't an option here because
-        // AWSSDK rejects unsigned payloads over non-HTTPS endpoints.
-        await using var buffered = new MemoryStream();
-        await content.CopyToAsync(buffered, ct);
-        buffered.Position = 0;
+        var client = _httpFactory.CreateClient(FilerHttpClientName);
+        using var payload = new StreamContent(content);
+        payload.Headers.ContentType = new MediaTypeHeaderValue(contentType);
 
-        var request = new PutObjectRequest
-        {
-            BucketName = _options.Bucket,
-            Key = key,
-            InputStream = buffered,
-            ContentType = contentType,
-            UseChunkEncoding = false,
-        };
+        var response = await client.PutAsync($"{_filerBaseUrl}/{path}", payload, ct);
+        response.EnsureSuccessStatusCode();
 
-        await s3.PutObjectAsync(request, ct);
-        logger.LogInformation("Uploaded photo {Key} ({ContentType}) to bucket {Bucket}",
-            key, contentType, _options.Bucket);
+        _logger.LogInformation(
+            "Uploaded photo {Path} ({ContentType}) to SeaweedFS filer",
+            path, contentType);
 
-        var baseUrl = _options.PublicBaseUrl.TrimEnd('/');
-        return $"{baseUrl}/{_options.Bucket}/{key}";
+        return path;
     }
 
-    public async Task DeleteAsync(string url, CancellationToken ct = default)
+    public async Task DeleteAsync(string pathOrUrl, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(url))
-            throw new ArgumentException("URL must not be blank.", nameof(url));
+        if (string.IsNullOrWhiteSpace(pathOrUrl))
+            throw new ArgumentException("Path/URL must not be blank.", nameof(pathOrUrl));
 
-        if (!TryParseObjectKey(url, out var key))
+        var path = NormalizeToPath(pathOrUrl);
+        if (string.IsNullOrWhiteSpace(path))
         {
-            logger.LogWarning("Photo URL {Url} is not managed by SeaweedFsPhotoStorage; skipping delete.", url);
+            _logger.LogWarning(
+                "Cannot parse a storage path out of {Input}; skipping delete.",
+                pathOrUrl);
             return;
         }
 
+        var client = _httpFactory.CreateClient(FilerHttpClientName);
         try
         {
-            await s3.DeleteObjectAsync(new DeleteObjectRequest
-            {
-                BucketName = _options.Bucket,
-                Key = key,
-            }, ct);
-            logger.LogInformation("Deleted photo {Key} from bucket {Bucket}", key, _options.Bucket);
+            var response = await client.DeleteAsync($"{_filerBaseUrl}/{path}", ct);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return; // Idempotent — already gone.
+            response.EnsureSuccessStatusCode();
+            _logger.LogInformation("Deleted photo {Path} from SeaweedFS filer", path);
         }
-        catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        catch (HttpRequestException ex)
         {
-            // Idempotent — already gone.
+            _logger.LogWarning(ex,
+                "Failed to delete photo {Path} from SeaweedFS filer — continuing.", path);
         }
     }
 
-    private bool TryParseObjectKey(string url, out string key)
+    public string GetPublicUrl(string path)
     {
-        key = string.Empty;
-        var prefix = $"{_options.PublicBaseUrl.TrimEnd('/')}/{_options.Bucket}/";
-        if (!url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Path must not be blank.", nameof(path));
 
-        key = url[prefix.Length..];
-        return key.Length > 0;
+        var normalized = NormalizeToPath(path);
+        return _signer.SignPhotoUrl(normalized);
+    }
+
+    /// <summary>
+    /// Parses a bare path out of a possibly URL-shaped input. Accepts:
+    /// raw paths (<c>recipes/abc.png</c>), signed proxy URLs
+    /// (<c>/api/photos/recipes/abc.png?sig=...&amp;exp=...</c>), and
+    /// absolute URLs with the <c>/api/photos/</c> prefix.
+    /// Returns the empty string when nothing recognizable is present.
+    /// </summary>
+    public static string NormalizeToPath(string input)
+    {
+        var trimmed = input.Trim();
+
+        // Strip any query string.
+        var qIdx = trimmed.IndexOf('?');
+        if (qIdx >= 0) trimmed = trimmed[..qIdx];
+
+        // Drop scheme + host if present.
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var abs))
+            trimmed = abs.AbsolutePath;
+
+        // Strip the /api/photos/ public prefix if we see it.
+        if (trimmed.StartsWith(PublicApiPrefix, StringComparison.Ordinal))
+            trimmed = trimmed[PublicApiPrefix.Length..];
+
+        // Finally strip any leading slash.
+        return trimmed.TrimStart('/');
     }
 
     private static string DeriveExtension(string contentType, string originalFileName)
@@ -106,38 +152,5 @@ public class SeaweedFsPhotoStorage(
 
         var fromName = Path.GetExtension(originalFileName);
         return string.IsNullOrWhiteSpace(fromName) ? string.Empty : fromName;
-    }
-
-    /// <summary>
-    /// Ensures the configured bucket exists — idempotent, safe to call on
-    /// every startup. Used by <c>Program.cs</c> after wiring the DI graph.
-    /// </summary>
-    public static async Task EnsureBucketAsync(
-        IAmazonS3 s3,
-        PhotoStorageOptions options,
-        ILogger logger,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            // Some S3-compatible servers (including certain SeaweedFS versions)
-            // reject HEAD /bucket with 403 when the bucket doesn't exist, and
-            // ListBucketsAsync can return a response with a null Buckets list.
-            // Just try PUT — S3 returns BucketAlreadyOwnedByYou when it's
-            // already there, which we treat as success.
-            await s3.PutBucketAsync(options.Bucket, ct);
-            logger.LogInformation("Ensured SeaweedFS bucket {Bucket}", options.Bucket);
-        }
-        catch (AmazonS3Exception ex) when (
-            ex.ErrorCode == "BucketAlreadyOwnedByYou"
-            || ex.ErrorCode == "BucketAlreadyExists")
-        {
-            // Idempotent — bucket is already there.
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Could not ensure SeaweedFS bucket {Bucket} — photo upload may fail.",
-                options.Bucket);
-        }
     }
 }

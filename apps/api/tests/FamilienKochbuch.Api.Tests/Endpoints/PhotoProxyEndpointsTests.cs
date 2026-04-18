@@ -4,6 +4,7 @@ using System.Text;
 using FamilienKochbuch.Api.Endpoints;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Api.Tests.Infrastructure;
+using FamilienKochbuch.Infrastructure.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -210,7 +211,7 @@ public class PhotoProxyEndpointsTests : IClassFixture<PhotoProxyEndpointsTests.F
             {
                 // Route the named filer client through the in-memory fake.
                 services
-                    .AddHttpClient(PhotoProxyEndpointsConstants.FilerClientName)
+                    .AddHttpClient(SeaweedFsPhotoStorage.FilerHttpClientName)
                     .ConfigurePrimaryHttpMessageHandler(() => Filer.Handler);
             });
         }
