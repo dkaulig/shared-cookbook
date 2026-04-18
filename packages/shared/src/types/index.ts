@@ -21,6 +21,7 @@ export type {
   CreateGroupRequest,
   GroupDetail,
   GroupInviteCreated,
+  GroupInviteListItem,
   GroupInviteReceived,
   GroupMember,
   GroupRole,
