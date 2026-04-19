@@ -31,6 +31,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Rating> Ratings => Set<Rating>();
     public DbSet<RecipeRevision> RecipeRevisions => Set<RecipeRevision>();
     public DbSet<RecipeImport> RecipeImports => Set<RecipeImport>();
+    public DbSet<StagedPhoto> StagedPhotos => Set<StagedPhoto>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -40,6 +41,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         // folder. New entities go there; legacy ones stay inline below
         // until they get refactored.
         builder.ApplyConfiguration(new RecipeImportConfiguration());
+        builder.ApplyConfiguration(new StagedPhotoConfiguration());
 
         builder.Entity<User>(e =>
         {
