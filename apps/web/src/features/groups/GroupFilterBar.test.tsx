@@ -165,4 +165,28 @@ describe('<GroupFilterBar />', () => {
     const btn = screen.getByRole('button', { name: /Würfle/ })
     expect(btn).toBeDisabled()
   })
+
+  it('regression BUG-006: keeps the Zufall button inside the viewport on mobile', () => {
+    // The bug was that the search-input's flex item lacked `min-w-0`,
+    // so its intrinsic placeholder width forced the row wider than the
+    // 375px viewport, clipping the trailing red Zufall button. Assert
+    // the fix-marker class on the search container so a future refactor
+    // that drops `min-w-0` re-trips this test.
+    render(
+      <GroupFilterBar
+        searchQuery=""
+        onSearchChange={() => {}}
+        activeFilterCount={0}
+        isFilterOpen={false}
+        onToggleFilter={() => {}}
+        onRandomPick={() => {}}
+        isRandomPending={false}
+      />,
+    )
+    const search = screen.getByRole('searchbox', { name: /suche/i })
+    const searchContainer = search.closest('label')
+    expect(searchContainer?.className).toMatch(/\bmin-w-0\b/)
+    // And the Zufall button itself must still be reachable in the DOM.
+    expect(screen.getByRole('button', { name: /Zufall/ })).toBeInTheDocument()
+  })
 })

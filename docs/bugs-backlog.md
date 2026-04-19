@@ -150,7 +150,18 @@ scale from CLAUDE tokens).
 
 ## BUG-006 · "Zufall" button overflows viewport on group detail page
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `GroupFilterBar.tsx` search-`<label>`
+got `min-w-0` added next to its `flex-1`. Without `min-w-0` a flex item's
+default `min-width: auto` resolves to its intrinsic content width — for
+the search `<input>` that's the placeholder ("Rezept oder Zutat suchen…"),
+which forced the row wider than the 375px mobile viewport and pushed the
+trailing red Zufall button off-screen. Adding `min-w-0` lets `flex-1`
+shrink below the placeholder width so the row collapses cleanly and all
+three controls (search + Filter + Zufall) stay inside the viewport. No
+desktop regression — at >=768px the row already has plenty of horizontal
+budget. Regression test in `GroupFilterBar.test.tsx` greps the search
+container's className for `min-w-0` so a future refactor that drops it
+re-trips the test.)
 **Where:** Group detail page (`/groups/:id`) — the red "Zufall"
 (random-recipe) button extends off the right edge of the screen on
 mobile viewports.
