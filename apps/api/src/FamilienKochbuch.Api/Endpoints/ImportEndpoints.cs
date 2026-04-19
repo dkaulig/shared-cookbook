@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
@@ -27,8 +28,26 @@ namespace FamilienKochbuch.Api.Endpoints;
 /// </summary>
 public static class ImportEndpoints
 {
+    /// <summary>
+    /// Wire shape of <c>GET /api/imports/{importId}</c>. PV4 extends the
+    /// original P2-5 subset (Id/Source/Status/Progress/… only) with the
+    /// full phase-tracking snapshot so the polling-fallback path (used
+    /// when SignalR is disconnected or the tab was backgrounded across
+    /// a reconnect) gives the frontend the same information the SignalR
+    /// event would have delivered. <see cref="GroupId"/> in particular
+    /// resolves BUG-012: the frontend auto-redirect on Done needs the
+    /// target group and previously depended on navigation-state /
+    /// sessionStorage, which are fragile across reloads and new tabs.
+    ///
+    /// <see cref="Phase"/> is serialised as the lower-case / snake-case
+    /// wire form (e.g. <c>"post_processing"</c>) so it matches the
+    /// SignalR <c>RecipeImportProgressChanged</c> payload, the Python
+    /// callback shape, and the frontend's <c>RecipeImportPhase</c>
+    /// union — one wire vocabulary across all three surfaces.
+    /// </summary>
     public record ImportStatusResponse(
         Guid Id,
+        Guid GroupId,
         string Source,
         string Status,
         int Progress,
@@ -36,7 +55,16 @@ public static class ImportEndpoints
         string? Result,
         string? Error,
         DateTimeOffset CreatedAt,
-        DateTimeOffset? CompletedAt);
+        DateTimeOffset? CompletedAt,
+        string Phase,
+        int PhaseProgress,
+        string? ProgressLabel,
+        int AttemptNumber,
+        long? BytesDownloaded,
+        long? BytesTotal,
+        int? SegmentsDone,
+        int? SegmentsTotal,
+        DateTimeOffset LastProgressAt);
 
     /// <summary>Body of <c>POST /api/recipes/import/url</c>.</summary>
     public record UrlImportRequest(string Url, Guid GroupId);
@@ -91,6 +119,7 @@ public static class ImportEndpoints
 
         return Results.Ok(new ImportStatusResponse(
             Id: import.Id,
+            GroupId: import.GroupId,
             Source: import.Source.ToString(),
             Status: import.Status.ToString(),
             Progress: import.Progress,
@@ -101,7 +130,19 @@ public static class ImportEndpoints
             Result: import.Status == ImportStatus.Done ? import.ResultJson : null,
             Error: import.ErrorMessage,
             CreatedAt: import.CreatedAt,
-            CompletedAt: import.CompletedAt));
+            CompletedAt: import.CompletedAt,
+            // PV4 — phase-tracking snapshot. Phase goes through the same
+            // snake-case mapper the SignalR publisher + Python callback
+            // use, so the three transports serialise identically.
+            Phase: RecipeImportPhaseWire.ToWire(import.Phase),
+            PhaseProgress: import.PhaseProgress,
+            ProgressLabel: import.ProgressLabel,
+            AttemptNumber: import.AttemptNumber,
+            BytesDownloaded: import.BytesDownloaded,
+            BytesTotal: import.BytesTotal,
+            SegmentsDone: import.SegmentsDone,
+            SegmentsTotal: import.SegmentsTotal,
+            LastProgressAt: import.LastProgressAt));
     }
 
     // ── POST /api/recipes/import/url ─────────────────────────────────

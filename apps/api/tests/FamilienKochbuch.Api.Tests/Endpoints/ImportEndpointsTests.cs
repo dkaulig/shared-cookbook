@@ -135,6 +135,188 @@ public class ImportEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Null(body.Error);
     }
 
+    // ── PV4: phase-tracking fields on GET /api/imports/{id} ─────────────
+    //
+    // These tests lock the wire contract after PV4: every new phase field
+    // must round-trip through the endpoint so the frontend's polling
+    // fallback (SignalR disconnected / tab-reloaded / new-tab deep-link)
+    // gets the same authoritative snapshot the SignalR event would have
+    // delivered. BUG-012 is resolved by the GroupId field specifically —
+    // see the dedicated regression test below.
+
+    [Fact]
+    public async Task Owner_Fresh_Import_Exposes_Phase_Tracking_Defaults()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var importId = await SeedImportAsync(userId);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/imports/{importId}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+
+        // Fresh import: Phase=Queued (snake-case wire form), PhaseProgress=0,
+        // AttemptNumber=1, ProgressLabel null until the first callback,
+        // bytes/segments all null, LastProgressAt tracks CreatedAt at birth.
+        Assert.Equal("queued", body.Phase);
+        Assert.Equal(0, body.PhaseProgress);
+        Assert.Equal(1, body.AttemptNumber);
+        Assert.Null(body.ProgressLabel);
+        Assert.Null(body.BytesDownloaded);
+        Assert.Null(body.BytesTotal);
+        Assert.Null(body.SegmentsDone);
+        Assert.Null(body.SegmentsTotal);
+        Assert.NotEqual(default, body.LastProgressAt);
+    }
+
+    [Fact]
+    public async Task Owner_Status_Response_Carries_GroupId_For_Redirect()
+    {
+        // BUG-012 regression guard: the frontend auto-redirect to
+        // /groups/{groupId}/recipes/new on Done hinges on groupId being
+        // present in the status response. Previously omitted; PV4 adds it.
+        Guid seededGroupId = Guid.Empty;
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var group = new Group("GroupForRedirect", null, DateTimeOffset.UtcNow);
+            db.Groups.Add(group);
+            await db.SaveChangesAsync();
+            seededGroupId = group.Id;
+
+            var import = new RecipeImport(
+                userId: userId,
+                groupId: group.Id,
+                source: ImportSource.Url,
+                sourceUrl: "https://example.com/rezept",
+                createdAt: DateTimeOffset.UtcNow);
+            db.RecipeImports.Add(import);
+            await db.SaveChangesAsync();
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/imports/{import.Id}");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var response = await _client.SendAsync(req);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+            Assert.Equal(seededGroupId, body.GroupId);
+        }
+    }
+
+    [Fact]
+    public async Task Owner_Progress_Update_Surfaces_In_Response()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var importId = await SeedImportAsync(userId, import =>
+        {
+            // Simulate a progress callback landing — phase advances, bytes
+            // get filled in, ProgressLabel is auto-derived on the server.
+            import.UpdateProgress(
+                phase: RecipeImportPhase.Downloading,
+                phaseProgress: 40,
+                bytesDownloaded: 2_000_000L,
+                bytesTotal: 5_000_000L,
+                segmentsDone: null,
+                segmentsTotal: null,
+                attempt: 1,
+                now: DateTimeOffset.UtcNow);
+        });
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/imports/{importId}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+        Assert.Equal("downloading", body.Phase);
+        Assert.Equal(40, body.PhaseProgress);
+        Assert.Equal(2_000_000L, body.BytesDownloaded);
+        Assert.Equal(5_000_000L, body.BytesTotal);
+        Assert.NotNull(body.ProgressLabel);
+        Assert.Contains("heruntergeladen", body.ProgressLabel, StringComparison.OrdinalIgnoreCase);
+        // Progress callback on a Queued row lifts Status→Running.
+        Assert.Equal("Running", body.Status);
+    }
+
+    [Fact]
+    public async Task Owner_Transcribing_Segments_Surface_In_Response()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var importId = await SeedImportAsync(userId, import =>
+        {
+            import.UpdateProgress(
+                phase: RecipeImportPhase.Transcribing,
+                phaseProgress: 50,
+                bytesDownloaded: null,
+                bytesTotal: null,
+                segmentsDone: 7,
+                segmentsTotal: 14,
+                attempt: 1,
+                now: DateTimeOffset.UtcNow);
+        });
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/imports/{importId}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+        Assert.Equal("transcribing", body.Phase);
+        Assert.Equal(50, body.PhaseProgress);
+        Assert.Equal(7, body.SegmentsDone);
+        Assert.Equal(14, body.SegmentsTotal);
+        Assert.Null(body.BytesDownloaded);
+        Assert.Null(body.BytesTotal);
+    }
+
+    [Fact]
+    public async Task Owner_Retry_Bumps_AttemptNumber_In_Response()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var importId = await SeedImportAsync(userId, import =>
+        {
+            import.StartAttempt(2, DateTimeOffset.UtcNow);
+        });
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/imports/{importId}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+        Assert.Equal(2, body.AttemptNumber);
+        Assert.Equal("queued", body.Phase);
+        Assert.Equal(0, body.PhaseProgress);
+    }
+
+    [Fact]
+    public async Task Owner_LastProgressAt_Is_Iso_Timestamp_After_Update()
+    {
+        var updateAt = DateTimeOffset.Parse(
+            "2026-04-19T12:34:56+00:00",
+            System.Globalization.CultureInfo.InvariantCulture);
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var importId = await SeedImportAsync(userId, import =>
+        {
+            import.UpdateProgress(
+                phase: RecipeImportPhase.Structuring,
+                phaseProgress: 10,
+                bytesDownloaded: null,
+                bytesTotal: null,
+                segmentsDone: null,
+                segmentsTotal: null,
+                attempt: 1,
+                now: updateAt);
+        });
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/imports/{importId}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+        Assert.Equal(updateAt, body.LastProgressAt);
+    }
+
     [Fact]
     public async Task Owner_Running_State_Hides_Result_Until_Done()
     {

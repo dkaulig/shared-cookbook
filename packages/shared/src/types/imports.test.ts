@@ -132,6 +132,7 @@ describe('imports.ts DTOs', () => {
   it('RecipeImportDto carries the full status shape the client exposes', () => {
     const dto: RecipeImportDto = {
       id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
       source: 'url',
       status: 'running',
       progress: 42,
@@ -144,5 +145,23 @@ describe('imports.ts DTOs', () => {
     expect(dto.status).toBe('running')
     expect(dto.progress).toBe(42)
     expect(dto.result).toBeNull()
+  })
+
+  // PV4 regression — `groupId` is now a required field on the DTO so
+  // the polling fallback carries the redirect target (resolves BUG-012).
+  it('RecipeImportDto requires groupId on the DTO surface', () => {
+    const dto: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      source: 'url',
+      status: 'done',
+      progress: 100,
+      sourceUrl: 'https://example.com',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-18T00:00:00Z',
+      completedAt: '2026-04-18T00:00:05Z',
+    }
+    expect(dto.groupId).toBe('22222222-3333-4444-5555-666666666666')
   })
 })

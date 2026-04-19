@@ -109,6 +109,7 @@ describe('<ImportProgressPage />', () => {
       http.get('/api/imports/imp-1', () =>
         HttpResponse.json({
           id: 'imp-1',
+          groupId: 'g1',
           source: 'Url',
           status: 'Running',
           progress: 45,
@@ -117,6 +118,15 @@ describe('<ImportProgressPage />', () => {
           error: null,
           createdAt: '2026-04-18T00:00:00Z',
           completedAt: null,
+          phase: 'transcribing',
+          phaseProgress: 40,
+          progressLabel: 'Audio wird transkribiert',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-18T00:00:00Z',
         }),
       ),
     )
@@ -125,7 +135,13 @@ describe('<ImportProgressPage />', () => {
 
     const bar = await screen.findByRole('progressbar', { name: /import-fortschritt/i })
     await waitFor(() => expect(bar).toHaveAttribute('aria-valuenow', '45'))
-    expect(await screen.findByText(/transkribieren/i)).toBeInTheDocument()
+    // PV4 — the wire now carries the server-computed progressLabel
+    // verbatim ("Audio wird transkribiert"). Multiple UI surfaces render
+    // it (the OverallProgressBar + the PhaseDetailCard), so use
+    // findAllByText to assert presence without tripping the
+    // "multiple elements" guard.
+    const matches = await screen.findAllByText(/audio wird transkribiert/i)
+    expect(matches.length).toBeGreaterThan(0)
     expect(screen.getByText(/45%/)).toBeInTheDocument()
   })
 
@@ -134,6 +150,7 @@ describe('<ImportProgressPage />', () => {
       http.get('/api/imports/imp-done', () =>
         HttpResponse.json({
           id: 'imp-done',
+          groupId: 'g-from-server',
           source: 'Url',
           status: 'Done',
           progress: 100,
@@ -157,6 +174,15 @@ describe('<ImportProgressPage />', () => {
           error: null,
           createdAt: '2026-04-18T00:00:00Z',
           completedAt: '2026-04-18T00:00:05Z',
+          phase: 'done',
+          phaseProgress: 100,
+          progressLabel: 'Fertig',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-18T00:00:05Z',
         }),
       ),
     )
@@ -166,6 +192,8 @@ describe('<ImportProgressPage />', () => {
       initialState: { groupId: 'g1' },
     })
 
+    // Navigation-state groupId wins over the wire groupId (resolution
+    // order matches PV4 useMemo in ImportProgressPage).
     await waitFor(() =>
       expect(screen.getByTestId('location')).toHaveTextContent(
         '/groups/g1/recipes/new?importId=imp-done',
@@ -180,6 +208,7 @@ describe('<ImportProgressPage />', () => {
       http.get('/api/imports/imp-done', () =>
         HttpResponse.json({
           id: 'imp-done',
+          groupId: 'g-from-server',
           source: 'Url',
           status: 'Done',
           progress: 100,
@@ -203,12 +232,23 @@ describe('<ImportProgressPage />', () => {
           error: null,
           createdAt: '2026-04-18T00:00:00Z',
           completedAt: '2026-04-18T00:00:05Z',
+          phase: 'done',
+          phaseProgress: 100,
+          progressLabel: 'Fertig',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-18T00:00:05Z',
         }),
       ),
     )
 
     renderProgress({ importId: 'imp-done' })
 
+    // sessionStorage memo wins over the wire groupId (resolution order
+    // matches PV4 useMemo in ImportProgressPage).
     await waitFor(() =>
       expect(screen.getByTestId('location')).toHaveTextContent(
         '/groups/g-from-memo/recipes/new?importId=imp-done',
@@ -216,21 +256,19 @@ describe('<ImportProgressPage />', () => {
     )
   })
 
-  // Reviewer-flagged edge case: user opens the progress URL in a new
-  // tab (no navigation state) AFTER extraction already completed, and
-  // no sessionStorage memo exists for this importId. Without a CTA the
-  // user gets stuck on a "Fertig" progress bar with only a Back button
-  // — the extracted recipe would be orphaned. Now we render a
-  // DoneWithoutGroupPanel with a "Gruppe auswählen" link to /groups.
-  it('shows a group-picker CTA when status=done but groupId is unknown', async () => {
-    // Explicitly clear the memo in case a previous test polluted it,
-    // matching the "fresh tab" conditions this edge case describes.
-    forgetImportGroup('imp-orphan')
+  // BUG-012 regression test: the user reloaded the tab mid-import (or
+  // opened the progress URL in a new tab) so location.state is null AND
+  // sessionStorage is empty. Previously this left the user stuck on the
+  // DoneWithoutGroupPanel. PV4 falls back to `data.groupId` from the
+  // status response and the redirect now fires normally.
+  it('falls back to data.groupId from the status response when location state AND sessionStorage are empty (BUG-012)', async () => {
+    forgetImportGroup('imp-bug-012')
 
     server.use(
-      http.get('/api/imports/imp-orphan', () =>
+      http.get('/api/imports/imp-bug-012', () =>
         HttpResponse.json({
-          id: 'imp-orphan',
+          id: 'imp-bug-012',
+          groupId: 'g-from-server',
           source: 'Url',
           status: 'Done',
           progress: 100,
@@ -254,6 +292,81 @@ describe('<ImportProgressPage />', () => {
           error: null,
           createdAt: '2026-04-18T00:00:00Z',
           completedAt: '2026-04-18T00:00:05Z',
+          phase: 'done',
+          phaseProgress: 100,
+          progressLabel: 'Fertig',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-18T00:00:05Z',
+        }),
+      ),
+    )
+
+    renderProgress({ importId: 'imp-bug-012' })
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/groups/g-from-server/recipes/new?importId=imp-bug-012',
+      ),
+    )
+    // The DoneWithoutGroupPanel fallback must NOT render anymore — the
+    // server's groupId resolved the fragile-state edge case.
+    expect(screen.queryByTestId('import-done-no-group')).toBeNull()
+  })
+
+  // PV4 rare edge case: even the server's groupId is missing / empty
+  // (data corruption — the normal path now always returns a valid
+  // groupId on the wire, so this branch is only reachable if the row
+  // itself somehow lost its group scoping). Previously this edge case
+  // fired on every reload (BUG-012); after PV4 it only fires when the
+  // wire groupId is blank. Kept as defensive fallback so a broken
+  // backend still guides the user instead of stranding them on a
+  // spinning loader.
+  it('shows a group-picker CTA when status=done AND wire groupId is missing (rare)', async () => {
+    forgetImportGroup('imp-orphan')
+
+    server.use(
+      http.get('/api/imports/imp-orphan', () =>
+        HttpResponse.json({
+          id: 'imp-orphan',
+          // Empty string mimics the data-corruption case — the server
+          // serialised a blank groupId for this import row.
+          groupId: '',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com',
+          result: JSON.stringify({
+            recipe: {
+              title: 'T',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [],
+              steps: [],
+              tags: [],
+              source_url: 'https://example.com',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:00:05Z',
+          phase: 'done',
+          phaseProgress: 100,
+          progressLabel: 'Fertig',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-18T00:00:05Z',
         }),
       ),
     )
@@ -275,6 +388,7 @@ describe('<ImportProgressPage />', () => {
       http.get('/api/imports/imp-err', () =>
         HttpResponse.json({
           id: 'imp-err',
+          groupId: 'g1',
           source: 'Url',
           status: 'Error',
           progress: 35,
@@ -283,6 +397,15 @@ describe('<ImportProgressPage />', () => {
           error: 'Video ist privat oder nicht verfügbar.',
           createdAt: '2026-04-18T00:00:00Z',
           completedAt: '2026-04-18T00:00:05Z',
+          phase: 'error',
+          phaseProgress: 0,
+          progressLabel: 'Fehler',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-18T00:00:05Z',
         }),
       ),
     )
@@ -299,10 +422,14 @@ describe('<ImportProgressPage />', () => {
   })
 
   it('falls back to /groups when status=error and no groupId is known', async () => {
+    // PV4 data-corruption scenario: wire groupId is empty + location
+    // state is absent + sessionStorage memo is missing — the Manuell-
+    // anlegen CTA degrades to /groups (the pre-PV4 fallback path).
     server.use(
       http.get('/api/imports/imp-err', () =>
         HttpResponse.json({
           id: 'imp-err',
+          groupId: '',
           source: 'Url',
           status: 'Error',
           progress: 10,
@@ -311,6 +438,15 @@ describe('<ImportProgressPage />', () => {
           error: 'Import fehlgeschlagen.',
           createdAt: '2026-04-18T00:00:00Z',
           completedAt: '2026-04-18T00:00:05Z',
+          phase: 'error',
+          phaseProgress: 0,
+          progressLabel: 'Fehler',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-18T00:00:05Z',
         }),
       ),
     )
@@ -344,6 +480,7 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
       http.get('/api/imports/imp-phase', () =>
         HttpResponse.json({
           id: 'imp-phase',
+          groupId: 'g1',
           source: 'Url',
           status: 'Running',
           progress: 45,
@@ -352,6 +489,18 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
           error: null,
           createdAt: '2026-04-19T12:00:00Z',
           completedAt: null,
+          // PV4 — MSW poll response now carries the same phase snapshot
+          // the pre-seeded cache has so the settled fetch doesn't drift
+          // the UI back to "queued" when it replaces the cache entry.
+          phase: 'transcribing',
+          phaseProgress: 42,
+          progressLabel: 'Audio wird transkribiert',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: 5,
+          segmentsTotal: 20,
+          lastProgressAt: '2026-04-19T12:00:00Z',
         }),
       ),
     )
@@ -362,6 +511,7 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
     })
     client.setQueryData(importQueryKeys.status('imp-phase'), {
       id: 'imp-phase',
+      groupId: 'g1',
       source: 'url',
       status: 'running',
       progress: 45,
@@ -384,9 +534,10 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
       await screen.findByTestId('phase-step-transcribing'),
     ).toHaveAttribute('data-state', 'current')
     expect(screen.getByTestId('phase-detail-transcribing')).toBeInTheDocument()
-    expect(screen.getByText(/audio wird transkribiert/i)).toBeInTheDocument()
-    // Overall progress uses the server label.
-    expect(screen.getByText(/audio wird transkribiert/i)).toBeInTheDocument()
+    // Server label surfaces on both the OverallProgressBar and the
+    // PhaseDetailCard, so we assert presence on any of them.
+    const labelMatches = screen.getAllByText(/audio wird transkribiert/i)
+    expect(labelMatches.length).toBeGreaterThan(0)
   })
 
   it('shows the RetryIndicator only when attemptNumber > 1', async () => {
@@ -396,6 +547,7 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
     })
     client.setQueryData(importQueryKeys.status('imp-phase'), {
       id: 'imp-phase',
+      groupId: 'g1',
       source: 'url',
       status: 'running',
       progress: 20,
@@ -421,6 +573,7 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
     })
     client.setQueryData(importQueryKeys.status('imp-phase'), {
       id: 'imp-phase',
+      groupId: 'g1',
       source: 'url',
       status: 'running',
       progress: 20,
@@ -448,6 +601,7 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
     const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString()
     client.setQueryData(importQueryKeys.status('imp-phase'), {
       id: 'imp-phase',
+      groupId: 'g1',
       source: 'url',
       status: 'running',
       progress: 50,
@@ -470,6 +624,7 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
       http.get('/api/imports/imp-phase', () =>
         HttpResponse.json({
           id: 'imp-phase',
+          groupId: 'g1',
           source: 'Url',
           status: 'Done',
           progress: 100,
@@ -493,6 +648,15 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
           error: null,
           createdAt: '2026-04-19T12:00:00Z',
           completedAt: '2026-04-19T12:00:05Z',
+          phase: 'done',
+          phaseProgress: 100,
+          progressLabel: 'Fertig',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-19T12:00:05Z',
         }),
       ),
     )
@@ -517,6 +681,7 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
       http.get('/api/imports/imp-phase', () =>
         HttpResponse.json({
           id: 'imp-phase',
+          groupId: 'g1',
           source: 'Url',
           status: 'Error',
           progress: 20,
@@ -525,6 +690,15 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
           error: 'Extractor crashed',
           createdAt: '2026-04-19T12:00:00Z',
           completedAt: '2026-04-19T12:00:05Z',
+          phase: 'error',
+          phaseProgress: 0,
+          progressLabel: 'Fehler',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-19T12:00:05Z',
         }),
       ),
     )
