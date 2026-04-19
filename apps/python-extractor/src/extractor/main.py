@@ -20,6 +20,7 @@ transcriber) without touching real Azure / real yt-dlp / real Whisper.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError
@@ -27,7 +28,7 @@ from importlib.metadata import version as pkg_version
 from typing import Annotated, Final, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Response
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from extractor.config import Settings
 from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, TokenUsage, build_provider
@@ -60,7 +61,35 @@ _HEADER_COMPLETION_TOKENS: Final[str] = "X-Extractor-Completion-Tokens"
 _HEADER_CACHED_TOKENS: Final[str] = "X-Extractor-Cached-Tokens"
 _HEADER_MODEL: Final[str] = "X-Extractor-Model"
 
+# PV2 SSRF guard: only allow progress callbacks at the .NET API's
+# docker-internal hostname (``api`` in docker-compose). Operators can
+# override via the ``PROGRESS_CALLBACK_HOST`` env var — useful in local
+# dev against a host-run .NET, or in prod where the service name
+# differs. The check is cheap host-string comparison at request-parse
+# time (pydantic validator on every request), backstopped by the
+# runtime DNS-resolved SSRF check in ``progress._post``. See fix 1 in
+# ``docs/plans/2026-04-19-video-import-progress-design.md``.
+_PROGRESS_CALLBACK_HOST_DEFAULT: Final[str] = "api"
+
+# UUID v4-ish pattern — pydantic rejects anything else at request
+# parse so a malformed ``import_id`` can't slip through into logs or
+# downstream HTTP callbacks where it could be interpreted as a path
+# injection vector. Loose on case (accepts upper + lower).
+UUID_PATTERN: Final[str] = (
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _callback_host_allowlist() -> str:
+    """Resolve the per-request allowlist host from env.
+
+    Read at validator time (not import time) so tests + integration
+    runs can flip the env var between requests without recreating the
+    app. Defaults to ``"api"`` (the docker-compose service name).
+    """
+    return os.environ.get("PROGRESS_CALLBACK_HOST", _PROGRESS_CALLBACK_HOST_DEFAULT).lower()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -95,18 +124,30 @@ class ExtractHint(BaseModel):
     user_id: str = Field(min_length=1, max_length=200)
 
 
-class ExtractUrlRequest(BaseModel):
-    """Body of ``POST /extract/url``.
+class ProgressCallbackFields(BaseModel):
+    """Mixin carrying the four PV2 progress-callback fields.
 
-    PV2 (video-import progress tracking) adds four optional fields so
-    the .NET orchestrator can subscribe to progress callbacks. They
-    default to ``None`` / ``1`` so existing callers (tests, local
-    direct-Python usage) stay backward-compatible — a missing
-    ``callback_url`` means the pipeline runs with a no-op reporter.
+    Both :class:`ExtractUrlRequest` and :class:`ExtractPhotosRequest`
+    inherit this so the four fields stay in lockstep (shape,
+    validation, docstrings). Extracting them fixes the earlier drift
+    where only the URL request had field-level ``description`` strings
+    and the photo request didn't.
+
+    Validation contract:
+
+    - ``callback_url`` host MUST match
+      ``PROGRESS_CALLBACK_HOST`` (env override) or the ``"api"``
+      default — an SSRF guard at request-parse time that refuses any
+      attempt to point the callback at an attacker-chosen host
+      (metadata endpoints, internal services, attacker-controlled
+      public hosts). The runtime ``_post`` has a second DNS-resolved
+      SSRF check as defence-in-depth.
+    - ``import_id`` MUST match :data:`UUID_PATTERN` when set —
+      forbids any other shape so malformed IDs can't slip into logs
+      or path-concat'd callback URLs.
+    - ``attempt`` is bounded 1..3 to match the .NET retry ceiling.
     """
 
-    url: HttpUrl = Field(description="Source URL — video host or blog URL.")
-    hint: ExtractHint
     callback_url: HttpUrl | None = Field(
         default=None,
         description=(
@@ -124,6 +165,7 @@ class ExtractUrlRequest(BaseModel):
     )
     import_id: str | None = Field(
         default=None,
+        pattern=UUID_PATTERN,
         description="UUID string of the originating RecipeImport — logged only.",
     )
     attempt: int = Field(
@@ -133,8 +175,46 @@ class ExtractUrlRequest(BaseModel):
         description="Retry attempt number (1..3). Stamped on every callback.",
     )
 
+    @field_validator("callback_url")
+    @classmethod
+    def _validate_callback_host(cls, v: HttpUrl | None) -> HttpUrl | None:
+        """Reject any host that isn't in the allowlist.
 
-class ExtractPhotosRequest(BaseModel):
+        Primary SSRF defence for the progress-callback flow — early
+        reject at request parse returns HTTP 422 before the pipeline
+        ever constructs a reporter. Without this, an attacker with a
+        valid HMAC signature could set ``callback_url`` to
+        ``http://169.254.169.254/...`` (AWS metadata) or
+        ``http://attacker.evil/`` and receive the per-import bearer
+        token on every callback.
+        """
+        if v is None:
+            return v
+        host = (v.host or "").lower()
+        allowed = _callback_host_allowlist()
+        if host != allowed:
+            # Phrase the error generically — the caller already knows
+            # the host they sent, and leaking the allowlist via the
+            # 422 body helps an attacker tune their next probe.
+            raise ValueError("callback_url host not in allowlist")
+        return v
+
+
+class ExtractUrlRequest(ProgressCallbackFields):
+    """Body of ``POST /extract/url``.
+
+    PV2 (video-import progress tracking) inherits the four optional
+    progress-callback fields from :class:`ProgressCallbackFields`.
+    They default to ``None`` / ``1`` so existing callers (tests, local
+    direct-Python usage) stay backward-compatible — a missing
+    ``callback_url`` means the pipeline runs with a no-op reporter.
+    """
+
+    url: HttpUrl = Field(description="Source URL — video host or blog URL.")
+    hint: ExtractHint
+
+
+class ExtractPhotosRequest(ProgressCallbackFields):
     """Body of ``POST /extract/photos`` (P2-3).
 
     ``photo_urls`` arrives as a list of ``HttpUrl`` so pydantic rejects
@@ -144,10 +224,10 @@ class ExtractPhotosRequest(BaseModel):
     message ("Maximal 10 Fotos pro Import.") is what the frontend
     wants to render verbatim, not a generic pydantic ValidationError.
 
-    PV2: same four progress-callback fields as
-    :class:`ExtractUrlRequest` — see that docstring for the contract.
-    ``extra="forbid"`` stays intact; the new fields are part of the
-    schema so callers sending them succeed while unknown keys still fail.
+    PV2: inherits the four progress-callback fields from
+    :class:`ProgressCallbackFields`. ``extra="forbid"`` stays intact;
+    the inherited fields are part of the schema so callers sending
+    them succeed while unknown keys still fail.
     """
 
     photo_urls: list[HttpUrl] = Field(
@@ -157,10 +237,6 @@ class ExtractPhotosRequest(BaseModel):
         ),
     )
     hint: ExtractHint
-    callback_url: HttpUrl | None = Field(default=None)
-    callback_token: str | None = Field(default=None)
-    import_id: str | None = Field(default=None)
-    attempt: int = Field(default=1, ge=1, le=3)
 
     model_config = {"extra": "forbid"}
 
@@ -452,17 +528,23 @@ def create_app() -> FastAPI:
             attempt=request.attempt,
         )
         try:
-            result = await extract_from_url(
-                str(request.url),
-                provider=provider,
-                downloader=downloader,
-                transcriber=transcriber,
-                reporter=reporter,
-            )
-        except LLMProviderError as exc:
-            raise _http_from_llm_error(exc) from exc
-        except ExtractionError as exc:
-            raise _http_from_extraction_error(exc) from exc
+            try:
+                result = await extract_from_url(
+                    str(request.url),
+                    provider=provider,
+                    downloader=downloader,
+                    transcriber=transcriber,
+                    reporter=reporter,
+                )
+            except LLMProviderError as exc:
+                raise _http_from_llm_error(exc) from exc
+            except ExtractionError as exc:
+                raise _http_from_extraction_error(exc) from exc
+        finally:
+            # Reporter owns an httpx.AsyncClient for this request
+            # lifetime — close it here so the pool + TLS state is
+            # released deterministically regardless of success/failure.
+            await reporter.aclose()
         usage = result.get("usage")
         if usage is not None:
             _apply_usage_headers(response, usage)
@@ -507,11 +589,15 @@ def create_app() -> FastAPI:
             attempt=request.attempt,
         )
         try:
-            result = await extract_from_photos(urls, provider=provider, reporter=reporter)
-        except ExtractionError as exc:
-            raise _http_from_extraction_error(exc) from exc
-        except LLMProviderError as exc:
-            raise _http_from_llm_error(exc) from exc
+            try:
+                result = await extract_from_photos(urls, provider=provider, reporter=reporter)
+            except ExtractionError as exc:
+                raise _http_from_extraction_error(exc) from exc
+            except LLMProviderError as exc:
+                raise _http_from_llm_error(exc) from exc
+        finally:
+            # Deterministic teardown of the reporter's httpx client.
+            await reporter.aclose()
         usage = result.get("usage")
         if usage is not None:
             _apply_usage_headers(response, usage)

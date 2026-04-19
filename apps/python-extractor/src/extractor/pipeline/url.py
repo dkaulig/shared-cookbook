@@ -51,6 +51,7 @@ context manager so the mp4 is always cleaned up, even on failure.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import ipaddress
 import json
 import logging
@@ -59,7 +60,7 @@ import socket
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
@@ -91,6 +92,25 @@ from extractor.prompts.recipe_extraction import (
 logger = logging.getLogger("extractor.pipeline.url")
 
 URLClass = Literal["video", "blog"]
+
+_HookKind = Literal["bytes", "segments"]
+"""Discriminator for :func:`_make_progress_hook`.
+
+``bytes`` → the hook wraps ``(done, total)`` into the
+``bytes_done``/``bytes_total`` fields of a ``downloading``
+:class:`ProgressEvent`. ``segments`` → the same pair flows into
+``segments_done``/``segments_total`` on a ``transcribing`` event.
+Collapsing the two hook factories into one parameterised builder
+removed ~30 lines of duplicated wiring with zero behavioural drift.
+"""
+
+# Cap the reporter's retained-task list so a callback outage (or any
+# scenario where ``reporter.report`` coroutines never drain) cannot
+# accumulate unbounded memory. 20 is well above the typical
+# burst (~5 phase-starts + ~20 throttle-limited ticks per import) but
+# bounded enough that a pathologically slow .NET side is noticed via
+# log drops rather than OOM.
+_MAX_PENDING_TASKS: Final[int] = 20
 
 _VIDEO_HOSTS: frozenset[str] = frozenset(
     {
@@ -400,10 +420,24 @@ async def _run_video_path(
     # caller didn't pre-supply a transcriber.
     active_transcriber = transcriber or _FasterWhisperTranscriber()
 
+    # Capture the running loop at hook-factory time — we are on the
+    # main async loop here, before yt-dlp / Whisper hand work off to a
+    # thread. The hook closures need this reference so
+    # ``asyncio.run_coroutine_threadsafe`` can submit the coroutine
+    # back from the worker thread. The earlier code re-discovered the
+    # loop inside the closure via ``asyncio.get_event_loop_policy``
+    # which is deprecated since 3.12 and fragile across test teardown.
+    loop = asyncio.get_running_loop()
+
     with tempfile.TemporaryDirectory(prefix="extractor-video-") as tmp:
         workdir = Path(tmp)
         await reporter.report(ProgressEvent(phase="downloading", phase_progress=0))
-        download_hook = _make_download_progress_hook(reporter)
+        download_hook = _make_progress_hook(
+            reporter,
+            phase="downloading",
+            kind="bytes",
+            loop=loop,
+        )
         assets = await active_downloader.download(
             url=url, workdir=workdir, on_progress=download_hook
         )
@@ -414,7 +448,12 @@ async def _run_video_path(
         )
 
         await reporter.report(ProgressEvent(phase="transcribing", phase_progress=0))
-        transcribe_hook = _make_transcribe_progress_hook(reporter)
+        transcribe_hook = _make_progress_hook(
+            reporter,
+            phase="transcribing",
+            kind="segments",
+            loop=loop,
+        )
         transcript = await active_transcriber.transcribe(
             assets.mp4_path, on_segment=transcribe_hook
         )
@@ -422,105 +461,112 @@ async def _run_video_path(
         return (transcript or None, assets.description or None, assets.thumbnail_url)
 
 
-def _make_download_progress_hook(
+def _make_progress_hook(
     reporter: ProgressReporter,
+    *,
+    phase: str,
+    kind: _HookKind,
+    loop: asyncio.AbstractEventLoop,
 ) -> Callable[[int, int], None]:
     """Build a sync ``(done, total)`` hook that schedules async reports.
 
-    yt-dlp calls progress hooks from a worker thread; we bridge back
-    to the event loop via :func:`asyncio.run_coroutine_threadsafe`.
-    A missing / closed loop (test teardown, main thread context)
-    falls back to a best-effort no-op — the reporter is
-    fire-and-forget by design, so a dropped intra-phase event is
-    acceptable.
+    yt-dlp + faster-whisper call progress hooks from a worker thread;
+    we bridge back to the event loop via
+    :func:`asyncio.run_coroutine_threadsafe`. The ``loop`` argument is
+    captured at hook-factory time on the main async task (before the
+    heavy lifting starts), so the closure doesn't have to re-discover
+    it on every tick.
+
+    ``kind="bytes"`` maps ``(done, total)`` to
+    ``bytes_done``/``bytes_total``; ``kind="segments"`` maps the same
+    pair to ``segments_done``/``segments_total``. The rest of the
+    wiring is identical for both phases — collapsing the previous two
+    hook factories into one builder keeps the surface small.
     """
 
     def _hook(done: int, total: int) -> None:
         phase_progress = _safe_percent(done, total)
-        bytes_done = done if done > 0 else None
-        bytes_total = total if total > 0 else None
-        event = ProgressEvent(
-            phase="downloading",
-            phase_progress=phase_progress,
-            bytes_done=bytes_done,
-            bytes_total=bytes_total,
-        )
-        _schedule_report(reporter, event)
+        value = done if done > 0 else None
+        total_value = total if total > 0 else None
+        if kind == "bytes":
+            event = ProgressEvent(
+                phase=phase,
+                phase_progress=phase_progress,
+                bytes_done=value,
+                bytes_total=total_value,
+            )
+        else:
+            event = ProgressEvent(
+                phase=phase,
+                phase_progress=phase_progress,
+                segments_done=value,
+                segments_total=total_value,
+            )
+        _schedule_report(reporter, event, loop)
 
     return _hook
 
 
-def _make_transcribe_progress_hook(
+def _schedule_report(
     reporter: ProgressReporter,
-) -> Callable[[int, int], None]:
-    """Build a sync ``(done, total)`` hook for faster-whisper segments.
-
-    Same thread-bridging strategy as the download hook.
-    """
-
-    def _hook(done: int, total: int) -> None:
-        phase_progress = _safe_percent(done, total)
-        segments_done = done if done > 0 else None
-        segments_total = total if total > 0 else None
-        event = ProgressEvent(
-            phase="transcribing",
-            phase_progress=phase_progress,
-            segments_done=segments_done,
-            segments_total=segments_total,
-        )
-        _schedule_report(reporter, event)
-
-    return _hook
-
-
-def _schedule_report(reporter: ProgressReporter, event: ProgressEvent) -> None:
+    event: ProgressEvent,
+    loop: asyncio.AbstractEventLoop,
+) -> None:
     """Fire-and-forget scheduler for a :meth:`ProgressReporter.report` call.
 
-    The caller is a sync closure that may be invoked either from the
-    same thread as the asyncio loop (tests / stub-driven pipelines) or
-    from a worker thread (real yt-dlp / Whisper — they hand work to a
-    ``to_thread`` executor and call hooks from that thread).
-
-    - Same-thread + running loop → ``asyncio.ensure_future`` queues
-      the coroutine so it runs when control yields back to the loop.
-    - Worker-thread context → ``asyncio.run_coroutine_threadsafe``
-      submits the coroutine to the captured loop.
-    - No loop available → silently drop. Reporters are best-effort.
+    The caller is a sync closure invoked from a worker thread (yt-dlp
+    / faster-whisper hand work off to a ``to_thread`` executor and
+    call hooks from that thread, or from the same event-loop thread
+    in the stub-driven tests). In both cases we submit via
+    :func:`asyncio.run_coroutine_threadsafe` against the loop that
+    was captured at hook-factory time — it is thread-safe on both
+    same-thread and worker-thread callers and avoids re-discovering
+    the loop via the deprecated ``get_event_loop_policy`` fallback.
     """
     try:
-        loop = asyncio.get_running_loop()
-        same_thread = True
+        future = asyncio.run_coroutine_threadsafe(reporter.report(event), loop)
     except RuntimeError:
-        # No loop running on this thread — fall back to discovering
-        # the module-level loop (set by the async caller) via
-        # ``get_event_loop`` without starting a new one.
-        try:
-            loop = asyncio.get_event_loop_policy().get_event_loop()
-        except RuntimeError:
-            return
-        same_thread = False
-
-    if same_thread:
-        # Schedule for the next loop tick. The test / pipeline awaits
-        # back into the loop after this call, which drains the task.
-        task = loop.create_task(reporter.report(event))
-        # Keep a strong reference so the task isn't GC'd mid-flight;
-        # we store it on the reporter for introspection in tests.
-        _retain_task(reporter, task)
-    else:
-        asyncio.run_coroutine_threadsafe(reporter.report(event), loop)
+        # Loop has closed (test teardown) — reporter is fire-and-forget
+        # by design, so dropping the tick is the documented safe
+        # behaviour.
+        return
+    _retain_task(reporter, future)
 
 
-def _retain_task(reporter: ProgressReporter, task: asyncio.Task[None]) -> None:
-    """Stash ``task`` on the reporter to prevent GC before it runs.
+def _retain_task(
+    reporter: ProgressReporter,
+    future: concurrent.futures.Future[None],
+) -> None:
+    """Stash ``future`` on the reporter to prevent GC before it runs.
 
     asyncio only keeps weak refs to tasks; without a strong reference
     a fire-and-forget task can be collected before it even executes.
+
+    The list is capped at :data:`_MAX_PENDING_TASKS` — once full, new
+    entries are dropped rather than appended. That prevents unbounded
+    growth if the .NET callback endpoint is wedged for the full
+    duration of a long import (unlikely but possible during a deploy
+    restart). Dropping the *new* (rather than the *oldest*) entry
+    matches the fire-and-forget contract: losing a mid-stream tick
+    degrades UX gracefully, while silently dropping the already
+    in-flight tick that was about to complete wastes the round-trip
+    the transport already paid for.
     """
-    pending: list[asyncio.Task[None]] = getattr(reporter, "_pending_tasks", [])
-    pending.append(task)
-    # Drop completed tasks to keep the list bounded on long runs.
+    pending: list[Any] = getattr(reporter, "_pending_tasks", [])
+    # Drop completed entries first so transient bursts don't trigger
+    # the cap prematurely.
     pending[:] = [t for t in pending if not t.done()]
+    if len(pending) >= _MAX_PENDING_TASKS:
+        # Cap hit — drop this tick. Logged at DEBUG because the
+        # pipeline's happy path doesn't ever hit it; production
+        # investigation would flip the logger to DEBUG to confirm
+        # backpressure.
+        logger.debug(
+            "progress reporter pending cap reached (%d) — dropping tick",
+            _MAX_PENDING_TASKS,
+        )
+        return
+    pending.append(future)
     # Annotated setattr — the attribute is module-private by convention.
     reporter._pending_tasks = pending  # type: ignore[attr-defined]  # reporter-internal cache
 

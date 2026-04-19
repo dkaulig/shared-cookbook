@@ -333,3 +333,42 @@ def test_post_extract_photos_uses_dependency_override_for_provider() -> None:
         },
     )
     assert provider.calls == 1
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PV2 security — SSRF allowlist + UUID pattern on callback fields
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_post_extract_photos_rejects_metadata_callback_url() -> None:
+    """Attacker with valid HMAC can't point the callback at AWS/GCP
+    metadata — the pydantic allowlist blocks it at request parse."""
+    provider = _VisionAnyCallProvider()
+    client = _build_client(provider)
+    response = client.post(
+        "/extract/photos",
+        json={
+            "photo_urls": ["https://example.com/a.jpg"],
+            "hint": {"group_id": "g", "user_id": "u"},
+            "callback_url": "http://169.254.169.254/latest/meta-data/",
+            "callback_token": "tok",
+            "import_id": "11111111-2222-3333-4444-555555555555",
+        },
+    )
+    assert response.status_code == 422
+    assert provider.calls == 0  # pipeline never ran
+
+
+def test_post_extract_photos_rejects_malformed_import_id() -> None:
+    """Non-UUID ``import_id`` rejected at parse."""
+    provider = _VisionAnyCallProvider()
+    client = _build_client(provider)
+    response = client.post(
+        "/extract/photos",
+        json={
+            "photo_urls": ["https://example.com/a.jpg"],
+            "hint": {"group_id": "g", "user_id": "u"},
+            "import_id": "definitely-not-a-uuid",
+        },
+    )
+    assert response.status_code == 422

@@ -107,7 +107,18 @@ async def extract_from_photos(
         json_schema=PHOTO_RECIPE_SCHEMA,
     )
     logger.info("extract_from_photos llm_done keys=%d", len(llm_output))
-    await active_reporter.report(ProgressEvent(phase="vision_analysis", phase_progress=95))
+    # The 95% tick is the canonical end-of-phase signal for
+    # ``vision_analysis`` — it lands right before the phase
+    # transition. Without ``force=True`` the reporter's 500 ms
+    # throttle would drop this event when the Vision call returned
+    # faster than the throttle window (measured in every test run),
+    # leaving the UI stalled at the 0% boundary. ``force`` bypasses
+    # the throttle specifically for these "final tick before
+    # transition" events.
+    await active_reporter.report(
+        ProgressEvent(phase="vision_analysis", phase_progress=95),
+        force=True,
+    )
 
     # ``original_url`` pins the response's ``source_url`` — the
     # Vision-LLM's fabricated URL is discarded.
