@@ -100,8 +100,7 @@ def _split_scripted_entry(
         return payload, _as_token_usage(usage)
     if not isinstance(entry, expected_payload_type):
         raise LLMProviderError(
-            f"MockLLMProvider: scripted {context} reply must be a "
-            f"{expected_payload_type.__name__}",
+            f"MockLLMProvider: scripted {context} reply must be a {expected_payload_type.__name__}",
             code="not_configured",
         )
     # Fresh copy of the default so test assertions over `is` still
