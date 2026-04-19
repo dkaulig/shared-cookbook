@@ -213,6 +213,40 @@ Query-Param nach. Drei Ops-Konsequenzen:
 
 ---
 
+## 7.1 Deploy-Recovery — Container crash-loop nach Deploy
+
+Wenn nach einem Deploy ein Container (typischerweise `api`) crash-loopt
+mit `SIGSEGV` / exit 139 und die Logs DNS-Fehler wie `SocketException
+(11): Resource temporarily unavailable` auf Container-Hostnamen
+(`postgres`, `python-extractor`) zeigen:
+
+**Ursache**: Der Compose-File (meist `networks`-Block / IPAM-Subnet) hat
+sich geändert, aber `docker compose up -d` hat das embedded-DNS
+(127.0.0.11) nicht refreshed — die Container laufen im neuen Subnet,
+können sich gegenseitig aber nicht mehr per Name auflösen.
+
+Seit v0.4.3 macht `deploy.yml` automatisch ein `compose down` wenn der
+SHA-256-Hash von `docker-compose.prod.yml` sich gegenüber dem letzten
+erfolgreichen Deploy ändert (`.last-compose-hash` auf dem VPS). Für
+Fälle wo das nicht greift (manuelles edit auf VPS, hash-file gelöscht,
+…):
+
+```bash
+ssh deploy@EXAMPLE_HOST
+cd /srv/familien-kochbuch
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Danach prüfen:
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+curl -fsS https://EXAMPLE_HOST/api/health
+```
+
+---
+
 ## 8. `/api/internal/*` Endpoints (PV1–PV4)
 
 Der Python-Extractor meldet Fortschritt per HTTP-Callback an die .NET-API
