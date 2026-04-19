@@ -193,6 +193,12 @@ export function RecipeFormPage({ mode }: Props) {
     // the import has already completed. If it somehow hasn't, we still
     // fall through to the 2 s default interval.
     enabled: importId.length > 0,
+    // BUG-017 — force a fresh fetch on mount so the form page never
+    // trusts a SignalR-polluted cache entry left behind by the
+    // `ImportProgressPage` auto-redirect. If the cache is up-to-date
+    // the refetch is cheap; if it's stale/partial we block on loading
+    // instead of committing empty useState values in the inner form.
+    refetchOnMount: 'always',
   })
 
   if (mode === 'edit' && recipeQuery.isLoading) {
@@ -224,6 +230,42 @@ export function RecipeFormPage({ mode }: Props) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-10 text-[hsl(var(--muted-foreground))]">
         Lade Import-Vorschau …
+      </main>
+    )
+  }
+
+  // BUG-017 race-guard: the cache may transiently have `status: 'done'`
+  // with `result: null` (e.g. SignalR merged a progress update before
+  // polling caught up; `ImportProgressPage` auto-redirected us here
+  // with that partial entry). Block Inner-render until the result is
+  // actually populated — otherwise `RecipeFormInner`'s useState
+  // initializers commit empty values permanently, and the subsequent
+  // rerender with populated prefill has no way to update them.
+  if (
+    importId &&
+    importQuery.data?.status === 'done' &&
+    !importQuery.data.result
+  ) {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-10 text-[hsl(var(--muted-foreground))]">
+        Lade Rezept-Daten …
+      </main>
+    )
+  }
+
+  // Explicit error state — the backend signalled the import failed,
+  // so there is no prefill to render. Surface the server message
+  // instead of falling through to an empty form.
+  if (importId && importQuery.data?.status === 'error') {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <p
+          role="alert"
+          className="rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
+        >
+          Import fehlgeschlagen:{' '}
+          {importQuery.data.errorMessage ?? 'Unbekannter Fehler'}
+        </p>
       </main>
     )
   }

@@ -8,7 +8,11 @@ import type { ReactNode } from 'react'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { RecipeFormPage } from './RecipeFormPage'
-import type { CreateRecipeRequest } from '@familien-kochbuch/shared'
+import type {
+  CreateRecipeRequest,
+  RecipeImportDto,
+} from '@familien-kochbuch/shared'
+import { importQueryKeys } from '@/features/imports/hooks'
 
 beforeEach(() => {
   useAuthStore.setState({
@@ -1886,5 +1890,143 @@ describe('RecipeFormPage (create)', () => {
     await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
     await waitFor(() => expect(captured).not.toBeNull())
     expect(captured!.stagedPhotoIds).toBeUndefined()
+  })
+
+  // ── BUG-017: race condition in prefill after auto-redirect ─────────
+  //
+  // `ImportProgressPage` auto-redirects to `/groups/:g/recipes/new?importId=…`
+  // once the status flips to `done`. In the wild, the TanStack Query cache
+  // that arrives with us can be in a transient partial state where
+  // `status === 'done'` but `result` is still `null` — e.g. a SignalR
+  // progress event merged the status bump before polling caught up and
+  // populated the full payload. Without a wrapper guard that waits for
+  // `result`, `RecipeFormInner` mounts with `prefill === undefined` and
+  // its `useState` initialisers commit empty values permanently.
+  //
+  // We seed the cache with `QueryClient.setQueryData` to reproduce each
+  // shape deterministically, bypassing MSW/polling timing.
+  describe('BUG-017 — seeded-cache race conditions on auto-redirect', () => {
+    function withSeededCache(
+      initialPath: string,
+      seed: RecipeImportDto,
+    ): ReactNode {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      client.setQueryData(importQueryKeys.status(seed.id), seed)
+      // Keep the GET mocked to never resolve — the point of these tests
+      // is the behaviour BEFORE the fresh refetch lands. The wrapper
+      // must decide purely off the seeded cache state.
+      server.use(
+        http.get(`/api/imports/${seed.id}`, () => new Promise(() => {})),
+      )
+      return (
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={[initialPath]}>
+            <Routes>
+              <Route
+                path="/groups/:groupId/recipes/new"
+                element={<RecipeFormPage mode="create" />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>
+      )
+    }
+
+    it('blocks Inner-render on "Lade Rezept-Daten …" when cache has status=done but result=null (SignalR-polluted cache)', async () => {
+      const seed: RecipeImportDto = {
+        id: 'imp-race-null',
+        groupId: 'g1',
+        source: 'url',
+        status: 'done',
+        progress: 100,
+        sourceUrl: 'https://example.com/r',
+        result: null,
+        errorMessage: null,
+        createdAt: '2026-04-19T12:00:00Z',
+        completedAt: '2026-04-19T12:00:05Z',
+      }
+      render(
+        withSeededCache('/groups/g1/recipes/new?importId=imp-race-null', seed),
+      )
+
+      // Wrapper must render the bridging loader, NOT the inner form.
+      expect(await screen.findByText(/Lade Rezept-Daten …/i)).toBeInTheDocument()
+      // Sanity-check: no title field committed with an empty value.
+      expect(screen.queryByLabelText(/^Titel$/i)).not.toBeInTheDocument()
+    })
+
+    it('renders the inner form with prefilled title when cache has a populated result', async () => {
+      const seed: RecipeImportDto = {
+        id: 'imp-race-ok',
+        groupId: 'g1',
+        source: 'url',
+        status: 'done',
+        progress: 100,
+        sourceUrl: 'https://example.com/ok',
+        result: {
+          recipe: {
+            title: 'Race-Winner Pizza',
+            description: null,
+            servings: null,
+            difficulty: null,
+            prep_minutes: null,
+            cook_minutes: null,
+            ingredients: [
+              {
+                name: 'Mehl',
+                quantity: '500',
+                unit: 'g',
+                note: null,
+                confidence: 'high',
+              },
+            ],
+            steps: [
+              { position: 1, content: 'Teig kneten.', confidence: 'high' },
+            ],
+            tags: [],
+            source_url: 'https://example.com/ok',
+            thumbnail_url: null,
+          },
+          confidence: { overall: 'high', notes: [] },
+        },
+        errorMessage: null,
+        createdAt: '2026-04-19T12:00:00Z',
+        completedAt: '2026-04-19T12:00:05Z',
+      }
+      render(
+        withSeededCache('/groups/g1/recipes/new?importId=imp-race-ok', seed),
+      )
+
+      // Inner form committed with prefill — title is populated on mount.
+      expect(
+        await screen.findByDisplayValue('Race-Winner Pizza'),
+      ).toBeInTheDocument()
+      expect(screen.getByLabelText(/Zutat 1 Name/i)).toHaveValue('Mehl')
+    })
+
+    it('renders the error banner with the server message when cache reports status=error', async () => {
+      const seed: RecipeImportDto = {
+        id: 'imp-race-err',
+        groupId: 'g1',
+        source: 'url',
+        status: 'error',
+        progress: 0,
+        sourceUrl: 'https://example.com/boom',
+        result: null,
+        errorMessage: 'boom',
+        createdAt: '2026-04-19T12:00:00Z',
+        completedAt: '2026-04-19T12:00:05Z',
+      }
+      render(
+        withSeededCache('/groups/g1/recipes/new?importId=imp-race-err', seed),
+      )
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(/Import fehlgeschlagen:\s*boom/i)
+      // No form must be rendered in the error branch.
+      expect(screen.queryByLabelText(/^Titel$/i)).not.toBeInTheDocument()
+    })
   })
 })
