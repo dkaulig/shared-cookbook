@@ -1048,6 +1048,11 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
         var target = await CreatePlanAsync(_client, groupId, CurrentMonday);
         var targetBefore = await FetchPlanAsync(_client, groupId, CurrentMonday);
         Assert.Equal(0, targetBefore.Version);
+        // Capture source.Version *before* the copy so we can assert
+        // symmetrically below: target bumps, source stays. Source has
+        // one AddSlot under its belt so its version is already ≥ 1.
+        var sourceBefore = await FetchPlanAsync(_client, groupId, PreviousMonday);
+        Assert.True(sourceBefore.Version >= 1);
 
         var res = await _client.PostAsync(
             $"/api/mealplans/{target.Id}/copy-from/{PreviousMonday:yyyy-MM-dd}", null);
@@ -1055,6 +1060,33 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
 
         var targetAfter = await FetchPlanAsync(_client, groupId, CurrentMonday);
         Assert.Equal(1, targetAfter.Version);
+        // Negative assert: source.Version must NOT change — copy is a
+        // read-only op on the source side. Guards against a future
+        // refactor accidentally bumping both plans' versions.
+        var sourceAfter = await FetchPlanAsync(_client, groupId, PreviousMonday);
+        Assert.Equal(sourceBefore.Version, sourceAfter.Version);
+    }
+
+    [Fact]
+    public async Task CopyFrom_Returns_409_When_Target_Already_Has_Slots()
+    {
+        var (userId, token) = await SignupAndLoginAsync("cfconflict@ex.com", "C");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var source = await CreatePlanAsync(_client, groupId, PreviousMonday);
+        await AddHappySlotAsync(source.Id, recipeId, PreviousMonday, MealSlot.Mittag, 2, null);
+        var target = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        // Seed one slot in the target so the empty-target guard trips.
+        await AddHappySlotAsync(target.Id, recipeId, CurrentMonday, MealSlot.Abend, 2, null);
+
+        var res = await _client.PostAsync(
+            $"/api/mealplans/{target.Id}/copy-from/{PreviousMonday:yyyy-MM-dd}", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<ErrorResponseDto>();
+        Assert.NotNull(body);
+        Assert.Equal("copy.target_not_empty", body!.Code);
     }
 
     // ── helpers ─────────────────────────────────────────────────────

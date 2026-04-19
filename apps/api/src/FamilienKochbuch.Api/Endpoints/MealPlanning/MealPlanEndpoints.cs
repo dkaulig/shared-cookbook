@@ -133,7 +133,16 @@ public static class MealPlanEndpoints
         plan.MapPatch("/slots/{slotId:guid}", PatchSlotAsync)
             .WithMetadata(new RequestSizeLimitAttribute(PatchSlotBodyLimitBytes));
         plan.MapDelete("/slots/{slotId:guid}", DeleteSlotAsync);
-        plan.MapPost("/copy-from/{sourceWeekStart}", CopyFromAsync);
+        // P3-9 security — per-user 10/min rate limit on copy-from. The
+        // endpoint walks every source slot + INSERTs a copy, so a rapid
+        // double-click (or two open tabs) is both expensive AND the worst
+        // foot-gun: server-side empty-target guard below catches the
+        // duplicate-copy race, but we also want to blunt click-loops /
+        // malicious replay. Reuses the existing Generate policy — same
+        // "materialise a big list of things" cost profile as shopping-
+        // list generate, so one shared bucket is fine.
+        plan.MapPost("/copy-from/{sourceWeekStart}", CopyFromAsync)
+            .RequireRateLimiting(RateLimitPolicies.Generate);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -656,6 +665,18 @@ public static class MealPlanEndpoints
 
         var (targetPlan, err) = await LoadPlanWithMembershipAsync(db, planId, userId, ct);
         if (err is not null) return err;
+
+        // P3-9 empty-target guard. A rapid double-click (or two open tabs)
+        // would otherwise fire two POSTs and end up with 2× slots, because
+        // the frontend's button-disabled check lags cache state. Enforcing
+        // "copy only into an empty plan" server-side is cheap and closes
+        // the race entirely — the UI still shows a warn-confirm() on the
+        // unlikely SignalR-repopulation path, but we no longer rely on it.
+        var existingSlotCount = await db.MealPlanSlots
+            .CountAsync(s => s.MealPlanId == planId, ct);
+        if (existingSlotCount > 0)
+            return FamilienResults.Conflict("copy.target_not_empty",
+                "Zielplan enthält bereits Slots — Kopieren nur in leeren Plan möglich.");
 
         var sourcePlan = await db.MealPlans
             .FirstOrDefaultAsync(p => p.GroupId == targetPlan!.GroupId && p.WeekStart == sourceWeek, ct);

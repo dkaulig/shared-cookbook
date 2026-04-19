@@ -241,15 +241,10 @@ export function MealPlanPage() {
           })
         },
         onError: (caught) => {
-          let message = 'Kopieren fehlgeschlagen.'
-          if (caught instanceof MealPlanApiError) {
-            if (caught.status === 404 || caught.code === 'source.not_found') {
-              message = `Kein Plan in KW ${prevWeekNumber} gefunden.`
-            } else if (caught.status === 403) {
-              message = 'Keine Berechtigung.'
-            }
-          }
-          setCopyBanner({ kind: 'error', message })
+          setCopyBanner({
+            kind: 'error',
+            message: copyErrorMessage(caught, prevWeekNumber),
+          })
         },
       },
     )
@@ -654,4 +649,27 @@ function EmptyPlanState({
       )}
     </div>
   )
+}
+
+/**
+ * Error copy for the "Letzte Woche kopieren" CTA. Mirrors the
+ * `generateErrorMessage` pattern in ShoppingListPage: narrow via
+ * `instanceof MealPlanApiError`, branch on status + code, fall
+ * through to the generic German message. Kept local to this file
+ * because the status→copy mapping is action-specific (the 404 here
+ * references the *source week number*, which no sibling page cares
+ * about). Promote to a shared helper once a second caller needs it.
+ */
+function copyErrorMessage(err: unknown, prevWeekNumber: number): string {
+  if (err instanceof MealPlanApiError) {
+    if (err.status === 404 || err.code === 'source.not_found') {
+      return `Kein Plan in KW ${prevWeekNumber} gefunden.`
+    }
+    if (err.status === 409 && err.code === 'copy.target_not_empty') {
+      return 'Zielplan enthält bereits Slots — Kopieren nur in leeren Plan möglich.'
+    }
+    if (err.status === 403) return 'Keine Berechtigung.'
+    if (err.status === 429) return 'Zu viele Anfragen — bitte kurz warten.'
+  }
+  return 'Kopieren fehlgeschlagen.'
 }
