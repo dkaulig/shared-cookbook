@@ -86,6 +86,12 @@ export interface ImportStatusResponseWire {
   segmentsDone: number | null
   segmentsTotal: number | null
   lastProgressAt: string
+  /**
+   * BUG-018 — surfaced by the URL extract job after it downloads the
+   * `recipe.thumbnail_url` and stages it via SeaweedFS. May be missing
+   * on older server builds — treat absent as null.
+   */
+  thumbnailStagedPhotoId?: string | null
 }
 
 function normaliseStatus(raw: string): ImportStatus {
@@ -158,6 +164,10 @@ export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportD
     segmentsDone: wire.segmentsDone,
     segmentsTotal: wire.segmentsTotal,
     lastProgressAt: wire.lastProgressAt,
+    // BUG-018 — pass through verbatim. `null` (or absent on old builds)
+    // means the URL job didn't auto-attach a thumbnail and the form
+    // should not seed a staged photo from this side.
+    thumbnailStagedPhotoId: wire.thumbnailStagedPhotoId ?? null,
   }
 }
 

@@ -37,6 +37,7 @@ import { useImportStatus } from '@/features/imports/hooks'
 import {
   extractedRecipeToPrefill,
   type ImportPrefill,
+  withImportEnvelope,
 } from '@/features/imports/importPrefill'
 import {
   forgetChatImport,
@@ -280,6 +281,12 @@ export function RecipeFormPage({ mode }: Props) {
   let chatImportSource: 'chat' | null = null
   if (mode === 'create' && importQuery.data?.result) {
     prefill = extractedRecipeToPrefill(importQuery.data.result.recipe)
+    // BUG-018 — overlay the import-DTO-level fields (only the auto-
+    // attached video-thumbnail staged-photo id today) the inner
+    // recipe shape can't see.
+    prefill = withImportEnvelope(prefill, {
+      thumbnailStagedPhotoId: importQuery.data.thumbnailStagedPhotoId ?? null,
+    })
   } else if (mode === 'create' && chatImportId) {
     const stashed = recallChatImport(chatImportId)
     if (stashed) {
@@ -294,10 +301,19 @@ export function RecipeFormPage({ mode }: Props) {
 
   // Read at the wrapper level so the inner form can seed its
   // initial state without the setState-in-effect dance.
-  const stagedPhotoIds: string[] =
-    mode === 'create' && importId && prefill?.isPhotoImport
+  //
+  // BUG-018 — additionally fold in the auto-attached video-thumbnail
+  // staged-photo id (URL-import path) so the create-recipe POST
+  // promotes it alongside any user-uploaded photos. Photo-import path
+  // doesn't carry a thumbnail (the user is the photo source).
+  const stagedPhotoIds: string[] = (() => {
+    if (mode !== 'create' || !importId) return []
+    const base = prefill?.isPhotoImport
       ? recallImportStagedPhotoIds(importId) ?? []
       : []
+    const thumbId = prefill?.thumbnailStagedPhotoId
+    return thumbId ? [...base, thumbId] : base
+  })()
 
   return (
     <RecipeFormInner

@@ -312,4 +312,27 @@ describe('importsApi — GET /api/imports/:id', () => {
     )
     expect(dto.status).toBe('error')
   })
+
+  // BUG-018 — round-trip the new `thumbnailStagedPhotoId` envelope field
+  // so the URL-import auto-attached video thumbnail makes it from the
+  // .NET wire all the way through to the prefill the form consumes.
+  it('passes thumbnailStagedPhotoId through the wire→DTO mapping', () => {
+    const dto = mapStatusResponse(
+      baseWire({
+        id: 'imp-thumb',
+        status: 'Done',
+        progress: 100,
+        thumbnailStagedPhotoId: 'staged-thumb-7',
+      }),
+    )
+    expect(dto.thumbnailStagedPhotoId).toBe('staged-thumb-7')
+  })
+
+  // BUG-018 — older server builds (pre-deploy of this fix) will omit
+  // the new field. The mapper must default it to null rather than
+  // letting `undefined` leak into the form prefill.
+  it('defaults thumbnailStagedPhotoId to null when the wire omits it', () => {
+    const dto = mapStatusResponse(baseWire({ id: 'imp-no-thumb' }))
+    expect(dto.thumbnailStagedPhotoId).toBeNull()
+  })
 })

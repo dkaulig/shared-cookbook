@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ExtractedRecipe } from '@familien-kochbuch/shared'
-import { extractedRecipeToPrefill } from './importPrefill'
+import { extractedRecipeToPrefill, withImportEnvelope } from './importPrefill'
 
 function recipe(over: Partial<ExtractedRecipe> = {}): ExtractedRecipe {
   return {
@@ -205,5 +205,39 @@ describe('extractedRecipeToPrefill', () => {
       carbsG: 38,
       fatG: 9,
     })
+  })
+
+  // ── BUG-018 — auto-attached video-thumbnail staged-photo id ─────
+
+  it('defaults thumbnailStagedPhotoId to null when no envelope is supplied', () => {
+    // The bare recipe shape has no envelope-level fields, so the inner
+    // converter never sets `thumbnailStagedPhotoId`. This is the
+    // common blog-import path where the thumbnail download is skipped.
+    const out = extractedRecipeToPrefill(recipe())
+    expect(out.thumbnailStagedPhotoId).toBeNull()
+  })
+
+  it('withImportEnvelope overlays a thumbnailStagedPhotoId onto the prefill', () => {
+    // The wrapper has the import-DTO envelope in scope; this is the
+    // seam the wrapper uses to push that field into the prefill the
+    // form renders.
+    const base = extractedRecipeToPrefill(recipe())
+    const out = withImportEnvelope(base, {
+      thumbnailStagedPhotoId: 'staged-thumb-1',
+    })
+    expect(out.thumbnailStagedPhotoId).toBe('staged-thumb-1')
+    // All other fields round-trip unchanged so the overlay can never
+    // accidentally clobber the recipe-shape conversion.
+    expect(out.title).toBe(base.title)
+    expect(out.ingredients).toBe(base.ingredients)
+  })
+
+  it('withImportEnvelope is a no-op when thumbnailStagedPhotoId is missing', () => {
+    // A blog import that never auto-attached a thumbnail must not see
+    // its prefill mutated. Pointer-equality guards against the wrapper
+    // accidentally reseating arrays when nothing changed.
+    const base = extractedRecipeToPrefill(recipe())
+    expect(withImportEnvelope(base, {})).toBe(base)
+    expect(withImportEnvelope(base, { thumbnailStagedPhotoId: null })).toBe(base)
   })
 })

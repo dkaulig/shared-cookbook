@@ -39,9 +39,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     private Guid _userId;
     private Guid _groupId;
     private StubHttpMessageHandler _handler = null!;
+    private StubHttpMessageHandler _thumbnailHandler = null!;
     private ExtractRecipeFromUrlJob _job = null!;
     private FakeTimeProvider _clock = null!;
     private ImportProgressTokenService _progressTokens = null!;
+    private FakePhotoStorage _photoStorage = null!;
 
     public async Task InitializeAsync()
     {
@@ -62,7 +64,13 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         _groupId = group.Id;
 
         _handler = new StubHttpMessageHandler();
+        _thumbnailHandler = new StubHttpMessageHandler();
         var factory = new StubHttpClientFactory(_handler, new Uri("http://python/"));
+        // BUG-018 — route the thumbnail-downloader's named client to a
+        // dedicated handler so the Python POST and the CDN GET stay
+        // request-isolated.
+        factory.RegisterNamedHandler(ThumbnailAttacher.HttpClientName, _thumbnailHandler);
+
         _clock = new FakeTimeProvider(new DateTimeOffset(2026, 4, 18, 12, 0, 0, TimeSpan.Zero));
         var extractorOpts = Options.Create(new ExtractorOptions { SharedSecret = "test-secret" });
         var signer = new ExtractorHmacSigner(extractorOpts, _clock);
@@ -70,7 +78,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var runner = new PythonExtractorRunner(
             _db, factory, signer, _progressTokens, new NullLiveSyncPublisher(), _clock,
             NullLogger<PythonExtractorRunner>.Instance);
-        _job = new ExtractRecipeFromUrlJob(_db, runner);
+        _photoStorage = new FakePhotoStorage();
+        var thumbnailAttacher = new ThumbnailAttacher(
+            _db, factory, _photoStorage, _clock,
+            NullLogger<ThumbnailAttacher>.Instance);
+        _job = new ExtractRecipeFromUrlJob(_db, runner, thumbnailAttacher);
     }
 
     public async Task DisposeAsync()
@@ -391,5 +403,199 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var token = doc.RootElement.GetProperty("callback_token").GetString();
         Assert.True(_progressTokens.TryVerify(
             token, import.Id, _clock.GetUtcNow(), out _));
+    }
+
+    // ── BUG-018: Auto-attach video thumbnail as staged recipe photo ──
+    //
+    // After the URL extraction completes successfully and the result
+    // carries a `recipe.thumbnail_url`, the job downloads that URL,
+    // uploads it to SeaweedFS, persists a StagedPhoto row, and links
+    // the staged-photo id to the import via
+    // ThumbnailStagedPhotoId. Failures of the thumbnail step never
+    // surface — the recipe creation must always succeed.
+
+    /// <summary>Result JSON the Python pipeline would emit, with a
+    /// known-allowed FB-CDN thumbnail URL.</summary>
+    private const string ResultWithFbcdnThumbnail = """
+        {
+          "recipe": {
+            "title": "Pizza",
+            "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"
+          },
+          "confidence": { "overall": "high", "notes": [] }
+        }
+        """;
+
+    private static byte[] FakePngBytes()
+    {
+        // Minimal PNG header — the attacher only checks the response
+        // content-type, not the bytes themselves, so any non-empty
+        // buffer round-trips through the fake storage.
+        return new byte[]
+        {
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        };
+    }
+
+    [Fact]
+    public async Task BUG018_Thumbnail_Downloaded_And_Linked_To_Import()
+    {
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
+        var bytes = FakePngBytes();
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, bytes, "image/png");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+
+        // StagedPhoto row was actually persisted with the same id, owned
+        // by the same user, with the upload's bytes mirrored into storage.
+        var staged = await _db.StagedPhotos.AsNoTracking()
+            .SingleAsync(s => s.Id == reloaded.ThumbnailStagedPhotoId);
+        Assert.Equal(_userId, staged.UserId);
+        Assert.Equal("image/png", staged.ContentType);
+        Assert.True(_photoStorage.Uploads.ContainsKey(staged.PhotoId));
+        Assert.Equal(bytes, _photoStorage.Uploads[staged.PhotoId].Content);
+
+        // Sanity — the thumbnail GET hit the CDN URL exactly once.
+        var thumbReq = Assert.Single(_thumbnailHandler.Requests);
+        Assert.Equal(HttpMethod.Get, thumbReq.Method);
+        Assert.Equal(
+            "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg",
+            thumbReq.Uri.ToString());
+    }
+
+    [Fact]
+    public async Task BUG018_Cdn_500_Leaves_Thumbnail_Null_But_Import_Succeeds()
+    {
+        // The CDN is misbehaving — graceful skip, recipe still ships.
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
+        _thumbnailHandler.QueueBytesResponse(
+            HttpStatusCode.InternalServerError, Array.Empty<byte>(), "text/plain");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        // No StagedPhoto row was created on the failure path.
+        Assert.Empty(await _db.StagedPhotos.AsNoTracking().ToListAsync());
+        // No blob landed in storage either.
+        Assert.Empty(_photoStorage.Uploads);
+    }
+
+    [Fact]
+    public async Task BUG018_Oversize_ContentLength_Skips_Download()
+    {
+        // Declared Content-Length above the 5 MB cap → bail before
+        // streaming, so the response body never reaches storage.
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
+        _thumbnailHandler.QueueBytesResponse(
+            HttpStatusCode.OK,
+            FakePngBytes(),
+            "image/png",
+            declaredContentLength: ThumbnailAttacher.MaxBytes + 1);
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(_photoStorage.Uploads);
+    }
+
+    [Fact]
+    public async Task BUG018_Non_Image_ContentType_Skips_Download()
+    {
+        // CDN handed back HTML (e.g. an error page redirect) instead of
+        // an image. Graceful skip, no row, no blob, recipe still done.
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
+        _thumbnailHandler.QueueBytesResponse(
+            HttpStatusCode.OK,
+            FakePngBytes(),
+            "text/html");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(_photoStorage.Uploads);
+    }
+
+    [Fact]
+    public async Task BUG018_Result_Without_Thumbnail_Url_Skips_Download_Entirely()
+    {
+        // No `thumbnail_url` in the structured result → no CDN GET, no
+        // storage write, ThumbnailStagedPhotoId stays null. This is the
+        // common blog-import path.
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(
+            HttpStatusCode.OK,
+            "{\"recipe\": {\"title\": \"Blog Pizza\"}, \"confidence\": {\"overall\": \"high\", \"notes\": []}}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(_thumbnailHandler.Requests);
+        Assert.Empty(_photoStorage.Uploads);
+    }
+
+    [Fact]
+    public async Task BUG018_Disallowed_Host_Rejects_Without_Network_Hit()
+    {
+        // SSRF guard: a thumbnail_url pointing at a host outside the
+        // CDN allowlist (e.g. an attacker plant pointing at an internal
+        // service) must be rejected *before* any HTTP call is made.
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(
+            HttpStatusCode.OK,
+            """
+            {
+              "recipe": {
+                "title": "Evil",
+                "thumbnail_url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+              },
+              "confidence": { "overall": "high", "notes": [] }
+            }
+            """);
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        // The thumbnail handler must not have been touched at all.
+        Assert.Empty(_thumbnailHandler.Requests);
+    }
+
+    [Theory]
+    [InlineData("https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg", true)]
+    [InlineData("https://i.ytimg.com/vi/abc/hqdefault.jpg", true)]
+    [InlineData("https://scontent.cdninstagram.com/v/foo.jpg", true)]
+    [InlineData("https://p16-sign-va.tiktokcdn.com/v/x.jpeg", true)]
+    [InlineData("http://internal/secret", false)]
+    [InlineData("https://evilfbcdn.net/x.jpg", false)] // no leading dot anchor
+    [InlineData("file:///etc/passwd", false)]
+    [InlineData("ftp://cdn/x", false)]
+    [InlineData("", false)]
+    public void BUG018_Host_Allowlist_Suffix_Match(string url, bool allowed)
+    {
+        Assert.Equal(allowed, ThumbnailAttacher.IsAllowedThumbnailHost(url, out _));
     }
 }

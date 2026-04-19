@@ -207,6 +207,19 @@ builder.Services.AddSingleton<ExtractorHmacSigner>();
 // /api/internal/imports/{id}/progress callback.
 builder.Services.AddSingleton<ImportProgressTokenService>();
 builder.Services.AddScoped<PythonExtractorRunner>();
+// BUG-018 — separate HttpClient for the post-extract video-thumbnail
+// download. Distinct from the Python extractor client so the SSRF /
+// timeout knobs stay independent: the thumbnail GET is a one-shot
+// against an external CDN and gets a tight per-request timeout
+// inside ThumbnailAttacher (5s) rather than the 150s Python budget.
+// Auto-redirects are disabled so a malicious CDN can't redirect us
+// off the host allowlist mid-flight.
+builder.Services.AddHttpClient(ThumbnailAttacher.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false,
+    });
+builder.Services.AddScoped<ThumbnailAttacher>();
 builder.Services.AddScoped<ExtractRecipeFromUrlJob>();
 builder.Services.AddScoped<ExtractRecipeFromPhotosJob>();
 // PF1 — hourly sweep job that reaps abandoned staged photos (>24h old,

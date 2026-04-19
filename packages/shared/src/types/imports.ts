@@ -213,4 +213,17 @@ export interface RecipeImportDto {
   bytesTotal?: number | null
   segmentsDone?: number | null
   segmentsTotal?: number | null
+  /**
+   * BUG-018 — id of the {@link StagedPhotoResponse.stagedPhotoId} the
+   * URL-import job auto-created from `recipe.thumbnail_url` (typically
+   * the yt-dlp video frame). `null` when the source had no thumbnail
+   * or the download failed gracefully (timeout, oversize, non-image
+   * content-type, host-allowlist reject).
+   *
+   * The web layer's `extractedRecipeToPrefill` uses this to seed the
+   * staged-photo list it forwards to `POST /api/recipes`, so the user
+   * gets the video thumbnail attached without the manual upload step.
+   * The persisted SeaweedFS copy outlives the FB-CDN URL expiry.
+   */
+  thumbnailStagedPhotoId?: string | null
 }
