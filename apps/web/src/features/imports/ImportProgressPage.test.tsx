@@ -6,7 +6,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import { ImportProgressPage, progressLabel } from './ImportProgressPage'
+import { ImportProgressPage } from './ImportProgressPage'
+import { progressLabel } from './progressLabel'
 import { rememberImportGroup, forgetImportGroup } from './importGroupMemo'
 
 function LocationProbe() {
