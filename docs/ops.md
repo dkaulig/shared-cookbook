@@ -80,7 +80,7 @@ Nützliche Ansichten: Jobs → Failed (stuck extractions), Recurring Jobs
 Compose-Limits in `docker-compose.prod.yml`:
 
 - `mem_limit: 8g`
-- `cpus: "8.0"`
+- `cpus: "6.0"`
 
 Whisper large-v3 residentem RAM-Footprint ~3 GB. Live beobachten:
 
@@ -92,7 +92,7 @@ Worauf achten:
 
 - **MEM % > 80 %** während Video-Transcription → normal (Whisper
   lädt Modell). Bleibt es nach Job-Ende hoch → Memory-Leak-Verdacht.
-- **CPU % nahe 800 %** (8 Kerne) → erwartet bei parallelen Whisper-Jobs.
+- **CPU % nahe 600 %** (6 Kerne) → erwartet bei parallelen Whisper-Jobs.
 - OOM-Kill würde im `docker compose ps` als `Exited (137)` auftauchen —
   dann mem_limit prüfen und ggf. WorkerCount (in API) temporär auf 1 reduzieren.
 
