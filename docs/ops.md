@@ -120,3 +120,38 @@ curl -fsS https://kochbuch.kaulig.dev/api/health
 ssh deploy@kochbuch.kaulig.dev \
   'cd /srv/familien-kochbuch && docker compose -f docker-compose.prod.yml up -d'
 ```
+
+---
+
+## 6. Smoke-Script gegen Prod ausführen
+
+`scripts/smoke-live.sh` fährt nach jedem Deploy den Happy Path über den
+seedenden Orchestrator-Bot (`orchestrator@kochbuch.kaulig.dev`,
+Rolle `User`) gegen die echte API. Acht Schritte:
+
+1. Health, 2. Login, 3. Gruppe anlegen, 4. Rezept anlegen,
+5. 5★ bewerten, 6. Rezept abrufen + `averageRating` prüfen,
+7. Cook-Marker setzen, 8. Cleanup (Rezept + Gruppe löschen).
+
+Bot-Passwort aus der lokal gecachten `.env` (siehe §2) ziehen und als
+`SMOKE_BOT_PASSWORD` exportieren — niemals hart im Skript oder in der
+Shell-History landen lassen:
+
+```bash
+SMOKE_BOT_PASSWORD="$(grep ^ORCHESTRATOR_PASSWORD= \
+    ~/.config/familien-kochbuch/.env.prod.tmp | cut -d= -f2-)" \
+  scripts/smoke-live.sh
+```
+
+Ausgabe: bei Erfolg `SMOKE PASSED (8/8)`, bei Fehler
+`SMOKE FAILED at step N: …`.
+
+Fehler deuten:
+
+- Step 1 → API / Caddy / TLS defekt (Caddy-Logs, `docker compose ps`)
+- Step 2 → Bot nicht geseedet (`ORCHESTRATOR_PASSWORD` fehlt in `.env`?)
+  oder Passwort falsch
+- Step 3–5 → App-Logik (Groups/Recipes/Ratings) — API-Logs prüfen
+- Step 6 → Aggregations-/Read-Pfad — Postgres-Verbindung?
+- Step 7 → Cook-Marker / Recipe-Update-Pfad
+- Step 8 → Soft-Delete — nur Warnung, schlägt den Run nicht fehl
