@@ -17,7 +17,10 @@ import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
 import { useEnqueuePhotoImport } from './hooks'
 import { uploadStagedPhoto } from './stagedPhotoApi'
-import { rememberImportGroup } from './importGroupMemo'
+import {
+  rememberImportGroup,
+  rememberImportStagedPhotoIds,
+} from './importGroupMemo'
 
 /**
  * P2-8 — `/rezepte/import/photos` entry form.
@@ -183,11 +186,16 @@ export function ImportPhotosPage() {
     setUploadPhase('uploading')
     setUploadedCount(0)
     const signedUrls: string[] = []
+    // PF1 — collect the stagedPhotoIds alongside the signed URLs so we
+    // can stash them in sessionStorage for the create-recipe step to
+    // adopt the originals onto the saved recipe.
+    const stagedPhotoIds: string[] = []
     try {
       // Sequential upload — see module docstring for rationale.
       for (const file of files) {
-        const { signedUrl } = await uploadStagedPhoto(file)
+        const { signedUrl, stagedPhotoId } = await uploadStagedPhoto(file)
         signedUrls.push(signedUrl)
+        stagedPhotoIds.push(stagedPhotoId)
         setUploadedCount(signedUrls.length)
       }
     } catch (err) {
@@ -206,6 +214,10 @@ export function ImportPhotosPage() {
       // Same sessionStorage sidecar the URL-import uses so the progress
       // page can route to the right group on reload.
       rememberImportGroup(importId, groupId)
+      // PF1 — stash the stagedPhotoIds under the same importId so the
+      // RecipeFormPage prefill can attach them to the create-recipe
+      // payload once the user saves.
+      rememberImportStagedPhotoIds(importId, stagedPhotoIds)
       navigate(`/rezepte/import/${importId}`, { state: { groupId } })
     } catch (err) {
       setUploadPhase('idle')

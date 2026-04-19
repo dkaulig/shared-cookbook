@@ -9,7 +9,11 @@ import type { GroupSummary } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { ImportPhotosPage } from './ImportPhotosPage'
-import { recallImportGroup, forgetImportGroup } from './importGroupMemo'
+import {
+  recallImportGroup,
+  recallImportStagedPhotoIds,
+  forgetImportGroup,
+} from './importGroupMemo'
 
 function groupSummary(over: Partial<GroupSummary>): GroupSummary {
   return {
@@ -198,6 +202,7 @@ describe('<ImportPhotosPage />', () => {
           {
             photoId: `recipes/photo-${id}.jpg`,
             signedUrl: `/api/photos/recipes/photo-${id}.jpg?sig=x&exp=9`,
+            stagedPhotoId: `00000000-0000-0000-0000-00000000000${id}`,
           },
           { status: 200 },
         )
@@ -233,6 +238,12 @@ describe('<ImportPhotosPage />', () => {
     // sessionStorage sidecar populated so the progress page can resolve
     // the group on reload.
     expect(recallImportGroup('imp-photos')).toBe('g-solo')
+    // PF1 — stagedPhotoIds stashed in the same order the uploads
+    // returned, so the create-recipe step can adopt the originals.
+    expect(recallImportStagedPhotoIds('imp-photos')).toEqual([
+      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000002',
+    ])
   })
 
   it('with >1 groups: opens picker, POSTs with the picked group on selection', async () => {
@@ -250,6 +261,7 @@ describe('<ImportPhotosPage />', () => {
           {
             photoId: 'recipes/staged.jpg',
             signedUrl: '/api/photos/recipes/staged.jpg?sig=x&exp=9',
+            stagedPhotoId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
           },
           { status: 200 },
         ),

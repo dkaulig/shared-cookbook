@@ -1618,4 +1618,273 @@ describe('RecipeFormPage (create)', () => {
     // Title input empty.
     expect(screen.getByLabelText(/Titel/i)).toHaveValue('')
   })
+
+  // ── PF1 — staged-photo promote handshake ─────────────────────────
+  // The photo-import flow uploads photos via POST /api/recipes/photos/staged
+  // (returns stagedPhotoIds), stashes them in sessionStorage under
+  // the importId, then routes the user here through ?importId=…. The
+  // form must (a) read the stash, (b) include the ids in the
+  // create-recipe payload, (c) show the "{N} Fotos werden beim
+  // Speichern angehängt" badge, and (d) render the partial-failure
+  // banner when the server returns partialPhotoFailures.
+
+  function photoImportResponse(importId: string, title: string) {
+    return HttpResponse.json({
+      id: importId,
+      source: 'Photos',
+      status: 'Done',
+      progress: 100,
+      sourceUrl: null,
+      result: JSON.stringify({
+        recipe: {
+          title,
+          description: null,
+          servings: 4,
+          difficulty: 1,
+          prep_minutes: null,
+          cook_minutes: null,
+          ingredients: [
+            {
+              name: 'Mehl',
+              quantity: '300',
+              unit: 'g',
+              note: null,
+              confidence: 'high',
+            },
+          ],
+          steps: [{ position: 1, content: 'Mischen.', confidence: 'high' }],
+          tags: [],
+          source_url: 'photos://upload',
+          thumbnail_url: null,
+        },
+        confidence: { overall: 'high', notes: [] },
+      }),
+      error: null,
+      createdAt: '2026-04-19T00:00:00Z',
+      completedAt: '2026-04-19T00:01:00Z',
+    })
+  }
+
+  it('shows the "{N} Fotos werden beim Speichern angehängt" badge when stagedPhotoIds are stashed', async () => {
+    const { rememberImportStagedPhotoIds } = await import(
+      '@/features/imports/importGroupMemo'
+    )
+    rememberImportStagedPhotoIds('imp-pf1-info', ['s1', 's2', 's3'])
+    server.use(
+      http.get('/api/imports/imp-pf1-info', () =>
+        photoImportResponse('imp-pf1-info', 'PF1 Info'),
+      ),
+    )
+
+    render(
+      withProvidersAndImport(
+        '/groups/g1/recipes/new?importId=imp-pf1-info',
+        '',
+      ),
+    )
+    expect(await screen.findByDisplayValue('PF1 Info')).toBeInTheDocument()
+    const badge = screen.getByTestId('staged-photos-info')
+    expect(badge).toHaveTextContent(/3 Fotos werden beim Speichern angehängt/i)
+
+    window.sessionStorage.clear()
+  })
+
+  it('skips the staged-photos badge when the import is NOT a photo import (URL import)', async () => {
+    // URL imports never stash stagedPhotoIds; the badge must not
+    // appear even if other prefill data is present.
+    server.use(
+      http.get('/api/imports/imp-url-no-photos', () =>
+        HttpResponse.json({
+          id: 'imp-url-no-photos',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com/r',
+          result: JSON.stringify({
+            recipe: {
+              title: 'URL Import',
+              description: null,
+              servings: 4,
+              difficulty: 1,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [
+                {
+                  name: 'Mehl',
+                  quantity: '1',
+                  unit: 'g',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [{ position: 1, content: 'X.', confidence: 'high' }],
+              tags: [],
+              source_url: 'https://example.com/r',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-19T00:00:00Z',
+          completedAt: '2026-04-19T00:01:00Z',
+        }),
+      ),
+    )
+    render(
+      withProvidersAndImport(
+        '/groups/g1/recipes/new?importId=imp-url-no-photos',
+        '',
+      ),
+    )
+    await screen.findByDisplayValue('URL Import')
+    expect(screen.queryByTestId('staged-photos-info')).not.toBeInTheDocument()
+  })
+
+  it('forwards stagedPhotoIds in the create-recipe payload on save', async () => {
+    const user = userEvent.setup()
+    const { rememberImportStagedPhotoIds } = await import(
+      '@/features/imports/importGroupMemo'
+    )
+    rememberImportStagedPhotoIds('imp-pf1-save', ['s1', 's2'])
+
+    let captured: CreateRecipeRequest | null = null
+    server.use(
+      http.get('/api/imports/imp-pf1-save', () =>
+        photoImportResponse('imp-pf1-save', 'PF1 Save'),
+      ),
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        captured = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-pf1',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'PF1 Save',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [
+              '/api/photos/recipes/p1.jpg?sig=x&exp=9',
+              '/api/photos/recipes/p2.jpg?sig=x&exp=9',
+            ],
+            createdAt: '2026-04-19T00:00:00Z',
+            updatedAt: '2026-04-19T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+            nutritionEstimate: null,
+            partialPhotoFailures: null,
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(
+      withProvidersAndImport(
+        '/groups/g1/recipes/new?importId=imp-pf1-save',
+        '',
+      ),
+    )
+    await screen.findByDisplayValue('PF1 Save')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured!.stagedPhotoIds).toEqual(['s1', 's2'])
+
+    window.sessionStorage.clear()
+  })
+
+  it('renders the partial-failure banner when the server reports partialPhotoFailures', async () => {
+    const user = userEvent.setup()
+    const { rememberImportStagedPhotoIds } = await import(
+      '@/features/imports/importGroupMemo'
+    )
+    rememberImportStagedPhotoIds('imp-pf1-partial', ['s1', 's2', 's3'])
+
+    server.use(
+      http.get('/api/imports/imp-pf1-partial', () =>
+        photoImportResponse('imp-pf1-partial', 'PF1 Partial'),
+      ),
+      http.post('/api/groups/g1/recipes', () =>
+        HttpResponse.json(
+          {
+            id: 'r-partial',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'PF1 Partial',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: ['/api/photos/recipes/x.jpg?sig=x&exp=9'],
+            createdAt: '2026-04-19T00:00:00Z',
+            updatedAt: '2026-04-19T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+            nutritionEstimate: null,
+            partialPhotoFailures: [
+              { stagedPhotoId: 's2', reason: 'Foto konnte nicht kopiert werden.' },
+              { stagedPhotoId: 's3', reason: 'Foto konnte nicht kopiert werden.' },
+            ],
+          },
+          { status: 201 },
+        ),
+      ),
+    )
+
+    render(
+      withProvidersAndImport(
+        '/groups/g1/recipes/new?importId=imp-pf1-partial',
+        '',
+      ),
+    )
+    await screen.findByDisplayValue('PF1 Partial')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      /Rezept gespeichert.*2 von 3 Fotos.*manuell hochladen/i,
+    )
+
+    window.sessionStorage.clear()
+  })
+
+  it('does NOT include stagedPhotoIds when none were stashed (manual create)', async () => {
+    const user = userEvent.setup()
+    let captured: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        captured = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-plain',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Plain',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-19T00:00:00Z',
+            updatedAt: '2026-04-19T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+            nutritionEstimate: null,
+          },
+          { status: 201 },
+        )
+      }),
+    )
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Plain')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/^Schritt 1$/i), 'Mischen.')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured!.stagedPhotoIds).toBeUndefined()
+  })
 })
