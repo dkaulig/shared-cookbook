@@ -1,12 +1,14 @@
 import { useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type {
   ApiError,
   CreateRecipeRequest,
+  IngredientConfidenceLevel,
   IngredientDto,
   RecipeDetailDto,
   RecipeStepDto,
+  StepConfidenceLevel,
   TagCategory,
   TagDto,
 } from '@familien-kochbuch/shared'
@@ -27,10 +29,15 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical, Plus, X } from 'lucide-react'
+import { GripVertical, Plus, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useGroup } from '@/features/groups/hooks'
 import { CreateTagDialog } from '@/features/tagManagement/CreateTagDialog'
+import { useImportStatus } from '@/features/imports/hooks'
+import {
+  extractedRecipeToPrefill,
+  type ImportPrefill,
+} from '@/features/imports/importPrefill'
 import {
   useCreateRecipe,
   useGroupTags,
@@ -101,11 +108,20 @@ type IngredientRow = {
   name: string
   note: string
   scalable: boolean
+  /**
+   * Provenance marker — only set when the row was seeded from an AI
+   * import (P2-7). Drives the "Menge fehlt" / "Handschrift prüfen"
+   * review badges. Undefined on manually-created rows so the renderer
+   * skips the chrome entirely.
+   */
+  confidence?: IngredientConfidenceLevel
 }
 
 type StepRow = {
   key: string
   content: string
+  /** Same provenance marker idea for steps — see IngredientRow. */
+  confidence?: StepConfidenceLevel
 }
 
 function emptyIngredient(): IngredientRow {
@@ -145,12 +161,26 @@ type Props = {
 /**
  * Wrapper: on edit we need the recipe loaded before rendering the inner
  * form, so we can initialise `useState` from the DTO on first render (no
- * setState-in-effect hack). Create mode skips the wait.
+ * setState-in-effect hack). Create mode skips the wait — unless the URL
+ * carries an `?importId=…` from the P2-7 URL-import flow, in which case
+ * we block render on fetching the import result and pass its
+ * `ImportPrefill` into the inner form.
  */
 export function RecipeFormPage({ mode }: Props) {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const recipeId = params.recipeId ?? ''
+  const [searchParams] = useSearchParams()
+  const importId = mode === 'create' ? searchParams.get('importId') ?? '' : ''
+
   const recipeQuery = useRecipe(mode === 'edit' ? recipeId : undefined)
+  // useImportStatus manages its own enabled/disabled logic. When
+  // importId is an empty string we disable the query via `enabled: false`.
+  const importQuery = useImportStatus(importId || undefined, {
+    // Short-circuit polling — by the time the user lands on this page
+    // the import has already completed. If it somehow hasn't, we still
+    // fall through to the 2 s default interval.
+    enabled: importId.length > 0,
+  })
 
   if (mode === 'edit' && recipeQuery.isLoading) {
     return (
@@ -173,15 +203,44 @@ export function RecipeFormPage({ mode }: Props) {
     )
   }
 
-  return <RecipeFormInner mode={mode} initial={mode === 'edit' ? recipeQuery.data! : undefined} />
+  // Block render on the import fetch — we can't initialise the inner
+  // form's state from the prefill after the first render without the
+  // same setState-in-effect hack the edit path avoids. The wait is
+  // cheap (the import has already completed; this is a single GET).
+  if (importId && importQuery.isLoading) {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-10 text-[hsl(var(--muted-foreground))]">
+        Lade Import-Vorschau …
+      </main>
+    )
+  }
+
+  // If the import fetch errored or returned without a recipe, drop into
+  // a normal blank create form — the user can still save manually. The
+  // progress page should have caught backend errors already, so this is
+  // a defensive fallback.
+  const prefill: ImportPrefill | undefined =
+    mode === 'create' && importQuery.data?.result
+      ? extractedRecipeToPrefill(importQuery.data.result.recipe)
+      : undefined
+
+  return (
+    <RecipeFormInner
+      mode={mode}
+      initial={mode === 'edit' ? recipeQuery.data! : undefined}
+      prefill={prefill}
+    />
+  )
 }
 
 function RecipeFormInner({
   mode,
   initial,
+  prefill,
 }: {
   mode: 'create' | 'edit'
   initial?: RecipeDetailDto
+  prefill?: ImportPrefill
 }) {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
@@ -193,29 +252,73 @@ function RecipeFormInner({
   const createMutation = useCreateRecipe(groupId)
   const updateMutation = useUpdateRecipe(recipeId, groupId)
 
-  const [title, setTitle] = useState(initial?.title ?? '')
-  const [description, setDescription] = useState(initial?.description ?? '')
-  const [defaultServings, setDefaultServings] = useState(initial?.defaultServings ?? 4)
+  // Initial state resolution order: edit DTO > import prefill > blank.
+  // We intentionally keep `initial` and `prefill` mutually exclusive —
+  // the outer wrapper only ever passes one — so the fallback chain
+  // stays readable.
+  const [title, setTitle] = useState(initial?.title ?? prefill?.title ?? '')
+  const [description, setDescription] = useState(
+    initial?.description ?? prefill?.description ?? '',
+  )
+  const [defaultServings, setDefaultServings] = useState(
+    initial?.defaultServings ?? prefill?.defaultServings ?? 4,
+  )
   const [prepTime, setPrepTime] = useState(
-    initial?.prepTimeMinutes != null ? String(initial.prepTimeMinutes) : '',
+    initial?.prepTimeMinutes != null
+      ? String(initial.prepTimeMinutes)
+      : prefill?.prepTimeMinutes != null
+        ? String(prefill.prepTimeMinutes)
+        : '',
   )
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(
-    ((initial?.difficulty as DifficultyLevel) ?? 1),
+    (initial?.difficulty as DifficultyLevel | undefined) ??
+      (prefill?.difficulty as DifficultyLevel | undefined) ??
+      1,
   )
-  const [sourceUrl, setSourceUrl] = useState(initial?.sourceUrl ?? '')
-  const [ingredients, setIngredients] = useState<IngredientRow[]>(() =>
-    initial && initial.ingredients.length > 0
-      ? initial.ingredients.map(ingredientFromDto)
-      : [emptyIngredient()],
+  const [sourceUrl, setSourceUrl] = useState(
+    initial?.sourceUrl ?? prefill?.sourceUrl ?? '',
   )
-  const [steps, setSteps] = useState<StepRow[]>(() =>
-    initial && initial.steps.length > 0 ? initial.steps.map(stepFromDto) : [emptyStep()],
-  )
+  const [ingredients, setIngredients] = useState<IngredientRow[]>(() => {
+    if (initial && initial.ingredients.length > 0) {
+      return initial.ingredients.map(ingredientFromDto)
+    }
+    if (prefill && prefill.ingredients.length > 0) {
+      return prefill.ingredients.map((i) => ({
+        key: crypto.randomUUID(),
+        quantity: i.quantity,
+        unit: i.unit,
+        name: i.name,
+        note: i.note,
+        scalable: i.scalable,
+        confidence: i.confidence,
+      }))
+    }
+    return [emptyIngredient()]
+  })
+  const [steps, setSteps] = useState<StepRow[]>(() => {
+    if (initial && initial.steps.length > 0) {
+      return initial.steps.map(stepFromDto)
+    }
+    if (prefill && prefill.steps.length > 0) {
+      return prefill.steps.map((s) => ({
+        key: crypto.randomUUID(),
+        content: s.content,
+        confidence: s.confidence,
+      }))
+    }
+    return [emptyStep()]
+  })
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     () => initial?.tags.map((t) => t.id) ?? [],
   )
   const [createTagOpen, setCreateTagOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * P2-7 — the AI banner surfaces the extraction provenance and is
+   * independent of the prefilled data. Dismissing hides the banner;
+   * the form state stays populated.
+   */
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   // UX1-PU — File objects queued by the staged PhotoUploadGrid in create
   // mode. After the recipe POST resolves, handleSubmit iterates these
   // sequentially via uploadRecipePhoto(newRecipeId, file).
@@ -404,6 +507,13 @@ function RecipeFormInner({
 
       <main className="relative mx-auto max-w-3xl px-5 pb-40 pt-5 md:px-8 md:pt-7">
         <FormIntro mode={mode} groupName={groupQuery.data?.name} />
+
+        {prefill && !bannerDismissed && (
+          <ImportProvenanceBanner
+            sourceUrl={prefill.sourceUrl}
+            onDismiss={() => setBannerDismissed(true)}
+          />
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5" noValidate>
           {/* ── Grunddaten ─────────────────────────────────────── */}
@@ -940,6 +1050,13 @@ function SortableIngredientRow({
           aria-label={`Zutat ${index + 1} Name`}
           className="py-2 text-[14px]"
         />
+        {row.confidence &&
+          (row.confidence === 'missing' ||
+            row.confidence === 'handwritten_uncertain') && (
+            <div className="col-span-3 mt-1">
+              <ConfidenceBadge confidence={row.confidence} />
+            </div>
+          )}
         <div className="col-span-3 mt-1">
           <FormInput
             type="text"
@@ -1092,6 +1209,9 @@ function SortableStepRow({
           <span className="text-[13px] font-semibold text-[hsl(var(--muted-foreground))]">
             Schritt {index + 1}
           </span>
+          {row.confidence === 'handwritten_uncertain' && (
+            <ConfidenceBadge confidence={row.confidence} />
+          )}
         </div>
         <StepMarkdownToolbar
           value={row.content}
@@ -1144,4 +1264,97 @@ function SortableStepRow({
       </div>
     </li>
   )
+}
+
+// ── P2-7 import helpers ──────────────────────────────────────────────
+
+/**
+ * Banner shown above the form when the page was opened with an
+ * `?importId=…` query. It advertises the AI provenance + truncates a
+ * long URL to 40 chars so the layout stays stable; the full URL is
+ * available on hover via the native `title` tooltip. The banner is
+ * dismissible — the dismissal only hides the chrome, the prefilled
+ * form keeps its data.
+ */
+function ImportProvenanceBanner({
+  sourceUrl,
+  onDismiss,
+}: {
+  sourceUrl: string
+  onDismiss: () => void
+}) {
+  const displayUrl =
+    sourceUrl.length > 40 ? `${sourceUrl.slice(0, 37)}…` : sourceUrl
+  return (
+    <section
+      role="region"
+      aria-label="KI-Import-Hinweis"
+      className="mb-5 flex items-start gap-3 rounded-[14px] border border-[hsl(var(--primary)/0.3)] bg-[hsl(var(--primary)/0.08)] px-4 py-3 text-[14px] leading-[1.5]"
+    >
+      <Sparkles
+        className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary"
+        aria-hidden="true"
+      />
+      <p className="min-w-0 flex-1 text-foreground">
+        AI-Vorschlag aus{' '}
+        <span
+          className="break-all font-medium text-primary"
+          title={sourceUrl}
+        >
+          {displayUrl}
+        </span>
+        . Bitte durchsehen, bevor du speicherst.
+      </p>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Hinweis ausblenden"
+        className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-md text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] hover:text-foreground"
+      >
+        <X className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </section>
+  )
+}
+
+/**
+ * Inline confidence badge for an ingredient/step row. Renders different
+ * copy / tints for the two review-worthy confidence levels and hides
+ * everything else so the chrome stays calm.
+ *
+ * Tokens in use:
+ *   - "missing" → yellow-ish warning tint (destructive token would be
+ *     too loud; we want "please double-check this" not "error").
+ *   - "handwritten_uncertain" → orange tint distinct from missing,
+ *     reserved for the Photo/Handschrift pipeline that lands in P2-8.
+ *
+ * Anything else (high / medium / low / undefined) renders nothing so
+ * manually-created rows stay visually identical to before P2-7.
+ */
+export function ConfidenceBadge({
+  confidence,
+}: {
+  confidence?: IngredientConfidenceLevel | StepConfidenceLevel
+}) {
+  if (confidence === 'missing') {
+    return (
+      <span
+        className="inline-flex items-center rounded-full border border-[hsl(45_93%_47%/0.35)] bg-[hsl(45_93%_47%/0.14)] px-2 py-0.5 text-[11px] font-semibold text-[hsl(36_80%_35%)]"
+        aria-label="Menge fehlt"
+      >
+        Menge fehlt
+      </span>
+    )
+  }
+  if (confidence === 'handwritten_uncertain') {
+    return (
+      <span
+        className="inline-flex items-center rounded-full border border-[hsl(25_95%_53%/0.35)] bg-[hsl(25_95%_53%/0.14)] px-2 py-0.5 text-[11px] font-semibold text-[hsl(20_85%_40%)]"
+        aria-label="Handschrift prüfen"
+      >
+        Handschrift prüfen
+      </span>
+    )
+  }
+  return null
 }

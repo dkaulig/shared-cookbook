@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { server } from '@/test/msw/server'
@@ -842,6 +842,328 @@ describe('RecipeFormPage (create)', () => {
     )
     // Finish the photo upload so the component settles.
     resolvePhoto()
+  })
+
+  // P2-7 — URL-import prefill. When the page is entered with an
+  // `?importId=…` query in create mode the form fetches the import
+  // result, maps it via extractedRecipeToPrefill, and seeds its
+  // internal state from the prefill. The AI provenance banner appears
+  // on top; missing-quantity ingredients get a yellow "Menge fehlt"
+  // badge; handwritten-uncertain rows get the orange badge.
+
+  function withProvidersAndImport(initialPath: string, importJson: string): ReactNode {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return (
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Routes>
+            <Route
+              path="/groups/:groupId/recipes/new"
+              element={<RecipeFormPage mode="create" />}
+            />
+            <Route
+              path="/groups/:groupId/recipes/:recipeId"
+              element={<div data-testid="detail-page" />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    void importJson
+  }
+
+  it('prefills title + description + servings + sourceUrl from an import result', async () => {
+    server.use(
+      http.get('/api/imports/imp-pp', () =>
+        HttpResponse.json({
+          id: 'imp-pp',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://www.chefkoch.de/Pizza.html',
+          result: JSON.stringify({
+            recipe: {
+              title: 'Pizza Margherita',
+              description: 'Klassisch italienisch',
+              servings: 2,
+              difficulty: 2,
+              prep_minutes: 15,
+              cook_minutes: 10,
+              ingredients: [
+                {
+                  name: 'Mehl',
+                  quantity: '500',
+                  unit: 'g',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [
+                {
+                  position: 1,
+                  content: 'Teig kneten.',
+                  confidence: 'high',
+                },
+              ],
+              tags: [],
+              source_url: 'https://www.chefkoch.de/Pizza.html',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+    )
+    render(withProvidersAndImport('/groups/g1/recipes/new?importId=imp-pp', ''))
+    expect(await screen.findByDisplayValue('Pizza Margherita')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Klassisch italienisch')).toBeInTheDocument()
+    // 2 servings prefilled.
+    expect(screen.getByLabelText(/Portionen/i)).toHaveValue(2)
+    // prep_minutes + cook_minutes = 25.
+    expect(screen.getByLabelText(/Dauer/i)).toHaveValue(25)
+    // The source URL input is prefilled.
+    expect(screen.getByLabelText(/Quelle \(URL\)/i)).toHaveValue(
+      'https://www.chefkoch.de/Pizza.html',
+    )
+    // Ingredient + step prefilled.
+    expect(screen.getByLabelText(/Zutat 1 Name/i)).toHaveValue('Mehl')
+    expect(screen.getByLabelText(/Zutat 1 Menge/i)).toHaveValue('500')
+    expect(screen.getByLabelText(/^Schritt 1$/i)).toHaveValue('Teig kneten.')
+  })
+
+  it('renders the AI-Vorschlag banner with the (truncated) source URL on prefill, which is dismissible', async () => {
+    const user = userEvent.setup()
+    const longUrl = 'https://www.chefkoch.de/rezepte/12345/omas-apfelkuchen-mit-streuseln.html'
+    server.use(
+      http.get('/api/imports/imp-banner', () =>
+        HttpResponse.json({
+          id: 'imp-banner',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: longUrl,
+          result: JSON.stringify({
+            recipe: {
+              title: 'Apfelkuchen',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [
+                {
+                  name: 'Mehl',
+                  quantity: '300',
+                  unit: 'g',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [
+                { position: 1, content: 'Backen.', confidence: 'high' },
+              ],
+              tags: [],
+              source_url: longUrl,
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+    )
+    render(withProvidersAndImport('/groups/g1/recipes/new?importId=imp-banner', ''))
+
+    const banner = await screen.findByRole('region', {
+      name: /ki-import-hinweis/i,
+    })
+    expect(banner).toHaveTextContent(/AI-Vorschlag aus/i)
+    // URL truncated to 40 chars.
+    expect(banner.textContent?.length ?? 0).toBeLessThan(longUrl.length + 80)
+    expect(banner.textContent).toMatch(/…/) // ellipsis from truncation
+
+    // Dismiss — banner disappears but the form data stays.
+    await user.click(
+      within(banner).getByRole('button', { name: /hinweis ausblenden/i }),
+    )
+    expect(
+      screen.queryByRole('region', { name: /ki-import-hinweis/i }),
+    ).not.toBeInTheDocument()
+    // Data is still there.
+    expect(screen.getByDisplayValue('Apfelkuchen')).toBeInTheDocument()
+  })
+
+  it('renders the yellow "Menge fehlt" badge for ingredients with confidence=missing', async () => {
+    server.use(
+      http.get('/api/imports/imp-miss', () =>
+        HttpResponse.json({
+          id: 'imp-miss',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com/r',
+          result: JSON.stringify({
+            recipe: {
+              title: 'Suppe',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [
+                {
+                  name: 'Gemüse',
+                  quantity: null,
+                  unit: null,
+                  note: null,
+                  confidence: 'missing',
+                },
+              ],
+              steps: [
+                { position: 1, content: 'Kochen.', confidence: 'high' },
+              ],
+              tags: [],
+              source_url: 'https://example.com/r',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'medium', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+    )
+    render(withProvidersAndImport('/groups/g1/recipes/new?importId=imp-miss', ''))
+    expect(await screen.findByText(/Menge fehlt/i)).toBeInTheDocument()
+  })
+
+  it('renders the orange "Handschrift prüfen" badge for handwritten_uncertain items', async () => {
+    server.use(
+      http.get('/api/imports/imp-hand', () =>
+        HttpResponse.json({
+          id: 'imp-hand',
+          source: 'Photos',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: null,
+          result: JSON.stringify({
+            recipe: {
+              title: 'Omas Notiz',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [
+                {
+                  name: 'Muskat',
+                  quantity: '1',
+                  unit: 'Prise',
+                  note: null,
+                  confidence: 'handwritten_uncertain',
+                },
+              ],
+              steps: [
+                {
+                  position: 1,
+                  content: 'Umrühren.',
+                  confidence: 'handwritten_uncertain',
+                },
+              ],
+              tags: [],
+              source_url: '',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'low', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+    )
+    render(withProvidersAndImport('/groups/g1/recipes/new?importId=imp-hand', ''))
+    const badges = await screen.findAllByText(/Handschrift prüfen/i)
+    // Both the ingredient and the step carry the handwritten flag.
+    expect(badges.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('persists the sourceUrl from the prefill when the user submits', async () => {
+    const user = userEvent.setup()
+    let captured: CreateRecipeRequest | null = null
+    server.use(
+      http.get('/api/imports/imp-save', () =>
+        HttpResponse.json({
+          id: 'imp-save',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com/recipe-x',
+          result: JSON.stringify({
+            recipe: {
+              title: 'Kuchen',
+              description: null,
+              servings: 4,
+              difficulty: 1,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [
+                {
+                  name: 'Mehl',
+                  quantity: '200',
+                  unit: 'g',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [
+                { position: 1, content: 'Backen.', confidence: 'high' },
+              ],
+              tags: [],
+              source_url: 'https://example.com/recipe-x',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        captured = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-s',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Kuchen',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+    render(withProvidersAndImport('/groups/g1/recipes/new?importId=imp-save', ''))
+    await screen.findByDisplayValue('Kuchen')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured!.sourceUrl).toBe('https://example.com/recipe-x')
   })
 
   // BF1 #1 — the German "Menge" placeholder was being clipped because the
