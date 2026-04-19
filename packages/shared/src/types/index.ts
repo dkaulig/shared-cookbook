@@ -92,3 +92,8 @@ export type {
   ChatTurnRequest,
   ChatTurnResponse,
 } from './chat.ts'
+export type {
+  AiUsageGroupBy,
+  AiUsageGroupedRow,
+  AiUsageSummary,
+} from './aiUsage.ts'
