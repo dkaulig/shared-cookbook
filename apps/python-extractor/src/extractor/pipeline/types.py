@@ -93,12 +93,30 @@ class ExtractedStep(TypedDict):
     confidence: StepConfidenceLevel
 
 
+class NutritionEstimate(TypedDict):
+    """LLM-estimated per-portion nutrition (PRD §5.4, P2-10).
+
+    All four fields are integers — the LLM rounds to whole numbers, and
+    the post-processor clamps to sane ranges (kcal 0..5000, macros
+    0..500 g) as defence against hallucinations.
+    """
+
+    kcal: int
+    protein_g: int
+    carbs_g: int
+    fat_g: int
+
+
 class ExtractedRecipe(TypedDict):
     """The structured recipe payload.
 
     Matches PRD §5.1 and the plan response shape 1:1. ``None`` on the
     optional scalar fields means "unknown / not stated in the source";
     the frontend renders a placeholder rather than guessing.
+
+    ``nutrition_estimate`` is the P2-10 addition. ``None`` means the LLM
+    did not provide an estimate — the frontend hides the Nährwerte
+    section entirely in that case.
     """
 
     title: str
@@ -112,6 +130,7 @@ class ExtractedRecipe(TypedDict):
     tags: list[str]
     source_url: str
     thumbnail_url: str | None
+    nutrition_estimate: NutritionEstimate | None
 
 
 class ExtractionConfidence(TypedDict):
@@ -146,5 +165,6 @@ __all__ = [
     "ExtractionConfidence",
     "ExtractionResult",
     "IngredientConfidenceLevel",
+    "NutritionEstimate",
     "StepConfidenceLevel",
 ]

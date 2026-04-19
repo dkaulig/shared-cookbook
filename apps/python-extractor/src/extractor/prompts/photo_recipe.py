@@ -84,7 +84,12 @@ SYSTEM_PROMPT_DE: Final[str] = (
     "eine Information fehlt, setze das entsprechende Feld auf null. "
     "Für Zutaten ohne erkennbare Menge setze `quantity` auf null und "
     '`confidence` auf "missing". Tags sind kurze Kleinbuchstaben-'
-    'Stichwörter (z.B. "kuchen", "backen", "sonntag").'
+    'Stichwörter (z.B. "kuchen", "backen", "sonntag"). '
+    "Schätze pro Portion die Nährwerte (kcal, protein_g, carbs_g, "
+    "fat_g) als ganze Zahlen und gib sie im Feld `nutrition_estimate` "
+    "zurück. Die Werte beziehen sich auf EINE Portion. Wenn du Mengen "
+    "auf dem Foto nicht einschätzen kannst, setze `nutrition_estimate` "
+    "auf null — erfinde keine Zahlen."
 )
 
 # ─────────────────────────────────────────────────────────────────────

@@ -30,11 +30,20 @@ from extractor.pipeline.types import (
     ExtractionConfidence,
     ExtractionResult,
     IngredientConfidenceLevel,
+    NutritionEstimate,
     StepConfidenceLevel,
 )
 
 _SERVINGS_MIN: int = 1
 _SERVINGS_MAX: int = 20
+
+# P2-10 nutrition clamp bounds. kcal > 5000/portion is almost always an
+# LLM hallucination ("a bowl of butter"). Macros > 500 g/portion likewise —
+# if the LLM emits those, we bound them in-range instead of dropping the
+# whole field so at least the in-range fields survive.
+_KCAL_MAX: int = 5000
+_MACRO_MAX: int = 500
+_NUTRITION_FIELDS: tuple[str, ...] = ("kcal", "protein_g", "carbs_g", "fat_g")
 
 
 def post_process(
@@ -93,6 +102,8 @@ def post_process(
         llm_thumbnail if isinstance(llm_thumbnail, str) and llm_thumbnail else fallback_thumbnail
     )
 
+    nutrition_estimate = _normalise_nutrition_estimate(llm_output.get("nutrition_estimate"))
+
     recipe: ExtractedRecipe = {
         "title": str(llm_output.get("title") or "Unbenanntes Rezept"),
         "description": _optional_str(llm_output.get("description")),
@@ -105,6 +116,7 @@ def post_process(
         "tags": tags,
         "source_url": original_url,
         "thumbnail_url": thumbnail_url,
+        "nutrition_estimate": nutrition_estimate,
     }
 
     notes: list[str] = list(extra_notes) if extra_notes else []
@@ -208,6 +220,40 @@ def _normalise_step(raw: dict[str, Any]) -> ExtractedStep | None:
         "position": position,
         "content": content.strip(),
         "confidence": confidence,
+    }
+
+
+def _normalise_nutrition_estimate(raw: Any) -> NutritionEstimate | None:
+    """Clamp the four nutrition fields or drop the whole object.
+
+    Rules:
+    - Not a dict (``None``, string, int, list…) → ``None``.
+    - Missing any of the four required fields → ``None`` (the LLM didn't
+      fill it coherently; half-a-measurement is worse than nothing).
+    - Non-integer (or ``bool``, which Python treats as ``int``) field →
+      ``None`` (garbage; drop everything rather than coerce).
+    - In-range / out-of-range ints → clamped to the bounds:
+      kcal 0..5000, macros 0..500. The bounds match the schema so a
+      well-behaved LLM never gets its output rewritten.
+    """
+    if not isinstance(raw, dict):
+        return None
+    cleaned: dict[str, int] = {}
+    for field in _NUTRITION_FIELDS:
+        value = raw.get(field)
+        if value is None:
+            return None
+        # ``bool`` is a subclass of ``int`` in Python — reject it explicitly
+        # so a ``True`` doesn't silently become ``1`` kcal.
+        if not isinstance(value, int) or isinstance(value, bool):
+            return None
+        upper = _KCAL_MAX if field == "kcal" else _MACRO_MAX
+        cleaned[field] = max(0, min(upper, value))
+    return {
+        "kcal": cleaned["kcal"],
+        "protein_g": cleaned["protein_g"],
+        "carbs_g": cleaned["carbs_g"],
+        "fat_g": cleaned["fat_g"],
     }
 
 

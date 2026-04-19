@@ -235,6 +235,40 @@ def test_photo_recipe_schema_rejects_extra_properties() -> None:
         jsonschema.validate(instance=payload, schema=PHOTO_RECIPE_SCHEMA)
 
 
+def test_photo_recipe_schema_accepts_nutrition_estimate_payload() -> None:
+    """The photo schema inherits the optional nutrition_estimate object
+    from the URL-path schema — handwritten recipes can also come with an
+    LLM-guessed per-portion estimate."""
+    payload: dict[str, Any] = {
+        "title": "Omas Kuchen",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "source_url": "photos://upload",
+        "thumbnail_url": None,
+        "nutrition_estimate": {
+            "kcal": 380,
+            "protein_g": 6,
+            "carbs_g": 52,
+            "fat_g": 14,
+        },
+    }
+    jsonschema.validate(instance=payload, schema=PHOTO_RECIPE_SCHEMA)
+
+
+def test_photo_system_prompt_de_requests_nutrition_estimation() -> None:
+    """Photo pipeline's prompt also names the nutrition contract so the
+    vision model fills the field for handwritten + printed recipes."""
+    lowered = SYSTEM_PROMPT_DE.lower()
+    assert "nährwert" in lowered or "kalorien" in lowered or "kcal" in lowered
+    assert "portion" in lowered or "pro portion" in lowered
+
+
 def test_photo_recipe_schema_does_not_mutate_base_recipe_schema() -> None:
     """Extending the base schema by reference would corrupt the URL
     pipeline's confidence enum for the rest of the process. Guard
