@@ -458,7 +458,11 @@ Werts wenn `safe-area-inset-bottom` via CSS-Variable gemockt wird.
 
 ## BUG-015 · Foto-Import: Nur Kamera, keine Mediathek-Auswahl
 **Reported:** 2026-04-19 (mobile iOS/Android)
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `ImportPhotosPage.tsx` split into
+two hidden inputs (`photos-camera-input` w/ `capture="environment"` +
+`photos-gallery-input` w/o capture) plus two explicit Lucide-icon
+buttons "Kamera" / "Fotos auswählen" sharing the same staging handler.
+3 regression tests added.)
 **Where:** Photo-Import-Page (`/rezepte/import/photos` oder ähnlich),
 Upload-Button / file-picker für Fotos.
 **Symptom:** Auf mobile kann der User nur die **Kamera** öffnen zum
