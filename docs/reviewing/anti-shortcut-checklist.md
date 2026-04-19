@@ -6,6 +6,32 @@ The reviewer must not merely read the diff — they must **execute verification 
 
 ---
 
+## Mandatory post-impl orchestration (added 2026-04-19 per user mandate)
+
+Every implementation-agent completion triggers **two additional passes BEFORE the reviewer agent is dispatched**:
+
+1. **`/simplify`** — plugin-agent `code-simplifier` run against the recently-modified files. Looks for: unnecessary complexity, redundant abstractions, over-engineering, nested ternaries, dense one-liners, obvious-code comments. Produces refactor suggestions; orchestrator applies the safe ones + logs the skipped ones.
+
+2. **`/security-review`** — Claude Code built-in run against the same files. Looks for OWASP top-10 class bugs: command-injection, SQL-injection, XSS, auth-bypass, secret-exposure, insecure defaults, path-traversal, SSRF, CSRF. Produces findings with confidence + severity; orchestrator acts on HIGH/MEDIUM immediately, logs LOW for later triage.
+
+**Flow per slice:**
+
+```
+impl-agent completes
+  → orchestrator runs /simplify against touched files
+  → orchestrator applies safe simplifications (preserving test-green)
+  → orchestrator runs /security-review against touched files
+  → orchestrator applies high/medium security fixes
+  → orchestrator dispatches reviewer-agent (feature-dev:code-reviewer or superpowers:code-reviewer)
+  → reviewer-agent enforces this checklist + per-slice plan acceptance
+  → fix-cycle if needed
+  → tracker update + commit
+```
+
+Rationale: reviewer-agents have historically caught deviations-from-plan well but are less strong at proactively spotting over-engineering or subtle security footguns. The two extra passes fill that gap. Applies to ALL slices from PF1 onward.
+
+---
+
 ## Test shortcuts (reject on sight)
 
 - [ ] No tests marked `[Skip]`, `[Fact(Skip="...")]`, `[Theory(Skip="...")]`, `it.skip()`, `describe.skip()`, `xit()`, `xdescribe()`, `.skip`, or `.todo`
