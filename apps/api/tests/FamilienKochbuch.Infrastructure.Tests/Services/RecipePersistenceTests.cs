@@ -204,4 +204,57 @@ public class RecipePersistenceTests : IAsyncLifetime
         Assert.Equal("https://example.com/a.jpg", reloaded.Photos[0]);
         Assert.Equal("https://example.com/b.jpg", reloaded.Photos[1]);
     }
+
+    // ── P2-10 — Nutrition estimate persistence ─────────────────────────
+
+    [Fact]
+    public async Task NutritionEstimate_Round_Trips_When_Set()
+    {
+        var recipe = AddSimpleRecipe();
+        recipe.SetNutritionEstimate(
+            new NutritionEstimate(Kcal: 420, ProteinG: 24, CarbsG: 38, FatG: 9),
+            DateTimeOffset.UtcNow);
+        await _db.SaveChangesAsync();
+
+        using var fresh = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await fresh.Recipes.SingleAsync(r => r.Id == recipe.Id);
+
+        Assert.NotNull(reloaded.NutritionEstimate);
+        Assert.Equal(420, reloaded.NutritionEstimate!.Kcal);
+        Assert.Equal(24, reloaded.NutritionEstimate.ProteinG);
+        Assert.Equal(38, reloaded.NutritionEstimate.CarbsG);
+        Assert.Equal(9, reloaded.NutritionEstimate.FatG);
+    }
+
+    [Fact]
+    public async Task NutritionEstimate_Defaults_To_Null()
+    {
+        var recipe = AddSimpleRecipe();
+        await _db.SaveChangesAsync();
+
+        using var fresh = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await fresh.Recipes.SingleAsync(r => r.Id == recipe.Id);
+
+        Assert.Null(reloaded.NutritionEstimate);
+    }
+
+    [Fact]
+    public async Task NutritionEstimate_Can_Be_Cleared()
+    {
+        var recipe = AddSimpleRecipe();
+        recipe.SetNutritionEstimate(
+            new NutritionEstimate(300, 10, 30, 8), DateTimeOffset.UtcNow);
+        await _db.SaveChangesAsync();
+
+        recipe.SetNutritionEstimate(null, DateTimeOffset.UtcNow);
+        await _db.SaveChangesAsync();
+
+        using var fresh = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await fresh.Recipes.SingleAsync(r => r.Id == recipe.Id);
+
+        Assert.Null(reloaded.NutritionEstimate);
+    }
 }

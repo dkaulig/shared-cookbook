@@ -259,4 +259,82 @@ public class RecipeTests
 
         Assert.Equal(at, recipe.DeletedAt);
     }
+
+    // ── P2-10 — Nutrition estimate ─────────────────────────────────────
+
+    [Fact]
+    public void NutritionEstimate_Is_Null_By_Default()
+    {
+        var recipe = NewRecipe();
+
+        Assert.Null(recipe.NutritionEstimate);
+    }
+
+    [Fact]
+    public void SetNutritionEstimate_Stores_All_Four_Fields()
+    {
+        var recipe = NewRecipe();
+        var estimate = new NutritionEstimate(Kcal: 420, ProteinG: 24, CarbsG: 38, FatG: 9);
+
+        recipe.SetNutritionEstimate(estimate, DateTimeOffset.UtcNow);
+
+        Assert.NotNull(recipe.NutritionEstimate);
+        Assert.Equal(420, recipe.NutritionEstimate!.Kcal);
+        Assert.Equal(24, recipe.NutritionEstimate.ProteinG);
+        Assert.Equal(38, recipe.NutritionEstimate.CarbsG);
+        Assert.Equal(9, recipe.NutritionEstimate.FatG);
+    }
+
+    [Fact]
+    public void SetNutritionEstimate_Null_Clears_Existing()
+    {
+        var recipe = NewRecipe();
+        recipe.SetNutritionEstimate(
+            new NutritionEstimate(300, 10, 30, 8), DateTimeOffset.UtcNow);
+
+        recipe.SetNutritionEstimate(null, DateTimeOffset.UtcNow);
+
+        Assert.Null(recipe.NutritionEstimate);
+    }
+
+    [Fact]
+    public void SetNutritionEstimate_Updates_UpdatedAt()
+    {
+        var recipe = NewRecipe();
+        var before = recipe.UpdatedAt;
+        var later = DateTimeOffset.UtcNow.AddHours(1);
+
+        recipe.SetNutritionEstimate(
+            new NutritionEstimate(300, 10, 30, 8), later);
+
+        Assert.Equal(later, recipe.UpdatedAt);
+        Assert.NotEqual(before, recipe.UpdatedAt);
+    }
+
+    [Theory]
+    [InlineData(-1, 10, 10, 10)]
+    [InlineData(5001, 10, 10, 10)]
+    [InlineData(100, -1, 10, 10)]
+    [InlineData(100, 501, 10, 10)]
+    [InlineData(100, 10, 501, 10)]
+    [InlineData(100, 10, 10, 501)]
+    [InlineData(100, 10, 10, -1)]
+    public void NutritionEstimate_Rejects_Out_Of_Range(int kcal, int protein, int carbs, int fat)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new NutritionEstimate(kcal, protein, carbs, fat));
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0, 0)]
+    [InlineData(5000, 500, 500, 500)]
+    [InlineData(420, 24, 38, 9)]
+    public void NutritionEstimate_Accepts_Boundary_Values(int kcal, int protein, int carbs, int fat)
+    {
+        var estimate = new NutritionEstimate(kcal, protein, carbs, fat);
+        Assert.Equal(kcal, estimate.Kcal);
+        Assert.Equal(protein, estimate.ProteinG);
+        Assert.Equal(carbs, estimate.CarbsG);
+        Assert.Equal(fat, estimate.FatG);
+    }
 }

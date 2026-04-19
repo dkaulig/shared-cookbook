@@ -165,6 +165,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 .HasConversion(photoConverter)
                 .Metadata.SetValueComparer(photoComparer);
 
+            // P2-10: nutrition estimate stored as a JSON string in a
+            // single column. Kept compact (no indentation); a null value
+            // object persists as SQL NULL so existing recipes stay
+            // untouched. Postgres stores the column as jsonb (see
+            // migration); SQLite falls back to TEXT via EF's provider
+            // translation. Either way the round-trip is the same.
+            var nutritionConverter = new ValueConverter<NutritionEstimate?, string?>(
+                v => v == null ? null : JsonSerializer.Serialize(v, NutritionJsonOptions),
+                v => string.IsNullOrEmpty(v)
+                    ? null
+                    : JsonSerializer.Deserialize<NutritionEstimate>(v, NutritionJsonOptions));
+            e.Property(r => r.NutritionEstimate)
+                .HasConversion(nutritionConverter)
+                .HasColumnType("jsonb")
+                .HasColumnName("NutritionEstimate");
+
             e.HasIndex(r => r.GroupId);
             e.HasIndex(r => r.CreatedAt);
             e.HasIndex(r => r.DeletedAt);
@@ -315,6 +331,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     }
 
     private static readonly JsonSerializerOptions PhotoJsonOptions = new()
+    {
+        WriteIndented = false,
+    };
+
+    // P2-10: nutrition JSON uses the same minified defaults as photos so
+    // an existing recipe row that gets re-serialized doesn't flip between
+    // indented + compact forms on every save.
+    private static readonly JsonSerializerOptions NutritionJsonOptions = new()
     {
         WriteIndented = false,
     };

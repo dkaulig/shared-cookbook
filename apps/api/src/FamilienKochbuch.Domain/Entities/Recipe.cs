@@ -83,6 +83,13 @@ public class Recipe
     public DateTimeOffset UpdatedAt { get; private set; }
     public DateTimeOffset? DeletedAt { get; private set; }
 
+    /// <summary>
+    /// Optional LLM-estimated per-portion nutrition (P2-10). ``null``
+    /// when no estimate is available. Manage via
+    /// <see cref="SetNutritionEstimate"/>.
+    /// </summary>
+    public NutritionEstimate? NutritionEstimate { get; private set; }
+
     // ── Aggregated children ─────────────────────────────────────────
 
     public ICollection<Ingredient> Ingredients { get; private set; } = new List<Ingredient>();
@@ -142,6 +149,16 @@ public class Recipe
     public void MarkCooked(DateTimeOffset at) => LastCookedAt = at;
 
     public void SoftDelete(DateTimeOffset at) => DeletedAt = at;
+
+    /// <summary>
+    /// Replaces (or clears, when <paramref name="estimate"/> is
+    /// <c>null</c>) the per-portion nutrition estimate. P2-10.
+    /// </summary>
+    public void SetNutritionEstimate(NutritionEstimate? estimate, DateTimeOffset at)
+    {
+        NutritionEstimate = estimate;
+        UpdatedAt = at;
+    }
 
     // ── Validation helpers ─────────────────────────────────────────
 
