@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FamilienKochbuch.Api.Endpoints;
+using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Tests.Infrastructure;
 using FamilienKochbuch.Domain.Entities;
+using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -218,5 +220,134 @@ public class ImportEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var response = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // ── POST /api/recipes/import/url (P2-6 step 1) ──────────────────────
+
+    /// <summary>
+    /// Creates a fresh group owned by the given user (they become the
+    /// admin via <see cref="PrivateCollectionService"/>-style seeding).
+    /// Returns the new group id so the enqueue tests can post against
+    /// a group the caller actually belongs to.
+    /// </summary>
+    private async Task<Guid> CreateOwnedGroupAsync(Guid userId, string name = "Familie")
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var group = new Group(name, null, now);
+        var membership = new GroupMembership(userId, group.Id, GroupRole.Admin, now);
+        db.Groups.Add(group);
+        db.GroupMemberships.Add(membership);
+        await db.SaveChangesAsync();
+        return group.Id;
+    }
+
+    public sealed record UrlImportRequest(string Url, Guid GroupId);
+    public sealed record ImportEnqueueResponse(Guid ImportId);
+
+    [Fact]
+    public async Task Url_Import_Anonymous_Gets_401()
+    {
+        var response = await _client.PostAsJsonAsync(
+            "/api/recipes/import/url",
+            new UrlImportRequest("https://example.com/rezept", Guid.NewGuid()));
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Url_Import_Happy_Path_Creates_Row_And_Enqueues_Job()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        _factory.Jobs.Reset();
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/url");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new UrlImportRequest(
+            "https://example.com/rezept", groupId));
+
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ImportEnqueueResponse>())!;
+        Assert.NotEqual(Guid.Empty, body.ImportId);
+
+        // DB row is persisted in Queued state with the right source + URL.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = await db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == body.ImportId);
+        Assert.Equal(userId, import.UserId);
+        Assert.Equal(groupId, import.GroupId);
+        Assert.Equal(ImportSource.Url, import.Source);
+        Assert.Equal(ImportStatus.Queued, import.Status);
+        Assert.Equal("https://example.com/rezept", import.SourceUrl);
+
+        // The endpoint enqueued exactly one job, targeting the URL job's
+        // ExecuteAsync(importId) overload.
+        var captured = Assert.Single(_factory.Jobs.Created);
+        Assert.Equal(typeof(ExtractRecipeFromUrlJob), captured.Job.Type);
+        Assert.Equal(nameof(ExtractRecipeFromUrlJob.ExecuteAsync), captured.Job.Method.Name);
+        Assert.Equal(body.ImportId, Assert.IsType<Guid>(captured.Job.Args[0]));
+    }
+
+    [Fact]
+    public async Task Url_Import_Non_Member_Gets_403()
+    {
+        var (ownerId, _) = await SignupAsync("alice@ex.com", "Alice");
+        var (_, intruderToken) = await SignupAsync("bob@ex.com", "Bob");
+        var groupId = await CreateOwnedGroupAsync(ownerId);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/url");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", intruderToken);
+        req.Content = JsonContent.Create(new UrlImportRequest(
+            "https://example.com/rezept", groupId));
+
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Url_Import_Missing_Group_Gets_404()
+    {
+        var (_, token) = await SignupAsync("alice@ex.com", "Alice");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/url");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new UrlImportRequest(
+            "https://example.com/rezept", Guid.NewGuid()));
+
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-a-url")]
+    [InlineData("ftp://example.com/x")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("/relative/only")]
+    public async Task Url_Import_Rejects_Bad_Url(string url)
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/url");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new UrlImportRequest(url, groupId));
+
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        // Nothing was created / enqueued.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False(await db.RecipeImports.AnyAsync());
     }
 }
