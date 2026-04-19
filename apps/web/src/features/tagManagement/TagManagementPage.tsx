@@ -4,6 +4,7 @@ import type { ApiError, TagDto } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { useGroup } from '@/features/groups/hooks'
 import { useGroupTags } from '@/features/recipes/hooks'
+import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { CreateTagDialog } from './CreateTagDialog'
 import { useDeleteGroupTag } from './hooks'
 
@@ -23,6 +24,10 @@ export function TagManagementPage() {
 
   const [showDialog, setShowDialog] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // BUG-004 — replaces the native `confirm(...)` that used to block the
+  // delete flow. The pending tag is held here so the ConfirmDialog has a
+  // target when the user hits "Löschen".
+  const [pendingDelete, setPendingDelete] = useState<TagDto | null>(null)
 
   if (!groupId) return <Navigate to="/groups" replace />
 
@@ -46,14 +51,17 @@ export function TagManagementPage() {
   const globalTags = tags.filter((t) => t.isGlobal)
   const customTags = tags.filter((t) => !t.isGlobal)
 
-  async function handleDelete(tag: TagDto) {
+  async function handleConfirmDelete() {
+    if (!pendingDelete) return
     setError(null)
-    if (!confirm(`Tag "${tag.name}" wirklich löschen?`)) return
+    const tag = pendingDelete
     try {
       await deleteMutation.mutateAsync(tag.id)
+      setPendingDelete(null)
     } catch (err) {
       const apiErr = err as ApiError
       setError(apiErr.message || 'Tag konnte nicht gelöscht werden.')
+      setPendingDelete(null)
     }
   }
 
@@ -109,7 +117,7 @@ export function TagManagementPage() {
                     size="sm"
                     variant="ghost"
                     aria-label={`Tag ${tag.name} löschen`}
-                    onClick={() => handleDelete(tag)}
+                    onClick={() => setPendingDelete(tag)}
                     disabled={deleteMutation.isPending}
                   >
                     Löschen
@@ -141,6 +149,22 @@ export function TagManagementPage() {
       {showDialog && (
         <CreateTagDialog groupId={groupId} onClose={() => setShowDialog(false)} />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingDelete(null)
+        }}
+        title="Tag wirklich löschen?"
+        description={
+          pendingDelete
+            ? `"${pendingDelete.name}" wird entfernt. Vorhandene Rezept-Verknüpfungen bleiben erhalten.`
+            : ''
+        }
+        confirmLabel="Löschen"
+        onConfirm={handleConfirmDelete}
+        isLoading={deleteMutation.isPending}
+      />
     </main>
   )
 }

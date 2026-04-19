@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -326,7 +326,10 @@ describe('<ShoppingListPage />', () => {
     ).toBeInTheDocument()
   })
 
-  it('confirms before deleting a non-manual item and cancels when the user declines', async () => {
+  // BUG-004 — deletion now flows through the shared ConfirmDialog
+  // primitive instead of the native `window.confirm`. Both the plan-
+  // derived ("FromPlan") and manual rows use the same guardrail.
+  it('opens ConfirmDialog when deleting a non-manual item and does NOT fire DELETE on cancel', async () => {
     const ITEM_ID = 'item-1'
     let called = false
     server.use(
@@ -347,17 +350,17 @@ describe('<ShoppingListPage />', () => {
         },
       ),
     )
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(withProviders())
 
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /Reis entfernen/i }))
-    expect(confirmSpy).toHaveBeenCalled()
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
     expect(called).toBe(false)
-    confirmSpy.mockRestore()
+    await user.click(screen.getByRole('button', { name: /^Abbrechen$/i }))
+    expect(called).toBe(false)
   })
 
-  it('also confirms before deleting a manual item (user-typed = more precious)', async () => {
+  it('opens ConfirmDialog for a manual item too and fires DELETE on confirm', async () => {
     const ITEM_ID = 'item-manual'
     let called = false
     server.use(
@@ -378,17 +381,17 @@ describe('<ShoppingListPage />', () => {
         },
       ),
     )
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(withProviders())
 
     const user = userEvent.setup()
     await user.click(
       await screen.findByRole('button', { name: /Toilettenpapier entfernen/i }),
     )
+    expect(
+      await screen.findByRole('heading', { name: /Zutat wirklich löschen\?/i }),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Löschen$/i }))
     await waitFor(() => expect(called).toBe(true))
-    expect(confirmSpy).toHaveBeenCalled()
-    expect(confirmSpy.mock.calls[0]?.[0]).toMatch(/wirklich löschen/i)
-    confirmSpy.mockRestore()
   })
 
   it('opens the AddItemDialog when the "Eintrag" button is clicked', async () => {

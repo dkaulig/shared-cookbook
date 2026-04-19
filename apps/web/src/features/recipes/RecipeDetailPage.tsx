@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import type { ApiError, RecipeDetailDto, RecipeSnapshot } from '@familien-kochbuch/shared'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useRatings } from '@/features/ratings/hooks'
 import { useGroup } from '@/features/groups/hooks'
@@ -53,6 +54,9 @@ export function RecipeDetailPage() {
   const [servings, setServings] = useState<number | null>(null)
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // BUG-004 — open-state for the shadcn-style confirm modal that
+  // replaced the native `window.confirm('Rezept wirklich löschen?')`.
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   // Hook for the history panel — needs a snapshot-shaped view of the
   // live detail. Keep the hook order stable by computing it before any
@@ -109,15 +113,16 @@ export function RecipeDetailPage() {
   const currentServings = servings ?? recipe.defaultServings
   const aggregate = ratings.data?.aggregate
 
-  async function handleDelete() {
+  async function handleConfirmDelete() {
     setDeleteError(null)
-    if (!confirm('Rezept wirklich löschen?')) return
     try {
       await deleteMutation.mutateAsync(recipeId)
+      setDeleteOpen(false)
       navigate(`/groups/${groupId}`)
     } catch (err) {
       const apiErr = err as ApiError
       setDeleteError(apiErr.message || 'Rezept konnte nicht gelöscht werden.')
+      setDeleteOpen(false)
     }
   }
 
@@ -132,7 +137,7 @@ export function RecipeDetailPage() {
         onBack={() => navigate(`/groups/${groupId}`)}
         onFork={() => setForkDialogOpen(true)}
         onEdit={() => navigate(`/groups/${groupId}/recipes/${recipe.id}/edit`)}
-        onDelete={handleDelete}
+        onDelete={() => setDeleteOpen(true)}
       />
 
       <main className="mx-auto max-w-3xl px-5 pb-32 md:max-w-[920px] md:px-8">
@@ -221,6 +226,16 @@ export function RecipeDetailPage() {
           onClose={() => setForkDialogOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Rezept wirklich löschen?"
+        description="Diese Aktion kann nicht rückgängig gemacht werden. Das Rezept verschwindet für alle Gruppenmitglieder."
+        confirmLabel="Löschen"
+        onConfirm={handleConfirmDelete}
+        isLoading={deleteMutation.isPending}
+      />
     </>
   )
 }

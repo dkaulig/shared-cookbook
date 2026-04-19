@@ -141,7 +141,7 @@ describe('<GroupMembersAndInvitesPanel /> — members list', () => {
     await waitFor(() => expect(putBody).toEqual({ role: 'Admin' }))
   })
 
-  it('admin can remove a member after confirming', async () => {
+  it('admin can remove a member after confirming via the ConfirmDialog', async () => {
     server.use(http.get('/api/groups/g1/invites', () => HttpResponse.json([])))
     let deleted = false
     server.use(
@@ -150,16 +150,24 @@ describe('<GroupMembersAndInvitesPanel /> — members list', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     )
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // BUG-004 — no more native `window.confirm`; action flows through
+    // the shared ConfirmDialog primitive.
     renderPanel(groupWith())
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /bob.*entfernen/i }))
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: /Mitglied entfernen\?/i }),
+    ).toBeInTheDocument()
+    // DELETE hasn't fired yet.
+    expect(deleted).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: /^Entfernen$/i }))
     await waitFor(() => expect(deleted).toBe(true))
-    expect(confirmSpy).toHaveBeenCalled()
   })
 
-  it('remove is skipped when confirmation is cancelled', async () => {
+  it('remove is skipped when the ConfirmDialog is cancelled', async () => {
     server.use(http.get('/api/groups/g1/invites', () => HttpResponse.json([])))
     let deleted = false
     server.use(
@@ -168,13 +176,16 @@ describe('<GroupMembersAndInvitesPanel /> — members list', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     )
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     renderPanel(groupWith())
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /bob.*entfernen/i }))
+    await user.click(screen.getByRole('button', { name: /^Abbrechen$/i }))
     // Nothing happens — no network hit.
     expect(deleted).toBe(false)
+    await waitFor(() =>
+      expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument(),
+    )
   })
 })
 
@@ -211,7 +222,7 @@ describe('<GroupMembersAndInvitesPanel /> — invites list', () => {
     )
   })
 
-  it('admin can revoke an outstanding invite with confirmation', async () => {
+  it('admin can revoke an outstanding invite after ConfirmDialog confirmation', async () => {
     let revoked = false
     server.use(
       http.get('/api/groups/g1/invites', () =>
@@ -231,12 +242,13 @@ describe('<GroupMembersAndInvitesPanel /> — invites list', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     )
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPanel(groupWith())
 
     await waitFor(() => expect(screen.getByText('Diana')).toBeInTheDocument())
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /diana.*zurückziehen/i }))
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Zurückziehen$/i }))
     await waitFor(() => expect(revoked).toBe(true))
   })
 

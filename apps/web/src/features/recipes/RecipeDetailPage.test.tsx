@@ -297,6 +297,71 @@ describe('RecipeDetailPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/zwischen 0 und 5000/i)
   })
 
+  // BUG-004 — the "Rezept löschen" overflow-menu item used to trigger
+  // `window.confirm(...)`. It now opens the shared ConfirmDialog.
+  it('BUG-004: opens ConfirmDialog instead of window.confirm when delete is chosen', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /^Löschen$/i }),
+    )
+
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
+    // Native confirm was never called.
+    expect(
+      screen.getByRole('heading', { name: /Rezept wirklich löschen\?/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('BUG-004: cancelling the ConfirmDialog does NOT fire the DELETE mutation', async () => {
+    const user = userEvent.setup()
+    let deleted = false
+    server.use(
+      http.delete('/api/recipes/r1', () => {
+        deleted = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /^Löschen$/i }),
+    )
+    await user.click(screen.getByRole('button', { name: /^Abbrechen$/i }))
+    expect(deleted).toBe(false)
+  })
+
+  it('BUG-004: confirming the ConfirmDialog issues the DELETE', async () => {
+    const user = userEvent.setup()
+    let deleted = false
+    server.use(
+      http.delete('/api/recipes/r1', () => {
+        deleted = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /^Löschen$/i }),
+    )
+    // Confirm dialog footer has its own "Löschen" button.
+    const confirmFooter = screen.getByTestId('confirm-dialog')
+    const confirmBtn = confirmFooter.querySelector(
+      'button:last-of-type',
+    ) as HTMLButtonElement
+    await user.click(confirmBtn)
+    await screen.findByRole('heading', { name: /Familie/i }).catch(() => null)
+    expect(deleted).toBe(true)
+  })
+
   it('fires the mark-as-cooked mutation when the sticky "Jetzt gekocht" button is tapped', async () => {
     const user = userEvent.setup()
     let cookedAt: string | null = null
