@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { MealPlanDto, MealPlanSlotDto } from '@familien-kochbuch/shared'
+import type { MealPlanDto, MealPlanSlotDto, PatchSlotRequest } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { MealPlanPage } from './MealPlanPage'
@@ -317,6 +317,111 @@ describe('<MealPlanPage />', () => {
         '/groups/g1/mealplan/2026-04-20',
       ),
     )
+  })
+
+  it('opens the EditSlotDialog when a slot card is clicked', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [makeSlot('s1', { label: 'Spaghetti Bolognese' })],
+        }),
+      ),
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    await user.click(await screen.findByTestId('mealplan-slot-edit-s1'))
+    expect(
+      await screen.findByRole('dialog', { name: /Gericht bearbeiten/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the cooked slot with a line-through title + checked toggle', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [makeSlot('s1', { label: 'Linsencurry', isCooked: true })],
+        }),
+      ),
+    )
+
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    const title = await screen.findByText('Linsencurry')
+    expect(title.className).toMatch(/line-through/)
+    expect(screen.getByTestId('mealplan-slot-cooked-toggle-s1')).toBeChecked()
+  })
+
+  it('fires a PATCH with isCooked: true when the Gekocht toggle is ticked', async () => {
+    let capturedBody: PatchSlotRequest | null = null
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [makeSlot('s1', { label: 'Spaghetti', isCooked: false })],
+        }),
+      ),
+      http.patch(`/api/mealplans/${PLAN_ID}/slots/s1`, async ({ request }) => {
+        capturedBody = (await request.json()) as PatchSlotRequest
+        return HttpResponse.json(makeSlot('s1', { label: 'Spaghetti', isCooked: true }))
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    await user.click(await screen.findByTestId('mealplan-slot-cooked-toggle-s1'))
+
+    await waitFor(() => expect(capturedBody).not.toBeNull())
+    expect(capturedBody).toEqual({ isCooked: true })
+  })
+
+  it('opens the DeleteSlotDialog from the slot overflow menu', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [makeSlot('s1', { label: 'Spaghetti' })],
+        }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    await user.click(await screen.findByTestId('mealplan-slot-menu-s1'))
+    const deleteItem = await screen.findByRole('menuitem', { name: /Löschen/i })
+    await user.click(deleteItem)
+
+    expect(
+      await screen.findByRole('dialog', { name: /Gericht wirklich löschen\?/i }),
+    ).toBeInTheDocument()
   })
 
   it('opens the AddSlotDialog when an empty cell button is clicked', async () => {
