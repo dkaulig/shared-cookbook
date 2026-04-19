@@ -1,16 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import type {
-  ImportStatus,
-  RecipeImportDto,
-  RecipeImportPhase,
-} from '@familien-kochbuch/shared'
+import type { ImportStatus, RecipeImportPhase } from '@familien-kochbuch/shared'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useImportStatus } from './hooks'
 import { recallImportGroup } from './importGroupMemo'
-import { progressLabel } from './progressLabel'
+import { derivePhase, resolveLabel } from './phaseProgress'
 import { OverallProgressBar } from './OverallProgressBar'
 import { PhaseStepper } from './PhaseStepper'
 import { PhaseDetailCard } from './PhaseDetailCard'
@@ -170,43 +166,6 @@ export function ImportProgressPage() {
         </div>
       )}
     </main>
-  )
-}
-
-/**
- * Picks the best phase to render the UI with. Prefers the explicit
- * server-supplied `phase` field (populated by SignalR or, once backend
- * exposes it, the GET response); falls back to deriving a coarse phase
- * from `status` so the page stays coherent before the first phase-aware
- * payload lands.
- */
-function derivePhase(data: RecipeImportDto | undefined): RecipeImportPhase {
-  if (!data) return 'queued'
-  if (data.phase) return data.phase
-  if (data.status === 'done') return 'done'
-  if (data.status === 'error') return 'error'
-  if (data.status === 'queued') return 'queued'
-  // Running with no phase info — assume the longest phase so the user
-  // sees meaningful copy instead of a stuck "Queued".
-  return 'transcribing'
-}
-
-/**
- * Resolves the label shown next to the global-progress percent. Prefers
- * the server-computed `progressLabel` (PV1 added this field on every
- * SignalR payload); falls back to the legacy `progressLabel()` helper
- * for a loading/first-render state where the server copy isn't
- * available yet.
- */
-function resolveLabel(
-  data: RecipeImportDto | undefined,
-  effectiveStatus: ImportStatus | 'loading',
-): string {
-  if (data?.progressLabel) return data.progressLabel
-  if (!data) return progressLabel('queued', 0)
-  return progressLabel(
-    effectiveStatus === 'loading' ? 'queued' : effectiveStatus,
-    data.progress ?? 0,
   )
 }
 

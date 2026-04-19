@@ -34,14 +34,15 @@ function LocationProbe() {
   return <div data-testid="location">{loc.pathname}</div>
 }
 
-function renderPage() {
+function renderPage(opts?: { initialEntry?: string }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   })
+  const entry = opts?.initialEntry ?? '/rezepte/import/url'
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={['/rezepte/import/url']}>
+        <MemoryRouter initialEntries={[entry]}>
           <LocationProbe />
           <Routes>
             <Route path="/rezepte/import/url" element={children} />
@@ -215,6 +216,36 @@ describe('<ImportUrlPage />', () => {
     )
     await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
     await waitFor(() => expect(recallImportGroup('imp-memo')).toBe('g-memo'))
+  })
+
+  // PV3 security regression: a crafted `/rezepte/import/url?url=evil`
+  // link could otherwise combine with the autofocused input + a single
+  // Enter keystroke to POST the attacker URL under the victim's
+  // session. We render a warning banner AND drop autofocus when `?url`
+  // prefills the input, so submitting requires an explicit click.
+  it('?url= prefill: renders warning banner and does NOT autofocus the input', async () => {
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([groupSummary({})]),
+      ),
+    )
+    renderPage({
+      initialEntry:
+        '/rezepte/import/url?url=' +
+        encodeURIComponent('https://evil.example/x'),
+    })
+
+    const input = screen.getByLabelText(/Video- oder Blog-URL/i)
+    expect((input as HTMLInputElement).value).toBe('https://evil.example/x')
+
+    // Banner is visible with the German copy reviewed in the plan.
+    expect(
+      await screen.findByTestId('import-url-prefill-warning'),
+    ).toHaveTextContent(/stammt aus einem Link/i)
+
+    // Critical: the URL input must NOT be auto-focused in this flow —
+    // otherwise Enter alone would submit the attacker URL.
+    expect(document.activeElement).not.toBe(input)
   })
 
   it('surfaces a server 400 error inline (no navigation)', async () => {

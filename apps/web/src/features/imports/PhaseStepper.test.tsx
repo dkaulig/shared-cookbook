@@ -55,12 +55,75 @@ describe('<PhaseStepper />', () => {
     expect(screen.getByTestId('phase-step-post_processing')).toHaveAttribute('data-state', 'pending')
   })
 
-  it('treats done/error as final-step current for stepper positioning', () => {
+  // PV3 simplification regression: previously `phaseOrder(done) === 4`
+  // which is the same index as post_processing. The stepper then drew
+  // a "current" dot on the post_processing slot for a job that was
+  // actually finished — a spinner-like treatment on a completed
+  // pipeline. Now `done` maps to index 5 (past-final) and the stepper
+  // renders ALL five slots as completed with NO "current" marker.
+  it('Done: every step is marked completed, no step is "current"', () => {
     render(<PhaseStepper currentPhase="done" phaseProgress={100} />)
+    for (const phase of [
+      'queued',
+      'downloading',
+      'transcribing',
+      'structuring',
+      'post_processing',
+    ] as const) {
+      expect(screen.getByTestId(`phase-step-${phase}`)).toHaveAttribute(
+        'data-state',
+        'done',
+      )
+    }
+    // No slot should carry the "current" marker on a finished import.
+    const currentSlots = screen.queryAllByRole('listitem').filter(
+      (el) => el.getAttribute('data-state') === 'current',
+    )
+    expect(currentSlots).toHaveLength(0)
+  })
+
+  it('Error: marks the attemptedPhase slot with an error state; later slots stay pending', () => {
+    render(
+      <PhaseStepper
+        currentPhase="error"
+        phaseProgress={0}
+        attemptedPhase="transcribing"
+      />,
+    )
+    expect(screen.getByTestId('phase-step-queued')).toHaveAttribute(
+      'data-state',
+      'done',
+    )
+    expect(screen.getByTestId('phase-step-downloading')).toHaveAttribute(
+      'data-state',
+      'done',
+    )
+    expect(screen.getByTestId('phase-step-transcribing')).toHaveAttribute(
+      'data-state',
+      'error',
+    )
+    expect(screen.getByTestId('phase-step-structuring')).toHaveAttribute(
+      'data-state',
+      'pending',
+    )
     expect(screen.getByTestId('phase-step-post_processing')).toHaveAttribute(
       'data-state',
-      'current',
+      'pending',
     )
+  })
+
+  it('Error without attemptedPhase falls back to the first slot marker', () => {
+    render(<PhaseStepper currentPhase="error" phaseProgress={0} />)
+    expect(screen.getByTestId('phase-step-queued')).toHaveAttribute(
+      'data-state',
+      'error',
+    )
+    // The following slots must NOT be "current" — error + current on
+    // the same render was the source of the prior user-confusing UI.
+    const currentSlots = screen.queryAllByRole('listitem').filter(
+      (el) => el.getAttribute('data-state') === 'current',
+    )
+    expect(currentSlots).toHaveLength(0)
   })
 
   it('collapses to a single-line label + slim bar on mobile', () => {

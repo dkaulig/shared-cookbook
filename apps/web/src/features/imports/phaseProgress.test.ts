@@ -1,56 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { RecipeImportPhase } from '@familien-kochbuch/shared'
 import {
-  computeGlobalProgress,
+  derivePhase,
   formatBytes,
   formatEta,
   phaseLabel,
   phaseOrder,
+  resolveLabel,
   stepperPhases,
 } from './phaseProgress'
-
-describe('computeGlobalProgress', () => {
-  // Exhaustive cases mirroring the .NET `PhaseWeightedFormula` table. If
-  // any of these drift, the client is disagreeing with the server — a
-  // design-anchor violation explicitly called out in the plan.
-  it.each<[RecipeImportPhase, number, number]>([
-    ['queued', 0, 0],
-    ['queued', 100, 5],
-    ['downloading', 0, 5],
-    ['downloading', 50, 10],
-    ['downloading', 100, 15],
-    ['transcribing', 0, 15],
-    ['transcribing', 50, 50],
-    ['transcribing', 100, 85],
-    ['structuring', 0, 85],
-    ['structuring', 100, 95],
-    ['post_processing', 0, 95],
-    ['post_processing', 100, 100],
-    ['vision_analysis', 0, 5],
-    ['vision_analysis', 50, 50],
-    ['vision_analysis', 100, 95],
-  ])('maps (%s, %d) → %d global%%', (phase, phaseProgress, expected) => {
-    expect(computeGlobalProgress(phase, phaseProgress)).toBe(expected)
-  })
-
-  it('clamps a negative within-phase value to 0', () => {
-    expect(computeGlobalProgress('downloading', -10)).toBe(5)
-  })
-
-  it('clamps an over-100 within-phase value to 100', () => {
-    expect(computeGlobalProgress('downloading', 250)).toBe(15)
-  })
-
-  it('returns 100 for the Done phase regardless of within-phase value', () => {
-    expect(computeGlobalProgress('done', 0)).toBe(100)
-    expect(computeGlobalProgress('done', 42)).toBe(100)
-  })
-
-  it('returns 0 for the Error phase (progress bar no longer meaningful)', () => {
-    expect(computeGlobalProgress('error', 0)).toBe(0)
-    expect(computeGlobalProgress('error', 80)).toBe(0)
-  })
-})
 
 describe('formatBytes', () => {
   it.each<[number, string]>([
@@ -143,8 +101,11 @@ describe('phaseOrder', () => {
     ['vision_analysis', 2],
     ['structuring', 3],
     ['post_processing', 4],
-    ['done', 4],
-    ['error', 4],
+    // PV3 simplification: terminal states map OUTSIDE the in-progress
+    // stepper range so the UI can distinguish "post_processing running"
+    // from "all steps done". `done` → past-final, `error` → sentinel.
+    ['done', 5],
+    ['error', -1],
   ])('maps phase %s → index %d', (phase, expected) => {
     expect(phaseOrder(phase)).toBe(expected)
   })
@@ -169,5 +130,95 @@ describe('stepperPhases', () => {
       'structuring',
       'post_processing',
     ])
+  })
+})
+
+// PV3 simplification: these helpers moved from ImportProgressPage.tsx —
+// co-locating with the other phase helpers keeps all phase routing in a
+// single module and gives the page a single import.
+describe('derivePhase', () => {
+  it('returns queued when no data is available (pre-first-poll)', () => {
+    expect(derivePhase(undefined)).toBe('queued')
+  })
+
+  it('prefers the server-supplied phase field', () => {
+    expect(
+      derivePhase({
+        id: 'i1',
+        source: 'url',
+        status: 'running',
+        progress: 50,
+        sourceUrl: null,
+        result: null,
+        errorMessage: null,
+        createdAt: '2026-04-19T12:00:00Z',
+        completedAt: null,
+        phase: 'transcribing',
+      }),
+    ).toBe('transcribing')
+  })
+
+  it('falls back to a coarse phase from status when phase is absent', () => {
+    const base = {
+      id: 'i1',
+      source: 'url' as const,
+      progress: 0,
+      sourceUrl: null,
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-19T12:00:00Z',
+      completedAt: null,
+    }
+    expect(derivePhase({ ...base, status: 'done' })).toBe('done')
+    expect(derivePhase({ ...base, status: 'error' })).toBe('error')
+    expect(derivePhase({ ...base, status: 'queued' })).toBe('queued')
+    // Running without phase → assume the longest phase so the user sees
+    // meaningful copy.
+    expect(derivePhase({ ...base, status: 'running' })).toBe('transcribing')
+  })
+})
+
+describe('resolveLabel', () => {
+  it('returns the server-supplied progressLabel verbatim when present', () => {
+    expect(
+      resolveLabel(
+        {
+          id: 'i1',
+          source: 'url',
+          status: 'running',
+          progress: 45,
+          sourceUrl: null,
+          result: null,
+          errorMessage: null,
+          createdAt: '2026-04-19T12:00:00Z',
+          completedAt: null,
+          progressLabel: 'Audio wird transkribiert',
+        },
+        'running',
+      ),
+    ).toBe('Audio wird transkribiert')
+  })
+
+  it('falls back to the queued label when no data is available', () => {
+    expect(resolveLabel(undefined, 'loading')).toMatch(/warteschlange/i)
+  })
+
+  it('falls back to the legacy progressLabel helper when server field is missing', () => {
+    expect(
+      resolveLabel(
+        {
+          id: 'i1',
+          source: 'url',
+          status: 'running',
+          progress: 45,
+          sourceUrl: null,
+          result: null,
+          errorMessage: null,
+          createdAt: '2026-04-19T12:00:00Z',
+          completedAt: null,
+        },
+        'running',
+      ),
+    ).toMatch(/transkribieren/i)
   })
 })

@@ -38,15 +38,22 @@ export function ImportUrlPage() {
   // fully owns the input state (a later `?url` change would not clobber
   // what the user typed).
   const prefillUrl = searchParams.get('url') ?? ''
+  const urlFromQuery = prefillUrl.length > 0
   const [url, setUrl] = useState<string>(prefillUrl)
   const [error, setError] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const urlRef = useRef<HTMLInputElement | null>(null)
 
+  // SECURITY (PV3 review): autofocus the URL input ONLY when the field
+  // starts empty. Auto-focusing a prefilled input lets a crafted
+  // `?url=evil` link + victim-pressing-Enter POST the attacker URL in
+  // one keystroke. Requiring an explicit click to focus on prefill
+  // gives the user an active moment to inspect the URL first.
   useEffect(() => {
+    if (urlFromQuery) return
     urlRef.current?.focus()
-  }, [])
+  }, [urlFromQuery])
 
   function validateUrl(raw: string): string | null {
     const trimmed = raw.trim()
@@ -129,6 +136,17 @@ export function ImportUrlPage() {
         Füge eine URL ein (YouTube, Reel, Blog) — wir erkennen das Rezept
         und du kannst es vor dem Speichern prüfen.
       </p>
+
+      {urlFromQuery && (
+        <div
+          role="status"
+          data-testid="import-url-prefill-warning"
+          className="mt-6 rounded-[12px] border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          <strong>Diese URL stammt aus einem Link.</strong> Bitte prüfe sie,
+          bevor du den Import startest.
+        </div>
+      )}
 
       <form
         onSubmit={handleSubmit}

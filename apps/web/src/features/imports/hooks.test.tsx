@@ -156,13 +156,12 @@ describe('useImportStatus', () => {
     expect(SIGNALR_FRESH_WINDOW_MS).toBe(2000)
   })
 
-  it('backs off the poll cadence when SignalR events are fresh vs stale', async () => {
+  it('backs off the poll cadence by ~2x when SignalR events are fresh vs stale', async () => {
     // Collect two timeseries of poll counts — one where every poll
     // sees a fresh SignalR timestamp (so the interval doubles each
-    // evaluation), one where the timestamp is stale. The fresh run
-    // must fire strictly fewer fetches than the stale one over the
-    // same wall-clock window — the concrete ratio depends on jitter,
-    // but the directional claim is enough to prove the back-off.
+    // evaluation), one where the timestamp is stale. The hook doubles
+    // the interval when `fresh` is true, so over the same wall-clock
+    // window we expect roughly HALF as many fetches.
     async function runOnce({ fresh }: { fresh: boolean }): Promise<number> {
       let calls = 0
       server.use(
@@ -196,10 +195,16 @@ describe('useImportStatus', () => {
     const staleCalls = await runOnce({ fresh: false })
     const freshCalls = await runOnce({ fresh: true })
 
-    // `fresh` must poll no more often than `stale` — and in practice
-    // strictly less given our 6× window. A flaky environment could
-    // narrow the gap, so we assert the weaker direction only.
-    expect(freshCalls).toBeLessThanOrEqual(staleCalls)
+    // PV3 simplification: the prior `freshCalls <= staleCalls`
+    // assertion passed even when the back-off did nothing (e.g. both
+    // equal to 1). The hook doubles the interval on fresh events, so
+    // we assert the ratio directly: `freshCalls * 2` should equal
+    // `staleCalls` give-or-take two scheduling ticks of jitter from
+    // the interval evaluator + scheduler dispatch boundary (±1 each).
+    // A pre-fix implementation that didn't back off would have
+    // `freshCalls === staleCalls`, failing both assertions.
+    expect(staleCalls).toBeGreaterThan(freshCalls)
+    expect(Math.abs(freshCalls * 2 - staleCalls)).toBeLessThanOrEqual(2)
   })
 
   it('stops polling once status transitions to error', async () => {

@@ -273,8 +273,28 @@ describe('useLiveSync', () => {
     const fake = new FakeLiveSyncClient()
     wireEventHandlers(fake, queryClient)
 
+    // PV3 security guard: the handler only merges into an existing cache
+    // entry (phantom-DTO synthesis would let an attacker influence the
+    // PhaseStepper source-branch until the REST GET settled). So we
+    // seed a minimal DTO here to exercise the merge path.
+    const seeded: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      source: 'url',
+      status: 'running',
+      progress: 0,
+      sourceUrl: 'https://example.com/r',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-19T12:00:00Z',
+      completedAt: null,
+    }
+    queryClient.setQueryData(importQueryKeys.status(seeded.id), seeded)
+    // Clear the invalidate+set spies' seed call so the assertions below
+    // reflect only the handler's work.
+    setSpy.mockClear()
+
     const payload: RecipeImportProgressEventPayload = {
-      importId: '11111111-2222-3333-4444-555555555555',
+      importId: seeded.id,
       groupId: '22222222-3333-4444-5555-666666666666',
       phase: 'transcribing',
       progress: 45,
@@ -306,6 +326,34 @@ describe('useLiveSync', () => {
     // The liveEventTimestamp side-channel is updated so useImportStatus
     // can back off its poll cadence.
     expect(readImportLiveEventAt(payload.importId)).not.toBeNull()
+  })
+
+  // PV3 security regression: without the phantom-DTO guard, a
+  // RecipeImportProgressChanged event for an importId the client has
+  // never GET'd would fabricate a DTO with `source: 'url'` defaults —
+  // letting the PhaseStepper render the wrong source-branch (or, more
+  // dangerously, letting a same-group event overwrite unrelated
+  // cache entries). We skip the merge silently when prev is absent;
+  // the 3s poll fallback converges state within one cycle.
+  it('applyImportProgressEvent SKIPS setQueryData when no prior cache exists (security)', () => {
+    const queryClient = new QueryClient()
+    applyImportProgressEvent(queryClient, {
+      importId: 'imp-no-prev',
+      groupId: 'g1',
+      phase: 'transcribing',
+      progress: 45,
+      phaseProgress: 42,
+      progressLabel: 'Audio wird transkribiert',
+      attemptNumber: 1,
+    })
+    const cached = queryClient.getQueryData<RecipeImportDto>(
+      importQueryKeys.status('imp-no-prev'),
+    )
+    // No phantom DTO was synthesised — cache stays empty for this id.
+    expect(cached).toBeUndefined()
+    // Freshness side-channel still records the event so the poll
+    // back-off can apply on the next tick once the GET lands.
+    expect(readImportLiveEventAt('imp-no-prev')).not.toBeNull()
   })
 
   it('RecipeImportProgressChanged preserves prior DTO fields (source, sourceUrl)', () => {
@@ -351,6 +399,19 @@ describe('useLiveSync', () => {
 
   it('applyImportProgressEvent flips status to done on terminal Done phase', () => {
     const queryClient = new QueryClient()
+    // Seed the cache so the merge happens (see phantom-DTO guard above).
+    const seeded: RecipeImportDto = {
+      id: 'imp-done',
+      source: 'url',
+      status: 'running',
+      progress: 90,
+      sourceUrl: 'https://example.com/r',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-19T12:00:00Z',
+      completedAt: null,
+    }
+    queryClient.setQueryData(importQueryKeys.status(seeded.id), seeded)
     applyImportProgressEvent(queryClient, {
       importId: 'imp-done',
       groupId: 'g1',
@@ -369,6 +430,18 @@ describe('useLiveSync', () => {
 
   it('applyImportProgressEvent flips status to error on terminal Error phase', () => {
     const queryClient = new QueryClient()
+    const seeded: RecipeImportDto = {
+      id: 'imp-err',
+      source: 'url',
+      status: 'running',
+      progress: 10,
+      sourceUrl: 'https://example.com/r',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-19T12:00:00Z',
+      completedAt: null,
+    }
+    queryClient.setQueryData(importQueryKeys.status(seeded.id), seeded)
     applyImportProgressEvent(queryClient, {
       importId: 'imp-err',
       groupId: 'g1',

@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react'
+import { AlertCircle, Check } from 'lucide-react'
 import type { RecipeImportPhase } from '@familien-kochbuch/shared'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/useIsMobile'
@@ -10,6 +10,13 @@ interface PhaseStepperProps {
   phaseProgress: number
   /** Import source determines whether slot 2 reads Transcribing or Foto-Analyse. */
   source?: 'url' | 'photos'
+  /**
+   * Phase the pipeline was running when `currentPhase === 'error'`
+   * arrived. The component places an error marker on this slot so the
+   * user sees WHERE in the flow the run failed. Optional — falls back
+   * to a generic "first in-progress slot" marker when absent.
+   */
+  attemptedPhase?: RecipeImportPhase
 }
 
 /**
@@ -32,14 +39,33 @@ export function PhaseStepper({
   currentPhase,
   phaseProgress,
   source = 'url',
+  attemptedPhase,
 }: PhaseStepperProps) {
   const isMobile = useIsMobile()
   const phases = stepperPhases(source)
   const currentIndex = phaseOrder(currentPhase)
+  const isDone = currentPhase === 'done'
+  const isError = currentPhase === 'error'
+  // For error rendering: point the error-marker at the phase the
+  // pipeline was attempting when it failed. Fallback to the first slot
+  // so the marker still has somewhere to sit on malformed input.
+  const errorIndex = isError
+    ? (() => {
+        if (!attemptedPhase || attemptedPhase === 'error' || attemptedPhase === 'done') {
+          return 0
+        }
+        const idx = phaseOrder(attemptedPhase)
+        return idx >= 0 && idx < phases.length ? idx : 0
+      })()
+    : -1
 
   if (isMobile) {
     const totalSteps = phases.length
-    const stepIndex = Math.min(currentIndex, totalSteps - 1)
+    // `done` maps past-last; clamp back so the "Schritt N/5" label
+    // reads "5 von 5" rather than "6 von 5".
+    const stepIndex = isError
+      ? Math.max(0, errorIndex)
+      : Math.min(Math.max(0, currentIndex), totalSteps - 1)
     const clampedPhaseProgress = Math.max(0, Math.min(100, Math.round(phaseProgress)))
     return (
       <section
@@ -75,12 +101,24 @@ export function PhaseStepper({
     >
       <ol className="flex items-center gap-2 overflow-x-auto">
         {phases.map((phase, index) => {
-          const state: StepState =
-            index < currentIndex
-              ? 'done'
-              : index === currentIndex
-                ? 'current'
-                : 'pending'
+          // Terminal-state branches first:
+          //   done  → every step shows as completed (no "current" dot)
+          //   error → the slot that was running gets the error marker;
+          //           slots before it keep "done", slots after stay pending
+          let state: StepState
+          if (isDone) {
+            state = 'done'
+          } else if (isError) {
+            state =
+              index < errorIndex ? 'done' : index === errorIndex ? 'error' : 'pending'
+          } else {
+            state =
+              index < currentIndex
+                ? 'done'
+                : index === currentIndex
+                  ? 'current'
+                  : 'pending'
+          }
           return (
             <li
               key={phase}
@@ -94,6 +132,7 @@ export function PhaseStepper({
                   'truncate text-[12.5px] font-medium',
                   state === 'current' && 'text-foreground',
                   state === 'done' && 'text-[hsl(var(--muted-foreground))]',
+                  state === 'error' && 'text-[hsl(var(--destructive))]',
                   state === 'pending' && 'text-[hsl(var(--muted-foreground)/0.7)]',
                 )}
               >
@@ -118,7 +157,7 @@ export function PhaseStepper({
   )
 }
 
-type StepState = 'done' | 'current' | 'pending'
+type StepState = 'done' | 'current' | 'pending' | 'error'
 
 function StepDot({ index, state }: { index: number; state: StepState }) {
   if (state === 'done') {
@@ -132,6 +171,13 @@ function StepDot({ index, state }: { index: number; state: StepState }) {
     return (
       <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full border-2 border-primary text-[11px] font-semibold text-primary">
         {index + 1}
+      </span>
+    )
+  }
+  if (state === 'error') {
+    return (
+      <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-[hsl(var(--destructive))] text-[hsl(var(--destructive-foreground))]">
+        <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
       </span>
     )
   }
