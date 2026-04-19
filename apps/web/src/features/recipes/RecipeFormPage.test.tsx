@@ -2028,5 +2028,194 @@ describe('RecipeFormPage (create)', () => {
       // No form must be rendered in the error branch.
       expect(screen.queryByLabelText(/^Titel$/i)).not.toBeInTheDocument()
     })
+
+    // ── BUG-018: video-thumbnail auto-attached as staged photo ──────
+    //
+    // The URL-import job downloads the extracted `recipe.thumbnail_url`
+    // (yt-dlp video frame), persists it via SeaweedFS, and surfaces the
+    // resulting `thumbnailStagedPhotoId` on the import status response.
+    // The form wrapper folds that id into the `stagedPhotoIds` list so
+    // the create-recipe POST adopts the thumbnail onto the new recipe
+    // alongside any user-uploaded photos.
+
+    it('auto-includes the import thumbnailStagedPhotoId in the create-recipe stagedPhotoIds (BUG-018)', async () => {
+      const user = userEvent.setup()
+      const seed: RecipeImportDto = {
+        id: 'imp-bug018-thumb',
+        groupId: 'g1',
+        source: 'url',
+        status: 'done',
+        progress: 100,
+        sourceUrl: 'https://www.facebook.com/somevideo',
+        result: {
+          recipe: {
+            title: 'Video Pizza',
+            description: null,
+            servings: 4,
+            difficulty: 1,
+            prep_minutes: null,
+            cook_minutes: null,
+            ingredients: [
+              {
+                name: 'Mehl',
+                quantity: '300',
+                unit: 'g',
+                note: null,
+                confidence: 'high',
+              },
+            ],
+            steps: [{ position: 1, content: 'Mix.', confidence: 'high' }],
+            tags: [],
+            source_url: 'https://www.facebook.com/somevideo',
+            thumbnail_url:
+              'https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg',
+          },
+          confidence: { overall: 'high', notes: [] },
+        },
+        errorMessage: null,
+        createdAt: '2026-04-19T12:00:00Z',
+        completedAt: '2026-04-19T12:00:30Z',
+        // The URL job's post-Done attach step set this to the
+        // freshly-created StagedPhoto row's id.
+        thumbnailStagedPhotoId: 'staged-thumb-uuid',
+      }
+
+      let captured: CreateRecipeRequest | null = null
+      server.use(
+        http.post('/api/groups/g1/recipes', async ({ request }) => {
+          captured = (await request.json()) as CreateRecipeRequest
+          return HttpResponse.json(
+            {
+              id: 'r-bug018',
+              groupId: 'g1',
+              createdByUserId: 'u1',
+              createdByDisplayName: 'U',
+              title: 'Video Pizza',
+              defaultServings: 4,
+              difficulty: 1,
+              sourceType: 'Manual',
+              photos: [
+                '/api/photos/recipes/thumbed.jpg?sig=x&exp=9',
+              ],
+              createdAt: '2026-04-19T12:00:30Z',
+              updatedAt: '2026-04-19T12:00:30Z',
+              ingredients: [],
+              steps: [],
+              tags: [],
+              nutritionEstimate: null,
+              partialPhotoFailures: null,
+            },
+            { status: 201 },
+          )
+        }),
+      )
+
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-bug018-thumb',
+          seed,
+        ),
+      )
+
+      await screen.findByDisplayValue('Video Pizza')
+      await user.click(
+        screen.getByRole('button', { name: /Rezept speichern/i }),
+      )
+      await waitFor(() => expect(captured).not.toBeNull())
+      // The thumbnail staged-photo id is forwarded into the create
+      // payload — the .NET create endpoint's PF1 promote handshake
+      // adopts it onto the saved recipe.
+      expect(captured!.stagedPhotoIds).toEqual(['staged-thumb-uuid'])
+    })
+
+    it('omits the thumbnail entry when the import has no thumbnailStagedPhotoId (blog import)', async () => {
+      // Blog imports rarely have a usable thumbnail; the URL job
+      // simply doesn't auto-attach one. The form must not invent a
+      // staged-photo id out of thin air.
+      const user = userEvent.setup()
+      const seed: RecipeImportDto = {
+        id: 'imp-bug018-noblog',
+        groupId: 'g1',
+        source: 'url',
+        status: 'done',
+        progress: 100,
+        sourceUrl: 'https://blog.example/recipe',
+        result: {
+          recipe: {
+            title: 'Blog Pizza',
+            description: null,
+            servings: 4,
+            difficulty: 1,
+            prep_minutes: null,
+            cook_minutes: null,
+            ingredients: [
+              {
+                name: 'Mehl',
+                quantity: '1',
+                unit: 'g',
+                note: null,
+                confidence: 'high',
+              },
+            ],
+            steps: [{ position: 1, content: 'Mix.', confidence: 'high' }],
+            tags: [],
+            source_url: 'https://blog.example/recipe',
+            thumbnail_url: null,
+          },
+          confidence: { overall: 'high', notes: [] },
+        },
+        errorMessage: null,
+        createdAt: '2026-04-19T12:00:00Z',
+        completedAt: '2026-04-19T12:00:30Z',
+        thumbnailStagedPhotoId: null,
+      }
+
+      let captured: CreateRecipeRequest | null = null
+      server.use(
+        http.post('/api/groups/g1/recipes', async ({ request }) => {
+          captured = (await request.json()) as CreateRecipeRequest
+          return HttpResponse.json(
+            {
+              id: 'r-blog',
+              groupId: 'g1',
+              createdByUserId: 'u1',
+              createdByDisplayName: 'U',
+              title: 'Blog Pizza',
+              defaultServings: 4,
+              difficulty: 1,
+              sourceType: 'Manual',
+              photos: [],
+              createdAt: '2026-04-19T12:00:30Z',
+              updatedAt: '2026-04-19T12:00:30Z',
+              ingredients: [],
+              steps: [],
+              tags: [],
+              nutritionEstimate: null,
+              partialPhotoFailures: null,
+            },
+            { status: 201 },
+          )
+        }),
+      )
+
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-bug018-noblog',
+          seed,
+        ),
+      )
+
+      await screen.findByDisplayValue('Blog Pizza')
+      await user.click(
+        screen.getByRole('button', { name: /Rezept speichern/i }),
+      )
+      await waitFor(() => expect(captured).not.toBeNull())
+      // Either omitted or empty — the create endpoint treats both as
+      // "no staged photos to promote", so neither is wrong.
+      expect(
+        captured!.stagedPhotoIds === undefined ||
+          captured!.stagedPhotoIds!.length === 0,
+      ).toBe(true)
+    })
   })
 })

@@ -27,11 +27,16 @@ public class ExtractRecipeFromUrlJob
 
     private readonly AppDbContext _db;
     private readonly PythonExtractorRunner _runner;
+    private readonly ThumbnailAttacher _thumbnailAttacher;
 
-    public ExtractRecipeFromUrlJob(AppDbContext db, PythonExtractorRunner runner)
+    public ExtractRecipeFromUrlJob(
+        AppDbContext db,
+        PythonExtractorRunner runner,
+        ThumbnailAttacher thumbnailAttacher)
     {
         _db = db;
         _runner = runner;
+        _thumbnailAttacher = thumbnailAttacher;
     }
 
     /// <summary>Entry point invoked by Hangfire. Public for EF's DI
@@ -61,5 +66,21 @@ public class ExtractRecipeFromUrlJob
                 hint = new { group_id = i.GroupId.ToString("D"), user_id = i.UserId.ToString("D") },
             },
             ct);
+
+        // BUG-018 — once the import is in Done state with the structured
+        // recipe persisted in ResultJson, opportunistically download the
+        // extracted video thumbnail and stage it as a recipe photo. The
+        // attacher swallows every failure mode (timeout, oversize,
+        // non-image, host-allowlist reject) and just returns null — the
+        // import row stays Done, just without an auto-attached photo.
+        //
+        // Skipped on the retry-after-success path (ThumbnailStagedPhotoId
+        // already set) and on the error path (Status != Done).
+        if (import.Status == ImportStatus.Done
+            && import.ThumbnailStagedPhotoId is null
+            && !string.IsNullOrWhiteSpace(import.ResultJson))
+        {
+            await _thumbnailAttacher.TryAttachAsync(import, import.ResultJson, ct);
+        }
     }
 }

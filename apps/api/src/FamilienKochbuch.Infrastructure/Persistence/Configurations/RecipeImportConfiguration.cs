@@ -40,6 +40,16 @@ internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<Recip
             .HasDefaultValueSql("CURRENT_TIMESTAMP")
             .IsRequired();
 
+        // BUG-018 — optional FK to a StagedPhoto created by the URL-import
+        // job from the extracted video thumbnail. Nullable so the column
+        // is back-compatible (existing rows stay null without backfill)
+        // and so a thumbnail-download failure doesn't break the rest of
+        // the import. No FK constraint to StagedPhotos: the staged photo
+        // is reaped by the sweep job once promoted onto a recipe and we
+        // don't want a cascade-FK to NULL the column out from under the
+        // import row's audit trail.
+        e.Property(r => r.ThumbnailStagedPhotoId);
+
         e.Property(r => r.SourceUrl).HasMaxLength(RecipeImport.SourceUrlMaxLength);
 
         // ResultJson is arbitrary length (could be ~50KB for a big

@@ -144,6 +144,19 @@ public sealed class RecipeImport
     public int AttemptNumber { get; private set; } = 1;
     public DateTimeOffset LastProgressAt { get; private set; }
 
+    /// <summary>
+    /// BUG-018 — id of a <see cref="StagedPhoto"/> the URL-import job
+    /// downloaded from the extracted <c>recipe.thumbnail_url</c> (e.g.
+    /// the yt-dlp video frame). Null when the source had no thumbnail
+    /// or the download failed gracefully (timeout, oversize, non-image
+    /// content-type). The frontend prefill auto-adds this id to the
+    /// staged-photo list it forwards to the create-recipe payload, so
+    /// the user gets the video-thumbnail attached as a recipe photo
+    /// without manual upload — and the SeaweedFS-backed copy survives
+    /// the FB-CDN URL expiring an hour later.
+    /// </summary>
+    public Guid? ThumbnailStagedPhotoId { get; private set; }
+
     // ── State transitions ───────────────────────────────────────────
 
     /// <summary>
@@ -286,6 +299,27 @@ public sealed class RecipeImport
         CompletionTokens = completionTokens;
         CachedPromptTokens = cachedPromptTokens;
         ModelDeployment = Truncate(modelDeployment.Trim(), ModelDeploymentMaxLength);
+    }
+
+    /// <summary>
+    /// BUG-018 — links a freshly-created <see cref="StagedPhoto"/> row
+    /// to this import. Called from the URL-extract job after the
+    /// thumbnail download + SeaweedFS upload + StagedPhoto-row insert
+    /// succeed. Idempotent on a no-op repeat with the same id (the
+    /// thumbnail attach runs at most once per attempt; a Hangfire retry
+    /// re-running the post-Done step with the same staged-photo would
+    /// be a logic error). Re-attaching a different id throws because
+    /// the previous staged blob would leak.
+    /// </summary>
+    public void AttachThumbnailStagedPhoto(Guid stagedPhotoId)
+    {
+        if (stagedPhotoId == Guid.Empty)
+            throw new ArgumentException(
+                "StagedPhotoId must not be empty.", nameof(stagedPhotoId));
+        if (ThumbnailStagedPhotoId is { } existing && existing != stagedPhotoId)
+            throw new InvalidOperationException(
+                $"Import {Id} already has a thumbnail StagedPhoto ({existing}); refusing to overwrite with {stagedPhotoId}.");
+        ThumbnailStagedPhotoId = stagedPhotoId;
     }
 
     // ── PV1: Phase-aware progress state machine ─────────────────────

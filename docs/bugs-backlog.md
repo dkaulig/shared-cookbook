@@ -657,7 +657,27 @@ vollem prefill.
 
 ## BUG-018 · Video-Thumbnail wird nicht als Recipe-Photo attached
 **Reported:** 2026-04-19 (feature-request)
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `ExtractRecipeFromUrlJob` ruft nach
+`MarkDone` einen neuen `ThumbnailAttacher`-Service auf, der die
+extrahierte `recipe.thumbnail_url` (yt-dlp Frame) gegen eine
+SSRF-Host-Allowlist (*.fbcdn.net, *.cdninstagram.com, *.tiktokcdn.com,
+*.ytimg.com, etc.) prüft, mit 5s-Timeout + 5MB-Cap + image/* MIME-Check
+herunterlädt, via `IPhotoStorage.UploadAsync` in SeaweedFS persistiert,
+einen `StagedPhoto`-Row anlegt und über das neue domain-Feld
+`RecipeImport.ThumbnailStagedPhotoId` (EF-Migration
+`AddRecipeImportThumbnailStagedPhotoId`, nullable) verlinkt. Alle
+Download-Failures (Timeout, 4xx/5xx, oversize, non-image, host-reject)
+loggen Warning + lassen das Recipe trotzdem fertig werden — nie
+exception-bubbling. Frontend: `ImportStatusResponse` exposed
+`thumbnailStagedPhotoId`, `RecipeFormPage`-Wrapper foldet sie via
+`withImportEnvelope` in die `stagedPhotoIds`, die zum POST
+`/api/recipes` durchgereicht werden — PF1-promote-flow adoptiert das
+Foto auf dem gespeicherten Rezept. 15 .NET-Regressionstests in
+`ExtractRecipeFromUrlJobTests.BUG018_*` (Happy-Path, CDN-500,
+oversize-Content-Length, non-image-MIME, no-thumbnail-Result,
+disallowed-host, plus 9 host-allowlist InlineData-Cases) +
+7 Web-Tests (`importPrefill.test.ts` × 3, `importsApi.test.ts` × 2,
+`RecipeFormPage.test.tsx` × 2). Keine neuen NPM/NuGet-Packages.)
 **Severity:** LOW (feature-request, nicht bug)
 **Symptom:** Nach Video-Import hat das Rezept keine Fotos. User
 erwartet mindestens den Video-Thumbnail als Recipe-Hero-Image.

@@ -64,7 +64,18 @@ public static class ImportEndpoints
         long? BytesTotal,
         int? SegmentsDone,
         int? SegmentsTotal,
-        DateTimeOffset LastProgressAt);
+        DateTimeOffset LastProgressAt,
+        /// <summary>
+        /// BUG-018 — id of the <see cref="StagedPhoto"/> the URL job
+        /// downloaded from the extracted video thumbnail (yt-dlp frame).
+        /// Null when the source had no thumbnail or the download fell
+        /// back to the graceful-failure path (timeout, oversize,
+        /// non-image, host-allowlist reject). The frontend's import
+        /// prefill auto-adds this id to the staged-photo list it
+        /// forwards to <c>POST /api/recipes</c>, so the user gets the
+        /// thumbnail attached as a recipe photo without manual upload.
+        /// </summary>
+        Guid? ThumbnailStagedPhotoId);
 
     /// <summary>Body of <c>POST /api/recipes/import/url</c>.</summary>
     public record UrlImportRequest(string Url, Guid GroupId);
@@ -142,7 +153,11 @@ public static class ImportEndpoints
             BytesTotal: import.BytesTotal,
             SegmentsDone: import.SegmentsDone,
             SegmentsTotal: import.SegmentsTotal,
-            LastProgressAt: import.LastProgressAt));
+            LastProgressAt: import.LastProgressAt,
+            // BUG-018 — surface the auto-attached video thumbnail
+            // staged-photo id so the frontend prefill can promote it
+            // alongside any user-uploaded photos without an extra round-trip.
+            ThumbnailStagedPhotoId: import.ThumbnailStagedPhotoId));
     }
 
     // ── POST /api/recipes/import/url ─────────────────────────────────

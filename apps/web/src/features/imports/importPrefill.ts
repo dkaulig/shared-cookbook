@@ -56,6 +56,21 @@ export interface ImportPrefill {
    * payload so the saved recipe carries the estimate from day one.
    */
   nutritionEstimate: NutritionEstimate | null
+  /**
+   * BUG-018 — id of a {@link StagedPhotoResponse.stagedPhotoId} the
+   * URL-import job auto-created from the extracted video thumbnail.
+   * Forwarded into the create-recipe staged-photo list so the user
+   * sees the thumbnail attached on the saved recipe without lifting
+   * a finger. `null` when the source had no thumbnail (typical for
+   * blog imports) or the auto-download failed gracefully.
+   *
+   * Note this is *only* populated by the wrapper that has access to
+   * the import status response; `extractedRecipeToPrefill` itself
+   * doesn't see it (the {@link ExtractedRecipe} just carries the raw
+   * `thumbnail_url` string, which the form intentionally ignores in
+   * favour of the persisted SeaweedFS copy).
+   */
+  thumbnailStagedPhotoId: string | null
 }
 
 /** Form default when the source is silent on servings. */
@@ -130,6 +145,12 @@ function clampDifficulty(raw: number | null | undefined): 1 | 2 | 3 {
  * form stores ingredient quantities as strings so the user can edit
  * "1/2" or "nach Geschmack" without the form model trying to coerce
  * them to `number` every keystroke.
+ *
+ * `thumbnailStagedPhotoId` (BUG-018) is opaque to the recipe-shape
+ * conversion — it lives on the `RecipeImportDto` envelope, not the
+ * inner extracted recipe — so this function defaults it to `null`.
+ * The wrapper that has the full DTO in scope is responsible for
+ * overlaying it onto the prefill via {@link withImportEnvelope}.
  */
 export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
   const ingredients = r.ingredients.map((i): ImportPrefillIngredient => {
@@ -193,5 +214,29 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
     steps,
     isPhotoImport,
     nutritionEstimate,
+    // Caller (RecipeFormPage wrapper) overlays this from the import
+    // DTO via `withImportEnvelope` — the bare extracted-recipe shape
+    // doesn't carry it.
+    thumbnailStagedPhotoId: null,
   }
+}
+
+/**
+ * BUG-018 — overlays the import-DTO-level fields onto a prefill the
+ * form needs but `extractedRecipeToPrefill` can't see (it only gets
+ * the inner recipe). Currently just propagates the auto-attached
+ * thumbnail staged-photo id, but the seam is named generically so
+ * future envelope-only fields (e.g. createdAt, attribution) can join
+ * here without another shape rev.
+ *
+ * Returns a fresh object — never mutates the input. When
+ * `thumbnailStagedPhotoId` is null/undefined the prefill comes back
+ * unchanged.
+ */
+export function withImportEnvelope(
+  prefill: ImportPrefill,
+  envelope: { thumbnailStagedPhotoId?: string | null },
+): ImportPrefill {
+  if (!envelope.thumbnailStagedPhotoId) return prefill
+  return { ...prefill, thumbnailStagedPhotoId: envelope.thumbnailStagedPhotoId }
 }

@@ -36,6 +36,30 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         });
     }
 
+    /// <summary>BUG-018 helper: enqueue a response carrying binary
+    /// payload bytes + an explicit content-type. Used by the
+    /// thumbnail-download tests to simulate a CDN serving a PNG/JPEG
+    /// blob (and the negative paths — wrong MIME, oversize body).</summary>
+    public void QueueBytesResponse(
+        HttpStatusCode status,
+        byte[] body,
+        string contentType,
+        long? declaredContentLength = null)
+    {
+        _responders.Enqueue(_ =>
+        {
+            var resp = new HttpResponseMessage(status)
+            {
+                Content = new ByteArrayContent(body),
+            };
+            resp.Content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+            if (declaredContentLength is long len)
+                resp.Content.Headers.ContentLength = len;
+            return resp;
+        });
+    }
+
     /// <summary>PF2 helper: enqueue a 200 response carrying the four
     /// <c>X-Extractor-*</c> token-usage headers the .NET side reads in
     /// extraction-job tests and chat-endpoint tests.</summary>
@@ -90,20 +114,48 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 /// wrapping the <see cref="StubHttpMessageHandler"/> under the expected
 /// named-client name. Configures a BaseAddress so the jobs can dispatch
 /// to relative URLs ("/extract/url") in the same shape as production.
+///
+/// BUG-018: a secondary named-handler map lets a single test wire two
+/// distinct handlers — one for the Python extractor client, one for
+/// the thumbnail-downloader client — so each side's recorded requests
+/// and queued responses stay isolated.
 /// </summary>
 internal sealed class StubHttpClientFactory : IHttpClientFactory
 {
-    private readonly StubHttpMessageHandler _handler;
-    private readonly Uri _baseAddress;
+    private readonly StubHttpMessageHandler _defaultHandler;
+    private readonly Uri _defaultBaseAddress;
+    private readonly Dictionary<string, (StubHttpMessageHandler Handler, Uri? BaseAddress)> _byName
+        = new(StringComparer.Ordinal);
 
     public StubHttpClientFactory(StubHttpMessageHandler handler, Uri baseAddress)
     {
-        _handler = handler;
-        _baseAddress = baseAddress;
+        _defaultHandler = handler;
+        _defaultBaseAddress = baseAddress;
     }
 
-    public HttpClient CreateClient(string name) => new(_handler, disposeHandler: false)
+    /// <summary>
+    /// Bind a secondary named client to its own handler — used by the
+    /// thumbnail-attach tests so the .NET → Python POST and the
+    /// .NET → CDN GET don't share a request log or a response queue.
+    /// </summary>
+    public void RegisterNamedHandler(
+        string name, StubHttpMessageHandler handler, Uri? baseAddress = null)
     {
-        BaseAddress = _baseAddress,
-    };
+        _byName[name] = (handler, baseAddress);
+    }
+
+    public HttpClient CreateClient(string name)
+    {
+        if (_byName.TryGetValue(name, out var entry))
+        {
+            return new HttpClient(entry.Handler, disposeHandler: false)
+            {
+                BaseAddress = entry.BaseAddress,
+            };
+        }
+        return new HttpClient(_defaultHandler, disposeHandler: false)
+        {
+            BaseAddress = _defaultBaseAddress,
+        };
+    }
 }
