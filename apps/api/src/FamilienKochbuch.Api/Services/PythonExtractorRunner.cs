@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Domain.Entities;
@@ -34,9 +35,22 @@ namespace FamilienKochbuch.Api.Services;
 /// </summary>
 public sealed class PythonExtractorRunner
 {
+    /// <summary>Default docker-internal base URL for the .NET API, used
+    /// when <c>API_INTERNAL_BASE_URL</c> is not set. Matches the api
+    /// service hostname/port on the default compose network so Python
+    /// can reach <c>/api/internal/imports/{id}/progress</c> for progress
+    /// callbacks without any extra routing config.</summary>
+    public const string DefaultCallbackBaseUrl = "http://api:5000";
+
+    /// <summary>Env var the compose files expose on the api container so
+    /// ops can point Python at the api over a different hostname (e.g.
+    /// the host-side loopback in a test environment) without a rebuild.</summary>
+    public const string CallbackBaseUrlEnvVar = "API_INTERNAL_BASE_URL";
+
     private readonly AppDbContext _db;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ExtractorHmacSigner _signer;
+    private readonly ImportProgressTokenService _progressTokens;
     private readonly ILiveSyncPublisher _liveSync;
     private readonly TimeProvider _clock;
     private readonly ILogger<PythonExtractorRunner> _logger;
@@ -45,6 +59,7 @@ public sealed class PythonExtractorRunner
         AppDbContext db,
         IHttpClientFactory httpClientFactory,
         ExtractorHmacSigner signer,
+        ImportProgressTokenService progressTokens,
         ILiveSyncPublisher liveSync,
         TimeProvider clock,
         ILogger<PythonExtractorRunner> logger)
@@ -52,6 +67,7 @@ public sealed class PythonExtractorRunner
         _db = db;
         _httpClientFactory = httpClientFactory;
         _signer = signer;
+        _progressTokens = progressTokens;
         _liveSync = liveSync;
         _clock = clock;
         _logger = logger;
@@ -102,10 +118,30 @@ public sealed class PythonExtractorRunner
         await _db.SaveChangesAsync(ct);
         await _liveSync.RecipeImportProgressChangedAsync(import, ct);
 
+        // PV2 hotfix — merge the progress-callback envelope into the
+        // outbound body so Python's ProgressReporter can phone home with
+        // per-phase progress. Without these four fields Python falls back
+        // to NullProgressReporter and the UI sits at Queued(5%) for the
+        // full 1-3 min extraction before the sync response lands at 100%.
+        var now = _clock.GetUtcNow();
+        var expiresAt = now + ImportProgressTokenService.MaxTokenLifetime;
+        var callbackToken = _progressTokens.Sign(import.Id, expiresAt);
+        var callbackBaseUrl = Environment.GetEnvironmentVariable(CallbackBaseUrlEnvVar)
+            ?? DefaultCallbackBaseUrl;
+        var callbackUrl = $"{callbackBaseUrl.TrimEnd('/')}/api/internal/imports/{import.Id:D}/progress";
+
+        var bodyNode = JsonSerializer.SerializeToNode(buildBody(import))?.AsObject()
+            ?? throw new InvalidOperationException(
+                "buildBody returned a null or non-object payload; cannot attach progress callbacks.");
+        bodyNode["callback_url"] = callbackUrl;
+        bodyNode["callback_token"] = callbackToken;
+        bodyNode["import_id"] = import.Id.ToString("D");
+        bodyNode["attempt"] = import.AttemptNumber;
+
         var client = _httpClientFactory.CreateClient(ExtractRecipeFromUrlJob.HttpClientName);
         using var request = new HttpRequestMessage(HttpMethod.Post, relativeUrl)
         {
-            Content = JsonContent.Create(buildBody(import)),
+            Content = JsonContent.Create<JsonNode>(bodyNode),
         };
         await _signer.ApplyAsync(request, import.UserId, ct);
 

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Api.Tests.Infrastructure;
@@ -40,6 +41,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     private StubHttpMessageHandler _handler = null!;
     private ExtractRecipeFromUrlJob _job = null!;
     private FakeTimeProvider _clock = null!;
+    private ImportProgressTokenService _progressTokens = null!;
 
     public async Task InitializeAsync()
     {
@@ -62,11 +64,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         _handler = new StubHttpMessageHandler();
         var factory = new StubHttpClientFactory(_handler, new Uri("http://python/"));
         _clock = new FakeTimeProvider(new DateTimeOffset(2026, 4, 18, 12, 0, 0, TimeSpan.Zero));
-        var signer = new ExtractorHmacSigner(
-            Options.Create(new ExtractorOptions { SharedSecret = "test-secret" }),
-            _clock);
+        var extractorOpts = Options.Create(new ExtractorOptions { SharedSecret = "test-secret" });
+        var signer = new ExtractorHmacSigner(extractorOpts, _clock);
+        _progressTokens = new ImportProgressTokenService(extractorOpts);
         var runner = new PythonExtractorRunner(
-            _db, factory, signer, new NullLiveSyncPublisher(), _clock,
+            _db, factory, signer, _progressTokens, new NullLiveSyncPublisher(), _clock,
             NullLogger<PythonExtractorRunner>.Instance);
         _job = new ExtractRecipeFromUrlJob(_db, runner);
     }
@@ -287,5 +289,107 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             () => _job.ExecuteAsync(import.Id, CancellationToken.None));
 
         Assert.Empty(_handler.Requests);
+    }
+
+    // ── PV2 hotfix regression tests ─────────────────────────────────
+    //
+    // The original PV1/PV2 shipped backend + Python reporter but the
+    // .NET → Python /extract/url body never carried callback_url,
+    // callback_token, import_id or attempt. Python fell back to
+    // NullProgressReporter → UI stuck at Queued(5%) for the full
+    // 1-3 min extraction. These tests assert all four fields show up
+    // on the outbound JSON body so the silent regression can't recur.
+
+    [Fact]
+    public async Task Outbound_Body_Carries_Progress_Callback_Fields()
+    {
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, "{\"title\":\"x\"}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.NotNull(req.Body);
+        using var doc = JsonDocument.Parse(req.Body!);
+        var root = doc.RootElement;
+
+        // callback_url uses the default docker hostname when env var unset.
+        var callbackUrl = root.GetProperty("callback_url").GetString();
+        Assert.Equal(
+            $"http://api:5000/api/internal/imports/{import.Id:D}/progress",
+            callbackUrl);
+
+        // callback_token — must validate via the same signer.
+        var token = root.GetProperty("callback_token").GetString();
+        Assert.False(string.IsNullOrEmpty(token));
+        var verified = _progressTokens.TryVerify(
+            token, import.Id, _clock.GetUtcNow(), out var failure);
+        Assert.True(verified, $"token failed: {failure}");
+
+        // import_id is the canonical dashed GUID.
+        Assert.Equal(import.Id.ToString("D"), root.GetProperty("import_id").GetString());
+
+        // attempt mirrors the domain entity (starts at 1).
+        Assert.Equal(import.AttemptNumber, root.GetProperty("attempt").GetInt32());
+        Assert.Equal(1, root.GetProperty("attempt").GetInt32());
+
+        // The original url + hint payload survives the merge.
+        Assert.Equal("https://example.com/rezept", root.GetProperty("url").GetString());
+        Assert.Equal(JsonValueKind.Object, root.GetProperty("hint").ValueKind);
+    }
+
+    [Fact]
+    public async Task Callback_Base_Url_Honours_Env_Override()
+    {
+        var original = Environment.GetEnvironmentVariable(PythonExtractorRunner.CallbackBaseUrlEnvVar);
+        Environment.SetEnvironmentVariable(
+            PythonExtractorRunner.CallbackBaseUrlEnvVar,
+            "http://api-host.test:9999/");
+        try
+        {
+            var import = await SeedImportAsync();
+            _handler.QueueResponse(HttpStatusCode.OK, "{\"title\":\"x\"}");
+
+            await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+            var req = Assert.Single(_handler.Requests);
+            using var doc = JsonDocument.Parse(req.Body!);
+            Assert.Equal(
+                $"http://api-host.test:9999/api/internal/imports/{import.Id:D}/progress",
+                doc.RootElement.GetProperty("callback_url").GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                PythonExtractorRunner.CallbackBaseUrlEnvVar, original);
+        }
+    }
+
+    [Fact]
+    public async Task Outbound_Attempt_Reflects_Retry_Bump()
+    {
+        // Simulate a crashed first attempt: row sits in Running/Downloading
+        // when the job re-enters. The runner bumps AttemptNumber to 2
+        // before dispatch, so the outbound body must carry attempt=2.
+        var import = await SeedImportAsync();
+        import.MarkRunning(10);
+        import.UpdateProgress(
+            phase: RecipeImportPhase.Downloading,
+            phaseProgress: 0, bytesDownloaded: null, bytesTotal: null,
+            segmentsDone: null, segmentsTotal: null,
+            attempt: import.AttemptNumber, now: _clock.GetUtcNow());
+        await _db.SaveChangesAsync();
+
+        _handler.QueueResponse(HttpStatusCode.OK, "{\"title\":\"Retry\"}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var req = Assert.Single(_handler.Requests);
+        using var doc = JsonDocument.Parse(req.Body!);
+        Assert.Equal(2, doc.RootElement.GetProperty("attempt").GetInt32());
+        // Token still verifies for the (now-running) importId.
+        var token = doc.RootElement.GetProperty("callback_token").GetString();
+        Assert.True(_progressTokens.TryVerify(
+            token, import.Id, _clock.GetUtcNow(), out _));
     }
 }

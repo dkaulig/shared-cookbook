@@ -67,6 +67,10 @@ services:
       # ── P2-5: Python extractor bridge ───────────────────────────
       EXTRACTOR_SHARED_SECRET: ${EXTRACTOR_SHARED_SECRET}
       PythonExtractor__BaseUrl: "${PYTHON_EXTRACTOR_BASE_URL:-http://python-extractor:8000}"
+      # PV2 hotfix — callback base URL baked into /extract/* requests
+      # so Python can POST progress back to api. Override in prod only
+      # if api runs under a non-default hostname/port in the compose net.
+      API_INTERNAL_BASE_URL: "${API_INTERNAL_BASE_URL:-http://api:5000}"
       # ── Orchestrator bot (OPS1) ─────────────────────────────────
       ORCHESTRATOR_PASSWORD: ${ORCHESTRATOR_PASSWORD:-}
       ORCHESTRATOR_PASSWORD_ROTATE: ${ORCHESTRATOR_PASSWORD_ROTATE:-}
