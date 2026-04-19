@@ -34,10 +34,14 @@ export function GroupFilterBar({
 }: GroupFilterBarProps) {
   return (
     <div className="flex items-stretch gap-2.5">
-      {/* Search field */}
+      {/* Search field — `min-w-0` is REQUIRED on this flex item: without it
+          the input's intrinsic placeholder width forces the row wider than
+          the parent, pushing the Filter + Zufall buttons off-screen on
+          narrow viewports (BUG-006). With `min-w-0`, `flex-1` can shrink
+          below its content width and the buttons stay inside the viewport. */}
       <label
         className={cn(
-          'flex flex-1 items-center gap-2 rounded-[12px] border border-[hsl(var(--input))] bg-card px-3.5',
+          'flex min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-[hsl(var(--input))] bg-card px-3.5',
           'transition-[border-color,box-shadow] duration-150',
           'focus-within:border-primary focus-within:ring-4 focus-within:ring-[hsl(var(--primary)/0.25)]',
         )}
