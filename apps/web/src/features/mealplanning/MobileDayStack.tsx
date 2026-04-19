@@ -10,18 +10,21 @@ import {
   dayKeys,
   formatGermanDate,
 } from './weekGrid'
+import { defaultOpenDays } from './mobileDayStackHelpers'
 
 /**
  * Mobile (< 768 px) layout for the Wochenplan: the 7-day × 4-meal grid
- * collapses into a vertical stack of accordions, one per weekday. The
- * first day is auto-expanded so the most-likely action ("plan today's
- * meal") is one tap away; the remaining days are collapsed to keep the
- * vertical scroll tractable on small screens.
+ * collapses into a vertical stack of accordions, one per weekday. By
+ * default we auto-expand today + the next day (fallback: Monday when
+ * today is outside the current week) so the most-likely action "plan
+ * today's meal" is one tap away; the remaining days stay collapsed to
+ * keep the vertical scroll tractable on small screens.
  *
- * Layout swap is CSS-driven (`hidden md:grid` / `md:hidden`) so that
- * resizing across the breakpoint doesn't unmount the children + lose
- * their local state (open dialogs, in-progress drags). Both layouts are
- * always present in the DOM; only one is visible per breakpoint.
+ * Rendered by MealPlanPage.tsx only when useIsMobile() returns true.
+ * NOTE: layout swap is React-conditional (not CSS-driven), so resizing
+ * across the 768px breakpoint unmounts the tree. In-flight dnd-kit
+ * drag state and accordion openDays state are lost on resize; dialogs
+ * are rendered at the top level of MealPlanPage, so they survive.
  *
  * Touch-target audit (plan §P3-10): the day-toggle button is a full-
  * width row with a 56-px minimum height — comfortably exceeds the
@@ -51,17 +54,17 @@ export function MobileDayStack({
   // we don't churn array identity on unrelated re-renders.
   const days = useMemo(() => dayKeys(weekStart), [weekStart])
 
-  // Track which day-accordions are open. Default: only the first day
-  // (Monday) is expanded so the user lands on something useful without
-  // having to scroll a 4-deep stack.
-  const [openDays, setOpenDays] = useState<Set<string>>(() => {
-    const initial = new Set<string>()
-    if (days.length > 0) {
-      const first = days[0]
-      if (first) initial.add(first)
-    }
-    return initial
-  })
+  // Track which day-accordions are open. Default: today + tomorrow when
+  // today falls inside this week (most-likely action "plan today's meal"
+  // is one tap away + "what's tomorrow?" peek); fallback to Monday when
+  // the user is browsing a historical or future week where "today" is
+  // not in range. See `defaultOpenDays` for the pure helper + tests.
+  const [openDays, setOpenDays] = useState<Set<string>>(
+    () =>
+      new Set(
+        defaultOpenDays(weekStart, new Date().toISOString().split('T')[0] ?? ''),
+      ),
+  )
 
   const toggleDay = (date: string) => {
     setOpenDays((prev) => {
