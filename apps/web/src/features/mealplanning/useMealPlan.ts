@@ -1,12 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   AddSlotRequest,
-  ApiError,
   CreateMealPlanRequest,
   MealPlanDto,
   MealPlanSlotDto,
 } from '@familien-kochbuch/shared'
-import { addSlot, createMealPlan, fetchMealPlan } from './mealPlanApi'
+import { MealPlanApiError, addSlot, createMealPlan, fetchMealPlan } from './mealPlanApi'
 
 /**
  * Centralised TanStack-Query key factory for the meal-planning cache.
@@ -18,8 +17,6 @@ export const mealPlanQueryKeys = {
   forWeek: (groupId: string, weekStart: string) =>
     [...mealPlanQueryKeys.all, groupId, weekStart] as const,
 }
-
-type ApiErrorWithStatus = ApiError & { status?: number }
 
 /**
  * Reads the plan for a given group + weekStart. A 404 is a *valid*
@@ -40,11 +37,13 @@ export function useMealPlan(groupId: string | undefined, weekStart: string | und
       try {
         return await fetchMealPlan(groupId!, weekStart!)
       } catch (caught) {
-        const err = caught as unknown as ApiErrorWithStatus
         // 404 "no plan yet" is expected — bubble up as null so the
         // component tree can render the create-CTA without branching
         // on the raw HTTP status.
-        if (err.status === 404 || err.code === 'mealplan.not_found') {
+        if (
+          caught instanceof MealPlanApiError &&
+          (caught.status === 404 || caught.code === 'mealplan.not_found')
+        ) {
           return null
         }
         throw caught
@@ -53,8 +52,13 @@ export function useMealPlan(groupId: string | undefined, weekStart: string | und
     enabled: !!groupId && !!weekStart,
     staleTime: 30_000,
     retry: (failureCount, caught) => {
-      const err = caught as unknown as ApiErrorWithStatus
-      if (err.status && err.status >= 400 && err.status < 500) return false
+      if (
+        caught instanceof MealPlanApiError &&
+        caught.status >= 400 &&
+        caught.status < 500
+      ) {
+        return false
+      }
       return failureCount < 2
     },
   })

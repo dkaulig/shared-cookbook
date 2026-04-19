@@ -3,23 +3,30 @@ import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthLayout } from './AuthLayout'
 import { LoginPage } from './LoginPage'
 import { useAuthStore } from './authStore'
 import { server } from '@/test/msw/server'
 
 function renderLogin() {
+  // useAuth() now depends on a QueryClientProvider (needed so logout can
+  // purge the cache — see useAuth.test.tsx). LoginPage itself never
+  // reads the cache, but the provider must still exist for the hook.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MemoryRouter initialEntries={['/login']}>
-      <Routes>
-        <Route element={<AuthLayout />}>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<div data-testid="signup">registrieren</div>} />
-          <Route path="/forgot-password" element={<div data-testid="forgot">vergessen</div>} />
-        </Route>
-        <Route path="/" element={<div data-testid="home">Zuhause</div>} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/login']}>
+        <Routes>
+          <Route element={<AuthLayout />}>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<div data-testid="signup">registrieren</div>} />
+            <Route path="/forgot-password" element={<div data-testid="forgot">vergessen</div>} />
+          </Route>
+          <Route path="/" element={<div data-testid="home">Zuhause</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 

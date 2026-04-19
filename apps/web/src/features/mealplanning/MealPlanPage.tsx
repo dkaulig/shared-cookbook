@@ -68,6 +68,17 @@ export function MealPlanPage() {
   )
   const create = useCreateMealPlan(groupId)
 
+  // `slotsByDayMeal` walks every slot + builds a 7×4 map; recomputing on
+  // every render will start to matter once P3-3 drag adds re-render
+  // pressure. Memoise on the pieces the grouping actually depends on.
+  // Lives above the `<Navigate>` early-returns so the hook order stays
+  // stable across renders (React's rules-of-hooks).
+  const planSlots = plan?.slots
+  const buckets = useMemo(
+    () => (planSlots ? slotsByDayMeal(planSlots, weekStart) : null),
+    [planSlots, weekStart],
+  )
+
   if (!groupId) return <Navigate to="/groups" replace />
 
   if (!weekStart) {
@@ -94,7 +105,6 @@ export function MealPlanPage() {
     await refetch()
   }
 
-  const buckets = plan ? slotsByDayMeal(plan.slots, weekStart) : null
   const weekNumber = isoWeekNumber(weekStart)
 
   return (
