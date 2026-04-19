@@ -63,6 +63,18 @@ export interface ExtractedStep {
   confidence: StepConfidenceLevel
 }
 
+/**
+ * LLM-estimated per-portion nutrition in the Python extractor's
+ * snake_case shape. `ExtractedRecipe` uses this form; the web layer
+ * translates to `NutritionEstimate` (camelCase) before persistence.
+ */
+export interface ExtractedNutritionEstimate {
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+}
+
 export interface ExtractedRecipe {
   title: string
   description: string | null
@@ -75,6 +87,12 @@ export interface ExtractedRecipe {
   tags: string[]
   source_url: string
   thumbnail_url: string | null
+  /**
+   * P2-10: optional per-portion nutrition estimate. Omitted or `null`
+   * when the LLM couldn't infer quantities; mirrors the Python
+   * `ExtractedRecipe` TypedDict key.
+   */
+  nutrition_estimate?: ExtractedNutritionEstimate | null
 }
 
 export interface ExtractionConfidence {

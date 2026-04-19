@@ -35,6 +35,7 @@ export type {
   CreateRecipeRequest,
   ForkRecipeRequest,
   IngredientDto,
+  NutritionEstimate,
   RecipeChangeType,
   RecipeDetailDto,
   RecipeRevisionChangedBy,
@@ -70,6 +71,7 @@ export type {
 export type {
   ConfidenceLevel,
   ExtractedIngredient,
+  ExtractedNutritionEstimate,
   ExtractedRecipe,
   ExtractedStep,
   ExtractionConfidence,
