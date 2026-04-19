@@ -993,7 +993,7 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
         var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
 
         _factory.Email.Clear();
-        _factory.Email.ThrowOnSend = new InvalidOperationException("simulated SMTP failure");
+        _factory.Email.ThrowOnSend = new EmailSendException("simulated SMTP failure");
 
         var invite = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
             new GroupEndpoints.InviteToGroupRequest(bobId));

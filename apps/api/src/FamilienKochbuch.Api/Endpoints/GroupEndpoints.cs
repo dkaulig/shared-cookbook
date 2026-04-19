@@ -326,7 +326,7 @@ public static class GroupEndpoints
                     acceptUrl: acceptUrl,
                     ct: ct);
             }
-            catch (Exception ex)
+            catch (EmailSendException ex)
             {
                 logger.LogWarning(ex,
                     "Group-invite mail delivery failed for inviteId={InviteId}; invitee will still see the invite in-app.",
