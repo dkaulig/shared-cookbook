@@ -260,4 +260,100 @@ public class IngredientCategorizerTests
             IngredientCategorizer.Categorize("Möhren"),
             IngredientCategorizer.Categorize("Moehren"));
     }
+
+    // ── Fallback cascade (first-token + contains-on-tokens) ────────
+
+    [Fact]
+    public void Categorize_First_Token_Prefix_Matches_When_Adjective_Leads()
+    {
+        // "bio" is not in the map; contains-on-tokens picks up
+        // "tomaten" → ObstGemuese. Covers the cascade step that kicks
+        // in after the first-token lookup misses.
+        Assert.Equal(
+            IngredientCategory.ObstGemuese,
+            IngredientCategorizer.Categorize("bio Tomaten"));
+    }
+
+    [Fact]
+    public void Categorize_Contains_On_Tokens_Matches_Mid_Phrase()
+    {
+        // None of "frische", "mediterrane", "gemahlen" is a map key,
+        // but "oregano" is → Gewuerze. Verifies the cascade reaches
+        // the later tokens when the earlier ones miss.
+        Assert.Equal(
+            IngredientCategory.Gewuerze,
+            IngredientCategorizer.Categorize("frische mediterrane Oregano gemahlen"));
+    }
+
+    [Fact]
+    public void Categorize_All_Tokens_Miss_Returns_Sonstiges()
+    {
+        // "pulled", "pork", "burger" — none are in the map → cascade
+        // exhausts → Sonstiges.
+        Assert.Equal(
+            IngredientCategory.Sonstiges,
+            IngredientCategorizer.Categorize("pulled pork burger"));
+    }
+
+    // ── Adversarial Unicode (P3-6 security hardening) ─────────────
+    //
+    // Before the P3-6 fix, input.Normalize(FormC) on malformed UTF-16
+    // threw ArgumentException and bubbled up as a 500 on
+    // /shopping-list/generate. The call was a no-op for the
+    // diacritics-preserved map and has been removed; these adversarial
+    // inputs must now simply return Sonstiges without throwing.
+    //
+    // Each case lives in its own [Fact] to avoid xUnit InlineData
+    // display-name collisions on malformed-UTF-16 surrogates.
+
+    [Fact]
+    public void Categorize_Returns_Sonstiges_For_Adversarial_Unicode_Without_Throwing_LoneHighSurrogate()
+    {
+        Assert.Equal(
+            IngredientCategory.Sonstiges,
+            IngredientCategorizer.Categorize("\uD800"));
+    }
+
+    [Fact]
+    public void Categorize_Returns_Sonstiges_For_Adversarial_Unicode_Without_Throwing_LoneLowSurrogate()
+    {
+        Assert.Equal(
+            IngredientCategory.Sonstiges,
+            IngredientCategorizer.Categorize("\uDFFF"));
+    }
+
+    [Fact]
+    public void Categorize_Returns_Sonstiges_For_Adversarial_Unicode_Without_Throwing_NullChar()
+    {
+        Assert.Equal(
+            IngredientCategory.Sonstiges,
+            IngredientCategorizer.Categorize("\0"));
+    }
+
+    [Fact]
+    public void Categorize_Returns_Sonstiges_For_Adversarial_Unicode_Without_Throwing_EmbeddedNull()
+    {
+        Assert.Equal(
+            IngredientCategory.Sonstiges,
+            IngredientCategorizer.Categorize("abc\0def"));
+    }
+
+    [Fact]
+    public void Categorize_Returns_Sonstiges_For_Adversarial_Unicode_Without_Throwing_EmbeddedLoneSurrogate()
+    {
+        Assert.Equal(
+            IngredientCategory.Sonstiges,
+            IngredientCategorizer.Categorize("foo\uD800bar"));
+    }
+
+    [Fact]
+    public void Categorize_Returns_Sonstiges_For_Max_Length_Unknown_Without_Throwing()
+    {
+        // 200-char boundary: the regex + whitespace-collapse loop must
+        // run in bounded time even on a long unknown string.
+        var input = new string('a', 200);
+        Assert.Equal(
+            IngredientCategory.Sonstiges,
+            IngredientCategorizer.Categorize(input));
+    }
 }

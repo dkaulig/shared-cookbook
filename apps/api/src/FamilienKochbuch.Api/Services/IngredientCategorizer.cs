@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Text;
 using System.Text.RegularExpressions;
 using FamilienKochbuch.Domain.Enums;
 
@@ -21,10 +19,12 @@ namespace FamilienKochbuch.Api.Services;
 ///     ingredients; umlauts + common spelling variants (e.g.
 ///     "Möhren" / "Moehren", "Tomate" / "Tomaten") are included as
 ///     separate keys so we do not need a fuzzy matcher.</item>
-///   <item>Fallback: token-split the normalised name on whitespace and
-///     try the first token; then every token. Still nothing → return
-///     <see cref="IngredientCategory.Sonstiges"/>. The user can
-///     trigger an on-demand LLM recategorize from the UI (P3-6.5).</item>
+///   <item>Fallback cascade: first-token prefix match (exact lookup of
+///     <c>tokens[0]</c> in the map), then contains-on-tokens (exact
+///     lookup of each remaining token in the map, first hit wins).
+///     Still nothing → return <see cref="IngredientCategory.Sonstiges"/>.
+///     The user can trigger an on-demand LLM recategorize from the
+///     UI (P3-6.5).</item>
 /// </list>
 ///
 /// Thread-safety: the map is built once in the static ctor and is
@@ -76,22 +76,30 @@ public static class IngredientCategorizer
         if (Map.TryGetValue(normalised, out var cat))
             return cat;
 
-        // 2. Token-based match. Try individual whitespace-separated
-        //    tokens so "Frische Tomate" → "tomate" → ObstGemuese.
-        //    First-token first (biases toward the "main" noun when
-        //    users prefix adjectives like "gekochte"), then every
-        //    token, then suffix-stripped forms (lose trailing 's',
-        //    'n', 'e' to collapse singular/plural).
+        // 2. First-token prefix match: split on whitespace and look up
+        //    tokens[0] exactly in the map. This biases toward the
+        //    "main" noun when users prefix adjectives like "bio" or
+        //    "frische" (e.g. "bio Tomaten" → "bio" misses, falls
+        //    through to step 3 which then catches "tomaten").
         var tokens = normalised.Split(
             ' ',
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        foreach (var token in tokens)
+        if (tokens.Length > 0 && Map.TryGetValue(tokens[0], out cat))
+            return cat;
+
+        // 3. Contains-on-tokens: iterate the remaining tokens and look
+        //    each up in the map. O(tokens) × O(1) hash lookup is
+        //    cheaper than scanning the ~190-entry map for each token.
+        //    First hit wins, so "frische mediterrane Basilikum Blätter"
+        //    returns Gewuerze via "basilikum".
+        for (var i = 1; i < tokens.Length; i++)
         {
-            if (Map.TryGetValue(token, out cat))
+            if (Map.TryGetValue(tokens[i], out cat))
                 return cat;
         }
 
+        // 4. Nothing matched → Sonstiges.
         return IngredientCategory.Sonstiges;
     }
 
@@ -101,10 +109,15 @@ public static class IngredientCategorizer
     /// map contains both umlaut and ae/oe/ue spellings so a
     /// diacritic-strip pass is unnecessary (and would conflate "Möhre"
     /// with "Mohre" which is not a word).
+    ///
+    /// Note: no <c>string.Normalize(FormC)</c> pass — it was a no-op
+    /// for our diacritics-preserved map and was the only place that
+    /// could throw <see cref="ArgumentException"/> on malformed UTF-16
+    /// input (lone surrogate → 500 on /shopping-list/generate).
     /// </summary>
     private static string Normalise(string input)
     {
-        var s = input.Normalize(NormalizationForm.FormC).Trim();
+        var s = input.Trim();
         s = QuantityPrefix.Replace(s, string.Empty);
         s = BracketedQualifier.Replace(s, " ");
         s = s.ToLowerInvariant();
@@ -276,8 +289,4 @@ public static class IngredientCategorizer
 
         return m;
     }
-
-    // Expose the culture so unit tests can sanity-check that the
-    // categorizer uses invariant comparisons. (Not used by runtime code.)
-    internal static CultureInfo Culture => CultureInfo.InvariantCulture;
 }
