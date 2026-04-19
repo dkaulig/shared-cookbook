@@ -293,4 +293,79 @@ public class MealPlanSlotTests
     {
         Assert.Throws<ArgumentException>(() => NewSlot(mealPlanId: Guid.Empty));
     }
+
+    // ── P3-1 PATCH hooks (SetRecipe / SetLabel) ──────────────────────
+
+    [Fact]
+    public void SetRecipe_Replaces_Existing_Recipe_Id()
+    {
+        var slot = NewSlot();
+        var replacement = Guid.NewGuid();
+
+        slot.SetRecipe(replacement, DateTimeOffset.UtcNow);
+
+        Assert.Equal(replacement, slot.RecipeId);
+    }
+
+    [Fact]
+    public void SetRecipe_Clears_When_Null_And_Label_Present()
+    {
+        var slot = NewSlot(label: "Restaurant");
+
+        slot.SetRecipe(null, DateTimeOffset.UtcNow);
+
+        Assert.Null(slot.RecipeId);
+        Assert.Equal("Restaurant", slot.Label);
+    }
+
+    [Fact]
+    public void SetRecipe_Rejects_Null_When_Label_Is_Also_Null()
+    {
+        // Default helper provides a recipeId + null label; clearing the
+        // recipe would leave both null, violating the invariant.
+        var slot = NewSlot();
+
+        Assert.Throws<ArgumentException>(() =>
+            slot.SetRecipe(null, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void SetLabel_Trims_And_Replaces_Existing_Label()
+    {
+        var slot = NewSlot(label: "alt");
+
+        slot.SetLabel("  Hauptgericht  ", DateTimeOffset.UtcNow);
+
+        Assert.Equal("Hauptgericht", slot.Label);
+    }
+
+    [Fact]
+    public void SetLabel_Null_Clears_When_Recipe_Present()
+    {
+        var slot = NewSlot(label: "Hauptgericht");
+
+        slot.SetLabel(null, DateTimeOffset.UtcNow);
+
+        Assert.Null(slot.Label);
+    }
+
+    [Fact]
+    public void SetLabel_Rejects_Null_When_Recipe_Is_Also_Null()
+    {
+        // Freeform slot: label-only, no recipe.
+        var slot = NewSlot(recipeId: null, recipeIdProvided: true, label: "Restaurant");
+
+        Assert.Throws<ArgumentException>(() =>
+            slot.SetLabel(null, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void SetLabel_Rejects_Over_Length()
+    {
+        var slot = NewSlot(label: "short");
+        var tooLong = new string('x', 121);
+
+        Assert.Throws<ArgumentException>(() =>
+            slot.SetLabel(tooLong, DateTimeOffset.UtcNow));
+    }
 }

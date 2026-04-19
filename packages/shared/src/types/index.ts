@@ -97,3 +97,11 @@ export type {
   AiUsageGroupedRow,
   AiUsageSummary,
 } from './aiUsage.ts'
+export type {
+  AddSlotRequest,
+  CreateMealPlanRequest,
+  MealPlanDto,
+  MealPlanSlotDto,
+  MealSlot,
+  PatchSlotRequest,
+} from './mealPlanning.ts'
