@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
-import { SortableMealRow } from './SortableMealRow'
+import { MEALPLAN_POINTER_ACTIVATION, SortableMealRow } from './SortableMealRow'
 import { SORT_ORDER_STEP } from './constants'
 
 const PLAN_ID = '11111111-1111-1111-1111-111111111111'
@@ -205,5 +205,38 @@ describe('<SortableMealRow />', () => {
     expect(
       screen.queryByTestId('mealplan-slot-parent-badge-s1'),
     ).not.toBeInTheDocument()
+  })
+
+  // ── P3-10 mobile polish ──────────────────────────────────────────
+
+  it('configures the PointerSensor with a 5-px / 200-ms activation constraint', () => {
+    // The exported constant is what `useSensor(PointerSensor, { … })`
+    // wires up — keeping it discoverable means future tweaks have to
+    // update tests deliberately. Per §P3-10: stop accidental taps from
+    // triggering drag on mobile by raising distance + adding a delay.
+    expect(MEALPLAN_POINTER_ACTIVATION).toEqual({
+      distance: 5,
+      delay: 200,
+      tolerance: 5,
+    })
+  })
+
+  it('renders the overflow-menu trigger with a ≥44-px tap target on mobile', () => {
+    render(
+      <SortableMealRow
+        slots={[makeSlot('s1', { label: 'Spaghetti' })]}
+        onReorder={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onToggleCooked={noop}
+      />,
+    )
+    const menuButton = screen.getByTestId('mealplan-slot-menu-s1')
+    // 44x44 hit-area enforced via Tailwind min-w/min-h utilities
+    // (no class-name regex per se: we assert the resolved class string
+    // includes the breakpoint utilities so a future visual refactor
+    // doesn't silently shrink the tap area below the WCAG threshold).
+    expect(menuButton.className).toMatch(/min-h-\[44px\]/)
+    expect(menuButton.className).toMatch(/min-w-\[44px\]/)
   })
 })

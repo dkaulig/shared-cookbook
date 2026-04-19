@@ -13,10 +13,12 @@ import {
 import type { MealPlanSlotDto, MealSlot, PatchSlotRequest } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useIsMobile } from '@/lib/useIsMobile'
 import { cn } from '@/lib/utils'
 import { AddSlotDialog } from './AddSlotDialog'
 import { DeleteSlotDialog } from './DeleteSlotDialog'
 import { EditSlotDialog } from './EditSlotDialog'
+import { MobileDayStack } from './MobileDayStack'
 import { SortableMealRow } from './SortableMealRow'
 import { SORT_ORDER_STEP } from './constants'
 import { MealPlanApiError, patchSlot as patchSlotApi } from './mealPlanApi'
@@ -75,6 +77,11 @@ export function MealPlanPage() {
     { kind: 'success'; message: string } | { kind: 'error'; message: string } | null
   >(null)
   const queryClient = useQueryClient()
+  // P3-10 mobile polish: react to viewport-width crossings of the
+  // Tailwind `md:` breakpoint so we render exactly one of the two
+  // layouts at any time. Tests rely on the single-render guarantee to
+  // keep their `data-testid` lookups unique.
+  const isMobile = useIsMobile()
 
   const weekStart = useMemo(() => {
     if (!rawWeek) return ''
@@ -430,36 +437,52 @@ export function MealPlanPage() {
         )}
 
         {plan && buckets && (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-            {dayKeys(weekStart).map((dateKey, index) => {
-              // `buckets` is guaranteed to have every day-key by
-              // construction in `slotsByDayMeal`, but
-              // `noUncheckedIndexedAccess` doesn't know that. Default
-              // to an empty bucket rather than narrowing so a broken
-              // invariant still renders something useful.
-              const dayBuckets = buckets[dateKey] ?? {
-                Frühstück: [],
-                Mittag: [],
-                Abend: [],
-                Snack: [],
-              }
-              const weekday = WEEKDAY_LABELS[index] ?? ''
-              return (
-                <DayColumn
-                  key={dateKey}
-                  date={dateKey}
-                  weekdayLabel={weekday}
-                  buckets={dayBuckets}
-                  onAdd={(meal) => setOpenCell({ date: dateKey, meal })}
-                  onEdit={setEditSlot}
-                  onDelete={setDeleteSlotState}
-                  onReorder={handleReorder}
-                  onToggleCooked={handleToggleCooked}
-                  getParentLabel={getParentLabel}
-                />
-              )
-            })}
-          </div>
+          isMobile ? (
+            <MobileDayStack
+              weekStart={weekStart}
+              bucketsByDay={buckets}
+              onAdd={(date, meal) => setOpenCell({ date, meal })}
+              onEdit={setEditSlot}
+              onDelete={setDeleteSlotState}
+              onReorder={handleReorder}
+              onToggleCooked={handleToggleCooked}
+              getParentLabel={getParentLabel}
+            />
+          ) : (
+            <div
+              data-testid="mealplan-desktop-grid"
+              className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7"
+            >
+              {dayKeys(weekStart).map((dateKey, index) => {
+                // `buckets` is guaranteed to have every day-key by
+                // construction in `slotsByDayMeal`, but
+                // `noUncheckedIndexedAccess` doesn't know that. Default
+                // to an empty bucket rather than narrowing so a broken
+                // invariant still renders something useful.
+                const dayBuckets = buckets[dateKey] ?? {
+                  Frühstück: [],
+                  Mittag: [],
+                  Abend: [],
+                  Snack: [],
+                }
+                const weekday = WEEKDAY_LABELS[index] ?? ''
+                return (
+                  <DayColumn
+                    key={dateKey}
+                    date={dateKey}
+                    weekdayLabel={weekday}
+                    buckets={dayBuckets}
+                    onAdd={(meal) => setOpenCell({ date: dateKey, meal })}
+                    onEdit={setEditSlot}
+                    onDelete={setDeleteSlotState}
+                    onReorder={handleReorder}
+                    onToggleCooked={handleToggleCooked}
+                    getParentLabel={getParentLabel}
+                  />
+                )
+              })}
+            </div>
+          )
         )}
       </main>
 
