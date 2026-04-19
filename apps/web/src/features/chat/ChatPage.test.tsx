@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
@@ -644,3 +646,40 @@ describe('<ChatPage /> — navigation chrome', () => {
 
 // Silence a potential "unused" lint on this helper — referenced above.
 void within
+
+describe('<ChatPage /> — BUG-001 regression: mobile viewport sizing', () => {
+  // The bug: on iOS Safari + Chrome Android the chat input was hidden
+  // behind the dynamic browser bottom bar because the page sized itself
+  // with `100vh` (static) and ignored `env(safe-area-inset-bottom)`.
+  // Fix: switch to `100dvh` (dynamic viewport units) AND add safe-area
+  // padding so the input is never overlapped by browser chrome or the
+  // iOS home indicator. This grep-style assertion fails fast if anyone
+  // reverts to `vh` or drops the safe-area inset.
+  const source = readFileSync(
+    resolve(__dirname, './ChatPage.tsx'),
+    'utf8',
+  )
+
+  it('uses dynamic viewport height units (100dvh), not static 100vh', () => {
+    expect(source).toMatch(/100dvh/)
+    // Guard: no rogue `100vh` in className/calc usage (would re-
+    // introduce the bug — `vh` ignores browser-chrome retraction). We
+    // scan only for `100vh` followed by a non-`d` boundary char that
+    // appears in real class strings (`)`, `]`, ` `, `;`, `,`) so the
+    // word `100vh` mentioned in this file's docblock prose doesn't
+    // trip us up.
+    expect(source).not.toMatch(/100vh[)\]\s;,]/)
+  })
+
+  it('includes env(safe-area-inset-bottom) so the input clears the iOS home indicator', () => {
+    expect(source).toMatch(/safe-area-inset-bottom/)
+  })
+
+  it('viewport meta in index.html includes viewport-fit=cover (required for non-zero safe-area insets on iOS)', () => {
+    const html = readFileSync(
+      resolve(__dirname, '../../../index.html'),
+      'utf8',
+    )
+    expect(html).toMatch(/viewport-fit=cover/)
+  })
+})

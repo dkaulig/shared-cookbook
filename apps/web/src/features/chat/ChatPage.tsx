@@ -38,6 +38,16 @@ import { stashChatImport } from './chatImportMemo'
  *      footer so the user can convert without scrolling.
  *   3. Sticky bottom input area: textarea + send button.
  *
+ * BUG-001 — viewport sizing on mobile. `100dvh` (dynamic viewport
+ * height) instead of `100vh` so the chat container shrinks/grows in
+ * lock-step with the iOS Safari URL-bar / Chrome-Android address-bar
+ * retraction animation. We additionally subtract the height of the
+ * AppLayout chrome — TopNav (64px mobile, 72px desktop) AND the mobile
+ * BottomNav (88px) plus `env(safe-area-inset-bottom,0px)` for the iOS
+ * home-indicator zone — so the input footer stays above both the app
+ * BottomNav and the browser bottom-bar. The input footer also keeps
+ * its own `pb-[env(safe-area-inset-bottom,0px)]` as defence-in-depth.
+ *
  * The session id is generated on mount (or picked up from
  * `?session=<uuid>` if the user pasted a URL) and written back into
  * the URL via history.replace so a page reload keeps the same chat
@@ -303,7 +313,7 @@ export function ChatPage() {
     turnMutation.isPending || input.trim().length === 0 || turnCap === 'blocked'
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-64px)] w-full max-w-3xl flex-col px-4 md:h-[calc(100dvh-72px)] md:px-6">
+    <div className="mx-auto flex h-[calc(100dvh-64px-88px-env(safe-area-inset-bottom,0px))] w-full max-w-3xl flex-col px-4 md:h-[calc(100dvh-72px)] md:px-6">
       <ChatTopBar onBack={() => navigate(-1)} />
 
       <div
