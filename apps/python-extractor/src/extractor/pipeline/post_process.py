@@ -29,6 +29,7 @@ from extractor.pipeline.types import (
     ExtractedStep,
     ExtractionConfidence,
     ExtractionResult,
+    ExtractionUsage,
     IngredientConfidenceLevel,
     NutritionEstimate,
     StepConfidenceLevel,
@@ -52,6 +53,7 @@ def post_process(
     original_url: str,
     fallback_thumbnail: str | None,
     extra_notes: list[str] | None = None,
+    usage: ExtractionUsage | None = None,
 ) -> ExtractionResult:
     """Apply the defensive rules and return an :class:`ExtractionResult`.
 
@@ -67,6 +69,12 @@ def post_process(
     extra_notes
         Optional extra strings to merge into ``confidence.notes``
         (e.g. ``"Website nicht erreichbar"``).
+    usage
+        PF2 aggregated :class:`ExtractionUsage` for the whole
+        extraction. When provided it's attached to the returned
+        :class:`ExtractionResult` so the HTTP layer can emit
+        ``X-Extractor-*`` headers without a second round-trip
+        through the pipeline.
     """
     raw_servings = llm_output.get("servings")
     servings = _clamp_servings(raw_servings)
@@ -125,7 +133,10 @@ def post_process(
         "notes": notes,
     }
 
-    return {"recipe": recipe, "confidence": confidence}
+    result: ExtractionResult = {"recipe": recipe, "confidence": confidence}
+    if usage is not None:
+        result["usage"] = usage
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────

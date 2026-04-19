@@ -149,14 +149,16 @@ def _canonical_recipe_payload() -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────
 
 
-async def test_chat_turn_single_message_returns_provider_reply() -> None:
-    """One-turn dialogue — provider called once, reply returned verbatim."""
+async def test_chat_turn_single_message_returns_provider_reply_and_usage() -> None:
+    """One-turn dialogue — provider called once, reply + usage returned."""
     provider = _RecordingProvider(chat_reply="Hallo!")
     messages: list[ChatMessage] = [{"role": "user", "content": "Hi"}]
 
-    reply = await chat_turn(messages, provider)
+    reply, usage = await chat_turn(messages, provider)
 
     assert reply == "Hallo!"
+    assert usage["model"] == "gpt-5.1-chat"
+    assert usage["prompt_tokens"] == 120
     assert len(provider.chat_calls) == 1
     (system_prompt, forwarded) = provider.chat_calls[0]
     assert system_prompt == CHAT_SYSTEM_PROMPT_DE
@@ -174,7 +176,7 @@ async def test_chat_turn_five_turn_dialogue_preserves_order() -> None:
         {"role": "user", "content": "4 Personen"},
     ]
 
-    reply = await chat_turn(messages, provider)
+    reply, _usage = await chat_turn(messages, provider)
 
     assert reply == "Klar."
     (_, forwarded) = provider.chat_calls[0]
@@ -207,7 +209,7 @@ async def test_chat_turn_accepts_exactly_max_length() -> None:
         {"role": "user", "content": f"Nachricht {i}"} for i in range(MAX_MESSAGES)
     ]
 
-    reply = await chat_turn(messages, provider)
+    reply, _usage = await chat_turn(messages, provider)
 
     assert reply == "ok"
     assert len(provider.chat_calls) == 1
@@ -280,6 +282,23 @@ async def test_chat_to_recipe_rejects_over_max_length() -> None:
     with pytest.raises(MessagesTooLongError):
         await chat_to_recipe(messages, provider, session_id="s")
     assert provider.extract_calls == []
+
+
+async def test_chat_to_recipe_attaches_usage_to_result() -> None:
+    """PF2: the aggregated :class:`ExtractionUsage` surfaces on the
+    returned :class:`ExtractionResult` so the HTTP layer can emit
+    ``X-Extractor-*`` headers."""
+    provider = _RecordingProvider()
+    messages: list[ChatMessage] = [{"role": "user", "content": "Rezept bitte"}]
+
+    result = await chat_to_recipe(messages, provider, session_id="s")
+
+    assert "usage" in result
+    usage = result["usage"]
+    assert usage["prompt_tokens"] == 120
+    assert usage["completion_tokens"] == 40
+    assert usage["cached_prompt_tokens"] == 0
+    assert usage["model"] == "gpt-5.1-chat"
 
 
 async def test_chat_to_recipe_propagates_provider_error() -> None:

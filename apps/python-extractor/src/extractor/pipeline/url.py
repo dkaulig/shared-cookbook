@@ -38,14 +38,14 @@ from urllib.parse import urlparse
 
 import httpx
 
-from extractor.llm import ChatMessage, LLMProvider
+from extractor.llm import ChatMessage, LLMProvider, TokenUsage
 from extractor.pipeline.blog import (
     extract_bs4_fallback,
     extract_jsonld,
     extract_recipe_scrapers,
 )
 from extractor.pipeline.post_process import post_process
-from extractor.pipeline.types import ExtractionResult
+from extractor.pipeline.types import ExtractionResult, ExtractionUsage
 from extractor.pipeline.video import (
     ExtractionError,
     Transcriber,
@@ -151,7 +151,7 @@ async def extract_from_url(
     else:
         (blog_text, thumbnail_url, notes) = await _run_blog_path(url)
 
-    llm_output = await _run_llm_structuring(
+    llm_output, usage = await _run_llm_structuring(
         provider=provider,
         transcript=transcript,
         caption=caption,
@@ -164,6 +164,7 @@ async def extract_from_url(
         original_url=url,
         fallback_thumbnail=thumbnail_url,
         extra_notes=notes,
+        usage=_to_extraction_usage(usage),
     )
 
 
@@ -355,8 +356,8 @@ async def _run_llm_structuring(
     caption: str | None,
     blog_text: str | None,
     thumbnail_url: str | None,
-) -> dict[str, Any]:
-    """Compose the user message, call the provider, return parsed JSON."""
+) -> tuple[dict[str, Any], TokenUsage]:
+    """Compose the user message, call the provider, return parsed JSON + usage."""
     user_message = build_user_message(
         transcript=transcript,
         caption=caption,
@@ -367,9 +368,25 @@ async def _run_llm_structuring(
     logger.info("llm_structuring start")
     # User content — DEBUG only.
     logger.debug("llm user_message (truncated): %s", user_message[:400])
-    result, _usage = await provider.extract_structured(SYSTEM_PROMPT_DE, messages, RECIPE_SCHEMA)
+    result, usage = await provider.extract_structured(SYSTEM_PROMPT_DE, messages, RECIPE_SCHEMA)
     logger.info("llm_structuring done keys=%d", len(result))
-    return result
+    return result, usage
+
+
+def _to_extraction_usage(usage: TokenUsage) -> ExtractionUsage:
+    """Narrow :class:`TokenUsage` → :class:`ExtractionUsage`.
+
+    Same shape today; keeping the conversion explicit means if we ever
+    aggregate across multiple LLM calls (e.g. caption + transcript
+    routed through two separate model tiers) the accumulation logic
+    lands here instead of scattered through every pipeline.
+    """
+    return {
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "cached_prompt_tokens": usage["cached_prompt_tokens"],
+        "model": usage["model"],
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────

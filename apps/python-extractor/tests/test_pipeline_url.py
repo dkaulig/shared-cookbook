@@ -153,6 +153,37 @@ async def test_extract_from_blog_url_surfaces_fetch_failure_note(tmp_path: Path)
 # ─────────────────────────────────────────────────────────────────────
 
 
+async def test_extract_from_url_attaches_usage_to_result(tmp_path: Path) -> None:
+    """PF2: the LLM usage flows through to the ExtractionResult so the
+    HTTP layer can emit ``X-Extractor-*`` headers end-to-end."""
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="Nudelauflauf",
+            description="",
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(transcript="Mehl.")
+
+    mock = _AnyCallMock(_canonical_llm_response())
+    result = await extract_from_url(
+        "https://youtu.be/abc",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+    )
+    assert "usage" in result
+    usage = result["usage"]
+    # _AnyCallMock hardcodes _stub_usage() — any non-zero prompt count
+    # proves the propagation path is wired end-to-end.
+    assert usage["prompt_tokens"] == 100
+    assert usage["completion_tokens"] == 25
+    assert usage["model"] == "gpt-4.1-mini"
+
+
 async def test_extract_from_video_url_happy_path(tmp_path: Path) -> None:
     """yt-dlp + whisper stubs feed the LLM; post-process returns a result."""
     mp4 = tmp_path / "video.mp4"
