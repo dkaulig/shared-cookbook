@@ -113,8 +113,10 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    mem_limit: 512m
-    cpus: 0.5
+    # Whisper large-v3 resident ~3 GB; 8 GB leaves room for 2 parallel
+    # transcriptions + yt-dlp buffers. Hetzner CPX41 has 16 GB total.
+    mem_limit: 8g
+    cpus: "8.0"
 
   caddy:
     image: caddy:2-alpine
