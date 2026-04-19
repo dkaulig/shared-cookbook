@@ -203,6 +203,9 @@ builder.Services.AddHttpClient(ExtractRecipeFromUrlJob.HttpClientName, (sp, clie
     client.Timeout = TimeSpan.FromSeconds(150);
 });
 builder.Services.AddSingleton<ExtractorHmacSigner>();
+// PV1 — verifies Python's incoming per-import HMAC tokens on the
+// /api/internal/imports/{id}/progress callback.
+builder.Services.AddSingleton<ImportProgressTokenService>();
 builder.Services.AddScoped<PythonExtractorRunner>();
 builder.Services.AddScoped<ExtractRecipeFromUrlJob>();
 builder.Services.AddScoped<ExtractRecipeFromPhotosJob>();
@@ -343,6 +346,37 @@ builder.Services.AddRateLimiter(options =>
             });
     });
 
+    // PV1 — internal Python progress-callback endpoint. Partitioned per
+    // importId (from the route value) so one flooding import can't
+    // starve concurrent imports' callbacks. 500/min is generous enough
+    // for the Python reporter's 500ms throttle (120/min typical) plus
+    // burst on phase transitions; a flood beyond that is almost
+    // certainly a bug or a replay attempt.
+    options.AddPolicy(RateLimitPolicies.ImportProgress, httpContext =>
+    {
+        if (ShouldBypassForTests(httpContext))
+            return RateLimitPartition.GetNoLimiter<string>("test-disabled");
+
+        // Partition on the route's {importId} parameter. Fall back to
+        // a shared "unknown" bucket only if the route value is missing —
+        // that path shouldn't exist in practice (the route constraint
+        // already requires a Guid) but we stay safe by keeping it
+        // bounded.
+        var importId = httpContext.Request.RouteValues.TryGetValue("importId", out var v)
+                       && v is not null
+            ? v.ToString() ?? "unknown"
+            : "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: importId,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 500,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
+    });
+
     // P3-8 security — SignalR hub negotiate/connect endpoints.
     // Partitioned per-IP: the hub is [Authorize]d but the negotiate POST
     // still burns CPU on JWT validation before auth rejects, so an
@@ -393,6 +427,15 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 app.UseExceptionHandler();
 app.UseSerilogRequestLogging();
 app.UseCors(CorsPolicy);
+
+// PV1 — defence-in-depth for /api/internal/*. Caddy rejects external
+// traffic with 404 before it ever arrives; this middleware is the
+// second line of defence for direct-to-Kestrel connections. Registered
+// before rate-limiter + auth so an external attacker can't spend our
+// limiter budget or invoke a JWT validation on the path they can't
+// reach anyway.
+app.UseMiddleware<InternalOnlyMiddleware>();
+
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -408,6 +451,7 @@ app.MapRatingEndpoints();
 app.MapSearchEndpoints();
 app.MapPhotoProxyEndpoints();
 app.MapImportEndpoints();
+app.MapInternalImportProgressEndpoints();
 app.MapChatEndpoints();
 app.MapAdminAiUsageEndpoints();
 app.MapMealPlanEndpoints();
@@ -481,6 +525,10 @@ internal static class RateLimitPolicies
     public const string Login = "login";
     public const string Generate = "generate";
     public const string Hub = "hub";
+
+    /// <summary>PV1 — per-importId 500/min partition guarding
+    /// <c>/api/internal/imports/{importId}/progress</c>.</summary>
+    public const string ImportProgress = "import-progress";
 }
 
 /// <summary>Strongly-typed options for non-auth app config.</summary>

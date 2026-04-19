@@ -44,6 +44,11 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
     private int? _smtpPort;
     private bool? _smtpUseStartTls;
 
+    /// <summary>PV1 — if set, the default <see cref="FamilienKochbuch.Api.Hubs.ILiveSyncPublisher"/>
+    /// registration is replaced with this instance so tests can observe
+    /// publisher fan-out without spinning up a full SignalR client.</summary>
+    private FamilienKochbuch.Api.Hubs.ILiveSyncPublisher? _publisherOverride;
+
     /// <summary>
     /// Captures every HTTP request sent through the named
     /// <see cref="ExtractRecipeFromUrlJob.HttpClientName"/> client so the
@@ -137,6 +142,12 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
             // job type + arguments without a running Hangfire server.
             services.RemoveAll<IBackgroundJobClient>();
             services.AddSingleton<IBackgroundJobClient>(Jobs);
+
+            if (_publisherOverride is not null)
+            {
+                services.RemoveAll<FamilienKochbuch.Api.Hubs.ILiveSyncPublisher>();
+                services.AddSingleton(_publisherOverride);
+            }
         });
     }
 
@@ -193,6 +204,15 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
     public FamilienKochbuchWebApplicationFactory WithoutFakeEmailSender()
     {
         _skipFakeEmailSender = true;
+        return this;
+    }
+
+    /// <summary>PV1 — swap in a recording / stub publisher for the
+    /// import-progress + meal-plan fan-out assertions.</summary>
+    public FamilienKochbuchWebApplicationFactory WithPublisher(
+        FamilienKochbuch.Api.Hubs.ILiveSyncPublisher publisher)
+    {
+        _publisherOverride = publisher;
         return this;
     }
 }

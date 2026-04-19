@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Domain.Entities;
+using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -36,6 +38,7 @@ public sealed class PythonExtractorRunner
     private readonly AppDbContext _db;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ExtractorHmacSigner _signer;
+    private readonly ILiveSyncPublisher _liveSync;
     private readonly TimeProvider _clock;
     private readonly ILogger<PythonExtractorRunner> _logger;
 
@@ -43,12 +46,14 @@ public sealed class PythonExtractorRunner
         AppDbContext db,
         IHttpClientFactory httpClientFactory,
         ExtractorHmacSigner signer,
+        ILiveSyncPublisher liveSync,
         TimeProvider clock,
         ILogger<PythonExtractorRunner> logger)
     {
         _db = db;
         _httpClientFactory = httpClientFactory;
         _signer = signer;
+        _liveSync = liveSync;
         _clock = clock;
         _logger = logger;
     }
@@ -63,8 +68,40 @@ public sealed class PythonExtractorRunner
         Func<RecipeImport, object> buildBody,
         CancellationToken ct)
     {
-        import.MarkRunning(10);
+        // PV1 — detect a Hangfire retry: the previous attempt left the
+        // row in Running/Phase != Queued before failing. Bump the
+        // AttemptNumber via the domain method + publish so the UI
+        // surfaces "Erneuter Versuch N/3" and so late callbacks from the
+        // previous attempt get rejected by UpdateProgress's stale-attempt
+        // guard.
+        if (import.Status == ImportStatus.Running
+            && import.Phase != RecipeImportPhase.Queued
+            && import.Phase is not RecipeImportPhase.Done and not RecipeImportPhase.Error)
+        {
+            import.StartAttempt(import.AttemptNumber + 1, _clock.GetUtcNow());
+            await _db.SaveChangesAsync(ct);
+            await _liveSync.RecipeImportProgressChangedAsync(import, ct);
+        }
+
+        // PV1 — transition into the first "real work" phase. URL imports
+        // start downloading; photo imports jump straight to Azure Vision
+        // because there's no download step on that path. `MarkRunning`
+        // keeps ImportStatus in sync for the existing polling surface.
+        var entryPhase = import.Source == ImportSource.Photos
+            ? RecipeImportPhase.VisionAnalysis
+            : RecipeImportPhase.Downloading;
+        import.MarkRunning(PhaseWeightedStart(entryPhase));
+        import.UpdateProgress(
+            phase: entryPhase,
+            phaseProgress: 0,
+            bytesDownloaded: null,
+            bytesTotal: null,
+            segmentsDone: null,
+            segmentsTotal: null,
+            attempt: import.AttemptNumber,
+            now: _clock.GetUtcNow());
         await _db.SaveChangesAsync(ct);
+        await _liveSync.RecipeImportProgressChangedAsync(import, ct);
 
         var client = _httpClientFactory.CreateClient(ExtractRecipeFromUrlJob.HttpClientName);
         using var request = new HttpRequestMessage(HttpMethod.Post, relativeUrl)
@@ -97,8 +134,23 @@ public sealed class PythonExtractorRunner
         {
             if (response.IsSuccessStatusCode)
             {
-                import.MarkRunning(95);
+                // Transition into the server-side post-processing phase
+                // (persist result, thumbnails, revisions). Published so
+                // the UI's progress bar jumps out of the long-running
+                // phase and into "Nachverarbeitung..." the moment Python
+                // returns.
+                import.MarkRunning(PhaseWeightedStart(RecipeImportPhase.PostProcessing));
+                import.UpdateProgress(
+                    phase: RecipeImportPhase.PostProcessing,
+                    phaseProgress: 0,
+                    bytesDownloaded: null,
+                    bytesTotal: null,
+                    segmentsDone: null,
+                    segmentsTotal: null,
+                    attempt: import.AttemptNumber,
+                    now: _clock.GetUtcNow());
                 await _db.SaveChangesAsync(ct);
+                await _liveSync.RecipeImportProgressChangedAsync(import, ct);
 
                 var json = ValidateJsonOrThrow(bodyText);
 
@@ -115,6 +167,7 @@ public sealed class PythonExtractorRunner
 
                 import.MarkDone(json, _clock.GetUtcNow());
                 await _db.SaveChangesAsync(ct);
+                await _liveSync.RecipeImportProgressChangedAsync(import, ct);
                 return;
             }
 
@@ -127,6 +180,7 @@ public sealed class PythonExtractorRunner
                 // 4xx — persist Error state and stop retrying.
                 import.MarkError(message, _clock.GetUtcNow());
                 await _db.SaveChangesAsync(ct);
+                await _liveSync.RecipeImportProgressChangedAsync(import, ct);
                 throw new PythonExtractorException(message, isTerminal: true, statusCode: status);
             }
 
@@ -140,6 +194,25 @@ public sealed class PythonExtractorRunner
             throw new PythonExtractorException(message, isTerminal: false, statusCode: status);
         }
     }
+
+    /// <summary>
+    /// Returns the global <c>Progress</c> value at the start of the
+    /// given phase so <see cref="RecipeImport.MarkRunning"/> stays
+    /// consistent with the phase-weighted formula computed inside
+    /// <see cref="RecipeImport.UpdateProgress"/>. Only phases we
+    /// transition into from the job runner are supported.
+    /// </summary>
+    private static int PhaseWeightedStart(RecipeImportPhase phase) => phase switch
+    {
+        RecipeImportPhase.Queued => 0,
+        RecipeImportPhase.Downloading => 5,
+        RecipeImportPhase.Transcribing => 15,
+        RecipeImportPhase.Structuring => 85,
+        RecipeImportPhase.PostProcessing => 95,
+        RecipeImportPhase.VisionAnalysis => 5,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(phase), phase, "Runner only enters intermediate phases."),
+    };
 
     private static string ValidateJsonOrThrow(string bodyText)
     {

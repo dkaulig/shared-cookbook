@@ -20,6 +20,26 @@ internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<Recip
         e.Property(r => r.Status).HasConversion<int>();
         e.Property(r => r.Progress).IsRequired();
 
+        // PV1 — phase-aware progress. Phase is enum→int on disk (stable
+        // across rename refactors, same pattern as Source/Status above).
+        // All companion fields are nullable or default-zeroed so this
+        // migration can add them without a backfill sweep.
+        e.Property(r => r.Phase)
+            .HasConversion<int>()
+            .HasDefaultValue(FamilienKochbuch.Domain.Enums.RecipeImportPhase.Queued)
+            .IsRequired();
+        e.Property(r => r.PhaseProgress).HasDefaultValue(0).IsRequired();
+        e.Property(r => r.ProgressLabel)
+            .HasMaxLength(RecipeImport.ProgressLabelMaxLength);
+        e.Property(r => r.BytesDownloaded);
+        e.Property(r => r.BytesTotal);
+        e.Property(r => r.SegmentsDone);
+        e.Property(r => r.SegmentsTotal);
+        e.Property(r => r.AttemptNumber).HasDefaultValue(1).IsRequired();
+        e.Property(r => r.LastProgressAt)
+            .HasDefaultValueSql("CURRENT_TIMESTAMP")
+            .IsRequired();
+
         e.Property(r => r.SourceUrl).HasMaxLength(RecipeImport.SourceUrlMaxLength);
 
         // ResultJson is arbitrary length (could be ~50KB for a big

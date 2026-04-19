@@ -219,20 +219,31 @@ public sealed class RecordingLiveSyncPublisher : ILiveSyncPublisher
     public record SlotChange(Guid GroupId, Guid PlanId, Guid SlotId, string WeekStart, LiveSyncAction Action);
     public record PlanChange(Guid GroupId, Guid PlanId, string WeekStart, LiveSyncAction Action);
     public record ItemChange(Guid GroupId, Guid PlanId, Guid ListId, Guid ItemId, LiveSyncAction Action);
+    public record ImportProgressChange(
+        Guid ImportId,
+        Guid GroupId,
+        FamilienKochbuch.Domain.Enums.RecipeImportPhase Phase,
+        int Progress,
+        int PhaseProgress,
+        string? ProgressLabel,
+        int AttemptNumber);
 
     private readonly List<SlotChange> _slotChanges = new();
     private readonly List<PlanChange> _planChanges = new();
     private readonly List<ItemChange> _itemChanges = new();
+    private readonly List<ImportProgressChange> _importChanges = new();
 
     public IReadOnlyList<SlotChange> SlotChanges => _slotChanges;
     public IReadOnlyList<PlanChange> MealPlanChanges => _planChanges;
     public IReadOnlyList<ItemChange> ItemChanges => _itemChanges;
+    public IReadOnlyList<ImportProgressChange> ImportProgressChanges => _importChanges;
 
     public void Reset()
     {
         _slotChanges.Clear();
         _planChanges.Clear();
         _itemChanges.Clear();
+        _importChanges.Clear();
     }
 
     public Task MealPlanSlotChangedAsync(
@@ -256,6 +267,21 @@ public sealed class RecordingLiveSyncPublisher : ILiveSyncPublisher
         LiveSyncAction action, CancellationToken ct = default)
     {
         _itemChanges.Add(new ItemChange(groupId, planId, listId, itemId, action));
+        return Task.CompletedTask;
+    }
+
+    public Task RecipeImportProgressChangedAsync(
+        FamilienKochbuch.Domain.Entities.RecipeImport import,
+        CancellationToken ct = default)
+    {
+        _importChanges.Add(new ImportProgressChange(
+            ImportId: import.Id,
+            GroupId: import.GroupId,
+            Phase: import.Phase,
+            Progress: import.Progress,
+            PhaseProgress: import.PhaseProgress,
+            ProgressLabel: import.ProgressLabel,
+            AttemptNumber: import.AttemptNumber));
         return Task.CompletedTask;
     }
 }

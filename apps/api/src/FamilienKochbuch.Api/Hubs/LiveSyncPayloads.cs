@@ -53,3 +53,29 @@ public sealed record ShoppingListItemChangedPayload(
     [property: JsonPropertyName("itemId")] Guid ItemId,
     [property: JsonPropertyName("planId")] Guid PlanId,
     [property: JsonPropertyName("action")] string Action);
+
+/// <summary>
+/// Published on <c>RecipeImportProgressChanged</c>. Carries the full
+/// server-authoritative snapshot for a single <c>RecipeImport</c> row so
+/// the frontend can call
+/// <c>queryClient.setQueryData(['import', importId], payload)</c>
+/// without needing to re-fetch. Shape matches design
+/// §SignalR Event.
+///
+/// <see cref="Phase"/> is the lower-case snake-case wire form of the
+/// enum (e.g. <c>"post_processing"</c>) — same convention the Python
+/// extractor uses in its callback payload, and the same shape the
+/// frontend's <c>RecipeImportPhase</c> union expects.
+/// </summary>
+public sealed record RecipeImportProgressPayload(
+    [property: JsonPropertyName("importId")] Guid ImportId,
+    [property: JsonPropertyName("groupId")] Guid GroupId,
+    [property: JsonPropertyName("phase")] string Phase,
+    [property: JsonPropertyName("progress")] int Progress,
+    [property: JsonPropertyName("phaseProgress")] int PhaseProgress,
+    [property: JsonPropertyName("progressLabel")] string ProgressLabel,
+    [property: JsonPropertyName("attemptNumber")] int AttemptNumber,
+    [property: JsonPropertyName("bytesDownloaded")] long? BytesDownloaded,
+    [property: JsonPropertyName("bytesTotal")] long? BytesTotal,
+    [property: JsonPropertyName("segmentsDone")] int? SegmentsDone,
+    [property: JsonPropertyName("segmentsTotal")] int? SegmentsTotal);
