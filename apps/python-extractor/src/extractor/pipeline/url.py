@@ -19,6 +19,21 @@ Orchestrates the four pipeline stages documented in the P2-2 plan:
    :meth:`LLMProvider.extract_structured` with :data:`RECIPE_SCHEMA`.
 4. Post-process (see :func:`post_process`).
 
+Security (P2-2.1):
+- All outbound blog fetches go through :func:`_assert_safe_http_target`
+  which resolves the host via :func:`socket.getaddrinfo` and rejects
+  any private / loopback / link-local / reserved / metadata-endpoint
+  address. The check also runs on every redirect hop (manual redirect
+  loop, httpx ``follow_redirects=False``), so an attacker-controlled
+  page can't 302 us to ``http://127.0.0.1/``.
+- Body reads are streamed with a 2 MiB hard cap and guarded by a
+  ``Content-Type`` allow-list (HTML only).
+- Caption-linked blog text — which is attacker-controlled — is wrapped
+  in ``<untrusted_blog>…</untrusted_blog>`` delimiters so the system
+  prompt can instruct the LLM to treat it as data, not instructions.
+- OG-image URLs coming from caption-linked (untrusted) blogs have
+  their query + fragment stripped before being stored.
+
 Error handling:
 - Downloader raises :class:`ExtractionError` (``source_unavailable``)
   → propagates; the endpoint maps to HTTP 422.
@@ -26,6 +41,8 @@ Error handling:
   endpoint maps ``provider_unavailable`` → 503.
 - Blog HTTP 4xx/5xx → fall back to video-only sources with the note
   ``"Website nicht erreichbar"``.
+- Blog SSRF block → fall back to video-only sources with the note
+  ``"Website blockiert (SSRF-Schutz)"``.
 
 Temp files live inside an explicit ``tempfile.TemporaryDirectory``
 context manager so the mp4 is always cleaned up, even on failure.
@@ -33,13 +50,16 @@ context manager so the mp4 is always cleaned up, even on failure.
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import json
 import logging
 import re
+import socket
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 
@@ -95,6 +115,28 @@ _BLOG_USER_AGENT: str = (
     "Mozilla/5.0 (compatible; FamilienKochbuch-Extractor/0.1; +https://familien-kochbuch.example)"
 )
 
+# Security caps (P2-2.1).
+_BLOG_MAX_BYTES: int = 2 * 1024 * 1024  # 2 MiB
+_BLOG_MAX_REDIRECTS: int = 5  # match httpx default
+_BLOG_ALLOWED_CONTENT_TYPES: tuple[str, ...] = (
+    "text/html",
+    "application/xhtml+xml",
+)
+
+# Hostnames that must never be fetched — cover cloud metadata
+# endpoints the DNS layer may hand back a public-looking answer for
+# due to split-horizon DNS.
+_BLOCKED_HOSTNAMES: frozenset[str] = frozenset(
+    {
+        "localhost",
+        "metadata",
+        "metadata.google.internal",
+        "metadata.azure.com",
+        "metadata.packet.net",
+        "instance-data",
+    }
+)
+
 # P2-2.1 — URL-extraction regex for captions. Deliberately simple:
 # catch ``http(s)://…`` up to the next whitespace / punctuation that
 # obviously terminates a URL. We don't over-sanitise — failures fall
@@ -117,6 +159,55 @@ _SHORTENER_HOSTS: frozenset[str] = frozenset(
         "buff.ly",
     }
 )
+
+
+class SsrfBlockedError(RuntimeError):
+    """Raised when a URL target resolves to a private / metadata-endpoint IP.
+
+    Also used for adjacent fetch-guard violations (content-type mismatch,
+    oversize body, redirect-loop) so the caller only needs one except
+    branch to map to the SSRF-block note.
+    """
+
+
+async def _assert_safe_http_target(url: str) -> None:
+    """Resolve the URL's host and reject any result that is private,
+    loopback, link-local, reserved, or a known cloud-metadata hostname.
+
+    Uses :func:`socket.getaddrinfo` (blocking) via :func:`asyncio.to_thread`
+    so the event loop stays responsive. Rejects ALL resolved addresses —
+    if even one points at a private range, the call is blocked
+    (defence-in-depth against DNS-rebinding where the first lookup
+    returns public and a later one returns ``127.0.0.1``).
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError as exc:
+        raise SsrfBlockedError(f"malformed url: {exc}") from exc
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise SsrfBlockedError("missing host")
+    if host in _BLOCKED_HOSTNAMES:
+        raise SsrfBlockedError(f"blocked hostname: {host}")
+    try:
+        infos = await asyncio.to_thread(socket.getaddrinfo, host, None, 0, socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise SsrfBlockedError(f"dns resolution failed: {exc}") from exc
+    for _family, _type, _proto, _canon, sockaddr in infos:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError as exc:
+            raise SsrfBlockedError(f"invalid ip from dns: {ip_str}") from exc
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise SsrfBlockedError(f"blocked address: {host} -> {ip}")
 
 
 def _find_first_external_url(
@@ -216,6 +307,7 @@ async def extract_from_url(
     blog_text: str | None = None
     thumbnail_url: str | None = None
     notes: list[str] = []
+    blog_text_untrusted: bool = False
 
     if kind == "video":
         (transcript, caption, thumbnail_url) = await _run_video_path(
@@ -229,10 +321,16 @@ async def extract_from_url(
         # blog, never in the spoken audio.
         external_url = _find_first_external_url(caption, source_url=url)
         if external_url is not None:
-            (blog_text, caption_thumbnail, caption_notes) = await _run_blog_path(external_url)
+            (blog_text, caption_thumbnail, caption_notes) = await _run_blog_path(
+                external_url, untrusted=True
+            )
             notes.extend(caption_notes)
             if thumbnail_url is None and caption_thumbnail is not None:
                 thumbnail_url = caption_thumbnail
+            # Caption-linked blog text is attacker-controlled → wrap it in
+            # delimiter tags so the system prompt's anti-injection rule
+            # applies.
+            blog_text_untrusted = blog_text is not None
             logger.info(
                 "caption_blog_fetched src=%s linked=%s has_text=%s",
                 _redact_host(url),
@@ -240,7 +338,7 @@ async def extract_from_url(
                 blog_text is not None,
             )
     else:
-        (blog_text, thumbnail_url, notes) = await _run_blog_path(url)
+        (blog_text, thumbnail_url, notes) = await _run_blog_path(url, untrusted=False)
 
     llm_output, usage = await _run_llm_structuring(
         provider=provider,
@@ -248,6 +346,7 @@ async def extract_from_url(
         caption=caption,
         blog_text=blog_text,
         thumbnail_url=thumbnail_url,
+        blog_text_untrusted=blog_text_untrusted,
     )
 
     return post_process(
@@ -294,30 +393,92 @@ async def _run_video_path(
 # ─────────────────────────────────────────────────────────────────────
 
 
-async def _run_blog_path(url: str) -> tuple[str | None, str | None, list[str]]:
-    """Fetch + run the three-layer extractor. Returns (blog_text, thumbnail, notes)."""
+async def _run_blog_path(url: str, *, untrusted: bool) -> tuple[str | None, str | None, list[str]]:
+    """Fetch + run the three-layer extractor.
+
+    Returns ``(blog_text, thumbnail, notes)``. ``untrusted=True`` marks
+    the call as coming from a caption-linked (attacker-controlled) page
+    — the og:image query + fragment are stripped before the thumbnail
+    is returned as defence-in-depth.
+    """
     try:
         html, fetched_thumbnail = await _fetch_blog(url)
+    except SsrfBlockedError as exc:
+        logger.warning("blog fetch blocked host=%s err=%s", _redact_host(url), exc)
+        return (None, None, ["Website blockiert (SSRF-Schutz)"])
     except httpx.HTTPError as exc:
         logger.warning("blog fetch failed host=%s err=%s", _redact_host(url), exc)
         return (None, None, ["Website nicht erreichbar"])
+
+    if untrusted and fetched_thumbnail is not None:
+        fetched_thumbnail = _strip_query_fragment(fetched_thumbnail)
 
     blog_text = _blog_layers_to_text(url=url, html=html)
     return (blog_text, fetched_thumbnail, [])
 
 
 async def _fetch_blog(url: str) -> tuple[str, str | None]:
-    """GET the blog page. Returns (html, og:image or None)."""
+    """GET the blog page with SSRF + body-size + content-type guards.
+
+    Returns ``(html, og:image or None)``. Follows up to
+    :data:`_BLOG_MAX_REDIRECTS` 3xx hops manually, re-running
+    :func:`_assert_safe_http_target` on every new ``Location``.
+    """
+    await _assert_safe_http_target(url)
+
     headers = {"user-agent": _BLOG_USER_AGENT, "accept": "text/html"}
+    current_url = url
     async with httpx.AsyncClient(
-        follow_redirects=True,
+        follow_redirects=False,
         timeout=_BLOG_TIMEOUT_SECONDS,
         headers=headers,
     ) as client:
-        response = await client.get(url)
-    response.raise_for_status()
-    thumbnail = _extract_og_image(response.text)
-    return response.text, thumbnail
+        for hop in range(_BLOG_MAX_REDIRECTS + 1):
+            async with client.stream("GET", current_url) as response:
+                # Manual redirect handling — validate every hop.
+                if 300 <= response.status_code < 400 and "location" in response.headers:
+                    if hop >= _BLOG_MAX_REDIRECTS:
+                        raise SsrfBlockedError("too many redirects")
+                    next_url = urljoin(current_url, response.headers["location"])
+                    await _assert_safe_http_target(next_url)
+                    current_url = next_url
+                    continue
+
+                response.raise_for_status()
+
+                content_type = response.headers.get("content-type", "").lower()
+                if not any(content_type.startswith(ct) for ct in _BLOG_ALLOWED_CONTENT_TYPES):
+                    raise SsrfBlockedError(f"unexpected content-type: {content_type!r}")
+
+                buf = bytearray()
+                async for chunk in response.aiter_bytes():
+                    buf.extend(chunk)
+                    if len(buf) > _BLOG_MAX_BYTES:
+                        raise SsrfBlockedError(f"response body exceeds {_BLOG_MAX_BYTES} bytes")
+
+                encoding = response.encoding or "utf-8"
+                try:
+                    html = buf.decode(encoding, errors="replace")
+                except LookupError:
+                    html = buf.decode("utf-8", errors="replace")
+                thumbnail = _extract_og_image(html)
+                return html, thumbnail
+
+    # Unreachable: the loop either returns, raises, or exhausts via the
+    # too-many-redirects branch above. This final raise exists to make
+    # the control-flow total for mypy.
+    raise SsrfBlockedError("redirect loop exited without response")
+
+
+def _strip_query_fragment(url: str) -> str:
+    """Return ``url`` with any ``?query`` + ``#fragment`` removed.
+
+    Used for OG-image URLs pulled from caption-linked blogs — attackers
+    could hide a tracking / exfil token in the query. The scheme, host,
+    and path are preserved verbatim.
+    """
+    parsed = urlparse(url)
+    return urlunparse(parsed._replace(query="", fragment=""))
 
 
 def _extract_og_image(html: str) -> str | None:
@@ -444,12 +605,22 @@ async def _run_llm_structuring(
     caption: str | None,
     blog_text: str | None,
     thumbnail_url: str | None,
+    blog_text_untrusted: bool = False,
 ) -> tuple[dict[str, Any], TokenUsage]:
-    """Compose the user message, call the provider, return parsed JSON + usage."""
+    """Compose the user message, call the provider, return parsed JSON + usage.
+
+    When ``blog_text_untrusted`` is True, the blog text is wrapped in
+    ``<untrusted_blog>…</untrusted_blog>`` delimiters so the system
+    prompt's anti-prompt-injection rule applies. Only the caption-linked
+    branch sets this flag; user-typed blog URLs are trusted.
+    """
+    effective_blog_text: str | None = blog_text
+    if blog_text_untrusted and blog_text is not None:
+        effective_blog_text = f"<untrusted_blog>\n{blog_text}\n</untrusted_blog>"
     user_message = build_user_message(
         transcript=transcript,
         caption=caption,
-        blog_text=blog_text,
+        blog_text=effective_blog_text,
         thumbnail_url=thumbnail_url,
     )
     messages: list[ChatMessage] = [{"role": "user", "content": user_message}]
@@ -479,7 +650,9 @@ def _redact_host(url: str) -> str:
 
 __all__ = [
     "ExtractionError",
+    "SsrfBlockedError",
     "URLClass",
+    "_assert_safe_http_target",
     "classify_url",
     "extract_from_url",
 ]
