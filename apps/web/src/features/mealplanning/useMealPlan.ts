@@ -127,6 +127,10 @@ export function usePatchSlot(groupId: string, weekStart: string, planId: string)
     { slotId: string; patch: PatchSlotRequest },
     { previous: MealPlanDto | null | undefined }
   >({
+    // `gcTime: 0` evicts the mutation state the moment nothing observes
+    // it — keeps an unmounted-mid-flight mutation from persisting a
+    // half-applied optimistic snapshot into an unrelated week's cache.
+    gcTime: 0,
     mutationFn: ({ slotId, patch }) => patchSlot(planId, slotId, patch),
     onMutate: async (variables) => {
       // Cancel any in-flight refetch so it can't clobber the optimistic
@@ -183,6 +187,10 @@ export function useDeleteSlot(groupId: string, weekStart: string, planId: string
     { slotId: string },
     { previous: MealPlanDto | null | undefined }
   >({
+    // See `usePatchSlot` — evict on unobserved so a mid-flight delete
+    // can't leak an optimistic row-removal into a different week's
+    // cache after unmount.
+    gcTime: 0,
     mutationFn: ({ slotId }) => deleteSlot(planId, slotId),
     onMutate: async (variables) => {
       await client.cancelQueries({ queryKey })

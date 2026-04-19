@@ -25,8 +25,10 @@ import {
   isoWeekNumber,
   toMondayIso,
 } from '@/features/mealplanning/weekGrid'
+import { safeGetItem, safeSetItem } from '@/features/_shared/safeStorage'
 import { AddItemDialog } from './AddItemDialog'
 import { CATEGORY_LABELS } from './categoryLabels'
+import { ShoppingListApiError } from './shoppingListApi'
 import {
   useDeleteShoppingListItem,
   useGenerateShoppingList,
@@ -148,13 +150,11 @@ function ShoppingListView({
   const handleDelete = useCallback(
     (item: ShoppingListItemDto) => {
       if (!listId) return
-      if (item.source !== 'Manual') {
-        const ok = window.confirm(
-          'Dieses Item stammt aus dem Wochenplan oder der Vorwoche. ' +
-            'Beim nächsten Neu-Erzeugen kann es wieder auftauchen. Trotzdem löschen?',
-        )
-        if (!ok) return
-      }
+      // Always confirm — manual entries are user-typed and *more*
+      // precious than plan-derived rows (which reappear on the next
+      // Neu-Erzeugen), so the guardrail has to fire for every delete.
+      const ok = window.confirm('Zutat wirklich löschen?')
+      if (!ok) return
       deleteItem.mutate({ itemId: item.id })
     },
     [deleteItem, listId],
@@ -287,7 +287,7 @@ function ShoppingListView({
             onGenerate={handleGenerate}
             isPending={generate.isPending}
             errorMessage={
-              generate.isError ? 'Liste konnte nicht erzeugt werden.' : null
+              generate.isError ? generateErrorMessage(generate.error) : null
             }
           />
         )}
@@ -607,6 +607,19 @@ function EmptyListState({
   )
 }
 
+/**
+ * Error copy for the "Liste erzeugen" CTA. 429 is surfaced distinctly so
+ * the user understands they just need to wait — the generic error copy
+ * would prompt a fruitless retry loop. Every other failure falls back
+ * to the generic German message.
+ */
+function generateErrorMessage(error: Error | null): string {
+  if (error instanceof ShoppingListApiError && error.status === 429) {
+    return 'Zu viele Anfragen — bitte kurz warten, bevor du die Liste erneut erzeugst.'
+  }
+  return 'Liste konnte nicht erzeugt werden.'
+}
+
 function formatQuantity(
   quantity: string | null,
   unit: string | null,
@@ -625,15 +638,10 @@ function sortStorageKey(groupId: string, weekStart: string): string {
 }
 
 function readSortMode(groupId: string, weekStart: string): SortMode {
-  if (typeof window === 'undefined') return 'category'
-  try {
-    const raw = window.sessionStorage.getItem(sortStorageKey(groupId, weekStart))
-    return raw === 'name' ? 'name' : 'category'
-  } catch {
-    // Private-mode Safari throws on sessionStorage access — fall back
-    // to the default view rather than crashing the page.
-    return 'category'
-  }
+  // Private-mode Safari throws on sessionStorage access — `safeGetItem`
+  // swallows that and returns `null`, so we default to the category view.
+  const raw = safeGetItem(sortStorageKey(groupId, weekStart))
+  return raw === 'name' ? 'name' : 'category'
 }
 
 function persistSortMode(
@@ -641,12 +649,7 @@ function persistSortMode(
   weekStart: string,
   mode: SortMode,
 ): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.sessionStorage.setItem(sortStorageKey(groupId, weekStart), mode)
-  } catch {
-    /* swallow — non-critical */
-  }
+  safeSetItem(sortStorageKey(groupId, weekStart), mode)
 }
 
 /**

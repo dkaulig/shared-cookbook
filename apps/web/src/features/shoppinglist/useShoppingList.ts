@@ -14,6 +14,12 @@ import {
   patchShoppingListItem,
 } from './shoppingListApi'
 
+// TODO(P3-UI-consolidation): factor optimistic-mutation boilerplate
+// (onMutate/onError/onSettled snapshot+rollback) into a shared
+// `createOptimisticMutation` helper shared with useMealPlan; route
+// planId/listId through `mutationFn` variables to kill the
+// stale-closure defence-in-depth case flagged by /security-review.
+
 /**
  * TanStack-Query keys for the shopping-list cache. Scoped per meal-plan
  * (one list per plan) — the page wires it up via the planId it already
@@ -105,6 +111,10 @@ export function usePatchShoppingListItem(planId: string, listId: string) {
     PatchVariables,
     MutationContext
   >({
+    // `gcTime: 0` evicts the mutation state the moment nothing observes
+    // it — keeps an unmounted-mid-flight mutation from persisting a
+    // half-applied optimistic snapshot into an unrelated route's cache.
+    gcTime: 0,
     mutationFn: ({ itemId, patch }) =>
       patchShoppingListItem(listId, itemId, patch),
     onMutate: async (variables) => {
@@ -164,6 +174,10 @@ export function useDeleteShoppingListItem(planId: string, listId: string) {
   const client = useQueryClient()
   const queryKey = shoppingListQueryKeys.forPlan(planId)
   return useMutation<void, Error, DeleteVariables, MutationContext>({
+    // See `usePatchShoppingListItem` — evict on unobserved so a mid-
+    // flight delete can't leak an optimistic row-removal into a
+    // different list's cache after unmount.
+    gcTime: 0,
     mutationFn: ({ itemId }) => deleteShoppingListItem(listId, itemId),
     onMutate: async (variables) => {
       await client.cancelQueries({ queryKey })
