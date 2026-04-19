@@ -501,6 +501,231 @@ describe('<MealPlanPage />', () => {
     expect(warning).toHaveTextContent(/Meal-Prep-Parent für 1 weiteren Slot/i)
   })
 
+  // ── P3-9 "Plan der letzten Woche kopieren" ────────────────────────
+
+  it('enables the "Letzte Woche kopieren" button when the plan is empty', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 0,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [],
+        }),
+      ),
+    )
+
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    // The button renders disabled during the initial load (plan is
+    // still fetching), then flips to enabled once the empty plan
+    // arrives — wait for the enabled state rather than asserting on
+    // the first matching render.
+    await waitFor(() => {
+      const button = screen.getByRole('button', {
+        name: /Plan der letzten Woche kopieren/i,
+      })
+      expect(button).toBeEnabled()
+    })
+  })
+
+  it('disables the "Letzte Woche kopieren" button when the plan already has slots', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [makeSlot('s1')],
+        }),
+      ),
+    )
+
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    const button = await screen.findByRole('button', {
+      name: /Plan der letzten Woche kopieren/i,
+    })
+    expect(button).toBeDisabled()
+  })
+
+  it('POSTs copy-from with the previous Monday and shows the success banner', async () => {
+    const copiedSlot1 = makeSlot('c1', { date: WEEK_START })
+    const copiedSlot2 = makeSlot('c2', {
+      date: '2026-04-22',
+      meal: 'Abend',
+      label: 'Linsencurry',
+    })
+    let capturedPath: string | null = null
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 0,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [],
+        }),
+      ),
+      http.post(
+        `/api/mealplans/${PLAN_ID}/copy-from/:sourceWeekStart`,
+        ({ request, params }) => {
+          capturedPath = new URL(request.url).pathname
+          // `params.sourceWeekStart` exposes the URL segment so the
+          // assertion is independent of path-encoding quirks.
+          expect(params.sourceWeekStart).toBe('2026-04-13')
+          return HttpResponse.json<MealPlanDto>({
+            id: PLAN_ID,
+            groupId: GROUP_ID,
+            weekStart: WEEK_START,
+            version: 1,
+            createdAt: '2026-04-20T00:00:00Z',
+            updatedAt: '2026-04-20T00:00:00Z',
+            slots: [copiedSlot1, copiedSlot2],
+          })
+        },
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    const button = await screen.findByRole('button', {
+      name: /Plan der letzten Woche kopieren/i,
+    })
+    await user.click(button)
+
+    const banner = await screen.findByTestId('mealplan-copy-banner')
+    // Previous week of KW 17 (2026-04-20) is KW 16 (2026-04-13).
+    expect(banner).toHaveTextContent(/2 Slots aus KW 16 übernommen/i)
+    expect(capturedPath).toBe(`/api/mealplans/${PLAN_ID}/copy-from/2026-04-13`)
+  })
+
+  it('shows the "Kein Plan in KW X gefunden" banner on 404 source.not_found', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 0,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [],
+        }),
+      ),
+      http.post(`/api/mealplans/${PLAN_ID}/copy-from/2026-04-13`, () =>
+        HttpResponse.json(
+          { code: 'source.not_found', message: 'Quell-Wochenplan wurde nicht gefunden.' },
+          { status: 404 },
+        ),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    await user.click(
+      await screen.findByRole('button', { name: /Plan der letzten Woche kopieren/i }),
+    )
+
+    const banner = await screen.findByTestId('mealplan-copy-banner')
+    expect(banner).toHaveTextContent(/Kein Plan in KW 16 gefunden/i)
+  })
+
+  it('shows the "Keine Berechtigung" banner on 403', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 0,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [],
+        }),
+      ),
+      http.post(`/api/mealplans/${PLAN_ID}/copy-from/2026-04-13`, () =>
+        HttpResponse.json(
+          { code: 'forbidden', message: 'Forbidden' },
+          { status: 403 },
+        ),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    await user.click(
+      await screen.findByRole('button', { name: /Plan der letzten Woche kopieren/i }),
+    )
+
+    const banner = await screen.findByTestId('mealplan-copy-banner')
+    expect(banner).toHaveTextContent(/Keine Berechtigung/i)
+  })
+
+  it('invalidates the week cache after a successful copy', async () => {
+    let getCount = 0
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () => {
+        getCount += 1
+        // Flips to a populated plan on the second GET so we can
+        // observe that the mutation re-fetched server truth.
+        if (getCount === 1) {
+          return HttpResponse.json<MealPlanDto>({
+            id: PLAN_ID,
+            groupId: GROUP_ID,
+            weekStart: WEEK_START,
+            version: 0,
+            createdAt: '2026-04-20T00:00:00Z',
+            updatedAt: '2026-04-20T00:00:00Z',
+            slots: [],
+          })
+        }
+        return HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [makeSlot('c1', { label: 'Refetched-After-Copy' })],
+        })
+      }),
+      http.post(`/api/mealplans/${PLAN_ID}/copy-from/2026-04-13`, () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [makeSlot('c1', { label: 'From-Copy-Response' })],
+        }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    await user.click(
+      await screen.findByRole('button', { name: /Plan der letzten Woche kopieren/i }),
+    )
+
+    // The cache should be primed from the POST response first, then
+    // invalidation triggers a refetch — observable via the second GET.
+    await waitFor(() => expect(getCount).toBeGreaterThanOrEqual(2))
+  })
+
   it('opens the AddSlotDialog when an empty cell button is clicked', async () => {
     server.use(
       http.get('/api/groups/g1/mealplans/2026-04-20', () =>

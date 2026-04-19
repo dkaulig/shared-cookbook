@@ -118,3 +118,27 @@ export async function deleteSlot(planId: string, slotId: string): Promise<void> 
     undefined,
   )
 }
+
+/**
+ * POST `/api/mealplans/{planId}/copy-from/{sourceWeekStart}` — clones
+ * every slot from the source week into the current plan, remapping
+ * `ParentSlotId` where both parent + child were copied. The server
+ * responds with the freshly-copied target plan so the caller can
+ * splice it straight into the TanStack cache.
+ *
+ * Failures surface as {@link MealPlanApiError} with codes the UI
+ * already maps to specific German banners:
+ *   - 404 `source.not_found` — kein Plan in der Quellwoche.
+ *   - 400 `copy.same_plan` — source = target (kann in der UI nicht
+ *     auftreten, weil wir immer "letzte Woche" kopieren).
+ *   - 403 — Non-member.
+ */
+export async function copyFromWeek(
+  planId: string,
+  sourceWeekStart: string,
+): Promise<MealPlanDto> {
+  return request<MealPlanDto>(
+    `/api/mealplans/${encodeURIComponent(planId)}/copy-from/${encodeURIComponent(sourceWeekStart)}`,
+    { method: 'POST' },
+  )
+}
