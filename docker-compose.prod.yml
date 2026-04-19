@@ -67,6 +67,11 @@ services:
       # ── P2-5: Python extractor bridge ───────────────────────────
       EXTRACTOR_SHARED_SECRET: ${EXTRACTOR_SHARED_SECRET}
       PythonExtractor__BaseUrl: "${PYTHON_EXTRACTOR_BASE_URL:-http://python-extractor:8000}"
+      # ── Orchestrator bot (OPS1) ─────────────────────────────────
+      ORCHESTRATOR_PASSWORD: ${ORCHESTRATOR_PASSWORD:-}
+      ORCHESTRATOR_PASSWORD_ROTATE: ${ORCHESTRATOR_PASSWORD_ROTATE:-}
+      # ── Hangfire worker cap (IF1) ───────────────────────────────
+      HANGFIRE_WORKERS: ${HANGFIRE_WORKERS:-}
       # SMTP for password-reset emails — configure a Migadu/Posteo account.
       Smtp__Host: ${SMTP_HOST:-}
       Smtp__Port: ${SMTP_PORT:-587}
