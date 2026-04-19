@@ -46,36 +46,36 @@ public sealed class SmtpEmailSender : IEmailSender
         string toEmail,
         string displayName,
         string resetUrl,
-        CancellationToken ct = default)
-    {
-        var subject = "Passwort zurücksetzen — Familien-Kochbuch";
-        var body = BuildPasswordResetBody(displayName, resetUrl);
-        return SendAsync(toEmail, subject, body, ct);
-    }
+        CancellationToken ct = default) =>
+        SendAsync(
+            toEmail,
+            EmailTemplates.PasswordResetSubject,
+            EmailTemplates.PasswordResetBody(displayName, resetUrl),
+            ct);
 
     public Task SendAppInviteAsync(
         string toEmail,
         string inviterDisplayName,
         string acceptUrl,
         string? personalNote,
-        CancellationToken ct = default)
-    {
-        var subject = "Einladung zum Familien-Kochbuch";
-        var body = BuildAppInviteBody(inviterDisplayName, acceptUrl, personalNote);
-        return SendAsync(toEmail, subject, body, ct);
-    }
+        CancellationToken ct = default) =>
+        SendAsync(
+            toEmail,
+            EmailTemplates.AppInviteSubject,
+            EmailTemplates.AppInviteBody(inviterDisplayName, acceptUrl, personalNote),
+            ct);
 
     public Task SendGroupInviteAsync(
         string toEmail,
         string inviterDisplayName,
         string groupName,
         string acceptUrl,
-        CancellationToken ct = default)
-    {
-        var subject = $"Einladung zur Gruppe \"{groupName}\" — Familien-Kochbuch";
-        var body = BuildGroupInviteBody(inviterDisplayName, groupName, acceptUrl);
-        return SendAsync(toEmail, subject, body, ct);
-    }
+        CancellationToken ct = default) =>
+        SendAsync(
+            toEmail,
+            EmailTemplates.GroupInviteSubject(groupName),
+            EmailTemplates.GroupInviteBody(inviterDisplayName, groupName, acceptUrl),
+            ct);
 
     // ── Internals ───────────────────────────────────────────────────
 
@@ -123,56 +123,6 @@ public sealed class SmtpEmailSender : IEmailSender
         }
     }
 
-    private static string BuildPasswordResetBody(string displayName, string resetUrl) => $"""
-        Hallo {displayName},
-
-        du hast eine Passwort-Zurücksetzung für dein Familien-Kochbuch-Konto
-        angefordert. Folge diesem Link (gültig 24 Stunden), um ein neues
-        Passwort zu vergeben:
-
-        {resetUrl}
-
-        Solltest du diese Anfrage nicht gestellt haben, ignoriere diese
-        E-Mail einfach — dein aktuelles Passwort bleibt unverändert.
-
-        — Familien-Kochbuch
-        """;
-
-    private static string BuildAppInviteBody(string inviterDisplayName, string acceptUrl, string? personalNote)
-    {
-        var notePart = string.IsNullOrWhiteSpace(personalNote)
-            ? string.Empty
-            : $"\nPersönliche Nachricht von {inviterDisplayName}:\n  {personalNote}\n";
-
-        return $"""
-            Hallo,
-
-            {inviterDisplayName} hat dich ins Familien-Kochbuch eingeladen
-            — eine private Sammlung für Familien- und Freundes-Rezepte.
-            {notePart}
-            Lege dein Konto hier an:
-
-            {acceptUrl}
-
-            Der Link ist 14 Tage gültig.
-
-            — Familien-Kochbuch
-            """;
-    }
-
-    private static string BuildGroupInviteBody(string inviterDisplayName, string groupName, string acceptUrl) => $"""
-        Hallo,
-
-        {inviterDisplayName} hat dich in die Gruppe "{groupName}" im
-        Familien-Kochbuch eingeladen. Ab sofort kannst du die Rezepte der
-        Gruppe sehen und neue beitragen.
-
-        Einladung ansehen:
-
-        {acceptUrl}
-
-        — Familien-Kochbuch
-        """;
 }
 
 /// <summary>Immutable snapshot of the SMTP settings consumed by one send
