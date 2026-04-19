@@ -626,6 +626,39 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
     }
 
     [Fact]
+    public async Task PatchSlot_Rejects_Two_Step_Cycle()
+    {
+        // Regression for the cycle-bypass found in the /security review:
+        // a freshly-loaded candidate parent has its ParentSlot nav set
+        // to null, so the in-memory CanSetParent guard couldn't see
+        // ancestors and two PATCHes could build A↔B. Endpoint must
+        // reject the second PATCH with `parent.cycle`.
+        var (userId, token) = await SignupAndLoginAsync("cycle@ex.com", "C");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var a = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, "A");
+        var b = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday.AddDays(1), MealSlot.Mittag, 2, "B");
+
+        // Step 1: A → parent=B (OK, A has no ancestors).
+        var step1 = await _client.PatchAsync(
+            $"/api/mealplans/{plan.Id}/slots/{a.Id}",
+            new StringContent($$"""{"parentSlotId": "{{b.Id}}"}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, step1.StatusCode);
+
+        // Step 2: B → parent=A would form A→B→A. Must be rejected.
+        var step2 = await _client.PatchAsync(
+            $"/api/mealplans/{plan.Id}/slots/{b.Id}",
+            new StringContent($$"""{"parentSlotId": "{{a.Id}}"}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, step2.StatusCode);
+        var err = await step2.Content.ReadFromJsonAsync<ErrorResponseDto>();
+        Assert.Equal("parent.cycle", err!.Code);
+    }
+
+    private sealed record ErrorResponseDto(string Code, string Message);
+
+    [Fact]
     public async Task PatchSlot_Rejects_Self_Parent_Cycle()
     {
         var (userId, token) = await SignupAndLoginAsync("self@ex.com", "S");

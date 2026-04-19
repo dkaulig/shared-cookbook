@@ -5,6 +5,7 @@ using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.MealPlanning;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace FamilienKochbuch.Api.Endpoints.MealPlanning;
@@ -36,14 +37,6 @@ public static class MealPlanEndpoints
         int? SortOrder = null,
         Guid? ParentSlotId = null);
 
-    /// <summary>
-    /// Copy-from request body. <see cref="SourceWeekStart"/> is also in
-    /// the route — the body is kept empty/optional so the route alone
-    /// is authoritative, but the record exists for content-type
-    /// negotiation + future expansion.
-    /// </summary>
-    public record CopyFromRequest();
-
     public record MealPlanSlotDto(
         Guid Id,
         Guid MealPlanId,
@@ -67,6 +60,61 @@ public static class MealPlanEndpoints
         DateTimeOffset UpdatedAt,
         MealPlanSlotDto[] Slots);
 
+    /// <summary>
+    /// JSON Merge Patch DTO for the slot PATCH endpoint. Each field
+    /// is a <see cref="JsonElement"/>? so we can distinguish "absent"
+    /// (null reference → leave alone) from "present with null value"
+    /// (clear). NOTE: the Minimal-API/STJ binder collapses both into
+    /// a C# null, so the endpoint reads the raw body via
+    /// <see cref="ReadAsync"/> and populates this record by hand from
+    /// a <see cref="JsonDocument"/> walk — that's the only way to keep
+    /// the Merge-Patch semantics intact. Once populated, callers use
+    /// the typed accessors (<see cref="JsonElement.GetGuid"/>, etc.)
+    /// inside a single <see cref="JsonException"/> guard.
+    /// </summary>
+    public record SlotPatchRequest(
+        JsonElement? RecipeId,
+        JsonElement? Label,
+        JsonElement? Servings,
+        JsonElement? SortOrder,
+        JsonElement? IsCooked,
+        JsonElement? ParentSlotId)
+    {
+        public static async Task<SlotPatchRequest> ReadAsync(HttpRequest request, CancellationToken ct)
+        {
+            using var doc = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                throw new JsonException("Body must be a JSON object.");
+
+            JsonElement? recipeId = null, label = null, servings = null,
+                sortOrder = null, isCooked = null, parentSlotId = null;
+            foreach (var prop in root.EnumerateObject())
+            {
+                // Clone() is required so the JsonElement outlives the
+                // JsonDocument we're disposing on the way out.
+                switch (prop.Name)
+                {
+                    case "recipeId": recipeId = prop.Value.Clone(); break;
+                    case "label": label = prop.Value.Clone(); break;
+                    case "servings": servings = prop.Value.Clone(); break;
+                    case "sortOrder": sortOrder = prop.Value.Clone(); break;
+                    case "isCooked": isCooked = prop.Value.Clone(); break;
+                    case "parentSlotId": parentSlotId = prop.Value.Clone(); break;
+                    // Unknown properties are ignored (forward-compat):
+                    // newer clients hitting older servers degrade to a
+                    // no-op rather than 400.
+                }
+            }
+            return new SlotPatchRequest(recipeId, label, servings, sortOrder, isCooked, parentSlotId);
+        }
+    }
+
+    // PATCH body cap — 16 KB is generous for 6 small fields and
+    // prevents an attacker tying up the JSON parser with megabytes
+    // of garbage. Default Kestrel cap (~30 MB) was overkill.
+    private const long PatchSlotBodyLimitBytes = 16_384;
+
     // ── Endpoint wiring ─────────────────────────────────────────────
 
     public static void MapMealPlanEndpoints(this WebApplication app)
@@ -81,7 +129,8 @@ public static class MealPlanEndpoints
             .WithTags("MealPlanning")
             .RequireAuthorization();
         plan.MapPost("/slots", AddSlotAsync);
-        plan.MapPatch("/slots/{slotId:guid}", PatchSlotAsync);
+        plan.MapPatch("/slots/{slotId:guid}", PatchSlotAsync)
+            .WithMetadata(new RequestSizeLimitAttribute(PatchSlotBodyLimitBytes));
         plan.MapDelete("/slots/{slotId:guid}", DeleteSlotAsync);
         plan.MapPost("/copy-from/{sourceWeekStart}", CopyFromAsync);
     }
@@ -146,6 +195,90 @@ public static class MealPlanEndpoints
         if (!await IsGroupMemberAsync(db, plan.GroupId, userId, ct))
             return (null, Results.Forbid());
         return (plan, null);
+    }
+
+    /// <summary>
+    /// Walks <paramref name="candidateId"/>'s ancestor chain via
+    /// repeated DB lookups and returns every visited ID (including
+    /// the candidate itself). Used by the parent-attach guard so we
+    /// can detect cycles WITHOUT depending on the candidate's
+    /// <see cref="MealPlanSlot.ParentSlot"/> nav being eager-loaded —
+    /// the in-memory <see cref="MealPlanSlot.CanSetParent"/> guard
+    /// can't see ancestors on a freshly-loaded entity, which is the
+    /// hole the original PATCH path left open (two PATCHes could
+    /// build A↔B by stepping the cycle through endpoints whose
+    /// candidate.ParentSlot was always null).
+    /// </summary>
+    private static async Task<HashSet<Guid>> LoadAncestorIdsAsync(
+        AppDbContext db, Guid candidateId, Guid planId, CancellationToken ct)
+    {
+        var ancestors = new HashSet<Guid> { candidateId };
+        var cursorId = candidateId;
+        while (true)
+        {
+            var parentId = await db.MealPlanSlots
+                .Where(s => s.Id == cursorId && s.MealPlanId == planId)
+                .Select(s => s.ParentSlotId)
+                .FirstOrDefaultAsync(ct);
+            if (parentId is null) break;
+            if (!ancestors.Add(parentId.Value))
+            {
+                // Corrupt state — existing cycle in DB (shouldn't
+                // happen given the same guard at write time). Bail
+                // rather than spin forever.
+                break;
+            }
+            cursorId = parentId.Value;
+        }
+        return ancestors;
+    }
+
+    /// <summary>
+    /// Shared parent-attach helper for <see cref="AddSlotAsync"/> and
+    /// <see cref="PatchSlotAsync"/>. Returns <c>null</c> on success
+    /// (parent attached or detached as requested), or an error result
+    /// when the candidate is missing, lives on a different plan, or
+    /// would form a cycle.
+    /// </summary>
+    private static async Task<IResult?> TryAttachParentAsync(
+        MealPlanSlot slot,
+        Guid? parentId,
+        MealPlan plan,
+        AppDbContext db,
+        DateTimeOffset now,
+        CancellationToken ct)
+    {
+        if (parentId is null)
+        {
+            slot.SetParent(null, now);
+            return null;
+        }
+
+        var parent = await db.MealPlanSlots
+            .FirstOrDefaultAsync(s => s.Id == parentId.Value, ct);
+        if (parent is null)
+            return FamilienResults.BadRequest("parent.not_found",
+                "Der Parent-Slot wurde nicht gefunden.");
+        if (parent.MealPlanId != plan.Id)
+            return FamilienResults.BadRequest("parent.cross_plan",
+                "Der Parent-Slot gehört zu einem anderen Wochenplan.");
+
+        // Endpoint-layer cycle check that survives detached-entity
+        // reads — see LoadAncestorIdsAsync for the rationale.
+        var ancestors = await LoadAncestorIdsAsync(db, parent.Id, plan.Id, ct);
+        if (ancestors.Contains(slot.Id))
+            return FamilienResults.BadRequest("parent.cycle",
+                "Parent-Zuweisung würde einen Zyklus erzeugen.");
+
+        try
+        {
+            slot.SetParent(parent, now);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return FamilienResults.BadRequest("parent.cross_plan", ex.Message);
+        }
+        return null;
     }
 
     // ── GET /api/groups/{groupId}/mealplans/{weekStart} ─────────────
@@ -283,30 +416,14 @@ public static class MealPlanEndpoints
             return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
-        // Parent must belong to the same plan; rely on the domain guard
-        // (SetParent) for cycle + cross-plan enforcement.
         if (body.ParentSlotId is { } parentId)
         {
-            var parent = await db.MealPlanSlots
-                .FirstOrDefaultAsync(s => s.Id == parentId, ct);
-            if (parent is null)
-                return FamilienResults.BadRequest("parent.not_found",
-                    "Der Parent-Slot wurde nicht gefunden.");
-            if (parent.MealPlanId != plan.Id)
-                return FamilienResults.BadRequest("parent.cross_plan",
-                    "Der Parent-Slot gehört zu einem anderen Wochenplan.");
-            try
-            {
-                slot.SetParent(parent, now);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return FamilienResults.BadRequest("parent.cross_plan", ex.Message);
-            }
+            var parentErr = await TryAttachParentAsync(slot, parentId, plan!, db, now, ct);
+            if (parentErr is not null) return parentErr;
         }
 
         db.MealPlanSlots.Add(slot);
-        plan.BumpVersion(now);
+        plan!.BumpVersion(now);
         await db.SaveChangesAsync(ct);
 
         return Results.Created($"/api/mealplans/{plan.Id}/slots/{slot.Id}", ToDto(slot));
@@ -346,10 +463,10 @@ public static class MealPlanEndpoints
             return FamilienResults.NotFound("slot.not_found",
                 "Slot wurde nicht gefunden.");
 
-        SlotPatch patch;
+        SlotPatchRequest patch;
         try
         {
-            patch = await SlotPatch.ReadAsync(request, ct);
+            patch = await SlotPatchRequest.ReadAsync(request, ct);
         }
         catch (JsonException ex)
         {
@@ -360,57 +477,44 @@ public static class MealPlanEndpoints
 
         try
         {
-            // RecipeId — null clears, Guid sets. Cross-group recipe is
-            // rejected with the same code as AddSlot.
-            if (patch.RecipeIdPresent)
+            // RecipeId — null clears, Guid sets. Cross-group recipe
+            // is rejected with the same code as AddSlot.
+            if (IsSet(patch.RecipeId))
             {
-                if (patch.RecipeId is { } rid)
+                var rid = ReadNullableGuid(patch.RecipeId!.Value, "recipeId");
+                if (rid is { } r)
                 {
                     var recipeOk = await db.Recipes
-                        .AnyAsync(r => r.Id == rid && r.GroupId == plan!.GroupId && r.DeletedAt == null, ct);
+                        .AnyAsync(x => x.Id == r && x.GroupId == plan!.GroupId && x.DeletedAt == null, ct);
                     if (!recipeOk)
                         return FamilienResults.BadRequest("recipe.not_in_group",
                             "Das Rezept gehört nicht zur Gruppe dieses Wochenplans.");
                 }
-                slot.SetRecipe(patch.RecipeId, now);
+                slot.SetRecipe(rid, now);
             }
 
-            if (patch.LabelPresent)
-                slot.SetLabel(patch.Label, now);
+            if (IsSet(patch.Label))
+                slot.SetLabel(ReadNullableString(patch.Label!.Value, "label"), now);
 
-            if (patch.ServingsPresent && patch.Servings is { } servings)
-                slot.UpdateServings(servings, now);
+            if (IsSet(patch.Servings) && ReadNullableInt(patch.Servings!.Value, "servings") is { } srv)
+                slot.UpdateServings(srv, now);
 
-            if (patch.SortOrderPresent && patch.SortOrder is { } so)
+            if (IsSet(patch.SortOrder) && ReadNullableInt(patch.SortOrder!.Value, "sortOrder") is { } so)
                 slot.Reorder(so, now);
 
-            if (patch.IsCookedPresent && patch.IsCooked is { } cooked)
+            if (IsSet(patch.IsCooked) && ReadNullableBool(patch.IsCooked!.Value, "isCooked") is { } cooked)
                 slot.SetCooked(cooked, now);
 
-            if (patch.ParentSlotIdPresent)
+            if (IsSet(patch.ParentSlotId))
             {
-                if (patch.ParentSlotId is { } pid)
-                {
-                    // Must load the parent FRESH with the owning plan so
-                    // the cross-plan guard in SetParent can see the
-                    // correct MealPlanId. Endpoint-layer check per plan
-                    // §P3-1 reviewer guidance — enforce before domain
-                    // call so a cleaner error code lands on the wire.
-                    var parent = await db.MealPlanSlots
-                        .FirstOrDefaultAsync(s => s.Id == pid, ct);
-                    if (parent is null)
-                        return FamilienResults.BadRequest("parent.not_found",
-                            "Der Parent-Slot wurde nicht gefunden.");
-                    if (parent.MealPlanId != plan!.Id)
-                        return FamilienResults.BadRequest("parent.cross_plan",
-                            "Der Parent-Slot gehört zu einem anderen Wochenplan.");
-                    slot.SetParent(parent, now);
-                }
-                else
-                {
-                    slot.SetParent(null, now);
-                }
+                var pid = ReadNullableGuid(patch.ParentSlotId!.Value, "parentSlotId");
+                var parentErr = await TryAttachParentAsync(slot, pid, plan!, db, now, ct);
+                if (parentErr is not null) return parentErr;
             }
+        }
+        catch (JsonException ex)
+        {
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
         catch (ArgumentOutOfRangeException ex)
         {
@@ -517,6 +621,7 @@ public static class MealPlanEndpoints
         // creates all new slots with ParentSlotId=null; second pass
         // sets parents where both parent + child were copied.
         var idMap = new Dictionary<Guid, Guid>(sourceSlots.Count);
+        var newById = new Dictionary<Guid, MealPlanSlot>(sourceSlots.Count);
         var created = new List<MealPlanSlot>(sourceSlots.Count);
         foreach (var src in sourceSlots)
         {
@@ -532,6 +637,7 @@ public static class MealPlanEndpoints
                 sortOrder: src.SortOrder,
                 createdAt: now);
             idMap[src.Id] = copy.Id;
+            newById[copy.Id] = copy;
             created.Add(copy);
             db.MealPlanSlots.Add(copy);
         }
@@ -547,7 +653,7 @@ public static class MealPlanEndpoints
             if (!idMap.TryGetValue(srcParentId, out var newParentId)) continue;
 
             var copy = created[i];
-            var parentCopy = created.First(c => c.Id == newParentId);
+            var parentCopy = newById[newParentId];
             copy.SetParent(parentCopy, now);
         }
 
@@ -563,109 +669,40 @@ public static class MealPlanEndpoints
     // ── Partial-update helpers ──────────────────────────────────────
 
     /// <summary>
-    /// JSON Merge Patch helper. Reads the raw request body once and
-    /// exposes a per-property "present" flag so endpoints can
-    /// distinguish "field absent" (leave alone) from "field present
-    /// with null" (clear). Written ad-hoc — the project has no shared
-    /// Optional&lt;T&gt; type yet, so this stays local to the slot
-    /// PATCH handler until a second endpoint needs the same
-    /// semantics (at which point extract into a shared helper).
+    /// True when the JSON key was present in the body, regardless of
+    /// whether the value was JSON null or a real value. Models the
+    /// "absent vs present-with-null" distinction that JSON Merge Patch
+    /// requires.
     /// </summary>
-    private sealed class SlotPatch
+    private static bool IsSet(JsonElement? e) => e.HasValue;
+
+    private static Guid? ReadNullableGuid(JsonElement e, string name)
     {
-        public bool RecipeIdPresent { get; private set; }
-        public Guid? RecipeId { get; private set; }
+        if (e.ValueKind == JsonValueKind.Null) return null;
+        if (e.ValueKind == JsonValueKind.String && Guid.TryParse(e.GetString(), out var g))
+            return g;
+        throw new JsonException($"Feld '{name}' muss eine UUID oder null sein.");
+    }
 
-        public bool LabelPresent { get; private set; }
-        public string? Label { get; private set; }
+    private static string? ReadNullableString(JsonElement e, string name)
+    {
+        if (e.ValueKind == JsonValueKind.Null) return null;
+        if (e.ValueKind == JsonValueKind.String) return e.GetString();
+        throw new JsonException($"Feld '{name}' muss ein Text oder null sein.");
+    }
 
-        public bool ServingsPresent { get; private set; }
-        public int? Servings { get; private set; }
+    private static int? ReadNullableInt(JsonElement e, string name)
+    {
+        if (e.ValueKind == JsonValueKind.Null) return null;
+        if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var i)) return i;
+        throw new JsonException($"Feld '{name}' muss eine Zahl oder null sein.");
+    }
 
-        public bool SortOrderPresent { get; private set; }
-        public int? SortOrder { get; private set; }
-
-        public bool IsCookedPresent { get; private set; }
-        public bool? IsCooked { get; private set; }
-
-        public bool ParentSlotIdPresent { get; private set; }
-        public Guid? ParentSlotId { get; private set; }
-
-        public static async Task<SlotPatch> ReadAsync(HttpRequest request, CancellationToken ct)
-        {
-            using var doc = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
-            var root = doc.RootElement;
-            var patch = new SlotPatch();
-            if (root.ValueKind != JsonValueKind.Object)
-                throw new JsonException("Body must be a JSON object.");
-
-            foreach (var prop in root.EnumerateObject())
-            {
-                switch (prop.Name)
-                {
-                    case "recipeId":
-                        patch.RecipeIdPresent = true;
-                        patch.RecipeId = ReadNullableGuid(prop.Value, prop.Name);
-                        break;
-                    case "label":
-                        patch.LabelPresent = true;
-                        patch.Label = ReadNullableString(prop.Value, prop.Name);
-                        break;
-                    case "servings":
-                        patch.ServingsPresent = true;
-                        patch.Servings = ReadNullableInt(prop.Value, prop.Name);
-                        break;
-                    case "sortOrder":
-                        patch.SortOrderPresent = true;
-                        patch.SortOrder = ReadNullableInt(prop.Value, prop.Name);
-                        break;
-                    case "isCooked":
-                        patch.IsCookedPresent = true;
-                        patch.IsCooked = ReadNullableBool(prop.Value, prop.Name);
-                        break;
-                    case "parentSlotId":
-                        patch.ParentSlotIdPresent = true;
-                        patch.ParentSlotId = ReadNullableGuid(prop.Value, prop.Name);
-                        break;
-                    default:
-                        // Unknown properties are ignored (forward-compat):
-                        // clients that send newer fields to an older
-                        // server degrade to a no-op rather than 400.
-                        break;
-                }
-            }
-            return patch;
-        }
-
-        private static Guid? ReadNullableGuid(JsonElement e, string name)
-        {
-            if (e.ValueKind == JsonValueKind.Null) return null;
-            if (e.ValueKind == JsonValueKind.String && Guid.TryParse(e.GetString(), out var g))
-                return g;
-            throw new JsonException($"Feld '{name}' muss eine UUID oder null sein.");
-        }
-
-        private static string? ReadNullableString(JsonElement e, string name)
-        {
-            if (e.ValueKind == JsonValueKind.Null) return null;
-            if (e.ValueKind == JsonValueKind.String) return e.GetString();
-            throw new JsonException($"Feld '{name}' muss ein Text oder null sein.");
-        }
-
-        private static int? ReadNullableInt(JsonElement e, string name)
-        {
-            if (e.ValueKind == JsonValueKind.Null) return null;
-            if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var i)) return i;
-            throw new JsonException($"Feld '{name}' muss eine Zahl oder null sein.");
-        }
-
-        private static bool? ReadNullableBool(JsonElement e, string name)
-        {
-            if (e.ValueKind == JsonValueKind.Null) return null;
-            if (e.ValueKind == JsonValueKind.True) return true;
-            if (e.ValueKind == JsonValueKind.False) return false;
-            throw new JsonException($"Feld '{name}' muss true, false oder null sein.");
-        }
+    private static bool? ReadNullableBool(JsonElement e, string name)
+    {
+        if (e.ValueKind == JsonValueKind.Null) return null;
+        if (e.ValueKind == JsonValueKind.True) return true;
+        if (e.ValueKind == JsonValueKind.False) return false;
+        throw new JsonException($"Feld '{name}' muss true, false oder null sein.");
     }
 }
-
