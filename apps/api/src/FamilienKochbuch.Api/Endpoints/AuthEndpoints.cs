@@ -7,6 +7,7 @@ using FamilienKochbuch.Infrastructure.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace FamilienKochbuch.Api.Endpoints;
@@ -170,6 +171,7 @@ public static class AuthEndpoints
         UserManager<User> users,
         IEmailSender emailSender,
         IOptions<AppOptions> appOptions,
+        ILogger<User> logger,
         CancellationToken ct)
     {
         if (!string.IsNullOrWhiteSpace(body.Email))
@@ -182,7 +184,20 @@ public static class AuthEndpoints
                 var resetUrl =
                     $"{appOptions.Value.FrontendBaseUrl.TrimEnd('/')}/reset-password"
                     + $"?token={Uri.EscapeDataString(composite)}";
-                await emailSender.SendPasswordResetAsync(user.Email, user.DisplayName, resetUrl, ct);
+
+                // Best-effort mail delivery — must NOT 5xx: a 500 here would
+                // leak account existence to attackers (200 = no account, 500 =
+                // account exists + SMTP broken). Endpoint stays uniformly 204.
+                try
+                {
+                    await emailSender.SendPasswordResetAsync(user.Email, user.DisplayName, resetUrl, ct);
+                }
+                catch (EmailSendException ex)
+                {
+                    logger.LogWarning(ex,
+                        "Password-reset mail delivery failed for userId={UserId}; endpoint still returns 204 to avoid leaking account existence.",
+                        user.Id);
+                }
             }
         }
         // Always 204 — don't leak user existence.
