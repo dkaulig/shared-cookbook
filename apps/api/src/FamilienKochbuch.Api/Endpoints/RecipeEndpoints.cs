@@ -132,6 +132,16 @@ public static class RecipeEndpoints
 
     public record ForkRecipeRequest(Guid TargetGroupId);
 
+    /// <summary>
+    /// Response for <c>POST /api/recipes/photos/staged</c> (P2-8): the
+    /// bare storage path (<c>photoId</c>) plus a freshly-signed public
+    /// URL. The signed URL is what the caller hands back to the import
+    /// endpoint — the <c>photoId</c> is surfaced for symmetry with the
+    /// abandoned promote flow (see the P2-8 commit note for the
+    /// "skip-promote" decision).
+    /// </summary>
+    public record StagedPhotoResponse(string PhotoId, string SignedUrl);
+
     // ── Endpoint wiring ─────────────────────────────────────────────
 
     public static void MapRecipeEndpoints(this WebApplication app)
@@ -162,6 +172,20 @@ public static class RecipeEndpoints
         recipe.MapDelete("/photos", RemovePhotoAsync);
         recipe.MapPost("/fork", ForkRecipeAsync);
         recipe.MapPost("/cook", MarkCookedAsync);
+
+        // P2-8: staged photo upload for the import-from-photos flow.
+        // Lives outside the {id:guid} group because the photo isn't yet
+        // bound to a recipe — the user is uploading images to feed into
+        // the AI extraction pipeline. Returns a signed URL valid for the
+        // same window as any other photo URL (2 h default; 1 h per-plan
+        // override below). The URL is consumed by
+        // POST /api/recipes/import/photos whose signed-URL verifier
+        // accepts any path under the shared /api/photos/ prefix.
+        app.MapPost("/api/recipes/photos/staged", UploadStagedPhotoAsync)
+            .WithTags("Recipes")
+            .RequireAuthorization()
+            .DisableAntiforgery()
+            .ExcludeFromDescription();
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -602,6 +626,69 @@ public static class RecipeEndpoints
         }
 
         return Results.Ok(new UploadPhotoResponse(photoStorage.GetPublicUrl(path)));
+    }
+
+    // ── POST /api/recipes/photos/staged (P2-8) ──────────────────────
+
+    /// <summary>
+    /// P2-8 staged-photo upload for the "Rezept aus Foto importieren"
+    /// flow. Unlike <see cref="UploadPhotoAsync"/> this variant is NOT
+    /// tied to a recipe — the caller is preparing photos to feed into
+    /// the Python vision pipeline, and no <see cref="Recipe"/> row
+    /// exists yet. On success we return the bare storage path
+    /// (<c>photoId</c>) plus a freshly-signed public URL; the import
+    /// enqueue endpoint (<c>POST /api/recipes/import/photos</c>) will
+    /// verify the signature before kicking off extraction.
+    ///
+    /// Deliberately reuses <see cref="IPhotoStorage.UploadAsync"/> so
+    /// storage-path normalization and content-type → extension
+    /// derivation stay in one place. The objects sit next to the real
+    /// recipe photos under the <c>recipes/</c> prefix because the
+    /// photo-proxy endpoint already serves everything under that path
+    /// uniformly — a dedicated <c>recipes/staged/</c> subdirectory
+    /// doesn't buy extra isolation (the signed-URL verifier is the
+    /// actual access control) and would fragment the storage layout
+    /// for a transient benefit only. Abandoned staged photos live
+    /// until the future P3 sweep job reaps them.
+    ///
+    /// Validation order mirrors <see cref="UploadPhotoAsync"/> so the
+    /// error taxonomy is identical for both upload paths:
+    /// <list type="number">
+    /// <item>Auth.</item>
+    /// <item>File presence.</item>
+    /// <item>File size (5 MB cap).</item>
+    /// <item>MIME allowlist (JPEG/PNG/WebP).</item>
+    /// </list>
+    /// </summary>
+    private static async Task<IResult> UploadStagedPhotoAsync(
+        [FromForm] IFormFile file,
+        ClaimsPrincipal principal,
+        IPhotoStorage photoStorage,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out _)) return Results.Unauthorized();
+
+        if (file is null || file.Length == 0)
+            return FamilienResults.BadRequest("file_missing", "Es wurde keine Datei übermittelt.");
+
+        if (file.Length > MaxPhotoBytes)
+            return FamilienResults.BadRequest(
+                "file_too_large",
+                $"Das Foto überschreitet das Limit von {MaxPhotoBytes / (1024 * 1024)} MB.");
+
+        if (!AllowedPhotoContentTypes.Contains(file.ContentType ?? string.Empty))
+            return FamilienResults.BadRequest(
+                "unsupported_media_type",
+                "Nur JPEG-, PNG- und WebP-Bilder sind zulässig. Bitte als JPG/PNG speichern.");
+
+        string path;
+        await using (var stream = file.OpenReadStream())
+        {
+            path = await photoStorage.UploadAsync(stream, file.ContentType!, file.FileName, ct);
+        }
+
+        var signedUrl = photoStorage.GetPublicUrl(path);
+        return Results.Ok(new StagedPhotoResponse(PhotoId: path, SignedUrl: signedUrl));
     }
 
     // ── DELETE /api/recipes/{id}/photos ─────────────────────────────
