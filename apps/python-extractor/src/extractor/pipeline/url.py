@@ -6,8 +6,12 @@ Orchestrates the four pipeline stages documented in the P2-2 plan:
 2. Run the appropriate path:
    - **Video**: :class:`VideoDownloader.download` → mp4 +
      caption/title + thumbnail, then :class:`Transcriber.transcribe`
-     on the mp4. Optional blog fetch if the caption contains a URL is
-     deferred to P2-2.1 (not in scope).
+     on the mp4. If the caption references an external recipe blog
+     (P2-2.1), we additionally fetch that page once via the same
+     blog-path helpers and hand the flattened text to the LLM
+     alongside the transcript + caption. We skip same-host, other
+     video hosts, and known URL shorteners; the first surviving
+     external URL wins.
    - **Blog**: ``httpx`` GET → three-layer extractor
      (:func:`extract_jsonld` → :func:`extract_recipe_scrapers` →
      :func:`extract_bs4_fallback`).
@@ -31,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -90,6 +95,76 @@ _BLOG_USER_AGENT: str = (
     "Mozilla/5.0 (compatible; FamilienKochbuch-Extractor/0.1; +https://familien-kochbuch.example)"
 )
 
+# P2-2.1 — URL-extraction regex for captions. Deliberately simple:
+# catch ``http(s)://…`` up to the next whitespace / punctuation that
+# obviously terminates a URL. We don't over-sanitise — failures fall
+# through to ``httpx`` later, which is already wrapped in a
+# graceful-failure handler.
+_URL_IN_CAPTION_RE: re.Pattern[str] = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
+
+# Known URL-shortener hosts. Following a shortener means following a
+# redirect we can't filter (same-host / video-host checks no longer
+# apply after redirect), so we skip them entirely. ``youtu.be`` is
+# already covered via ``_VIDEO_HOSTS``.
+_SHORTENER_HOSTS: frozenset[str] = frozenset(
+    {
+        "bit.ly",
+        "tinyurl.com",
+        "lnk.bio",
+        "linktr.ee",
+        "t.co",
+        "ow.ly",
+        "buff.ly",
+    }
+)
+
+
+def _find_first_external_url(
+    caption: str | None,
+    *,
+    source_url: str,
+) -> str | None:
+    """Return the first external recipe-blog URL from the caption, or ``None``.
+
+    Filters out:
+
+    - URLs pointing to the same host as ``source_url`` (don't re-crawl
+      the Facebook post we started from).
+    - URLs on known video hosts in :data:`_VIDEO_HOSTS` (don't recurse
+      into TikTok / Instagram / YouTube from an FB caption).
+    - URLs on known shorteners (we'd just follow a redirect we can't
+      control — see :data:`_SHORTENER_HOSTS`).
+
+    Trailing prose punctuation (``.,;:!?``) is trimmed before parsing
+    so ``"Rezept: https://blog.example/recipe."`` yields the URL
+    without the trailing full stop.
+
+    The function is side-effect free and does NO network I/O; the
+    actual fetch happens later via :func:`_run_blog_path`.
+    """
+    if not caption:
+        return None
+    try:
+        source_host = (urlparse(source_url).hostname or "").lower()
+    except ValueError:
+        source_host = ""
+    for match in _URL_IN_CAPTION_RE.finditer(caption):
+        raw = match.group(0).rstrip(".,;:!?")
+        try:
+            host = (urlparse(raw).hostname or "").lower()
+        except ValueError:
+            continue
+        if not host:
+            continue
+        if source_host and host == source_host:
+            continue
+        if host in _VIDEO_HOSTS:
+            continue
+        if host in _SHORTENER_HOSTS:
+            continue
+        return raw
+    return None
+
 
 def classify_url(url: str) -> URLClass:
     """Return ``"video"`` for known video hosts, else ``"blog"``.
@@ -148,6 +223,22 @@ async def extract_from_url(
             downloader=downloader,
             transcriber=transcriber,
         )
+        # P2-2.1 — if the caption references an external recipe blog,
+        # fetch it once and attach its flattened text as another source
+        # for the LLM. Ingredient quantities often live only on the
+        # blog, never in the spoken audio.
+        external_url = _find_first_external_url(caption, source_url=url)
+        if external_url is not None:
+            (blog_text, caption_thumbnail, caption_notes) = await _run_blog_path(external_url)
+            notes.extend(caption_notes)
+            if thumbnail_url is None and caption_thumbnail is not None:
+                thumbnail_url = caption_thumbnail
+            logger.info(
+                "caption_blog_fetched src=%s linked=%s has_text=%s",
+                _redact_host(url),
+                _redact_host(external_url),
+                blog_text is not None,
+            )
     else:
         (blog_text, thumbnail_url, notes) = await _run_blog_path(url)
 
@@ -235,9 +326,6 @@ def _extract_og_image(html: str) -> str | None:
     Regex-based for speed (BeautifulSoup already runs inside the
     fallback layer). Returns ``None`` if absent.
     """
-    # Keep the import-cost small; re is in stdlib.
-    import re
-
     match = re.search(
         r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
         html,

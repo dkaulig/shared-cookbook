@@ -13,7 +13,11 @@ import respx
 from extractor.llm import LLMProvider, LLMProviderError, MockLLMProvider, TokenUsage
 from extractor.llm.mock import make_script_key
 from extractor.pipeline.types import ExtractionResult
-from extractor.pipeline.url import classify_url, extract_from_url
+from extractor.pipeline.url import (
+    _find_first_external_url,
+    classify_url,
+    extract_from_url,
+)
 from extractor.pipeline.video import (
     ExtractionError,
     StubDownloader,
@@ -306,6 +310,140 @@ async def test_extract_flags_missing_quantities_end_to_end(tmp_path: Path) -> No
 
 
 # ─────────────────────────────────────────────────────────────────────
+# P2-2.1 — Caption-URL-Follow
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_find_first_external_url_returns_none_for_empty_caption() -> None:
+    """Empty / None captions must not trigger a fetch."""
+    assert _find_first_external_url(None, source_url="https://www.facebook.com/reel/1") is None
+    assert _find_first_external_url("", source_url="https://www.facebook.com/reel/1") is None
+
+
+def test_find_first_external_url_skips_same_host() -> None:
+    """URLs to the same host as the source must be ignored (no re-crawl)."""
+    caption = "Schaut das Original: https://www.facebook.com/somepage/posts/1 — viel Spaß!"
+    assert _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1") is None
+
+
+def test_find_first_external_url_skips_video_hosts() -> None:
+    """Known video hosts (TikTok, Insta, YouTube) must not be followed."""
+    caption = "Mein TikTok: https://www.tiktok.com/@u/video/12345"
+    assert _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1") is None
+
+
+def test_find_first_external_url_skips_shorteners() -> None:
+    """Known shortener hosts must be ignored — we can't filter their redirects."""
+    caption = "Full recipe: https://bit.ly/abcdef"
+    assert _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1") is None
+
+
+def test_find_first_external_url_picks_first_external() -> None:
+    """When a caption contains both skipped and valid URLs, return the first valid one."""
+    caption = (
+        "Repost: https://www.facebook.com/somepage/posts/1 "
+        "Rezept: https://blog.example/gochujang-noodles"
+    )
+    assert (
+        _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1")
+        == "https://blog.example/gochujang-noodles"
+    )
+
+
+def test_find_first_external_url_trims_trailing_punctuation() -> None:
+    """Prose punctuation (., ,, ;, :, !, ?) must not leak into the URL."""
+    caption = "Rezept: https://blog.example/recipe."
+    assert (
+        _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1")
+        == "https://blog.example/recipe"
+    )
+
+
+@respx.mock
+async def test_extract_from_url_fetches_caption_linked_blog(tmp_path: Path) -> None:
+    """When a FB video caption references an external recipe blog, the
+    pipeline fetches it and hands ``blog_text`` to the LLM alongside
+    transcript + caption."""
+    fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+        encoding="utf-8"
+    )
+    respx.get("https://blog.example/carbonara").mock(return_value=httpx.Response(200, text=fixture))
+
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    caption = "Full recipe on my blog: https://blog.example/carbonara"
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="Carbonara Reel",
+            description=caption,
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(transcript="Speck und Ei.")
+
+    mock = _CapturingMock(_canonical_llm_response())
+    result = await extract_from_url(
+        "https://www.facebook.com/share/r/xyz",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+    )
+
+    # The LLM user message must contain the labelled blog section.
+    assert mock.last_messages is not None
+    user_content = mock.last_messages[0]["content"]
+    assert "Blog-Webseite (Text):" in user_content
+    assert "Spaghetti Carbonara" in user_content
+    # Transcript + caption still feed the LLM in parallel.
+    assert "Speck und Ei." in user_content
+    assert caption in user_content
+    # og:image from the blog becomes the fallback thumbnail.
+    assert result["recipe"]["thumbnail_url"] == "https://example.com/images/carbonara.jpg"
+
+
+@respx.mock
+async def test_extract_from_url_tolerates_failed_caption_blog_fetch(
+    tmp_path: Path,
+) -> None:
+    """If the caption-linked blog returns 5xx, the pipeline still runs
+    on transcript+caption alone and adds a warning note."""
+    respx.get("https://blog.example/dead").mock(return_value=httpx.Response(500))
+
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    caption = "Rezept: https://blog.example/dead"
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="Reel",
+            description=caption,
+            thumbnail_url="https://example.com/thumb.jpg",
+        )
+    )
+    transcriber = StubTranscriber(transcript="Zutaten: Salz.")
+
+    mock = _CapturingMock(_canonical_llm_response())
+    result = await extract_from_url(
+        "https://www.facebook.com/share/r/xyz",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+    )
+
+    # Pipeline completed.
+    assert result["recipe"]["source_url"] == "https://www.facebook.com/share/r/xyz"
+    # Warning surfaced.
+    assert "Website nicht erreichbar" in result["confidence"]["notes"]
+    # Transcript + caption still reached the LLM, no blog_text.
+    assert mock.last_messages is not None
+    user_content = mock.last_messages[0]["content"]
+    assert "Zutaten: Salz." in user_content
+    assert caption in user_content
+    assert "Blog-Webseite (Text):" not in user_content
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Test helpers
 # ─────────────────────────────────────────────────────────────────────
 
@@ -330,6 +468,37 @@ class _AnyCallMock(LLMProvider):
         self, system_prompt: str, messages: Any, json_schema: dict[str, Any]
     ) -> tuple[dict[str, Any], TokenUsage]:
         self.calls += 1
+        return dict(self._response), _stub_usage()
+
+    async def chat(self, system_prompt: str, messages: Any) -> tuple[str, TokenUsage]:
+        raise NotImplementedError
+
+    async def vision_extract(
+        self,
+        system_prompt: str,
+        images: Any,
+        instruction: str,
+        json_schema: dict[str, Any],
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        raise NotImplementedError
+
+
+class _CapturingMock(LLMProvider):
+    """Returns a scripted response and stores the last ``messages`` list.
+
+    Used by the caption-URL-follow tests to assert that ``blog_text``
+    reaches the LLM without asserting on the exact composed prompt
+    (which makes tests brittle).
+    """
+
+    def __init__(self, response: dict[str, Any]) -> None:
+        self._response = response
+        self.last_messages: list[dict[str, Any]] | None = None
+
+    async def extract_structured(
+        self, system_prompt: str, messages: Any, json_schema: dict[str, Any]
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        self.last_messages = list(messages)
         return dict(self._response), _stub_usage()
 
     async def chat(self, system_prompt: str, messages: Any) -> tuple[str, TokenUsage]:
