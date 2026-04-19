@@ -43,6 +43,13 @@ export const LiveSyncEventNames = {
   MealPlanSlotChanged: 'MealPlanSlotChanged',
   MealPlanChanged: 'MealPlanChanged',
   ShoppingListItemChanged: 'ShoppingListItemChanged',
+  /**
+   * PV1 — published by the .NET backend every time the Python extractor's
+   * HMAC-signed progress callback is accepted by
+   * `RecipeImport.UpdateProgress`. Payload shape:
+   * {@link import('./recipeImport.ts').RecipeImportProgressEventPayload}.
+   */
+  RecipeImportProgressChanged: 'RecipeImportProgressChanged',
 } as const
 
 export type LiveSyncEventName =

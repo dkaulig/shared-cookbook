@@ -7,12 +7,23 @@ import {
   LiveSyncEventNames,
   type MealPlanChangedPayload,
   type MealPlanSlotChangedPayload,
+  type RecipeImportDto,
+  type RecipeImportProgressEventPayload,
   type ShoppingListItemChangedPayload,
 } from '@familien-kochbuch/shared'
 import { useAuthStore } from '@/features/auth/authStore'
 import { mealPlanQueryKeys } from '@/features/mealplanning/useMealPlan'
 import { shoppingListQueryKeys } from '@/features/shoppinglist/useShoppingList'
-import { useLiveSync, wireEventHandlers } from './useLiveSync'
+import { importQueryKeys } from '@/features/imports/hooks'
+import {
+  clearImportLiveEvents,
+  readImportLiveEventAt,
+} from '@/features/imports/liveEventTimestamp'
+import {
+  applyImportProgressEvent,
+  useLiveSync,
+  wireEventHandlers,
+} from './useLiveSync'
 import type { LiveSyncClient } from './liveSyncClient'
 
 /**
@@ -68,6 +79,7 @@ function setAuthenticated(): void {
 
 beforeEach(() => {
   useAuthStore.getState().clear()
+  clearImportLiveEvents()
 })
 
 describe('useLiveSync', () => {
@@ -197,7 +209,7 @@ describe('useLiveSync', () => {
     })
   })
 
-  it('wires all three event names exactly once', () => {
+  it('wires all four event names exactly once', () => {
     const queryClient = new QueryClient()
     const fake = new FakeLiveSyncClient()
     wireEventHandlers(fake, queryClient)
@@ -207,6 +219,7 @@ describe('useLiveSync', () => {
         LiveSyncEventNames.MealPlanChanged,
         LiveSyncEventNames.MealPlanSlotChanged,
         LiveSyncEventNames.ShoppingListItemChanged,
+        LiveSyncEventNames.RecipeImportProgressChanged,
       ].sort(),
     )
   })
@@ -251,6 +264,125 @@ describe('useLiveSync', () => {
     )
     await Promise.resolve()
     expect(capturedUrl).toBe('/api/hubs/live')
+  })
+
+  it('RecipeImportProgressChanged writes the payload to the cache via setQueryData (no invalidation)', () => {
+    const queryClient = new QueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const setSpy = vi.spyOn(queryClient, 'setQueryData')
+    const fake = new FakeLiveSyncClient()
+    wireEventHandlers(fake, queryClient)
+
+    const payload: RecipeImportProgressEventPayload = {
+      importId: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      phase: 'transcribing',
+      progress: 45,
+      phaseProgress: 42,
+      progressLabel: 'Audio wird transkribiert',
+      attemptNumber: 1,
+      bytesDownloaded: null,
+      bytesTotal: null,
+      segmentsDone: 5,
+      segmentsTotal: 20,
+    }
+    fake.emit(LiveSyncEventNames.RecipeImportProgressChanged, payload)
+
+    // The handler applies the payload directly.
+    expect(setSpy).toHaveBeenCalled()
+    // Spec-critical: no invalidation — the payload IS authoritative.
+    expect(invalidateSpy).not.toHaveBeenCalled()
+
+    const cached = queryClient.getQueryData<RecipeImportDto>(
+      importQueryKeys.status(payload.importId),
+    )
+    expect(cached?.phase).toBe('transcribing')
+    expect(cached?.progress).toBe(45)
+    expect(cached?.phaseProgress).toBe(42)
+    expect(cached?.progressLabel).toBe('Audio wird transkribiert')
+    expect(cached?.segmentsDone).toBe(5)
+    expect(cached?.segmentsTotal).toBe(20)
+
+    // The liveEventTimestamp side-channel is updated so useImportStatus
+    // can back off its poll cadence.
+    expect(readImportLiveEventAt(payload.importId)).not.toBeNull()
+  })
+
+  it('RecipeImportProgressChanged preserves prior DTO fields (source, sourceUrl)', () => {
+    const queryClient = new QueryClient()
+    const fake = new FakeLiveSyncClient()
+    wireEventHandlers(fake, queryClient)
+
+    const seeded: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      source: 'photos',
+      status: 'running',
+      progress: 5,
+      sourceUrl: 'https://example.com/r',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-19T12:00:00Z',
+      completedAt: null,
+    }
+    queryClient.setQueryData(importQueryKeys.status(seeded.id), seeded)
+
+    const payload: RecipeImportProgressEventPayload = {
+      importId: seeded.id,
+      groupId: '22222222-3333-4444-5555-666666666666',
+      phase: 'vision_analysis',
+      progress: 50,
+      phaseProgress: 50,
+      progressLabel: 'Fotos werden analysiert (Azure Vision)',
+      attemptNumber: 1,
+    }
+    fake.emit(LiveSyncEventNames.RecipeImportProgressChanged, payload)
+
+    const merged = queryClient.getQueryData<RecipeImportDto>(
+      importQueryKeys.status(seeded.id),
+    )
+    // Prior fields survive: source + sourceUrl were only on the cached
+    // DTO, not on the event payload.
+    expect(merged?.source).toBe('photos')
+    expect(merged?.sourceUrl).toBe('https://example.com/r')
+    // Event fields applied.
+    expect(merged?.phase).toBe('vision_analysis')
+    expect(merged?.progress).toBe(50)
+  })
+
+  it('applyImportProgressEvent flips status to done on terminal Done phase', () => {
+    const queryClient = new QueryClient()
+    applyImportProgressEvent(queryClient, {
+      importId: 'imp-done',
+      groupId: 'g1',
+      phase: 'done',
+      progress: 100,
+      phaseProgress: 100,
+      progressLabel: 'Fertig.',
+      attemptNumber: 1,
+    })
+    const cached = queryClient.getQueryData<RecipeImportDto>(
+      importQueryKeys.status('imp-done'),
+    )
+    expect(cached?.status).toBe('done')
+    expect(cached?.phase).toBe('done')
+  })
+
+  it('applyImportProgressEvent flips status to error on terminal Error phase', () => {
+    const queryClient = new QueryClient()
+    applyImportProgressEvent(queryClient, {
+      importId: 'imp-err',
+      groupId: 'g1',
+      phase: 'error',
+      progress: 10,
+      phaseProgress: 0,
+      progressLabel: 'Fehler.',
+      attemptNumber: 2,
+    })
+    const cached = queryClient.getQueryData<RecipeImportDto>(
+      importQueryKeys.status('imp-err'),
+    )
+    expect(cached?.status).toBe('error')
+    expect(cached?.attemptNumber).toBe(2)
   })
 
   it('respects an override hubUrl when supplied', async () => {

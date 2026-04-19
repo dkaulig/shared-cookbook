@@ -1,27 +1,40 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import type { ImportStatus } from '@familien-kochbuch/shared'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import type {
+  ImportStatus,
+  RecipeImportDto,
+  RecipeImportPhase,
+} from '@familien-kochbuch/shared'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useImportStatus } from './hooks'
 import { recallImportGroup } from './importGroupMemo'
 import { progressLabel } from './progressLabel'
+import { OverallProgressBar } from './OverallProgressBar'
+import { PhaseStepper } from './PhaseStepper'
+import { PhaseDetailCard } from './PhaseDetailCard'
+import { RetryIndicator } from './RetryIndicator'
+import { StaleBanner } from './StaleBanner'
 
 /**
- * `/rezepte/import/:importId` — the "we're extracting …" screen.
+ * `/rezepte/import/:importId` — phase-aware "we're extracting …"
+ * screen.
  *
- * Polls the import status every 2 s via `useImportStatus` (TanStack
- * Query's refetchInterval returns false once the backend reports
- * `done` or `error`, so polling stops automatically — no extra cleanup
- * needed).
+ * Primary transport for progress updates is SignalR
+ * (`RecipeImportProgressChanged` via `useLiveSync`), which writes the
+ * authoritative payload straight into the TanStack-Query cache via
+ * `setQueryData`. `useImportStatus` still polls every 3 s as a
+ * fallback for disconnected hub / reload / tab-hidden scenarios.
  *
  * On `done` we navigate the user to
  * `/groups/{groupId}/recipes/new?importId={importId}` where the
  * recipe form in P2-7 step 5 reads the importId and prefills.
  *
- * On `error` we render the error message + a fallback CTA to create
- * the recipe manually.
+ * On `error` the {@link PhaseDetailCard} renders a "Neu starten" CTA
+ * that sends the user back to `/rezepte/import/url?url=<sourceUrl>`
+ * with the original URL pre-filled. A real retry-endpoint is deferred
+ * to a future slice per the design doc §Stale Progress.
  *
  * The `groupId` for the redirect is NOT in the P2-6 GET response
  * (the .NET `ImportStatusResponse` intentionally omits it), so we
@@ -41,22 +54,41 @@ export function ImportProgressPage() {
   )
 
   const status = useImportStatus(importId)
-
-  // When the job reaches `done`, hop straight to the RecipeFormPage
-  // so the user can review + save. We do this inside an effect rather
-  // than during render because `navigate` is a side effect.
-  useEffect(() => {
-    if (!status.data) return
-    if (status.data.status !== 'done') return
-    if (!groupId) return
-    navigate(
-      `/groups/${groupId}/recipes/new?importId=${encodeURIComponent(importId)}`,
-      { replace: true },
-    )
-  }, [status.data, groupId, importId, navigate])
-
   const data = status.data
   const effectiveStatus: ImportStatus | 'loading' = data?.status ?? 'loading'
+  const phase: RecipeImportPhase = derivePhase(data)
+
+  // When the job reaches `done`, hop straight to the RecipeFormPage so
+  // the user can review + save. A 500 ms dwell gives the phase-detail
+  // card's success flourish a beat to register before we navigate, per
+  // design-doc §PhaseDetailCard Done row ("success checkmark +
+  // auto-redirect after 500ms").
+  useEffect(() => {
+    if (!data) return
+    if (data.status !== 'done') return
+    if (!groupId) return
+    const timer = window.setTimeout(() => {
+      navigate(
+        `/groups/${groupId}/recipes/new?importId=${encodeURIComponent(importId)}`,
+        { replace: true },
+      )
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [data, groupId, importId, navigate])
+
+  function handleRetry() {
+    const sourceUrl = data?.sourceUrl ?? ''
+    const target = sourceUrl
+      ? `/rezepte/import/url?url=${encodeURIComponent(sourceUrl)}`
+      : '/rezepte/import/url'
+    navigate(target)
+  }
+
+  const attemptNumber = data?.attemptNumber ?? 1
+  const headerSpinning =
+    effectiveStatus === 'running' ||
+    effectiveStatus === 'queued' ||
+    effectiveStatus === 'loading'
 
   return (
     <main className="mx-auto w-full max-w-2xl px-5 py-10 md:px-8 md:py-14">
@@ -64,11 +96,7 @@ export function ImportProgressPage() {
         <Loader2
           className={cn(
             'h-3.5 w-3.5 text-primary',
-            effectiveStatus === 'running' || effectiveStatus === 'queued'
-              ? 'animate-spin'
-              : effectiveStatus === 'loading'
-                ? 'animate-spin'
-                : '',
+            headerSpinning && 'animate-spin',
           )}
           aria-hidden="true"
         />
@@ -78,27 +106,43 @@ export function ImportProgressPage() {
         Rezept wird extrahiert
       </h1>
 
-      {effectiveStatus === 'error' ? (
-        <ErrorPanel
-          message={
-            data?.errorMessage ?? 'Der Import ist fehlgeschlagen. Bitte versuche es später erneut.'
-          }
-          fallbackHref={groupId ? `/groups/${groupId}/recipes/new` : '/groups'}
-        />
-      ) : effectiveStatus === 'done' && !groupId ? (
+      {effectiveStatus === 'done' && !groupId ? (
         // Edge case: the import completed but we never learned which
         // group the user intended (e.g. they opened the progress URL in
-        // a fresh tab where navigation state is empty and the
-        // sessionStorage memo is not populated). Rather than leave a
-        // done-but-stuck progress bar with only a Back button, guide
-        // them to a group-picker so the extraction result doesn't get
-        // orphaned.
+        // a fresh tab). Guide them to a group-picker so the result
+        // isn't orphaned.
         <DoneWithoutGroupPanel />
       ) : (
-        <ProgressPanel
-          progress={data?.progress ?? 0}
-          status={data?.status ?? 'queued'}
-        />
+        <div className="mt-6 flex flex-col gap-4">
+          {attemptNumber > 1 && <RetryIndicator attemptNumber={attemptNumber} />}
+          <OverallProgressBar
+            value={data?.progress ?? 0}
+            label={resolveLabel(data, effectiveStatus)}
+          />
+          <PhaseStepper
+            currentPhase={phase}
+            phaseProgress={data?.phaseProgress ?? 0}
+            source={data?.source === 'photos' ? 'photos' : 'url'}
+          />
+          <PhaseDetailCard
+            phase={phase}
+            payload={{
+              bytesDownloaded: data?.bytesDownloaded ?? null,
+              bytesTotal: data?.bytesTotal ?? null,
+              segmentsDone: data?.segmentsDone ?? null,
+              segmentsTotal: data?.segmentsTotal ?? null,
+              createdAt: data?.createdAt ?? new Date().toISOString(),
+              errorMessage: data?.errorMessage ?? null,
+              progressLabel: data?.progressLabel ?? null,
+            }}
+            onRetry={effectiveStatus === 'error' ? handleRetry : undefined}
+          />
+          <StaleBanner
+            lastProgressAt={
+              effectiveStatus === 'running' ? data?.lastProgressAt : undefined
+            }
+          />
+        </div>
       )}
 
       {effectiveStatus !== 'error' && !(effectiveStatus === 'done' && !groupId) && (
@@ -112,41 +156,57 @@ export function ImportProgressPage() {
           </Button>
         </div>
       )}
+
+      {effectiveStatus === 'error' && (
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <p className="text-[12.5px] text-[hsl(var(--muted-foreground))]">
+            Falls der Fehler bleibt, kannst du das Rezept manuell anlegen.
+          </p>
+          <Button asChild variant="ghost">
+            <Link to={groupId ? `/groups/${groupId}/recipes/new` : '/groups'}>
+              Manuell anlegen
+            </Link>
+          </Button>
+        </div>
+      )}
     </main>
   )
 }
 
-function ProgressPanel({
-  progress,
-  status,
-}: {
-  progress: number
-  status: ImportStatus
-}) {
-  const clamped = Math.max(0, Math.min(100, Math.round(progress)))
-  const label = progressLabel(status, clamped)
-  return (
-    <section className="mt-6 rounded-[18px] border border-border bg-card px-6 py-8 shadow-[0_1px_2px_rgba(28,25,23,0.04)]">
-      <div
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={clamped}
-        aria-label="Import-Fortschritt"
-        className="h-2 w-full overflow-hidden rounded-full bg-[hsl(var(--muted))]"
-      >
-        <div
-          className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
-          style={{ width: `${clamped}%` }}
-        />
-      </div>
-      <div className="mt-4 flex items-baseline justify-between">
-        <p className="text-[15px] font-semibold text-foreground">{label}</p>
-        <span className="text-[12.5px] font-medium tabular-nums text-[hsl(var(--muted-foreground))]">
-          {clamped}%
-        </span>
-      </div>
-    </section>
+/**
+ * Picks the best phase to render the UI with. Prefers the explicit
+ * server-supplied `phase` field (populated by SignalR or, once backend
+ * exposes it, the GET response); falls back to deriving a coarse phase
+ * from `status` so the page stays coherent before the first phase-aware
+ * payload lands.
+ */
+function derivePhase(data: RecipeImportDto | undefined): RecipeImportPhase {
+  if (!data) return 'queued'
+  if (data.phase) return data.phase
+  if (data.status === 'done') return 'done'
+  if (data.status === 'error') return 'error'
+  if (data.status === 'queued') return 'queued'
+  // Running with no phase info — assume the longest phase so the user
+  // sees meaningful copy instead of a stuck "Queued".
+  return 'transcribing'
+}
+
+/**
+ * Resolves the label shown next to the global-progress percent. Prefers
+ * the server-computed `progressLabel` (PV1 added this field on every
+ * SignalR payload); falls back to the legacy `progressLabel()` helper
+ * for a loading/first-render state where the server copy isn't
+ * available yet.
+ */
+function resolveLabel(
+  data: RecipeImportDto | undefined,
+  effectiveStatus: ImportStatus | 'loading',
+): string {
+  if (data?.progressLabel) return data.progressLabel
+  if (!data) return progressLabel('queued', 0)
+  return progressLabel(
+    effectiveStatus === 'loading' ? 'queued' : effectiveStatus,
+    data.progress ?? 0,
   )
 }
 
@@ -171,39 +231,3 @@ function DoneWithoutGroupPanel() {
     </section>
   )
 }
-
-function ErrorPanel({
-  message,
-  fallbackHref,
-}: {
-  message: string
-  fallbackHref: string
-}) {
-  return (
-    <section
-      role="alert"
-      className="mt-6 rounded-[18px] border border-[hsl(var(--destructive)/0.25)] bg-[hsl(var(--destructive)/0.08)] px-6 py-6 shadow-[0_1px_2px_rgba(28,25,23,0.04)]"
-    >
-      <div className="flex items-start gap-3">
-        <AlertTriangle
-          className="mt-0.5 h-5 w-5 text-[hsl(var(--destructive))]"
-          aria-hidden="true"
-        />
-        <div>
-          <p className="font-semibold text-[hsl(var(--destructive))]">
-            Import fehlgeschlagen
-          </p>
-          <p className="mt-1 text-[14px] leading-[1.5] text-foreground">
-            {message}
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button asChild>
-              <Link to={fallbackHref}>Manuell anlegen</Link>
-            </Button>
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
-

@@ -4,10 +4,14 @@ import {
   LiveSyncEventNames,
   type MealPlanChangedPayload,
   type MealPlanSlotChangedPayload,
+  type RecipeImportDto,
+  type RecipeImportProgressEventPayload,
   type ShoppingListItemChangedPayload,
 } from '@familien-kochbuch/shared'
 import { mealPlanQueryKeys } from '@/features/mealplanning/useMealPlan'
 import { shoppingListQueryKeys } from '@/features/shoppinglist/useShoppingList'
+import { importQueryKeys } from '@/features/imports/hooks'
+import { recordImportLiveEvent } from '@/features/imports/liveEventTimestamp'
 import { useAuthStore } from '@/features/auth/authStore'
 import {
   createSignalRLiveSyncClient,
@@ -121,4 +125,73 @@ export function wireEventHandlers(
       })
     },
   )
+  // PV3 — RecipeImportProgressChanged is the ONLY authoritative
+  // transport for phase-aware progress. The payload carries the full
+  // state (phase + phaseProgress + progress + label + counters), so we
+  // apply it directly via setQueryData rather than invalidating the
+  // query — invalidating would cost a needless extra GET on every tick.
+  // Spec-critical: never call invalidateQueries here.
+  client.on<RecipeImportProgressEventPayload>(
+    LiveSyncEventNames.RecipeImportProgressChanged,
+    (payload) => {
+      applyImportProgressEvent(queryClient, payload)
+    },
+  )
+}
+
+/**
+ * Merges a `RecipeImportProgressChanged` payload into the cached
+ * {@link RecipeImportDto}. Extracted so the handler stays trivially
+ * testable and the import-status hook can ask for the same merge in
+ * tests without re-emitting an event.
+ *
+ * We NEVER invalidate the query here — the payload is authoritative.
+ * A server-side re-fetch would race the merge and cost bandwidth.
+ */
+export function applyImportProgressEvent(
+  queryClient: QueryClient,
+  payload: RecipeImportProgressEventPayload,
+): void {
+  const key = importQueryKeys.status(payload.importId)
+  queryClient.setQueryData<RecipeImportDto | undefined>(key, (prev) => {
+    // Before the first poll returns there is no cached DTO — but the
+    // progress page still wants to render the stepper + phase label.
+    // We synthesise a minimal running DTO from the payload so the UI
+    // lights up on the first event, and deeper fields (source, urls)
+    // fill in once the GET settles.
+    const base: RecipeImportDto = prev ?? {
+      id: payload.importId,
+      source: 'url',
+      status: 'running',
+      progress: payload.progress,
+      sourceUrl: null,
+      result: null,
+      errorMessage: null,
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+    }
+    return {
+      ...base,
+      // Terminal phases imply terminal status — keep both in lockstep
+      // so the progress page's auto-redirect trigger doesn't drift from
+      // the visible label.
+      status:
+        payload.phase === 'done'
+          ? 'done'
+          : payload.phase === 'error'
+            ? 'error'
+            : base.status,
+      phase: payload.phase,
+      progress: payload.progress,
+      phaseProgress: payload.phaseProgress,
+      progressLabel: payload.progressLabel,
+      attemptNumber: payload.attemptNumber,
+      bytesDownloaded: payload.bytesDownloaded ?? null,
+      bytesTotal: payload.bytesTotal ?? null,
+      segmentsDone: payload.segmentsDone ?? null,
+      segmentsTotal: payload.segmentsTotal ?? null,
+      lastProgressAt: new Date().toISOString(),
+    }
+  })
+  recordImportLiveEvent(payload.importId)
 }

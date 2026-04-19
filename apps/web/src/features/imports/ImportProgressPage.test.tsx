@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
@@ -9,6 +10,7 @@ import { useAuthStore } from '@/features/auth/authStore'
 import { ImportProgressPage } from './ImportProgressPage'
 import { progressLabel } from './progressLabel'
 import { rememberImportGroup, forgetImportGroup } from './importGroupMemo'
+import { importQueryKeys } from './hooks'
 
 function LocationProbe() {
   const loc = useLocation()
@@ -43,13 +45,18 @@ function renderProgress(opts?: { initialState?: { groupId?: string }; importId?:
               path="/groups/:groupId/recipes/new"
               element={<div data-testid="recipe-form">form</div>}
             />
+            <Route
+              path="/rezepte/import/url"
+              element={<div data-testid="import-url-page">url</div>}
+            />
             <Route path="/groups" element={<div data-testid="groups">groups</div>} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>
     )
   }
-  return render(<ImportProgressPage />, { wrapper: Wrapper })
+  const utils = render(<ImportProgressPage />, { wrapper: Wrapper })
+  return { ...utils, client, importId }
 }
 
 describe('progressLabel (pure helper)', () => {
@@ -311,5 +318,227 @@ describe('<ImportProgressPage />', () => {
     renderProgress({ importId: 'imp-err' })
     const manualLink = await screen.findByRole('link', { name: /manuell anlegen/i })
     expect(manualLink).toHaveAttribute('href', '/groups')
+  })
+})
+
+describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
+  beforeEach(() => {
+    useAuthStore.getState().setSession('tok', {
+      id: 'u1',
+      email: 'u1@ex.com',
+      displayName: 'U',
+      role: 'User',
+    })
+    forgetImportGroup('imp-phase')
+  })
+  afterEach(() => {
+    server.resetHandlers()
+    useAuthStore.getState().clear()
+  })
+
+  it('renders the phase stepper + detail card when the cache carries phase data', async () => {
+    // Seed a SignalR-style cache entry BEFORE the page mounts so the
+    // first render already shows the phase-aware UI without waiting
+    // for a poll — mirrors the production path (SignalR lands first).
+    server.use(
+      http.get('/api/imports/imp-phase', () =>
+        HttpResponse.json({
+          id: 'imp-phase',
+          source: 'Url',
+          status: 'Running',
+          progress: 45,
+          sourceUrl: 'https://example.com',
+          result: null,
+          error: null,
+          createdAt: '2026-04-19T12:00:00Z',
+          completedAt: null,
+        }),
+      ),
+    )
+
+    const { client } = renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+    client.setQueryData(importQueryKeys.status('imp-phase'), {
+      id: 'imp-phase',
+      source: 'url',
+      status: 'running',
+      progress: 45,
+      sourceUrl: 'https://example.com',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-19T12:00:00Z',
+      completedAt: null,
+      phase: 'transcribing',
+      phaseProgress: 42,
+      progressLabel: 'Audio wird transkribiert',
+      attemptNumber: 1,
+      lastProgressAt: new Date().toISOString(),
+      segmentsDone: 5,
+      segmentsTotal: 20,
+    })
+
+    // Phase stepper shows transcribing as current.
+    expect(
+      await screen.findByTestId('phase-step-transcribing'),
+    ).toHaveAttribute('data-state', 'current')
+    expect(screen.getByTestId('phase-detail-transcribing')).toBeInTheDocument()
+    expect(screen.getByText(/audio wird transkribiert/i)).toBeInTheDocument()
+    // Overall progress uses the server label.
+    expect(screen.getByText(/audio wird transkribiert/i)).toBeInTheDocument()
+  })
+
+  it('shows the RetryIndicator only when attemptNumber > 1', async () => {
+    const { client } = renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+    client.setQueryData(importQueryKeys.status('imp-phase'), {
+      id: 'imp-phase',
+      source: 'url',
+      status: 'running',
+      progress: 20,
+      sourceUrl: 'https://example.com',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-19T12:00:00Z',
+      completedAt: null,
+      phase: 'downloading',
+      phaseProgress: 50,
+      progressLabel: 'Video wird heruntergeladen',
+      attemptNumber: 2,
+    })
+    expect(await screen.findByTestId('retry-indicator')).toHaveTextContent(
+      /erneuter versuch 2\/3/i,
+    )
+  })
+
+  it('hides the RetryIndicator on the first attempt', async () => {
+    const { client } = renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+    client.setQueryData(importQueryKeys.status('imp-phase'), {
+      id: 'imp-phase',
+      source: 'url',
+      status: 'running',
+      progress: 20,
+      sourceUrl: 'https://example.com',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-19T12:00:00Z',
+      completedAt: null,
+      phase: 'downloading',
+      phaseProgress: 50,
+      progressLabel: 'Video wird heruntergeladen',
+      attemptNumber: 1,
+    })
+    // Seed completes synchronously; the element should be absent now.
+    await waitFor(() =>
+      expect(screen.queryByTestId('retry-indicator')).toBeNull(),
+    )
+  })
+
+  it('shows the StaleBanner when lastProgressAt is >2 min ago and status is running', async () => {
+    const { client } = renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+    const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+    client.setQueryData(importQueryKeys.status('imp-phase'), {
+      id: 'imp-phase',
+      source: 'url',
+      status: 'running',
+      progress: 50,
+      sourceUrl: 'https://example.com',
+      result: null,
+      errorMessage: null,
+      createdAt: threeMinutesAgo,
+      completedAt: null,
+      phase: 'transcribing',
+      phaseProgress: 50,
+      progressLabel: 'Audio wird transkribiert',
+      attemptNumber: 1,
+      lastProgressAt: threeMinutesAgo,
+    })
+    expect(await screen.findByTestId('stale-banner')).toBeInTheDocument()
+  })
+
+  it('does not auto-redirect instantly on done — waits ~500ms first', async () => {
+    server.use(
+      http.get('/api/imports/imp-phase', () =>
+        HttpResponse.json({
+          id: 'imp-phase',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com',
+          result: JSON.stringify({
+            recipe: {
+              title: 'T',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [],
+              steps: [],
+              tags: [],
+              source_url: 'https://example.com',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-19T12:00:00Z',
+          completedAt: '2026-04-19T12:00:05Z',
+        }),
+      ),
+    )
+
+    renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+    // The 500ms timer will eventually redirect; the location probe
+    // confirms we land on the recipe-form route.
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('location')).toHaveTextContent(
+          '/groups/g1/recipes/new?importId=imp-phase',
+        ),
+      { timeout: 2000 },
+    )
+  })
+
+  it('Error-state "Neu starten" navigates back to /rezepte/import/url with ?url=… prefill', async () => {
+    server.use(
+      http.get('/api/imports/imp-phase', () =>
+        HttpResponse.json({
+          id: 'imp-phase',
+          source: 'Url',
+          status: 'Error',
+          progress: 20,
+          sourceUrl: 'https://example.com/r',
+          result: null,
+          error: 'Extractor crashed',
+          createdAt: '2026-04-19T12:00:00Z',
+          completedAt: '2026-04-19T12:00:05Z',
+        }),
+      ),
+    )
+
+    renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+    const button = await screen.findByRole('button', { name: /neu starten/i })
+    await userEvent.click(button)
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/rezepte/import/url?url=https%3A%2F%2Fexample.com%2Fr',
+      ),
+    )
   })
 })
