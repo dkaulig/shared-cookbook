@@ -45,6 +45,7 @@ from extractor.pipeline.video import (
     Transcriber,
     VideoDownloader,
 )
+from extractor.progress import NullProgressReporter, ProgressReporter
 from extractor.security import HmacVerificationMiddleware
 
 _PACKAGE_NAME: Final[str] = "extractor"
@@ -95,10 +96,42 @@ class ExtractHint(BaseModel):
 
 
 class ExtractUrlRequest(BaseModel):
-    """Body of ``POST /extract/url``."""
+    """Body of ``POST /extract/url``.
+
+    PV2 (video-import progress tracking) adds four optional fields so
+    the .NET orchestrator can subscribe to progress callbacks. They
+    default to ``None`` / ``1`` so existing callers (tests, local
+    direct-Python usage) stay backward-compatible — a missing
+    ``callback_url`` means the pipeline runs with a no-op reporter.
+    """
 
     url: HttpUrl = Field(description="Source URL — video host or blog URL.")
     hint: ExtractHint
+    callback_url: HttpUrl | None = Field(
+        default=None,
+        description=(
+            "Full URL of the .NET progress-ingest endpoint "
+            "(``.../api/internal/imports/{id}/progress``) or null to "
+            "disable progress callbacks."
+        ),
+    )
+    callback_token: str | None = Field(
+        default=None,
+        description=(
+            "Per-import HMAC-signed bearer token minted by .NET. Pairs "
+            "with ``callback_url``; both must be set for callbacks to fire."
+        ),
+    )
+    import_id: str | None = Field(
+        default=None,
+        description="UUID string of the originating RecipeImport — logged only.",
+    )
+    attempt: int = Field(
+        default=1,
+        ge=1,
+        le=3,
+        description="Retry attempt number (1..3). Stamped on every callback.",
+    )
 
 
 class ExtractPhotosRequest(BaseModel):
@@ -110,6 +143,11 @@ class ExtractPhotosRequest(BaseModel):
     cap in the pydantic model because the pipeline's German error
     message ("Maximal 10 Fotos pro Import.") is what the frontend
     wants to render verbatim, not a generic pydantic ValidationError.
+
+    PV2: same four progress-callback fields as
+    :class:`ExtractUrlRequest` — see that docstring for the contract.
+    ``extra="forbid"`` stays intact; the new fields are part of the
+    schema so callers sending them succeed while unknown keys still fail.
     """
 
     photo_urls: list[HttpUrl] = Field(
@@ -119,6 +157,10 @@ class ExtractPhotosRequest(BaseModel):
         ),
     )
     hint: ExtractHint
+    callback_url: HttpUrl | None = Field(default=None)
+    callback_token: str | None = Field(default=None)
+    import_id: str | None = Field(default=None)
+    attempt: int = Field(default=1, ge=1, le=3)
 
     model_config = {"extra": "forbid"}
 
@@ -270,6 +312,30 @@ def _as_chat_messages(messages: list[ChatMessageModel]) -> list[ChatMessage]:
     return [{"role": m.role, "content": m.content} for m in messages]
 
 
+def _build_reporter(
+    *,
+    callback_url: HttpUrl | None,
+    callback_token: str | None,
+    import_id: str | None,
+    attempt: int,
+) -> ProgressReporter:
+    """Construct a :class:`ProgressReporter` from the request fields.
+
+    Returns a :class:`NullProgressReporter` when ``callback_url`` or
+    ``callback_token`` is missing — the pipeline then incurs zero HTTP
+    traffic, preserving backward-compat with tests + local direct-
+    Python usage.
+    """
+    if callback_url is None or callback_token is None:
+        return NullProgressReporter()
+    return ProgressReporter(
+        callback_url=str(callback_url),
+        callback_token=callback_token,
+        attempt=attempt,
+        import_id=import_id,
+    )
+
+
 def _apply_usage_headers(response: Response, usage: TokenUsage) -> None:
     """Stamp the four ``X-Extractor-*`` usage headers onto ``response``.
 
@@ -371,18 +437,27 @@ def create_app() -> FastAPI:
         token-usage numbers for the .NET side to persist.
         """
         logger.info(
-            "extract_url request group_id=%s user_id=%s",
+            "extract_url request group_id=%s user_id=%s import_id=%s attempt=%d",
             request.hint.group_id,
             request.hint.user_id,
+            request.import_id,
+            request.attempt,
         )
         downloader = video_stack.downloader if video_stack is not None else None
         transcriber = video_stack.transcriber if video_stack is not None else None
+        reporter = _build_reporter(
+            callback_url=request.callback_url,
+            callback_token=request.callback_token,
+            import_id=request.import_id,
+            attempt=request.attempt,
+        )
         try:
             result = await extract_from_url(
                 str(request.url),
                 provider=provider,
                 downloader=downloader,
                 transcriber=transcriber,
+                reporter=reporter,
             )
         except LLMProviderError as exc:
             raise _http_from_llm_error(exc) from exc
@@ -415,16 +490,24 @@ def create_app() -> FastAPI:
         token-usage numbers for the .NET side to persist.
         """
         logger.info(
-            "extract_photos request group_id=%s user_id=%s count=%d",
+            "extract_photos request group_id=%s user_id=%s count=%d import_id=%s attempt=%d",
             request.hint.group_id,
             request.hint.user_id,
             len(request.photo_urls),
+            request.import_id,
+            request.attempt,
         )
         # ``HttpUrl`` → ``str`` round-trip: the pipeline accepts plain
         # str URLs; pydantic's HttpUrl is just the validation hop.
         urls: list[str] = [str(u) for u in request.photo_urls]
+        reporter = _build_reporter(
+            callback_url=request.callback_url,
+            callback_token=request.callback_token,
+            import_id=request.import_id,
+            attempt=request.attempt,
+        )
         try:
-            result = await extract_from_photos(urls, provider=provider)
+            result = await extract_from_photos(urls, provider=provider, reporter=reporter)
         except ExtractionError as exc:
             raise _http_from_extraction_error(exc) from exc
         except LLMProviderError as exc:

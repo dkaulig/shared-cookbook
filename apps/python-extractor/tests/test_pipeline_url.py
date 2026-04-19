@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import socket
 from collections.abc import Awaitable, Callable, Iterator
@@ -29,6 +30,7 @@ from extractor.pipeline.video import (
     StubTranscriber,
     VideoAssets,
 )
+from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
 from extractor.prompts.recipe_extraction import (
     SYSTEM_PROMPT_DE,
     build_user_message,
@@ -698,6 +700,235 @@ async def test_og_image_query_stripped_for_caption_linked_blog(
     mock_b = _AnyCallMock(_canonical_llm_response())
     result_direct = await extract_from_url("https://trusted.example/recipe", provider=mock_b)
     assert result_direct["recipe"]["thumbnail_url"] == "https://a.example/i.jpg?track=1"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PV2 — ProgressReporter integration
+# ─────────────────────────────────────────────────────────────────────
+
+
+class _CapturingReporter(ProgressReporter):
+    """In-memory reporter: records events instead of POSTing.
+
+    Overrides :meth:`report` to bypass the throttle + network entirely,
+    because pipeline-integration tests care about *which* events were
+    emitted by the pipeline glue, not about the reporter's throttle
+    logic (covered in ``test_progress_reporter``).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(callback_url=None, callback_token=None, attempt=1)
+        self.events: list[ProgressEvent] = []
+
+    async def report(self, event: ProgressEvent) -> None:
+        self.events.append(event)
+
+    async def _post(self, event: ProgressEvent) -> None:
+        return
+
+
+async def _drain_scheduled_tasks() -> None:
+    """Yield control so fire-and-forget hook tasks can run.
+
+    The URL pipeline schedules reporter tasks via ``loop.create_task``
+    for hook-driven progress (download + transcribe). They execute on
+    the next loop tick; tests call this helper after awaiting
+    ``extract_from_url`` to make sure the captured events include
+    hook-fired ones.
+    """
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+async def test_url_pipeline_reports_downloading_start_and_progress(
+    tmp_path: Path,
+) -> None:
+    """Video path fires ``downloading@0%`` before the download and
+    per-tick hook events forwarded into the reporter."""
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="Pasta",
+            description="",
+            thumbnail_url=None,
+        ),
+        progress_ticks=[(1_000_000, 10_000_000), (5_000_000, 10_000_000)],
+    )
+    transcriber = StubTranscriber(transcript="Mehl.")
+    reporter = _CapturingReporter()
+    mock = _AnyCallMock(_canonical_llm_response())
+
+    await extract_from_url(
+        "https://youtu.be/abc",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+        reporter=reporter,
+    )
+    await _drain_scheduled_tasks()
+
+    downloading = [e for e in reporter.events if e.phase == "downloading"]
+    # 1 initial + 2 hook-fired events
+    assert len(downloading) == 3
+    assert downloading[0].phase_progress == 0
+    assert downloading[0].bytes_done is None
+    # Hook-fired events carry bytes_done / bytes_total
+    assert downloading[1].bytes_done == 1_000_000
+    assert downloading[1].bytes_total == 10_000_000
+    assert downloading[1].phase_progress == 10
+    assert downloading[2].phase_progress == 50
+
+
+async def test_url_pipeline_reports_transcribing_with_segments(
+    tmp_path: Path,
+) -> None:
+    """Video path fires ``transcribing@0%`` + per-segment ticks via the
+    :class:`StubTranscriber.segment_ticks` hook."""
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="Pasta",
+            description="",
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(
+        transcript="Mehl.",
+        segment_ticks=[(1, 3), (2, 3), (3, 3)],
+    )
+    reporter = _CapturingReporter()
+    mock = _AnyCallMock(_canonical_llm_response())
+
+    await extract_from_url(
+        "https://youtu.be/abc",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+        reporter=reporter,
+    )
+    await _drain_scheduled_tasks()
+
+    transcribing = [e for e in reporter.events if e.phase == "transcribing"]
+    # 1 initial + 3 segment ticks
+    assert len(transcribing) == 4
+    assert transcribing[0].phase_progress == 0
+    assert transcribing[1].segments_done == 1
+    assert transcribing[1].segments_total == 3
+    assert transcribing[-1].segments_done == 3
+    assert transcribing[-1].phase_progress == 100
+
+
+async def test_url_pipeline_reports_phase_sequence(tmp_path: Path) -> None:
+    """End-to-end phase order: downloading → transcribing → structuring
+    → post_processing (video path)."""
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="Pasta",
+            description="",
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(transcript="Mehl.")
+    reporter = _CapturingReporter()
+    mock = _AnyCallMock(_canonical_llm_response())
+
+    await extract_from_url(
+        "https://youtu.be/abc",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+        reporter=reporter,
+    )
+    await _drain_scheduled_tasks()
+
+    phases_in_order = [e.phase for e in reporter.events]
+    # Deduplicate consecutive same-phase events to assert only transitions.
+    deduped: list[str] = []
+    for p in phases_in_order:
+        if not deduped or deduped[-1] != p:
+            deduped.append(p)
+    assert deduped == [
+        "downloading",
+        "transcribing",
+        "structuring",
+        "post_processing",
+    ]
+
+
+@respx.mock
+async def test_url_pipeline_blog_path_reports_structuring(
+    tmp_path: Path,
+    _fake_public_dns: None,
+) -> None:
+    """Blog path skips downloading/transcribing and starts at structuring."""
+    fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+        encoding="utf-8"
+    )
+    respx.get("https://example.com/spaghetti").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text=fixture,
+        )
+    )
+    mock = _AnyCallMock(_canonical_llm_response())
+    reporter = _CapturingReporter()
+
+    await extract_from_url(
+        "https://example.com/spaghetti",
+        provider=mock,
+        reporter=reporter,
+    )
+    await _drain_scheduled_tasks()
+
+    phases = [e.phase for e in reporter.events]
+    # Blog path never touches video phases.
+    assert "downloading" not in phases
+    assert "transcribing" not in phases
+    assert phases == ["structuring", "post_processing"]
+
+
+async def test_url_pipeline_null_reporter_reproduces_legacy_behavior(
+    tmp_path: Path,
+) -> None:
+    """Passing :class:`NullProgressReporter` yields the same recipe output
+    as a pipeline run without a reporter argument."""
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+
+    def _downloader() -> StubDownloader:
+        return StubDownloader(
+            assets=VideoAssets(
+                mp4_path=mp4,
+                title="Pasta",
+                description="",
+                thumbnail_url=None,
+            )
+        )
+
+    # Two identical pipeline runs: one with null reporter, one without.
+    result_null = await extract_from_url(
+        "https://youtu.be/abc",
+        provider=_AnyCallMock(_canonical_llm_response()),
+        downloader=_downloader(),
+        transcriber=StubTranscriber(transcript="Mehl."),
+        reporter=NullProgressReporter(),
+    )
+    result_default = await extract_from_url(
+        "https://youtu.be/abc",
+        provider=_AnyCallMock(_canonical_llm_response()),
+        downloader=_downloader(),
+        transcriber=StubTranscriber(transcript="Mehl."),
+    )
+    # Recipe payloads identical regardless of the reporter.
+    assert result_null["recipe"] == result_default["recipe"]
 
 
 # ─────────────────────────────────────────────────────────────────────

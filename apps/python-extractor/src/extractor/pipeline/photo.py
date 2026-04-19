@@ -32,6 +32,7 @@ from extractor.llm import LLMProvider, VisionInput
 from extractor.pipeline.post_process import post_process
 from extractor.pipeline.types import ExtractionResult
 from extractor.pipeline.video import ExtractionError
+from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
 from extractor.prompts.photo_recipe import (
     PHOTO_RECIPE_SCHEMA,
     SYSTEM_PROMPT_DE,
@@ -60,6 +61,7 @@ async def extract_from_photos(
     photo_urls: Sequence[str],
     *,
     provider: LLMProvider,
+    reporter: ProgressReporter | None = None,
 ) -> ExtractionResult:
     """Run the full photos → structured-recipe pipeline.
 
@@ -72,6 +74,10 @@ async def extract_from_photos(
     provider
         :class:`LLMProvider` used for the Vision call. Usually
         ``build_provider(Settings())``; tests pass a scripted fake.
+    reporter
+        Optional :class:`ProgressReporter` for phase/progress callbacks
+        to the .NET side. Defaults to a :class:`NullProgressReporter`
+        so existing tests that don't care about progress pass nothing.
 
     Raises
     ------
@@ -83,12 +89,17 @@ async def extract_from_photos(
         maps ``provider_unavailable`` → 503, etc.
     """
     _validate_photo_urls(photo_urls)
+    active_reporter: ProgressReporter = reporter or NullProgressReporter()
 
     logger.info("extract_from_photos start count=%d", len(photo_urls))
 
     images: list[VisionInput] = [{"image_url": url, "detail": "auto"} for url in photo_urls]
     instruction = build_photo_instruction(len(photo_urls))
 
+    # Single-shot Azure Vision call — no mid-call granularity available,
+    # so we straddle it with 0% + 95% events. The .NET side derives the
+    # actual wall-clock animation; 95% means "waiting for Vision reply".
+    await active_reporter.report(ProgressEvent(phase="vision_analysis", phase_progress=0))
     llm_output, usage = await provider.vision_extract(
         system_prompt=SYSTEM_PROMPT_DE,
         images=images,
@@ -96,12 +107,14 @@ async def extract_from_photos(
         json_schema=PHOTO_RECIPE_SCHEMA,
     )
     logger.info("extract_from_photos llm_done keys=%d", len(llm_output))
+    await active_reporter.report(ProgressEvent(phase="vision_analysis", phase_progress=95))
 
     # ``original_url`` pins the response's ``source_url`` — the
     # Vision-LLM's fabricated URL is discarded.
     # ``fallback_thumbnail=None``: photos *are* the thumbnail source;
     # the .NET side (P2-6) can pick one of the uploaded photos as the
     # recipe thumbnail. We don't second-guess it here.
+    await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
     return post_process(
         llm_output,
         original_url=_PHOTO_SOURCE_SENTINEL,

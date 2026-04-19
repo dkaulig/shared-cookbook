@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -85,12 +86,38 @@ class VideoAssets:
     thumbnail_url: str | None
 
 
+ProgressHook = Callable[[int, int], None]
+"""Signature for intra-phase progress callbacks from downloader /
+transcriber stages. Called with ``(done, total)`` where ``total`` may
+be ``0`` when the stage can't compute it (e.g. unknown segment count
+from a lazy iterator). The pipeline wraps this into a
+:class:`extractor.progress.ProgressEvent` before forwarding to the
+.NET side.
+
+Hooks are synchronous so yt-dlp's thread-based ``progress_hooks`` can
+call them without bouncing back to the event loop. The wrapping
+pipeline-side closure is what bridges to the async
+:meth:`ProgressReporter.report`.
+"""
+
+
 @runtime_checkable
 class VideoDownloader(Protocol):
     """Download a video's mp4 + metadata. Async so the pipeline is async-friendly."""
 
-    async def download(self, *, url: str, workdir: Path) -> VideoAssets:
+    async def download(
+        self,
+        *,
+        url: str,
+        workdir: Path,
+        on_progress: ProgressHook | None = None,
+    ) -> VideoAssets:
         """Fetch the video into ``workdir`` and return its assets.
+
+        ``on_progress`` (optional) is called during download with
+        ``(bytes_done, bytes_total)``. Implementations that can't
+        surface byte-level progress may never call it; pipeline code
+        tolerates that.
 
         Raises :class:`ExtractionError` (``source_unavailable``) on any
         non-transient failure (private, deleted, geo-blocked, 404).
@@ -102,10 +129,19 @@ class VideoDownloader(Protocol):
 class Transcriber(Protocol):
     """Transcribe a downloaded video's audio into plain text."""
 
-    async def transcribe(self, mp4_path: Path) -> str:
+    async def transcribe(
+        self,
+        mp4_path: Path,
+        on_segment: ProgressHook | None = None,
+    ) -> str:
         """Return a plain-text transcript. Empty string when no audio /
-        no speech detected. Raises :class:`ExtractionError`
-        (``transcription_failed``) on model-level failures."""
+        no speech detected.
+
+        ``on_segment`` (optional) is called per-segment with
+        ``(segments_done, segments_total)`` where ``segments_total`` may
+        be ``0`` when unknown (lazy iteration). Raises
+        :class:`ExtractionError` (``transcription_failed``) on
+        model-level failures."""
         ...
 
 
@@ -121,6 +157,12 @@ class StubDownloader:
     (failure path). Calling :meth:`download` with an instance that has
     neither raises a plain :class:`ExtractionError` to surface a test
     setup mistake loudly.
+
+    ``progress_ticks`` (optional) lets tests drive the ``on_progress``
+    hook to exercise pipeline-side reporter wiring without running a
+    real yt-dlp download. Each tuple ``(done, total)`` fires one
+    callback; the sequence is iterated in order right before assets
+    are returned.
     """
 
     def __init__(
@@ -128,11 +170,19 @@ class StubDownloader:
         *,
         assets: VideoAssets | None = None,
         error: ExtractionError | None = None,
+        progress_ticks: list[tuple[int, int]] | None = None,
     ) -> None:
         self._assets = assets
         self._error = error
+        self._progress_ticks = progress_ticks or []
 
-    async def download(self, *, url: str, workdir: Path) -> VideoAssets:
+    async def download(
+        self,
+        *,
+        url: str,
+        workdir: Path,
+        on_progress: ProgressHook | None = None,
+    ) -> VideoAssets:
         if self._error is not None:
             raise self._error
         if self._assets is None:
@@ -140,6 +190,9 @@ class StubDownloader:
                 "source_unavailable",
                 "StubDownloader was neither configured with assets nor error.",
             )
+        if on_progress is not None:
+            for done, total in self._progress_ticks:
+                on_progress(done, total)
         return self._assets
 
 
@@ -149,12 +202,30 @@ class StubTranscriber:
     Default is an empty string so tests that don't care about the
     transcript can pass ``StubTranscriber()`` and still exercise the
     pipeline.
+
+    ``segment_ticks`` (optional) lets tests drive the ``on_segment``
+    hook to exercise pipeline-side reporter wiring without running a
+    real Whisper model. Each tuple ``(done, total)`` fires one
+    callback in order before :meth:`transcribe` returns.
     """
 
-    def __init__(self, transcript: str = "") -> None:
+    def __init__(
+        self,
+        transcript: str = "",
+        *,
+        segment_ticks: list[tuple[int, int]] | None = None,
+    ) -> None:
         self._transcript = transcript
+        self._segment_ticks = segment_ticks or []
 
-    async def transcribe(self, mp4_path: Path) -> str:
+    async def transcribe(
+        self,
+        mp4_path: Path,
+        on_segment: ProgressHook | None = None,
+    ) -> str:
+        if on_segment is not None:
+            for done, total in self._segment_ticks:
+                on_segment(done, total)
         return self._transcript
 
 
@@ -183,12 +254,25 @@ class YtDlpDownloader:
 
     yt-dlp is synchronous; we dispatch via ``asyncio.to_thread`` so the
     FastAPI event loop stays responsive for other requests.
+
+    When ``on_progress`` is provided, a yt-dlp ``progress_hooks`` entry
+    forwards per-chunk ``(downloaded_bytes, total_bytes)`` updates. We
+    read ``total_bytes`` first and fall back to
+    ``total_bytes_estimate`` because live / HLS sources only surface
+    an estimate. A total of ``0`` means "unknown" — the reporter layer
+    keeps bytes_total=None in that case.
     """
 
-    async def download(self, *, url: str, workdir: Path) -> VideoAssets:
+    async def download(
+        self,
+        *,
+        url: str,
+        workdir: Path,
+        on_progress: ProgressHook | None = None,
+    ) -> VideoAssets:
         logger.info("yt-dlp download start host=%s", _redact(url))
         try:
-            info = await asyncio.to_thread(self._download_sync, url, workdir)
+            info = await asyncio.to_thread(self._download_sync, url, workdir, on_progress)
         except DownloadError as exc:
             logger.warning("yt-dlp download failed host=%s err=%s", _redact(url), exc)
             raise ExtractionError(
@@ -207,10 +291,18 @@ class YtDlpDownloader:
         return assets
 
     @staticmethod
-    def _download_sync(url: str, workdir: Path) -> dict[str, Any]:
+    def _download_sync(
+        url: str,
+        workdir: Path,
+        on_progress: ProgressHook | None,
+    ) -> dict[str, Any]:
         """Synchronous yt-dlp call. Runs in a worker thread."""
         outtmpl = str(workdir / "%(id)s.%(ext)s")
         options: dict[str, Any] = {**_YTDLP_OPTIONS, "outtmpl": outtmpl}
+        if on_progress is not None:
+            options["progress_hooks"] = [
+                _make_ytdlp_progress_wrapper(on_progress),
+            ]
         with yt_dlp.YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=True)
             if info is None:
@@ -220,6 +312,41 @@ class YtDlpDownloader:
         info_dict = dict(info) if isinstance(info, dict) else {}
         info_dict["_resolved_path"] = resolved
         return info_dict
+
+
+def _make_ytdlp_progress_wrapper(
+    on_progress: ProgressHook,
+) -> Callable[[dict[str, Any]], None]:
+    """Wrap a simple ``(done, total)`` hook into yt-dlp's dict-shape API.
+
+    yt-dlp calls the returned closure with dicts like
+    ``{"status": "downloading", "downloaded_bytes": 123,
+    "total_bytes": 456}``. We only forward ``downloading`` events;
+    ``finished`` + ``error`` are surfaced via the sync download's
+    return value / raise path. Missing total → falls back to
+    ``total_bytes_estimate`` then to 0 (sentinel for unknown).
+    """
+
+    def _hook(info: dict[str, Any]) -> None:
+        if info.get("status") != "downloading":
+            return
+        done_raw = info.get("downloaded_bytes") or 0
+        total_raw = info.get("total_bytes") or info.get("total_bytes_estimate") or 0
+        try:
+            done = int(done_raw)
+            total = int(total_raw)
+        except (TypeError, ValueError):
+            # yt-dlp rarely hands non-numeric values; guard anyway —
+            # one bad hook call shouldn't abort the download.
+            return
+        # The pipeline's wrapper is sync + non-raising by construction
+        # (it schedules async work onto the event loop, swallowing
+        # RuntimeError if the loop has gone away). If a caller hands us
+        # a hook that raises, yt-dlp's own error handling takes over —
+        # we deliberately do NOT broaden to ``except Exception`` here.
+        on_progress(done, total)
+
+    return _hook
 
 
 def _first_thumbnail_url(info: dict[str, Any]) -> str | None:
@@ -286,10 +413,14 @@ class FasterWhisperTranscriber:
             compute_type=_WHISPER_COMPUTE_TYPE,
         )
 
-    async def transcribe(self, mp4_path: Path) -> str:
+    async def transcribe(
+        self,
+        mp4_path: Path,
+        on_segment: ProgressHook | None = None,
+    ) -> str:
         logger.info("whisper transcribe start path=%s", mp4_path.name)
         try:
-            text = await asyncio.to_thread(self._transcribe_sync, mp4_path)
+            text = await asyncio.to_thread(self._transcribe_sync, mp4_path, on_segment)
         except (RuntimeError, OSError, ValueError) as exc:
             logger.warning("whisper transcribe failed: %s", type(exc).__name__)
             raise ExtractionError(
@@ -301,19 +432,42 @@ class FasterWhisperTranscriber:
         logger.debug("whisper transcript (truncated): %s", text[:200])
         return text
 
-    def _transcribe_sync(self, mp4_path: Path) -> str:
-        segments, _info = self._model.transcribe(
+    def _transcribe_sync(
+        self,
+        mp4_path: Path,
+        on_segment: ProgressHook | None,
+    ) -> str:
+        """Run faster-whisper + fire the per-segment progress hook.
+
+        Strategy for the segment-total count: faster-whisper yields
+        segments lazily, so the true total isn't known until the
+        stream is exhausted. For progress UX we pre-materialise the
+        iterator into a list so ``total`` is known before firing the
+        first hook — memory cost is negligible (≈ minutes of
+        transcript text) and CPU transcription dominates wall-clock
+        by orders of magnitude.
+        """
+        segments_iter, _info = self._model.transcribe(
             str(mp4_path),
             beam_size=5,
             vad_filter=True,
         )
-        return " ".join(seg.text.strip() for seg in segments if seg.text).strip()
+        segments = list(segments_iter)
+        total = len(segments)
+        parts: list[str] = []
+        for i, seg in enumerate(segments, start=1):
+            if on_segment is not None:
+                on_segment(i, total)
+            if seg.text:
+                parts.append(seg.text.strip())
+        return " ".join(parts).strip()
 
 
 __all__ = [
     "ExtractionError",
     "ExtractionErrorCode",
     "FasterWhisperTranscriber",
+    "ProgressHook",
     "StubDownloader",
     "StubTranscriber",
     "Transcriber",
