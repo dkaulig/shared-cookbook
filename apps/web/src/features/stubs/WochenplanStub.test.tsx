@@ -1,48 +1,143 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { http, HttpResponse } from 'msw'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+} from 'react-router-dom'
+import { render, screen, waitFor } from '@testing-library/react'
+import { server } from '@/test/msw/server'
+import { useAuthStore } from '@/features/auth/authStore'
+import { toMondayIso } from '@/features/mealplanning/weekGrid'
 import { WochenplanStub } from './WochenplanStub'
 
-function renderStub() {
-  return render(
-    <MemoryRouter initialEntries={['/wochenplan']}>
-      <WochenplanStub />
-    </MemoryRouter>,
+const TODAY_MONDAY = toMondayIso(new Date().toISOString().slice(0, 10))
+
+function PathTracker() {
+  const loc = useLocation()
+  return <div data-testid="current-path">{loc.pathname}</div>
+}
+
+function withProviders(node: ReactNode): ReactNode {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return (
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/wochenplan']}>
+        <Routes>
+          <Route
+            path="/wochenplan"
+            element={
+              <>
+                <PathTracker />
+                {node}
+              </>
+            }
+          />
+          <Route
+            path="/groups/:groupId/mealplan/:weekStart"
+            element={
+              <>
+                <PathTracker />
+                <div>mealplan-page</div>
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   )
 }
 
+beforeEach(() => {
+  useAuthStore.setState({
+    accessToken: 't',
+    user: { id: 'u1', email: 'u1@ex.com', displayName: 'U', role: 'User' },
+  })
+})
+
+afterEach(() => {
+  server.resetHandlers()
+})
+
+function makeGroup(id: string, name: string) {
+  return {
+    id,
+    name,
+    description: null,
+    coverImageUrl: null,
+    defaultServings: 2,
+    isPrivateCollection: false,
+    memberCount: 1,
+    myRole: 'Admin' as const,
+  }
+}
+
 describe('<WochenplanStub />', () => {
-  it('renders the serif DS7 headline "Wochenplan kommt in Phase 3"', () => {
-    renderStub()
-    const heading = screen.getByRole('heading', {
-      level: 1,
-      name: /wochenplan kommt in phase 3/i,
-    })
-    expect(heading).toBeInTheDocument()
-    expect(heading.className).toMatch(/font-serif/)
-  })
-
-  it('renders the italic serif-body tagline describing the Phase 3 scope', () => {
-    renderStub()
-    const tagline = screen.getByText(
-      /rezepte planen\. einkaufsliste generieren\. saisonale vorschläge\./i,
+  it('redirects to the single group\'s mealplan when the user has exactly one group', async () => {
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json([makeGroup('g1', 'Familie')]),
+      ),
     )
-    expect(tagline).toBeInTheDocument()
-    // DS8 Sage Modern: italic taglines use `font-serif-body` (Inter).
-    expect(tagline.className).toMatch(/italic/)
-    expect(tagline.className).toMatch(/font-serif-body/)
+
+    render(withProviders(<WochenplanStub />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('current-path')).toHaveTextContent(
+        `/groups/g1/mealplan/${TODAY_MONDAY}`,
+      )
+    })
+    expect(screen.getByText('mealplan-page')).toBeInTheDocument()
   })
 
-  it('renders a decorative calendar illustration', () => {
-    renderStub()
-    // Lucide renders inline SVG; we tag it with data-testid for a
-    // stable hook without depending on hidden <title> elements.
-    expect(screen.getByTestId('wochenplan-stub-illustration')).toBeInTheDocument()
+  it('renders a picker linking to each group\'s mealplan when the user has multiple groups', async () => {
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json([
+          makeGroup('g1', 'Familie'),
+          makeGroup('g2', 'Bürokollegen'),
+        ]),
+      ),
+    )
+
+    render(withProviders(<WochenplanStub />))
+
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /Wähle eine Gruppe für den Wochenplan/i,
+    })
+    const familieLink = screen.getByRole('link', { name: /Familie/i })
+    const buroLink = screen.getByRole('link', { name: /Bürokollegen/i })
+    expect(familieLink).toHaveAttribute('href', `/groups/g1/mealplan/${TODAY_MONDAY}`)
+    expect(buroLink).toHaveAttribute('href', `/groups/g2/mealplan/${TODAY_MONDAY}`)
+    // Multi-group picker stays on /wochenplan — no auto-redirect.
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/wochenplan')
   })
 
-  it('offers a "Zurück zur Startseite" link that points at /', () => {
-    renderStub()
-    const backLink = screen.getByRole('link', { name: /zurück zur startseite/i })
-    expect(backLink).toHaveAttribute('href', '/')
+  it('renders the "Noch keine Gruppe" CTA when the user has no groups', async () => {
+    server.use(http.get('/api/groups', () => HttpResponse.json([])))
+
+    render(withProviders(<WochenplanStub />))
+
+    await screen.findByRole('heading', { level: 1, name: /Noch keine Gruppe/i })
+    expect(
+      screen.getByText(/Du bist noch in keiner Gruppe/i),
+    ).toBeInTheDocument()
+    const groupsLink = screen.getByRole('link', { name: /Zu den Gruppen/i })
+    expect(groupsLink).toHaveAttribute('href', '/groups')
+  })
+
+  it('does not render the legacy "Phase 3" placeholder copy', async () => {
+    server.use(http.get('/api/groups', () => HttpResponse.json([])))
+
+    render(withProviders(<WochenplanStub />))
+
+    await screen.findByRole('heading', { level: 1, name: /Noch keine Gruppe/i })
+    expect(
+      screen.queryByText(/Wochenplan kommt in Phase 3/i),
+    ).not.toBeInTheDocument()
   })
 })

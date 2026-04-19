@@ -1,5 +1,11 @@
-import { useCallback, useMemo, useState } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Link,
+  Navigate,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -67,8 +73,14 @@ import {
 export function MealPlanPage() {
   const params = useParams<{ groupId: string; weekStart: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const groupId = params.groupId ?? ''
   const rawWeek = params.weekStart ?? ''
+  // BUG-007: when the recipe-detail "In Wochenplan" button hands off
+  // a recipe via `?addRecipeId=…`, we pre-open AddSlotDialog with that
+  // recipe selected so the user only has to confirm the day + meal.
+  const addRecipeId = searchParams.get('addRecipeId')
+  const [prefilledRecipeId, setPrefilledRecipeId] = useState<string | null>(null)
   const [openCell, setOpenCell] = useState<{ date: string; meal: MealSlot } | null>(null)
   const [editSlot, setEditSlot] = useState<MealPlanSlotDto | null>(null)
   const [deleteSlotState, setDeleteSlotState] = useState<MealPlanSlotDto | null>(null)
@@ -210,6 +222,21 @@ export function MealPlanPage() {
     [plan, planId, weekStart, groupId, queryClient],
   )
 
+  // BUG-007 hand-off: once the plan resolves, open AddSlotDialog with
+  // the prefilled recipe and clear the query string so a refresh / back
+  // doesn't re-trigger the dialog. We default the day to the Monday of
+  // the displayed week + meal "Mittag" — the user can change both in
+  // the dialog. Skipping when `notFound` so the empty-plan CTA can run
+  // first; the dialog needs a planId to mutate.
+  useEffect(() => {
+    if (!addRecipeId || !plan || !weekStart) return
+    setPrefilledRecipeId(addRecipeId)
+    setOpenCell({ date: weekStart, meal: 'Mittag' })
+    const next = new URLSearchParams(searchParams)
+    next.delete('addRecipeId')
+    setSearchParams(next, { replace: true })
+  }, [addRecipeId, plan, weekStart, searchParams, setSearchParams])
+
   const handleToggleCooked = useCallback(
     (slot: MealPlanSlotDto, nextCooked: boolean) => {
       patchMutation.mutate({
@@ -287,9 +314,11 @@ export function MealPlanPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1280px]">
+      {/* Sticky page sub-nav. z-20 keeps it above page-level avatars +
+          stacked content (BUG-005 standardised z-scale). */}
       <nav
         className={cn(
-          'sticky top-[56px] z-[9] flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-[56px] z-20 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Wochenplan-Navigation"
@@ -493,8 +522,12 @@ export function MealPlanPage() {
           planId={plan.id}
           initialDate={openCell.date}
           initialMeal={openCell.meal}
+          initialRecipeId={prefilledRecipeId}
           existingSlots={plan.slots}
-          onClose={() => setOpenCell(null)}
+          onClose={() => {
+            setOpenCell(null)
+            setPrefilledRecipeId(null)
+          }}
         />
       )}
 
