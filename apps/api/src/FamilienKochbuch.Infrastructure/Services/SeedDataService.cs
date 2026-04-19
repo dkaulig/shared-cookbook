@@ -106,9 +106,11 @@ public class SeedDataService(
     /// <summary>
     /// OPS1 — idempotently seed the orchestrator service-account.
     /// No-op when <c>ORCHESTRATOR_PASSWORD</c> is unset (local dev still
-    /// works without it) or when a row with the fixed bot email already
-    /// exists (password / role are never rewritten on re-boot, so a
-    /// rotated env var won't silently invalidate live refresh tokens).
+    /// works without it).  When a row with the fixed bot email already
+    /// exists, the password is left alone by default — a rotated env var
+    /// won't silently invalidate live refresh tokens.  Explicit rotation
+    /// requires setting <c>ORCHESTRATOR_PASSWORD_ROTATE=true</c> in the
+    /// environment; see docs/ops.md §6.1 for the runbook.
     /// </summary>
     private async Task SeedOrchestratorBotAsync(CancellationToken ct)
     {
@@ -116,8 +118,15 @@ public class SeedDataService(
         if (string.IsNullOrWhiteSpace(password))
             return;
 
-        if (await users.FindByEmailAsync(OrchestratorEmail) is not null)
+        var existing = await users.FindByEmailAsync(OrchestratorEmail);
+        if (existing is not null)
+        {
+            if (IsRotateRequested(config["ORCHESTRATOR_PASSWORD_ROTATE"]))
+            {
+                await RotateOrchestratorPasswordAsync(existing, password);
+            }
             return;
+        }
 
         // Role = User (not Admin) — the bot is a regular family member so
         // smoke tests exercise the same permission path real users walk.
@@ -141,6 +150,42 @@ public class SeedDataService(
         // Do NOT log the password or the env var value — deliberately
         // only the email (the service identity) makes it into the log.
         logger.LogInformation("Seeded orchestrator bot user {Email}", OrchestratorEmail);
+    }
+
+    /// <summary>
+    /// Parses the <c>ORCHESTRATOR_PASSWORD_ROTATE</c> env var as a lenient
+    /// boolean: accepts true/false/1/0/yes/no case-insensitively; empty or
+    /// unset counts as false.  Anything unrecognised is treated as false,
+    /// matching the conservative "no-op unless explicitly asked" default.
+    /// </summary>
+    private static bool IsRotateRequested(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+        return raw.Trim().ToLowerInvariant() switch
+        {
+            "true" or "1" or "yes" => true,
+            _ => false,
+        };
+    }
+
+    private async Task RotateOrchestratorPasswordAsync(User bot, string newPassword)
+    {
+        var remove = await users.RemovePasswordAsync(bot);
+        if (!remove.Succeeded)
+        {
+            var errors = string.Join(", ", remove.Errors.Select(e => e.Description));
+            throw new InvalidOperationException($"Failed to clear orchestrator bot password: {errors}");
+        }
+
+        var add = await users.AddPasswordAsync(bot, newPassword);
+        if (!add.Succeeded)
+        {
+            var errors = string.Join(", ", add.Errors.Select(e => e.Description));
+            throw new InvalidOperationException($"Failed to set new orchestrator bot password: {errors}");
+        }
+
+        // NEVER log the password itself — only the rotation event.
+        logger.LogInformation("Orchestrator bot password rotated");
     }
 
     private async Task BackfillPrivateCollectionsAsync(CancellationToken ct)
