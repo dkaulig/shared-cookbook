@@ -418,7 +418,7 @@ def create_app() -> FastAPI:
         )
         messages = _as_chat_messages(request.messages)
         try:
-            reply = await chat_turn(messages, provider)
+            reply, _usage = await chat_turn(messages, provider)
         except EmptyMessagesError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except MessagesTooLongError as exc:

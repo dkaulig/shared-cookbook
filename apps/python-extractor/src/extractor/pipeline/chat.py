@@ -27,9 +27,9 @@ import logging
 from collections.abc import Sequence
 from typing import Final
 
-from extractor.llm import ChatMessage, LLMProvider
+from extractor.llm import ChatMessage, LLMProvider, TokenUsage
 from extractor.pipeline.post_process import post_process
-from extractor.pipeline.types import ExtractionResult
+from extractor.pipeline.types import ExtractionResult, ExtractionUsage
 from extractor.prompts.chat import (
     CHAT_SYSTEM_PROMPT_DE,
     RECIPE_SCHEMA,
@@ -69,8 +69,12 @@ def _validate_messages(messages: Sequence[ChatMessage]) -> None:
 async def chat_turn(
     messages: Sequence[ChatMessage],
     provider: LLMProvider,
-) -> str:
-    """Run one conversational turn and return the assistant's reply.
+) -> tuple[str, TokenUsage]:
+    """Run one conversational turn.
+
+    Returns ``(reply_text, usage)``. PF2 added the usage return so the
+    HTTP layer can emit ``X-Extractor-*`` headers — upstream callers
+    previously received a bare string.
 
     Parameters
     ----------
@@ -94,12 +98,12 @@ async def chat_turn(
     # User content stays out of INFO logs — turn count is enough for
     # operational visibility.
     logger.info("chat_turn start turns=%d", len(messages))
-    reply, _usage = await provider.chat(
+    reply, usage = await provider.chat(
         system_prompt=CHAT_SYSTEM_PROMPT_DE,
         messages=messages,
     )
     logger.info("chat_turn done reply_len=%d", len(reply))
-    return reply
+    return reply, usage
 
 
 async def chat_to_recipe(
@@ -130,15 +134,22 @@ async def chat_to_recipe(
     """
     _validate_messages(messages)
     logger.info("chat_to_recipe start session_id=%s turns=%d", session_id, len(messages))
-    llm_output, _usage = await provider.extract_structured(
+    llm_output, usage = await provider.extract_structured(
         system_prompt=TO_RECIPE_SYSTEM_PROMPT_DE,
         messages=messages,
         json_schema=RECIPE_SCHEMA,
     )
+    extraction_usage: ExtractionUsage = {
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "cached_prompt_tokens": usage["cached_prompt_tokens"],
+        "model": usage["model"],
+    }
     result = post_process(
         llm_output,
         original_url=f"chat:{session_id}",
         fallback_thumbnail=None,
+        usage=extraction_usage,
     )
     logger.info("chat_to_recipe done session_id=%s", session_id)
     return result

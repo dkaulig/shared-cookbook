@@ -314,6 +314,29 @@ async def test_extract_from_photos_defaults_to_missing_when_quantity_blank() -> 
     assert result["recipe"]["ingredients"][0]["confidence"] == "missing"
 
 
+async def test_extract_from_photos_attaches_usage_to_result() -> None:
+    """PF2: Vision-call usage surfaces on the result for header emission."""
+    provider = _CapturingVisionProvider(
+        _canonical_vision_response(),
+        usage={
+            "prompt_tokens": 1200,
+            "completion_tokens": 250,
+            "cached_prompt_tokens": 100,
+            "model": "gpt-4.1-mini",
+        },
+    )
+    result = await extract_from_photos(
+        ["https://example.com/a.jpg"],
+        provider=provider,
+    )
+    assert "usage" in result
+    usage = result["usage"]
+    assert usage["prompt_tokens"] == 1200
+    assert usage["completion_tokens"] == 250
+    assert usage["cached_prompt_tokens"] == 100
+    assert usage["model"] == "gpt-4.1-mini"
+
+
 async def test_extract_from_photos_accepts_http_and_https() -> None:
     """Plain http:// signed URLs are allowed (no TLS required in the
     internal SeaweedFS → .NET → Python hop)."""

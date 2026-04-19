@@ -22,7 +22,7 @@ Rules:
 
 from __future__ import annotations
 
-from typing import Final, Literal, TypedDict, get_args
+from typing import Final, Literal, NotRequired, TypedDict, get_args
 
 ConfidenceLevel = Literal["high", "medium", "low"]
 """Aggregate confidence classification — used for the overall badge.
@@ -147,11 +147,37 @@ class ExtractionConfidence(TypedDict):
     notes: list[str]
 
 
+class ExtractionUsage(TypedDict):
+    """Aggregated :class:`TokenUsage` for one extraction (PF2).
+
+    Pipelines accumulate token counts across any multi-call scenarios
+    (currently each pipeline makes exactly one LLM call; this shape is
+    future-proof for stages that chain multiple). ``model`` reflects
+    the last deployment actually called — all LLM calls in a single
+    pipeline invocation hit the same deployment today, so this is
+    unambiguous.
+    """
+
+    prompt_tokens: int
+    completion_tokens: int
+    cached_prompt_tokens: int
+    model: str
+
+
 class ExtractionResult(TypedDict):
-    """Top-level response body for ``POST /extract/url``."""
+    """Top-level response body for ``POST /extract/url``.
+
+    ``usage`` is optional on the wire (:class:`typing.NotRequired`)
+    because not every code path produces a usage envelope — e.g. a
+    failure before any LLM call never gets here, but a future cached-
+    result path might return an :class:`ExtractionResult` without
+    hitting the model at all. The .NET side treats a missing
+    ``usage`` as "no data, leave columns NULL".
+    """
 
     recipe: ExtractedRecipe
     confidence: ExtractionConfidence
+    usage: NotRequired[ExtractionUsage]
 
 
 __all__ = [
@@ -164,6 +190,7 @@ __all__ = [
     "ExtractedStep",
     "ExtractionConfidence",
     "ExtractionResult",
+    "ExtractionUsage",
     "IngredientConfidenceLevel",
     "NutritionEstimate",
     "StepConfidenceLevel",

@@ -30,7 +30,7 @@ from collections.abc import Sequence
 
 from extractor.llm import LLMProvider, VisionInput
 from extractor.pipeline.post_process import post_process
-from extractor.pipeline.types import ExtractionResult
+from extractor.pipeline.types import ExtractionResult, ExtractionUsage
 from extractor.pipeline.video import ExtractionError
 from extractor.prompts.photo_recipe import (
     PHOTO_RECIPE_SCHEMA,
@@ -89,7 +89,7 @@ async def extract_from_photos(
     images: list[VisionInput] = [{"image_url": url, "detail": "auto"} for url in photo_urls]
     instruction = build_photo_instruction(len(photo_urls))
 
-    llm_output, _usage = await provider.vision_extract(
+    llm_output, usage = await provider.vision_extract(
         system_prompt=SYSTEM_PROMPT_DE,
         images=images,
         instruction=instruction,
@@ -102,10 +102,17 @@ async def extract_from_photos(
     # ``fallback_thumbnail=None``: photos *are* the thumbnail source;
     # the .NET side (P2-6) can pick one of the uploaded photos as the
     # recipe thumbnail. We don't second-guess it here.
+    extraction_usage: ExtractionUsage = {
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "cached_prompt_tokens": usage["cached_prompt_tokens"],
+        "model": usage["model"],
+    }
     return post_process(
         llm_output,
         original_url=_PHOTO_SOURCE_SENTINEL,
         fallback_thumbnail=None,
+        usage=extraction_usage,
     )
 
 
