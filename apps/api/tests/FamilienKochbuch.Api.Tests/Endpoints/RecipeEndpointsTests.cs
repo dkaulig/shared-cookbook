@@ -320,6 +320,170 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // ── PATCH /api/recipes/{id}/nutrition ──────────────────────────────
+
+    private async Task<(Guid RecipeId, Guid GroupId)> CreateRecipeWithAuthorAsync(HttpClient client)
+    {
+        var groupId = await CreateGroupAsync(client);
+        var createRes = await client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Patch-Ziel"));
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        return (created.Id, groupId);
+    }
+
+    [Fact]
+    public async Task PatchNutrition_Updates_Estimate_For_Author()
+    {
+        var (_, token) = await SignupAndLoginAsync("patch-author@ex.com", "PA");
+        AuthorizeClient(_client, token);
+        var (recipeId, _) = await CreateRecipeWithAuthorAsync(_client);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/recipes/{recipeId}/nutrition",
+            new RecipeEndpoints.NutritionEstimateRequest(420, 24, 38, 9));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.NotNull(body.NutritionEstimate);
+        Assert.Equal(420, body.NutritionEstimate!.Kcal);
+        Assert.Equal(24, body.NutritionEstimate.ProteinG);
+    }
+
+    [Fact]
+    public async Task PatchNutrition_Null_Body_Clears_Existing_Estimate()
+    {
+        var (_, token) = await SignupAndLoginAsync("patch-clear@ex.com", "PC");
+        AuthorizeClient(_client, token);
+        var (recipeId, _) = await CreateRecipeWithAuthorAsync(_client);
+        await _client.PatchAsJsonAsync(
+            $"/api/recipes/{recipeId}/nutrition",
+            new RecipeEndpoints.NutritionEstimateRequest(300, 10, 30, 8));
+
+        // Explicit null body: Serializer writes the literal `null` which
+        // the endpoint treats as a clear-request.
+        var clear = await _client.PatchAsync(
+            $"/api/recipes/{recipeId}/nutrition",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
+        var body = (await clear.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Null(body.NutritionEstimate);
+    }
+
+    [Fact]
+    public async Task PatchNutrition_400_When_Kcal_Out_Of_Range()
+    {
+        var (_, token) = await SignupAndLoginAsync("patch-range@ex.com", "PR");
+        AuthorizeClient(_client, token);
+        var (recipeId, _) = await CreateRecipeWithAuthorAsync(_client);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/recipes/{recipeId}/nutrition",
+            new RecipeEndpoints.NutritionEstimateRequest(99999, 10, 10, 10));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PatchNutrition_400_When_Protein_Out_Of_Range()
+    {
+        var (_, token) = await SignupAndLoginAsync("patch-protein@ex.com", "PP");
+        AuthorizeClient(_client, token);
+        var (recipeId, _) = await CreateRecipeWithAuthorAsync(_client);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/recipes/{recipeId}/nutrition",
+            new RecipeEndpoints.NutritionEstimateRequest(400, 999, 10, 10));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PatchNutrition_401_When_Unauthenticated()
+    {
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/recipes/{Guid.NewGuid()}/nutrition",
+            new RecipeEndpoints.NutritionEstimateRequest(400, 10, 10, 10));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PatchNutrition_403_For_Non_Author_Non_Admin()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("author@ex.com", "A");
+        var (_, bTok) = await SignupAndLoginAsync("bystander@ex.com", "B");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var (recipeId, groupId) = await CreateRecipeWithAuthorAsync(clientA);
+
+        // Add B to the same group so the recipe is visible — but B is
+        // neither author nor admin, so the PATCH must still 403.
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        await InviteAndAcceptAsync(clientA, clientB, groupId, "bystander@ex.com");
+
+        var response = await clientB.PatchAsJsonAsync(
+            $"/api/recipes/{recipeId}/nutrition",
+            new RecipeEndpoints.NutritionEstimateRequest(300, 10, 30, 8));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PatchNutrition_Allows_Admin_On_Other_Authors_Recipe()
+    {
+        var (_, authorTok) = await SignupAndLoginAsync("author-admin@ex.com", "AA");
+        using var author = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(author, authorTok);
+        var (recipeId, _) = await CreateRecipeWithAuthorAsync(author);
+
+        // Log in the seeded admin (role=Admin) and PATCH the recipe.
+        var admin = await LoginAsync("admin@test.local", "AdminPassword123!");
+        AuthorizeClient(_client, admin.AccessToken);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/recipes/{recipeId}/nutrition",
+            new RecipeEndpoints.NutritionEstimateRequest(550, 30, 40, 20));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Equal(550, body.NutritionEstimate!.Kcal);
+    }
+
+    [Fact]
+    public async Task PatchNutrition_404_For_Unknown_Recipe()
+    {
+        var (_, token) = await SignupAndLoginAsync("patch-404@ex.com", "P4");
+        AuthorizeClient(_client, token);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/recipes/{Guid.NewGuid()}/nutrition",
+            new RecipeEndpoints.NutritionEstimateRequest(400, 10, 10, 10));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    private async Task InviteAndAcceptAsync(
+        HttpClient admin, HttpClient invitee, Guid groupId, string inviteeEmail)
+    {
+        // Look up the invitee's userId directly from the DB so the test
+        // can invite them without going through the user-search API.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var inviteeUser = await db.Users.SingleAsync(u => u.Email == inviteeEmail);
+
+        var inviteRes = await admin.PostAsJsonAsync(
+            $"/api/groups/{groupId}/invites",
+            new GroupEndpoints.InviteToGroupRequest(inviteeUser.Id));
+        inviteRes.EnsureSuccessStatusCode();
+        var invite = (await inviteRes.Content.ReadFromJsonAsync<GroupEndpoints.GroupInviteDto>())!;
+
+        var accept = await invitee.PostAsync($"/api/groups/invites/{invite.Id}/accept", null);
+        accept.EnsureSuccessStatusCode();
+    }
+
     // ── GET /api/recipes/{id} ───────────────────────────────────────
 
     [Fact]
