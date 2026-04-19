@@ -2,6 +2,7 @@ import type {
   ApiError,
   ExtractionResult,
   ImportEnqueueResponse,
+  ImportPhotosRequest,
   ImportSourceKind,
   ImportStatus,
   ImportUrlRequest,
@@ -117,6 +118,21 @@ export async function enqueueUrlImport(
   body: ImportUrlRequest,
 ): Promise<ImportEnqueueResponse> {
   return request<ImportEnqueueResponse>('/api/recipes/import/url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/**
+ * Enqueue a photo-based import (P2-8). Body carries the ordered array of
+ * signed photo URLs (each produced by `uploadStagedPhoto`) + the target
+ * group. Server responds 202 with the new `{ importId }`.
+ */
+export async function enqueuePhotoImport(
+  body: ImportPhotosRequest,
+): Promise<ImportEnqueueResponse> {
+  return request<ImportEnqueueResponse>('/api/recipes/import/photos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

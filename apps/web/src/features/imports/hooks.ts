@@ -1,10 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   ImportEnqueueResponse,
+  ImportPhotosRequest,
   ImportUrlRequest,
   RecipeImportDto,
 } from '@familien-kochbuch/shared'
-import { enqueueUrlImport, fetchImport } from './importsApi'
+import { enqueuePhotoImport, enqueueUrlImport, fetchImport } from './importsApi'
 
 /**
  * Query-key family for the imports feature. The progress page uses
@@ -28,6 +29,20 @@ export const DEFAULT_IMPORT_POLL_MS = 2000
 export function useEnqueueUrlImport() {
   return useMutation<ImportEnqueueResponse, Error, ImportUrlRequest>({
     mutationFn: (body) => enqueueUrlImport(body),
+  })
+}
+
+/**
+ * Mutation wrapper around `POST /api/recipes/import/photos` (P2-8).
+ *
+ * The caller is `ImportPhotosPage`, which has already uploaded each
+ * staged photo to SeaweedFS and now hands the ordered array of signed
+ * URLs back to the bridge endpoint. We return the fresh `{ importId }`
+ * so the page can navigate to the shared progress page.
+ */
+export function useEnqueuePhotoImport() {
+  return useMutation<ImportEnqueueResponse, Error, ImportPhotosRequest>({
+    mutationFn: (body) => enqueuePhotoImport(body),
   })
 }
 

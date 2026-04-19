@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import { enqueueUrlImport, fetchImport, mapStatusResponse } from './importsApi'
+import {
+  enqueuePhotoImport,
+  enqueueUrlImport,
+  fetchImport,
+  mapStatusResponse,
+} from './importsApi'
 import type { ExtractionResult } from '@familien-kochbuch/shared'
 
 beforeEach(() => {
@@ -62,6 +67,50 @@ describe('importsApi — POST /api/recipes/import/url', () => {
     await expect(
       enqueueUrlImport({ url: 'notaurl', groupId: 'g1' }),
     ).rejects.toThrow(/Die URL muss absolut sein/)
+  })
+})
+
+describe('importsApi — POST /api/recipes/import/photos', () => {
+  it('posts the signed photo URL array + groupId and returns the importId', async () => {
+    let capturedBody: { photoUrls: string[]; groupId: string } | null = null
+    server.use(
+      http.post('/api/recipes/import/photos', async ({ request }) => {
+        capturedBody = (await request.json()) as {
+          photoUrls: string[]
+          groupId: string
+        }
+        return HttpResponse.json({ importId: 'imp-photos-1' }, { status: 202 })
+      }),
+    )
+    const res = await enqueuePhotoImport({
+      photoUrls: [
+        '/api/photos/recipes/a.jpg?sig=1&exp=9',
+        '/api/photos/recipes/b.jpg?sig=2&exp=9',
+      ],
+      groupId: 'g1',
+    })
+    expect(res.importId).toBe('imp-photos-1')
+    expect(capturedBody).not.toBeNull()
+    expect(capturedBody!.groupId).toBe('g1')
+    expect(capturedBody!.photoUrls).toHaveLength(2)
+  })
+
+  it('throws an ApiError on 400 invalid_photo_url', async () => {
+    server.use(
+      http.post('/api/recipes/import/photos', () =>
+        HttpResponse.json(
+          {
+            code: 'invalid_photo_url',
+            message:
+              'Mindestens ein Foto wurde nicht über die offizielle Upload-Route bereitgestellt.',
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+    await expect(
+      enqueuePhotoImport({ photoUrls: ['nope'], groupId: 'g1' }),
+    ).rejects.toThrow(/offizielle Upload-Route/)
   })
 })
 
