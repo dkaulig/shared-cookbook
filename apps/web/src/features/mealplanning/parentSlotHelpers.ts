@@ -154,6 +154,12 @@ export function buildParentLabel(
  * Sort: date ASC, then meal order (Frühstück…Snack), then `sortOrder`
  * within the same cell — matches the visual flow of the week grid so
  * the user can find their target by scrolling top-to-bottom.
+ *
+ * Scope-safety: the caller is responsible for passing only same-plan
+ * slots in `allSlots`. The helper trusts the scope and does not filter
+ * by `mealPlanId`. Cross-plan parent refs + cycles are rejected by the
+ * backend P3-1 domain check (see `MealPlanDomainService`), so this is
+ * purely defense-in-depth — but keep the caller contract clean.
  */
 export function eligibleParents(
   editingSlotId: string | null,

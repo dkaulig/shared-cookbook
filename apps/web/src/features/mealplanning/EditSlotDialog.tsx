@@ -52,10 +52,12 @@ export function EditSlotDialog({
   /**
    * All slots currently on the plan — needed by the P3-4 parent-slot
    * dropdown so we can exclude the slot being edited + its descendants
-   * from the candidate list. Optional for backwards-compat with test
-   * harnesses that don't render the parent UX.
+   * from the candidate list. Required so wiring bugs (caller forgot
+   * to pipe the plan slots through) surface at compile time rather
+   * than silently hiding the dropdown. Pass an explicit `[slot]` for
+   * the "no other slots" test-harness case.
    */
-  existingSlots?: readonly MealPlanSlotDto[]
+  existingSlots: readonly MealPlanSlotDto[]
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -76,7 +78,7 @@ export function EditSlotDialog({
   // but N is the slot-count for a single week (≤ 28 cells × a few
   // slots), which is trivial.
   const parentCandidates = useMemo(
-    () => eligibleParents(slot.id, existingSlots ?? []),
+    () => eligibleParents(slot.id, existingSlots),
     [slot.id, existingSlots],
   )
 

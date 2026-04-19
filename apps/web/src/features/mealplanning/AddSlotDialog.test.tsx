@@ -38,6 +38,7 @@ function renderDialog(onClose: () => void = () => {}) {
         planId={PLAN_ID}
         initialDate="2026-04-21"
         initialMeal="Abend"
+        existingSlots={[]}
         onClose={onClose}
       />,
     ),

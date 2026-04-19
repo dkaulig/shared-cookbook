@@ -48,10 +48,12 @@ export function AddSlotDialog({
   /**
    * All slots currently on the plan — used to populate the "Ist Rest
    * von …" dropdown so the user can link the new slot to an existing
-   * meal-prep parent (P3-4). Defaults to an empty list so earlier call
-   * sites that don't have the data handy still compile.
+   * meal-prep parent (P3-4). Required so wiring bugs (caller forgot
+   * to pipe the plan slots through) surface at compile time rather
+   * than silently hiding the dropdown. Pass an explicit `[]` for the
+   * "no candidates" case (e.g. test harnesses).
    */
-  existingSlots?: readonly MealPlanSlotDto[]
+  existingSlots: readonly MealPlanSlotDto[]
   onClose: () => void
 }) {
   const [date, setDate] = useState(initialDate)
@@ -69,7 +71,7 @@ export function AddSlotDialog({
   // Creating a new slot, so there's no "self" to exclude — pass `null`
   // as the editing-slot-id so every current slot is a valid candidate.
   const parentCandidates = useMemo(
-    () => eligibleParents(null, existingSlots ?? []),
+    () => eligibleParents(null, existingSlots),
     [existingSlots],
   )
 

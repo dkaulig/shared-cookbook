@@ -56,6 +56,7 @@ function renderDialog(slot: MealPlanSlotDto, onClose: () => void = () => {}) {
         weekStart="2026-04-20"
         planId={PLAN_ID}
         slot={slot}
+        existingSlots={[slot]}
         onClose={onClose}
       />,
     ),
