@@ -36,6 +36,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<ChatUsageLog> ChatUsageLogs => Set<ChatUsageLog>();
     public DbSet<MealPlan> MealPlans => Set<MealPlan>();
     public DbSet<MealPlanSlot> MealPlanSlots => Set<MealPlanSlot>();
+    public DbSet<ShoppingList> ShoppingLists => Set<ShoppingList>();
+    public DbSet<ShoppingListItem> ShoppingListItems => Set<ShoppingListItem>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -49,6 +51,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.ApplyConfiguration(new ChatUsageLogConfiguration());
         builder.ApplyConfiguration(new MealPlanConfiguration());
         builder.ApplyConfiguration(new MealPlanSlotConfiguration());
+        builder.ApplyConfiguration(new ShoppingListConfiguration());
+        builder.ApplyConfiguration(new ShoppingListItemConfiguration());
 
         builder.Entity<User>(e =>
         {
