@@ -68,11 +68,10 @@ public static class RecipeEndpoints
         // P2-10: optional per-portion nutrition estimate. ``null`` when
         // the caller can't supply one (manual recipe, legacy client).
         NutritionEstimateRequest? NutritionEstimate = null,
-        // PF1: optional list of StagedPhoto.Id values to "promote" onto
-        // the new recipe. The handler verifies ownership server-side
-        // and copies the underlying SeaweedFS blobs into the recipe's
-        // namespace before attaching them. Failures are reported per
-        // photo via the response's ``partialPhotoFailures`` field.
+        // Optional StagedPhoto.Id values the server adopts onto the
+        // new recipe (ownership-checked, blobs copied into the recipe
+        // namespace). Per-photo failures surface via
+        // ``partialPhotoFailures`` instead of failing the request.
         Guid[]? StagedPhotoIds = null);
 
     public record UpdateRecipeRequest(
@@ -156,17 +155,16 @@ public static class RecipeEndpoints
         // present on the response (null when unset) so the frontend
         // never has to probe for a missing key.
         NutritionEstimateDto? NutritionEstimate,
-        // PF1: per-photo failures from the create-recipe promote flow.
-        // Always ``null`` outside the create response — existing
-        // endpoints (Get/Update/Fork/PatchNutrition/MarkCooked) leave
-        // this off so the contract for read paths is unchanged.
+        // Per-photo failures from the create-recipe promote flow.
+        // Always ``null`` outside the create response — read paths
+        // (Get/Update/Fork/PatchNutrition/MarkCooked) leave this off
+        // so their contract is unchanged.
         PartialPhotoFailureDto[]? PartialPhotoFailures = null);
 
     /// <summary>
-    /// PF1 — surfaces the reason a single staged-photo promote failed
-    /// during create-recipe. The ``StagedPhotoId`` echoes the value the
-    /// caller supplied; the ``Reason`` carries a short German error
-    /// message the frontend banner can display verbatim.
+    /// Surfaces the reason a single staged-photo promote failed during
+    /// create-recipe. The ``Reason`` is a short German message the
+    /// frontend banner displays verbatim.
     /// </summary>
     public record PartialPhotoFailureDto(Guid StagedPhotoId, string Reason);
 
@@ -177,20 +175,9 @@ public static class RecipeEndpoints
     public record ForkRecipeRequest(Guid TargetGroupId);
 
     /// <summary>
-    /// Response for <c>POST /api/recipes/photos/staged</c>.
-    ///
-    /// Original P2-8 contract returned the bare SeaweedFS storage path
-    /// (<c>PhotoId</c>) + the freshly-signed proxy URL. PF1 extends the
-    /// shape with <see cref="StagedPhotoId"/>, the <c>StagedPhoto</c>
-    /// row's domain id — that's what the create-recipe endpoint
-    /// consumes when promoting staged uploads onto a saved recipe.
-    ///
-    /// Both ids coexist deliberately: <see cref="PhotoId"/> stays for
-    /// backward compatibility with anyone who already round-trips it
-    /// (the import-photos flow still serializes the signed URL), and
-    /// <see cref="StagedPhotoId"/> is the new currency for the
-    /// promote handshake. A future slice can deprecate
-    /// <see cref="PhotoId"/> once no client touches it.
+    /// Response for <c>POST /api/recipes/photos/staged</c>. <see cref="StagedPhotoId"/>
+    /// is the currency for the create-recipe promote handshake; <see cref="PhotoId"/>
+    /// (the bare SeaweedFS path) is retained for the legacy import-photos flow.
     /// </summary>
     public record StagedPhotoResponse(string PhotoId, string SignedUrl, Guid StagedPhotoId);
 
@@ -424,10 +411,9 @@ public static class RecipeEndpoints
         await revisionService.RecordAsync(
             recipe.Id, userId, RecipeChangeType.Created, clock.GetUtcNow(), ct);
 
-        // PF1: promote any staged photos onto the freshly-saved recipe.
-        // Sequential (a single failed photo doesn't take down the rest)
-        // and best-effort (the recipe row already exists; the worst
-        // case is the user has to re-upload the photos from the detail
+        // Sequential + best-effort: a single failed photo doesn't
+        // take down the others, and the saved recipe is kept even if
+        // every promote fails (the user can re-upload from the detail
         // page).
         var partialFailures = await PromoteStagedPhotosAsync(
             db, photoStorage, clock,
@@ -440,28 +426,18 @@ public static class RecipeEndpoints
     }
 
     /// <summary>
-    /// PF1 — adopt staged photos onto the freshly-saved recipe.
+    /// Adopts staged photos onto the freshly-saved recipe.
     ///
-    /// Per the plan's transaction-boundary guidance: the blob copy +
-    /// <see cref="Recipe.AddPhoto"/> + <c>StagedPhoto.MarkPromoted</c>
-    /// happen inside a single <see cref="AppDbContext.SaveChangesAsync"/>
-    /// call so a database failure rolls back both the photo-attach and
-    /// the staged-photo lifecycle change. The blob delete on the
-    /// staged source is best-effort, post-commit — a leftover staged
-    /// blob will be reaped by the hourly sweep job once its row is
-    /// missing (PF1 step 4).
+    /// Per-photo the blob copy + <see cref="Recipe.AddPhoto"/> +
+    /// <c>StagedPhoto.MarkPromoted</c> share one <c>SaveChangesAsync</c>
+    /// so an EF failure rolls both back; the source-blob delete is
+    /// best-effort (the hourly sweep job reaps orphans).
     ///
-    /// Failure handling: any per-photo error (missing row, ownership
-    /// mismatch, already-promoted, blob-copy 5xx, EF blow-up) is
-    /// captured into the returned partial-failure list and the loop
-    /// continues with the next id. The recipe itself stays alive — we
-    /// don't roll back a saved recipe just because a photo failed.
-    ///
-    /// Ownership filter rationale: a caller passing another user's
-    /// stagedPhotoId silently lands in the partial-failure list with
-    /// reason "Foto gehört nicht dir" rather than a 400. The recipe is
-    /// still valid (the bad id is a frontend bug, not an attack
-    /// surface — the photo's bytes never make it onto the recipe).
+    /// Any per-photo error is captured into the returned partial-failure
+    /// list — the recipe stays alive even if every photo fails.
+    /// Ownership-mismatched ids drop into the failure list rather than
+    /// 400: the id is a frontend bug, not an attack surface, since the
+    /// photo's bytes never land on the recipe.
     /// </summary>
     private static async Task<List<PartialPhotoFailureDto>> PromoteStagedPhotosAsync(
         AppDbContext db,
@@ -959,13 +935,11 @@ public static class RecipeEndpoints
 
         var signedUrl = photoStorage.GetPublicUrl(path);
 
-        // PF1 — persist a StagedPhoto row alongside the SeaweedFS upload
-        // so the create-recipe endpoint's promote flow can verify
-        // ownership + adopt the blob. The endpoint deliberately swallows
-        // the row insert into the success path: if EF blows up after
-        // the blob is in place, surface the error so the caller can
-        // retry — the abandoned blob will get reaped by the hourly
-        // sweep job (PF1 step 4) once the row is missing.
+        // Persist a StagedPhoto row alongside the SeaweedFS upload so
+        // the create-recipe promote flow can verify ownership + adopt
+        // the blob. If EF blows up after the blob is in place we
+        // surface the error so the caller can retry — the abandoned
+        // blob is reaped by the hourly sweep job.
         var staged = new StagedPhoto(
             userId: userId,
             photoId: path,
