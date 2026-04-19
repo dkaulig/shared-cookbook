@@ -197,6 +197,9 @@ public static class RecipeEndpoints
         recipe.MapDelete("/photos", RemovePhotoAsync);
         recipe.MapPost("/fork", ForkRecipeAsync);
         recipe.MapPost("/cook", MarkCookedAsync);
+        // P2-10: PATCH for the estimated per-portion nutrition. Author
+        // or admin only; a null body clears the estimate.
+        recipe.MapPatch("/nutrition", PatchNutritionAsync);
 
         // P2-8: staged photo upload for the import-from-photos flow.
         // Lives outside the {id:guid} group because the photo isn't yet
@@ -934,6 +937,59 @@ public static class RecipeEndpoints
         var reloaded = (await LoadRecipeWithChildrenAsync(db, fork.Id, ct))!;
         var detail = await ProjectDetailAsync(db, reloaded, photoStorage, ct);
         return Results.Created($"/api/recipes/{fork.Id}", detail);
+    }
+
+    // ── PATCH /api/recipes/{id}/nutrition (P2-10) ───────────────────
+
+    /// <summary>
+    /// Replaces the per-portion nutrition estimate on a recipe.
+    ///
+    /// Request body: nullable <see cref="NutritionEstimateRequest"/> —
+    /// ``null`` clears any stored estimate; a populated object stores
+    /// it. Bounds (kcal 0..5000, macros 0..500) are enforced by the
+    /// domain record; anything outside returns ``400 invalid_input``.
+    ///
+    /// RBAC: author OR site-admin only. Other group members see ``403``
+    /// even though they can read the recipe — estimating nutrition
+    /// edits reviewer-visible state.
+    /// </summary>
+    private static async Task<IResult> PatchNutritionAsync(
+        Guid id,
+        [FromBody] NutritionEstimateRequest? body,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var recipe = await LoadRecipeWithChildrenAsync(db, id, ct);
+        if (recipe is null) return Results.NotFound();
+
+        // Author or admin. Group membership alone isn't enough — matches
+        // the plan's "admin OR author" language.
+        var isAdmin = string.Equals(
+            principal.FindFirstValue("role"), UserRole.Admin.ToString(), StringComparison.Ordinal);
+        if (recipe.CreatedByUserId != userId && !isAdmin)
+            return Results.Forbid();
+
+        try
+        {
+            var estimate = body is null
+                ? null
+                : new Domain.Entities.NutritionEstimate(
+                    body.Kcal, body.ProteinG, body.CarbsG, body.FatG);
+            recipe.SetNutritionEstimate(estimate, clock.GetUtcNow());
+            await db.SaveChangesAsync(ct);
+        }
+        catch (ArgumentException ex)
+        {
+            return FamilienResults.BadRequest("invalid_input", ex.Message);
+        }
+
+        var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
+        return Results.Ok(detail);
     }
 
     // ── POST /api/recipes/{id}/cook ─────────────────────────────────
