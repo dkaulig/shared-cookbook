@@ -528,7 +528,14 @@ zurückkommt.
 
 ## BUG-016 · Deploy v0.4.0: docker-network DNS kaputt nach Subnet-Change (recovery-flow needed)
 **Reported:** 2026-04-19 (post v0.4.0 deploy — prod crashed ~2 min)
-**Status:** `[ ] open` (runbook-documentation-only needed, fix = deploy.yml enhancement)
+**Status:** `[x] fixed` (2026-04-19 — `deploy.yml` "Pull + restart"-Step
+vergleicht jetzt sha256 von `docker-compose.prod.yml` gegen
+`/srv/familien-kochbuch/.last-compose-hash`. Bei Diff: `compose down`
+vor `up -d` → Docker baut Network + embedded-DNS komplett neu, kein
+SERVFAIL mehr. Reine Image-Updates bleiben zero-downtime. Recovery-
+Runbook in `docs/ops.md §7.1`. Regressions-Test:
+`scripts/verify-deploy-workflow.sh` asserted dass `.last-compose-hash`
++ `compose down` + `sha256sum` im deploy.yml präsent bleiben.)
 **Severity:** operational — deploy succeeded at GHA-level but api container
 crash-looped bis manual intervention.
 **Symptom:** PV1 hatte `networks.default.ipam.config.subnet: 172.28.0.0/16`

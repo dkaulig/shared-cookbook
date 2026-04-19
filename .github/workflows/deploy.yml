@@ -248,7 +248,22 @@ jobs:
           username: deploy
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -euo pipefail
             cd /srv/familien-kochbuch
             docker compose -f docker-compose.prod.yml pull api web python-extractor
+            # BUG-016: when the compose file itself changed (e.g. network /
+            # IPAM tweak), `compose up -d` alone leaves docker's embedded
+            # DNS in a stale state — containers come up but `nslookup
+            # postgres` returns SERVFAIL and the api crash-loops on
+            # NpgsqlConnection.Open() (SIGSEGV / exit 139). The cure is a
+            # full `down` + `up` so docker rebuilds the network. We only
+            # pay that 20-30s downtime when the file actually changed.
+            NEW_HASH=$(sha256sum docker-compose.prod.yml | cut -d' ' -f1)
+            LAST_HASH=$(cat .last-compose-hash 2>/dev/null || echo "")
+            if [ "$NEW_HASH" != "$LAST_HASH" ]; then
+              echo "compose file changed -> full recreate (avoids docker-network DNS issues)"
+              docker compose -f docker-compose.prod.yml down
+            fi
             docker compose -f docker-compose.prod.yml up -d
+            echo "$NEW_HASH" > .last-compose-hash
             docker image prune -f
