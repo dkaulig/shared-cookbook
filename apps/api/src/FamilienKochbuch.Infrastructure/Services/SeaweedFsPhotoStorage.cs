@@ -110,32 +110,19 @@ public class SeaweedFsPhotoStorage : IPhotoStorage
         return _signer.SignPhotoUrl(normalized);
     }
 
-    /// <summary>
-    /// PF1 — copy a blob from <paramref name="sourcePath"/> to
-    /// <paramref name="destinationPath"/>.
-    ///
-    /// SeaweedFS's filer doesn't expose a server-side rename/move
-    /// primitive in the version we use, so we GET the source bytes and
-    /// PUT them at the destination. Bounded by the 5 MB staged-photo
-    /// cap, which makes the round-trip acceptable in practice.
-    /// TODO: switch to a native move once the filer ships one — the
-    /// signature is intentionally future-proof.
-    /// </summary>
     public async Task<string> CopyAsync(
         string sourcePath,
-        string destinationPath,
         string contentType,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
             throw new ArgumentException("Source path must not be blank.", nameof(sourcePath));
-        if (string.IsNullOrWhiteSpace(destinationPath))
-            throw new ArgumentException("Destination path must not be blank.", nameof(destinationPath));
         if (string.IsNullOrWhiteSpace(contentType))
             throw new ArgumentException("Content type must not be blank.", nameof(contentType));
 
         var src = NormalizeToPath(sourcePath);
-        var dst = NormalizeToPath(destinationPath);
+        var extension = Path.GetExtension(src);
+        var dst = $"{PathPrefix}/{Guid.NewGuid():N}{extension}";
 
         var client = _httpFactory.CreateClient(FilerHttpClientName);
 
@@ -145,11 +132,10 @@ public class SeaweedFsPhotoStorage : IPhotoStorage
 
         if (bytes.LongLength > 5L * 1024 * 1024)
         {
-            // Bounded by upstream validation, but emit a structured-log
-            // warning if the policy ever drifts so we notice before the
-            // copy chews up bandwidth.
+            // Bounded by upstream validation; warn if the policy ever
+            // drifts so we notice before the copy chews up bandwidth.
             _logger.LogWarning(
-                "PF1 photo copy from {Source} is {Size} bytes — above the 5 MB staged cap.",
+                "Photo copy from {Source} is {Size} bytes — above the 5 MB staged cap.",
                 src, bytes.LongLength);
         }
 

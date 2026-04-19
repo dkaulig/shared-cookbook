@@ -1,3 +1,4 @@
+using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
 using Hangfire;
@@ -73,26 +74,32 @@ public class SweepAbandonedStagedPhotosJob
     {
         var cutoff = _clock.GetUtcNow() - AbandonAge;
 
-        // Query the rows up-front so we can iterate and delete blobs
-        // without holding a long-running transaction. Set sizes are
-        // tiny in steady state; even a backlog after an outage won't
-        // realistically run into the thousands.
-        //
-        // SQLite can't translate a server-side DateTimeOffset
-        // comparison (matches the same limitation called out on the
-        // recipe-list endpoint). We pre-filter on PromotedAt server-
-        // side and apply the CreatedAt cutoff in-memory; the
-        // PromotedAt filter alone is selective enough that the in-mem
-        // pass stays cheap on Postgres too.
-        var unpromoted = await _db.StagedPhotos
-            .Where(s => s.PromotedAt == null)
-            .ToListAsync(ct);
-        var abandoned = unpromoted.Where(s => s.CreatedAt < cutoff).ToList();
+        // Postgres translates the full WHERE server-side; SQLite can't
+        // translate DateTimeOffset comparisons so we filter in-memory
+        // there. The PromotedAt predicate alone is selective enough
+        // that the SQLite fallback stays cheap. We detect SQLite by
+        // provider-name string to avoid pulling the SQLite NuGet into
+        // the production API assembly just for a test-path check.
+        List<StagedPhoto> abandoned;
+        var providerName = _db.Database.ProviderName ?? string.Empty;
+        if (providerName.Contains("Sqlite", StringComparison.OrdinalIgnoreCase))
+        {
+            var unpromoted = await _db.StagedPhotos
+                .Where(s => s.PromotedAt == null)
+                .ToListAsync(ct);
+            abandoned = unpromoted.Where(s => s.CreatedAt < cutoff).ToList();
+        }
+        else
+        {
+            abandoned = await _db.StagedPhotos
+                .Where(s => s.PromotedAt == null && s.CreatedAt < cutoff)
+                .ToListAsync(ct);
+        }
 
         if (abandoned.Count == 0)
         {
             _logger.LogInformation(
-                "PF1 staged-photo sweep: 0 rows older than {AbandonAge} (cutoff {Cutoff}).",
+                "Staged-photo sweep: 0 rows older than {AbandonAge} (cutoff {Cutoff}).",
                 AbandonAge, cutoff);
             return;
         }
@@ -108,7 +115,7 @@ public class SweepAbandonedStagedPhotosJob
             {
                 blobErrors++;
                 _logger.LogWarning(ex,
-                    "PF1 staged-photo sweep: failed to delete blob {PhotoId} for row {RowId}; row will still be removed.",
+                    "Staged-photo sweep: failed to delete blob {PhotoId} for row {RowId}; row will still be removed.",
                     row.PhotoId, row.Id);
             }
         }
@@ -117,7 +124,7 @@ public class SweepAbandonedStagedPhotosJob
         await _db.SaveChangesAsync(ct);
 
         _logger.LogInformation(
-            "PF1 staged-photo sweep: reaped {Reaped} row(s) older than {AbandonAge} (blob-errors {BlobErrors}, cutoff {Cutoff}).",
+            "Staged-photo sweep: reaped {Reaped} row(s) older than {AbandonAge} (blob-errors {BlobErrors}, cutoff {Cutoff}).",
             abandoned.Count, AbandonAge, blobErrors, cutoff);
     }
 }

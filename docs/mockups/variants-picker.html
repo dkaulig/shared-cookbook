@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Design-Varianten · Redesign-Wahl</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root { --bg:#fafafa; --surface:#fff; --border:#e5e5e5; --text:#111; --muted:#555; --soft:#888; }
+      * { box-sizing: border-box; }
+      html, body { margin:0; padding:0; -webkit-font-smoothing:antialiased; }
+      body { font-family:"Inter",system-ui,sans-serif; background:var(--bg); color:var(--text); padding:24px 20px 60px; letter-spacing:-0.006em; }
+      .container { max-width: 720px; margin: 0 auto; }
+      h1 { font-size: clamp(28px,6vw,40px); font-weight:600; letter-spacing:-0.02em; margin:0 0 8px; }
+      .tagline { color:var(--muted); font-size:15px; line-height:1.55; margin:0 0 28px; max-width:560px; }
+      .grid { display:grid; grid-template-columns:1fr; gap:14px; }
+      .card { display:grid; grid-template-columns:84px 1fr; gap:18px; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px 20px; color:inherit; transition:transform 150ms, box-shadow 150ms, border-color 150ms; }
+      .card:hover { transform:translateY(-1px); box-shadow:0 8px 24px -8px rgba(0,0,0,0.08); }
+      .card-links { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+      .card-links a { font-size:12px; font-weight:500; text-decoration:none; padding:5px 11px; border-radius:7px; border:1px solid var(--border); color:var(--text); background:var(--bg); transition:background-color 120ms, border-color 120ms; }
+      .card-links a:hover { background:var(--text); color:#fff; border-color:var(--text); }
+      .card-links a.primary { background:var(--text); color:#fff; border-color:var(--text); }
+      .card-links a.primary:hover { background:#333; }
+      .preview { aspect-ratio:1/1; border-radius:12px; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:28px; position:relative; overflow:hidden; }
+      .preview.a { background:#f7f7f6; color:#4f7961; font-family:"Inter",sans-serif; }
+      .preview.b { background:#ffffff; color:#0a0a0a; font-family:"Inter Tight",sans-serif; border:1px solid #ededed; letter-spacing:-0.025em; }
+      .preview.c { background:#fafaf9; color:#1c1917; font-family:"Manrope",sans-serif; letter-spacing:-0.025em; }
+      .preview .swatch-row { position:absolute; bottom:8px; left:8px; display:flex; gap:4px; }
+      .swatch { width:12px; height:12px; border-radius:4px; border:1px solid rgba(0,0,0,0.08); }
+      .title { font-weight:600; font-size:18px; letter-spacing:-0.015em; margin:0 0 3px; }
+      .desc { color:var(--muted); font-size:13px; line-height:1.5; margin:0; }
+      .desc .tag { display:inline-block; margin-right:6px; font-weight:500; color:var(--text); }
+      .foot { margin-top:32px; padding-top:20px; border-top:1px dashed var(--border); font-size:13px; color:var(--muted); line-height:1.55; }
+      .foot strong { color:var(--text); font-weight:600; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Design-Varianten</h1>
+      <p class="tagline">Drei Richtungen für Farben + Schriften. Layout + Komponenten bleiben gleich. Je Variante siehst du Login + Startseite.</p>
+
+      <div class="grid">
+        <div class="card">
+          <div class="preview a">
+            Aa
+            <div class="swatch-row">
+              <span class="swatch" style="background:#4f7961"></span>
+              <span class="swatch" style="background:#d97757"></span>
+              <span class="swatch" style="background:#f7f7f6"></span>
+              <span class="swatch" style="background:#1a1a18"></span>
+            </div>
+          </div>
+          <div>
+            <div class="title">A · Sage Modern</div>
+            <p class="desc"><span class="tag">Salbei-Grün</span> · Koralle für CTAs · Inter · ruhig, gesund, Food-Blog-Vibe</p>
+            <div class="card-links">
+              <a href="./variant-a-sage.html" class="primary">Login</a>
+              <a href="./variant-a-home.html">Startseite</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="preview b">
+            Aa
+            <div class="swatch-row">
+              <span class="swatch" style="background:#0a0a0a"></span>
+              <span class="swatch" style="background:#dc2626"></span>
+              <span class="swatch" style="background:#ffffff"></span>
+              <span class="swatch" style="background:#737373"></span>
+            </div>
+          </div>
+          <div>
+            <div class="title">B · Crisp Neutral</div>
+            <p class="desc"><span class="tag">Nahezu-Schwarz</span> + Rot-Signal · Inter Tight · Stripe/Linear-Feeling</p>
+            <div class="card-links">
+              <a href="./variant-b-crisp.html" class="primary">Login</a>
+              <a href="./variant-b-home.html">Startseite</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="preview c">
+            Aa
+            <div class="swatch-row">
+              <span class="swatch" style="background:#1c1917"></span>
+              <span class="swatch" style="background:#c2410c"></span>
+              <span class="swatch" style="background:#fafaf9"></span>
+              <span class="swatch" style="background:#78716c"></span>
+            </div>
+          </div>
+          <div>
+            <div class="title">C · Warm-Neutral Editorial</div>
+            <p class="desc"><span class="tag">Stone-Schwarz</span> auf creme-BG · Burnt-Orange-Akzent · Manrope + Inter · NYT-Cooking-like</p>
+            <div class="card-links">
+              <a href="./variant-c-editorial.html" class="primary">Login</a>
+              <a href="./variant-c-home.html">Startseite</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot">
+        <strong>Gleicher Aufbau wie Warme Küche</strong> — Hero, Card, Form, Invite-Footer. Nur Farben + Schriftarten anders. Sobald du eine wählst, DS1-Rerun mit neuen Tokens, alles Weitere zieht automatisch nach.
+      </div>
+    </div>
+  </body>
+</html>
