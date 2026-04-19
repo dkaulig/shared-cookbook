@@ -66,24 +66,19 @@ public static class InviteEndpoints
         // copy the returned URL manually.
         if (!string.IsNullOrWhiteSpace(invite.Email))
         {
-            try
-            {
-                var inviterDisplayName = principal.FindFirstValue("displayName")
-                                          ?? principal.FindFirstValue(ClaimTypes.Name)
-                                          ?? "Jemand";
-                await emailSender.SendAppInviteAsync(
+            var inviterDisplayName = principal.FindFirstValue("displayName")
+                                      ?? principal.FindFirstValue(ClaimTypes.Name)
+                                      ?? "Jemand";
+            await EmailDeliveryHelper.TrySendAsync(
+                token => emailSender.SendAppInviteAsync(
                     toEmail: invite.Email,
                     inviterDisplayName: inviterDisplayName,
                     acceptUrl: url,
                     personalNote: null,
-                    ct: ct);
-            }
-            catch (EmailSendException ex)
-            {
-                logger.LogWarning(ex,
-                    "App-invite mail delivery failed for inviteId={InviteId}; inviter can still share the link manually.",
-                    invite.Id);
-            }
+                    ct: token),
+                logger,
+                $"app-invite:{invite.Id}",
+                ct);
         }
 
         return Results.Ok(new CreateInviteResponse(invite.Id, token, url, invite.ExpiresAt));
