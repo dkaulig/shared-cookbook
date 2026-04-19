@@ -6,6 +6,8 @@ import type {
   ShoppingListItemDto,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
+import { ApiErrorBase } from '@/features/_shared/apiError'
+import { stripUndefined } from '@/features/_shared/mergePatch'
 
 /**
  * Typed API layer for the P3-5 shopping-list endpoints. Mirrors the
@@ -20,19 +22,8 @@ import { apiClient } from '@/features/auth/apiClient'
  *   PATCH  /api/shopping-lists/{listId}/items/{itemId}
  *   DELETE /api/shopping-lists/{listId}/items/{itemId}
  */
-export class ShoppingListApiError extends Error implements ApiError {
-  readonly code: string
-  readonly status: number
-
-  constructor(code: string, message: string, status: number) {
-    super(`${code}: ${message}`)
-    this.name = 'ShoppingListApiError'
-    this.code = code
-    this.status = status
-    // The Error constructor drops our explicit message in some engines
-    // when subclassed — pin it for predictable UI copy.
-    this.message = message
-  }
+export class ShoppingListApiError extends ApiErrorBase {
+  override readonly name = 'ShoppingListApiError'
 }
 
 async function request<T>(
@@ -94,31 +85,6 @@ export async function addShoppingListItem(
       body: JSON.stringify(stripUndefined(body)),
     },
   )
-}
-
-/**
- * Strips keys whose value is `undefined` so the JSON body we ship is a
- * faithful JSON Merge Patch — "absent" keys mean "leave untouched" on
- * the server, `null` stays and clears the field. Kept as a local helper
- * (not shared with mealPlanApi) because the PatchShoppingListItemRequest
- * keyset is smaller and this way typing stays tight.
- *
- * We accept DTOs whose declared shape is more structured than
- * `Record<string, unknown>` (e.g. `AddShoppingListItemRequest`) — the
- * structural-cast through `Readonly<Record<string, unknown>>` is safe
- * at runtime because `Object.keys` + property access only need the
- * object to have string keys, which every plain DTO satisfies.
- */
-function stripUndefined(patch: object): Record<string, unknown> {
-  const body: Record<string, unknown> = {}
-  const source = patch as Readonly<Record<string, unknown>>
-  for (const key of Object.keys(source)) {
-    const value = source[key]
-    if (value !== undefined) {
-      body[key] = value
-    }
-  }
-  return body
 }
 
 export async function patchShoppingListItem(

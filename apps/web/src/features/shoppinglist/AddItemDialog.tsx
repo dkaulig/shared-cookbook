@@ -1,3 +1,6 @@
+// TODO(P3-UI-consolidation): migrate to the shared FixedOverlayDialog
+// primitive once the sweep lands — this fixed-overlay + outside-click
+// pattern is duplicated across 10+ dialogs in the codebase.
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type {

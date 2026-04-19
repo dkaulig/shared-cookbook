@@ -1,4 +1,9 @@
 import type { ExtractionResult } from '@familien-kochbuch/shared'
+import {
+  safeGetItem,
+  safeRemoveItem,
+  safeSetItem,
+} from '@/features/_shared/safeStorage'
 
 /**
  * Session-scoped stash for the chat → recipe handoff.
@@ -27,15 +32,6 @@ function key(chatImportId: string): string {
   return `${STORAGE_PREFIX}${chatImportId}`
 }
 
-function storageOrNull(): Storage | null {
-  if (typeof window === 'undefined') return null
-  try {
-    return window.sessionStorage
-  } catch {
-    return null
-  }
-}
-
 export interface StashedChatImport {
   groupId: string
   result: ExtractionResult
@@ -45,23 +41,15 @@ export function stashChatImport(
   chatImportId: string,
   payload: StashedChatImport,
 ): void {
-  const s = storageOrNull()
-  if (!s) return
-  try {
-    s.setItem(key(chatImportId), JSON.stringify(payload))
-  } catch {
-    /* quota exceeded — silent no-op. */
-  }
+  safeSetItem(key(chatImportId), JSON.stringify(payload))
 }
 
 export function recallChatImport(
   chatImportId: string,
 ): StashedChatImport | null {
-  const s = storageOrNull()
-  if (!s) return null
+  const raw = safeGetItem(key(chatImportId))
+  if (!raw) return null
   try {
-    const raw = s.getItem(key(chatImportId))
-    if (!raw) return null
     return JSON.parse(raw) as StashedChatImport
   } catch {
     // Malformed JSON in sessionStorage is a client bug — don't wedge
@@ -71,11 +59,5 @@ export function recallChatImport(
 }
 
 export function forgetChatImport(chatImportId: string): void {
-  const s = storageOrNull()
-  if (!s) return
-  try {
-    s.removeItem(key(chatImportId))
-  } catch {
-    /* ignore */
-  }
+  safeRemoveItem(key(chatImportId))
 }

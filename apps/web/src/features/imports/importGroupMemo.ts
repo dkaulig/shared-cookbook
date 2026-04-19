@@ -11,6 +11,12 @@
  * consumers fall back gracefully when the memo is absent (e.g. the
  * user shared the progress URL into a new tab).
  */
+import {
+  safeGetItem,
+  safeRemoveItem,
+  safeSetItem,
+} from '@/features/_shared/safeStorage'
+
 const STORAGE_PREFIX = 'fk.importGroup.'
 const STAGED_PHOTOS_PREFIX = 'fk.importStagedPhotos.'
 
@@ -22,46 +28,17 @@ function stagedKey(importId: string): string {
   return `${STAGED_PHOTOS_PREFIX}${importId}`
 }
 
-function storageOrNull(): Storage | null {
-  if (typeof window === 'undefined') return null
-  try {
-    return window.sessionStorage
-  } catch {
-    // Private-mode Safari + very restrictive settings can throw on
-    // access. Not worth warning — fall back to "no memo".
-    return null
-  }
-}
-
 export function rememberImportGroup(importId: string, groupId: string): void {
-  const s = storageOrNull()
-  if (!s) return
-  try {
-    s.setItem(key(importId), groupId)
-  } catch {
-    /* quota exceeded or storage disabled — silent no-op. */
-  }
+  safeSetItem(key(importId), groupId)
 }
 
 export function recallImportGroup(importId: string): string | null {
-  const s = storageOrNull()
-  if (!s) return null
-  try {
-    return s.getItem(key(importId))
-  } catch {
-    return null
-  }
+  return safeGetItem(key(importId))
 }
 
 export function forgetImportGroup(importId: string): void {
-  const s = storageOrNull()
-  if (!s) return
-  try {
-    s.removeItem(key(importId))
-    s.removeItem(stagedKey(importId))
-  } catch {
-    /* ignore */
-  }
+  safeRemoveItem(key(importId))
+  safeRemoveItem(stagedKey(importId))
 }
 
 /**
@@ -73,21 +50,13 @@ export function rememberImportStagedPhotoIds(
   importId: string,
   stagedPhotoIds: string[],
 ): void {
-  const s = storageOrNull()
-  if (!s) return
-  try {
-    s.setItem(stagedKey(importId), JSON.stringify(stagedPhotoIds))
-  } catch {
-    /* ignore */
-  }
+  safeSetItem(stagedKey(importId), JSON.stringify(stagedPhotoIds))
 }
 
 export function recallImportStagedPhotoIds(importId: string): string[] | null {
-  const s = storageOrNull()
-  if (!s) return null
+  const raw = safeGetItem(stagedKey(importId))
+  if (raw == null) return null
   try {
-    const raw = s.getItem(stagedKey(importId))
-    if (raw == null) return null
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return null
     return parsed.filter((x): x is string => typeof x === 'string')

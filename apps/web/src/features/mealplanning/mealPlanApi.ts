@@ -7,6 +7,8 @@ import type {
   PatchSlotRequest,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
+import { ApiErrorBase } from '@/features/_shared/apiError'
+import { stripUndefined } from '@/features/_shared/mergePatch'
 
 /**
  * Typed access layer for the P3-1 meal-planning endpoints. Mirrors the
@@ -22,21 +24,12 @@ import { apiClient } from '@/features/auth/apiClient'
  * Named Error subclass with typed `code` / `message` / `status`. Using a
  * real class (instead of an ad-hoc `Error & ApiError & { status }`
  * intersection) lets consumers narrow via `instanceof` and drops the
- * `as unknown as` double-cast previously needed in useMealPlan.
+ * `as unknown as` double-cast previously needed in useMealPlan. The
+ * engine-quirk workaround for the dropped `message` lives in
+ * `ApiErrorBase` — we just inherit it here.
  */
-export class MealPlanApiError extends Error implements ApiError {
-  readonly code: string
-  readonly status: number
-
-  constructor(code: string, message: string, status: number) {
-    super(`${code}: ${message}`)
-    this.name = 'MealPlanApiError'
-    this.code = code
-    this.status = status
-    // `Error` constructor ignores our explicit `message` assignment on
-    // some engines when subclassed — pin it for predictable UI copy.
-    this.message = message
-  }
+export class MealPlanApiError extends ApiErrorBase {
+  override readonly name = 'MealPlanApiError'
 }
 
 async function request<T>(
@@ -101,25 +94,6 @@ export async function addSlot(
       body: JSON.stringify(body),
     },
   )
-}
-
-/**
- * Strips keys whose value is `undefined` so the JSON body we ship
- * faithfully represents a JSON Merge Patch — "absent" keys mean
- * "leave untouched" on the server (see `SlotPatchRequest.ReadAsync`
- * in `MealPlanEndpoints.cs`). A `null` value stays in the body and
- * signals "clear this field" for the nullable columns (`recipeId`,
- * `label`, `parentSlotId`).
- */
-function stripUndefined(patch: PatchSlotRequest): Record<string, unknown> {
-  const body: Record<string, unknown> = {}
-  for (const key of Object.keys(patch) as Array<keyof PatchSlotRequest>) {
-    const value = patch[key]
-    if (value !== undefined) {
-      body[key] = value
-    }
-  }
-  return body
 }
 
 export async function patchSlot(

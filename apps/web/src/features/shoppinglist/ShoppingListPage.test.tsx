@@ -278,6 +278,35 @@ describe('<ShoppingListPage />', () => {
     await waitFor(() => expect(generated).toBe(true))
   })
 
+  it('surfaces a 429-specific German message on generate rate-limit', async () => {
+    server.use(
+      respondWithPlan(),
+      respondListNotFound(),
+      http.post(
+        `/api/mealplans/${PLAN_ID}/shopping-list/generate`,
+        () =>
+          HttpResponse.json(
+            { code: 'shopping_list.rate_limited', message: 'Zu oft.' },
+            { status: 429 },
+          ),
+      ),
+    )
+    render(withProviders())
+
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole('button', { name: /Liste erzeugen/i }),
+    )
+
+    expect(
+      await screen.findByText(/Zu viele Anfragen/i),
+    ).toBeInTheDocument()
+    // Defensive: the generic copy must *not* appear for 429.
+    expect(
+      screen.queryByText(/Liste konnte nicht erzeugt werden\./i),
+    ).toBeNull()
+  })
+
   it('renders the carryover badge (Repeat icon) for carried-over items', async () => {
     server.use(
       respondWithPlan(),
@@ -328,7 +357,7 @@ describe('<ShoppingListPage />', () => {
     confirmSpy.mockRestore()
   })
 
-  it('deletes a manual item without confirmation', async () => {
+  it('also confirms before deleting a manual item (user-typed = more precious)', async () => {
     const ITEM_ID = 'item-manual'
     let called = false
     server.use(
@@ -349,7 +378,7 @@ describe('<ShoppingListPage />', () => {
         },
       ),
     )
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(withProviders())
 
     const user = userEvent.setup()
@@ -357,7 +386,8 @@ describe('<ShoppingListPage />', () => {
       await screen.findByRole('button', { name: /Toilettenpapier entfernen/i }),
     )
     await waitFor(() => expect(called).toBe(true))
-    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(confirmSpy.mock.calls[0]?.[0]).toMatch(/wirklich löschen/i)
     confirmSpy.mockRestore()
   })
 
