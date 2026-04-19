@@ -67,3 +67,18 @@ export type {
   SearchResult,
   SearchSort,
 } from './search.ts'
+export type {
+  ConfidenceLevel,
+  ExtractedIngredient,
+  ExtractedRecipe,
+  ExtractedStep,
+  ExtractionConfidence,
+  ExtractionResult,
+  ImportEnqueueResponse,
+  ImportSourceKind,
+  ImportStatus,
+  ImportUrlRequest,
+  IngredientConfidenceLevel,
+  RecipeImportDto,
+  StepConfidenceLevel,
+} from './imports.ts'
