@@ -410,4 +410,20 @@ describe('<HomePage />', () => {
     const card = await screen.findByRole('link', { name: /omas schnitzel/i })
     expect(within(card).getByText('4.8')).toBeInTheDocument()
   })
+
+  // P2-7 — the discreet "Rezept aus Video importieren" affordance under
+  // the hero chip row kicks off the URL-import flow. It must link to the
+  // new `/rezepte/import/url` route so deep-linking + reload behaviour
+  // matches the plan.
+  it('renders the "Rezept aus Video importieren" entry point linking to /rezepte/import/url', async () => {
+    server.use(
+      http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
+      http.get('/api/groups/invites', () => HttpResponse.json([])),
+    )
+    renderHome()
+    const link = await screen.findByRole('link', {
+      name: /Rezept aus Video importieren/i,
+    })
+    expect(link).toHaveAttribute('href', '/rezepte/import/url')
+  })
 })

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { GroupSummary, RecipeSummaryDto } from '@familien-kochbuch/shared'
-import { Check, Clock, Leaf, Plus, Shuffle, Soup, Star } from 'lucide-react'
+import { Check, Clock, Leaf, Plus, Shuffle, Soup, Sparkles, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/useAuth'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
@@ -118,6 +118,23 @@ export function HomePage() {
           </Chip>
           <Chip onClick={() => handlePresetChip('season')}>{season}</Chip>
           <Chip onClick={() => handlePresetChip('easy')}>Wenig Aufwand</Chip>
+        </div>
+
+        {/*
+          P2-7 — discreet entry point to the URL-import flow. Sits right
+          under the hero chips because that's the "what do I do next?"
+          zone on Home; rendering it as a text link with a sparkle icon
+          keeps it secondary to the primary navigation without burying
+          it in a drawer.
+        */}
+        <div className="mt-3">
+          <Link
+            to="/rezepte/import/url"
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            Rezept aus Video importieren
+          </Link>
         </div>
       </section>
 
