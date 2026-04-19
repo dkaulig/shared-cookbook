@@ -176,9 +176,11 @@ function ShoppingListView({
 
   return (
     <div className="mx-auto w-full max-w-[1024px]">
+      {/* Sticky page sub-nav. z-20 keeps it above page-level avatars +
+          stacked content (BUG-005 standardised z-scale). */}
       <nav
         className={cn(
-          'sticky top-[56px] z-[9] flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-[56px] z-20 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Einkaufsliste-Navigation"

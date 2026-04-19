@@ -152,4 +152,18 @@ describe('<GroupDetailHeader />', () => {
       screen.queryByRole('button', { name: /gruppe bearbeiten/i }),
     ).not.toBeInTheDocument()
   })
+
+  // BUG-005 regression — the overlapping avatar must stay at z-10 so the
+  // page-scoped sticky sub-nav (z-20, on GroupDetailPage) covers it
+  // while scrolling. If someone bumps this to z-20+, the avatar will
+  // start eating the back-arrow + settings-cog tap-targets again.
+  it('overlapping avatar wrapper sits at z-10 so sticky sub-nav (z-20) wins (BUG-005)', () => {
+    render(withRouter(<GroupDetailHeader group={baseGroup} recipeCount={47} />))
+    const avatar = screen.getByTestId('group-avatar-big')
+    // The avatar wrapper holds the stacking context.
+    const wrap = avatar.parentElement
+    expect(wrap).not.toBeNull()
+    expect(wrap?.className).toContain('z-10')
+    expect(wrap?.className).not.toMatch(/z-(2[0-9]|3[0-9]|4[0-9]|5[0-9])/)
+  })
 })

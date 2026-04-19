@@ -34,7 +34,12 @@ weglassen.
 
 ## BUG-001 · Chat-Input hidden by mobile bottom bar
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `ChatPage` height-calc now uses
+`100dvh` and subtracts BottomNav (88px) + `env(safe-area-inset-bottom,0px)`
+in addition to the TopNav height; input footer keeps its
+`pb-[calc(16px+env(safe-area-inset-bottom,0px))]` as defence-in-depth.
+`viewport-fit=cover` already present in `index.html`. Regression tests
+in `ChatPage.test.tsx` grep for `100dvh` + `safe-area-inset-bottom`.)
 **Where:** Chat page (`/chat`) on mobile (iOS/Android PWA browser)
 **Symptom:** Chat input field is cut off / hidden behind the mobile
 browser's bottom bar (Safari URL bar on iOS, address bar on Chrome
@@ -111,7 +116,15 @@ pairs with the deferred `FixedOverlayDialog` extraction from P3-7.
 
 ## BUG-005 · Avatar "K" overlaps top-nav (back arrow + settings cog) on group detail + list
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — standardised the z-scale: sticky
+top-navs at `z-20` (TopNav, page sub-navs on GroupDetailPage,
+ShoppingListPage), in-flow page avatars at `z-10` (GroupDetailHeader
+avatar wrapper), modals at `z-50`. Sub-navs were `z-[9]` which lost
+the stacking fight against the avatar (`z-10`); bumping to `z-20`
+(same scale as the global TopNav) keeps the back-arrow + settings-cog
+tap-targets above the avatar while scrolling. Three regression tests
+added — `TopNav.test`, `GroupDetailHeader.test`,
+`GroupDetailPage.test` — assert the z-tokens stay put.)
 **Where:**
 - Group detail page (`/groups/:id`) — avatar slides over the top bar
   containing back-arrow + settings-cog
