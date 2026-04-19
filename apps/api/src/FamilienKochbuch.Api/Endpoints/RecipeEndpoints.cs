@@ -424,6 +424,21 @@ public static class RecipeEndpoints
         return Results.Created($"/api/recipes/{recipe.Id}", detail);
     }
 
+    /// <summary>German error strings surfaced per-photo by
+    /// <see cref="PromoteStagedPhotosAsync"/>. The frontend banner
+    /// displays these verbatim.</summary>
+    private static class PromoteErrors
+    {
+        public const string NotFound = "Foto wurde nicht gefunden.";
+        public const string NotOwner = "Foto gehört nicht dir.";
+        public const string AlreadyPromoted = "Foto wurde bereits einem Rezept zugeordnet.";
+        public const string CopyFailed = "Foto konnte nicht kopiert werden.";
+        public const string SaveFailed = "Foto konnte nicht gespeichert werden.";
+
+        public static string LimitReached(int max) =>
+            $"Maximal {max} Fotos pro Rezept – Limit erreicht.";
+    }
+
     /// <summary>
     /// Adopts staged photos onto the freshly-saved recipe.
     ///
@@ -468,15 +483,13 @@ public static class RecipeEndpoints
             if (recipe.Photos.Count >= Recipe.MaxPhotos)
             {
                 failures.Add(new PartialPhotoFailureDto(
-                    stagedId,
-                    $"Maximal {Recipe.MaxPhotos} Fotos pro Rezept – Limit erreicht."));
+                    stagedId, PromoteErrors.LimitReached(Recipe.MaxPhotos)));
                 continue;
             }
 
             if (!rows.TryGetValue(stagedId, out var staged))
             {
-                failures.Add(new PartialPhotoFailureDto(
-                    stagedId, "Foto wurde nicht gefunden."));
+                failures.Add(new PartialPhotoFailureDto(stagedId, PromoteErrors.NotFound));
                 continue;
             }
 
@@ -485,15 +498,13 @@ public static class RecipeEndpoints
                 logger.LogWarning(
                     "User {UserId} tried to promote staged photo {StagedPhotoId} owned by {OwnerId} — silently filtered out.",
                     userId, staged.Id, staged.UserId);
-                failures.Add(new PartialPhotoFailureDto(
-                    stagedId, "Foto gehört nicht dir."));
+                failures.Add(new PartialPhotoFailureDto(stagedId, PromoteErrors.NotOwner));
                 continue;
             }
 
             if (staged.PromotedAt is not null)
             {
-                failures.Add(new PartialPhotoFailureDto(
-                    stagedId, "Foto wurde bereits einem Rezept zugeordnet."));
+                failures.Add(new PartialPhotoFailureDto(stagedId, PromoteErrors.AlreadyPromoted));
                 continue;
             }
 
@@ -511,8 +522,7 @@ public static class RecipeEndpoints
                 logger.LogWarning(ex,
                     "Failed to copy staged photo {StagedPhotoId} ({SourcePath}) for recipe {RecipeId}.",
                     staged.Id, staged.PhotoId, recipe.Id);
-                failures.Add(new PartialPhotoFailureDto(
-                    stagedId, "Foto konnte nicht kopiert werden."));
+                failures.Add(new PartialPhotoFailureDto(stagedId, PromoteErrors.CopyFailed));
                 continue;
             }
 
@@ -544,8 +554,7 @@ public static class RecipeEndpoints
                         "Cleanup of orphaned destination blob {DestinationPath} failed; sweep job will retry.",
                         destinationPath);
                 }
-                failures.Add(new PartialPhotoFailureDto(
-                    stagedId, "Foto konnte nicht gespeichert werden."));
+                failures.Add(new PartialPhotoFailureDto(stagedId, PromoteErrors.SaveFailed));
                 continue;
             }
 
