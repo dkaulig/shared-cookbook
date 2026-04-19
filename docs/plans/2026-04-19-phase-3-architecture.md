@@ -83,6 +83,10 @@ public sealed class MealPlanSlot
 - Aggregation **nur über Non-Leftover-Slots** (ParentSlotId == null).
 - Pro Zutat: Summe aller Slot-Portionen-Skalierungen. Gleiche Zutat + Einheit → summieren. Unterschiedliche Einheit → separate Zeile.
 - Kategorisierung: Obst/Gemüse · Milchprodukte · Fleisch/Fisch · Trockenware · Gewürze · Backwaren · Sonstiges. Initial über eine **statische Zutaten→Kategorie-Map** (seeden wir mit ~200 häufigen deutschen Zutaten), später optional per LLM für unbekannte.
+- **Sort-Toggle (user-requested 2026-04-19):** Header-Control mit zwei Modi:
+  - **"Nach Kategorie"** (default): Items nach `IngredientCategory`-Enum gruppiert, innerhalb jeder Kategorie alphabetisch (Umlaut-aware via `StringComparer.InvariantCultureIgnoreCase` — "Äpfel" kommt zwischen "Apfel" und "Banane", nicht hinter "Zucker"). Kategorie-Header sichtbar.
+  - **"Alphabetisch"**: flach A-Z über alle Zutaten, keine Kategorie-Header. Gut wenn man das Rezept im Kopf hat und nur nach dem Namen sucht.
+  - Preference pro User persistiert in `localStorage` (nicht `sessionStorage` — survivor-across-sessions, keine sensiblen Daten).
 - Live-Check-off: klicken → State serverseitig, SignalR pushed zu anderen Clients. Partner sieht ✓ sofort.
 - Manuell ergänzen: "+ Zutat hinzufügen" → Text + Einheit + Menge + Kategorie.
 - Manuell entfernen: X auf der Zeile.
@@ -191,27 +195,45 @@ Parallelisierbar nach P3-4 landing: **P3-5/6/7** (Backend+UI Einkaufsliste) und 
 - Kein Voice-Input beim Slot-Anlegen.
 - Keine Kalorien-Aggregation pro Woche (wäre nice, aber scope-creep — kann P3-polish werden wenn die Nährwert-Estimation zuverlässig ist).
 
-## Open architectural questions (user input needed before P3-0 dispatch)
+## Architectural decisions (user-confirmed 2026-04-19)
 
-1. **ShoppingList lifecycle: on-demand regenerated vs. persisted editable?**
-   Recommendation: **persisted editable**, so manual additions ("1 Flasche Wein") + check-offs survive across Wochenplan-edits. Regen-Logik mergt neue Zutaten rein, lässt bestehende unberührt.
+1. **ShoppingList lifecycle**: **persisted editable**. Manual additions + check-offs survive Wochenplan-edits. Regen-Logik mergt neue Zutaten rein, lässt bestehende unberührt.
 
-2. **Ein Plan pro Gruppe pro Woche — was, wenn jemand einen zweiten "Alternativ-Plan" testen will?**
-   Recommendation: **nein**, keep simple. Plan ist der Plan. Wenn User experimentieren will, dafür ist Recipe-Collection da, nicht Wochenplan.
+2. **Ein Plan pro Gruppe pro Woche** (kein Alternativ-Plan). **Neu:** Shopping-List kann "in Gänze neu erzeugt" werden (z.B. wenn User mid-week den Plan umstellt und eine neue Einkaufsrunde plant). Der Regenerate-Flow überschreibt die alte Liste, merged unchecked items optional weiter in die neue Runde (siehe §Carryover unten).
 
-3. **Copy-last-week: copy nur MealPlanSlots oder auch ShoppingList?**
-   Recommendation: **nur Slots**, ShoppingList wird frisch generiert beim nächsten Open. Sonst würden abgehakte Einkäufe fälschlich als "schon eingekauft" angezeigt.
+3. **Copy-last-week**: nur Slots, keine ShoppingList-Übernahme. Shopping-List wird frisch generiert beim nächsten Open.
 
-4. **Mark-as-cooked auf Parent-Slot: beeinflusst Rest-Slots?**
-   Recommendation: **nein, unabhängig**. Meal-Prep-Parent = "gekocht am Sonntag". Rest-Slots = "aufgewärmt am Dienstag". Beide unabhängig abhakbar; UI macht das transparent.
+4. **Mark-as-cooked**: unabhängig pro Slot. Meal-Prep-Parent = "gekocht am Sonntag"; Rest-Slots = "aufgewärmt am Dienstag". Beide getrennt abhakbar.
 
-5. **LLM-Kategorisierung für unbekannte Zutaten: sofort oder nur wenn jemand "Kategorie korrigieren" klickt?**
-   Recommendation: **Hybrid**: statische Map zuerst (deckt 80% ab), unbekannte landen initial in "Sonstiges", ein kleiner "KI-Kategorisierung anfordern"-Button triggert den LLM-Call. Spart Tokens.
+5. **LLM-Kategorisierung**: Hybrid. Statische Map zuerst (deckt 80% ab), unbekannte → "Sonstiges" + "KI-Kategorisierung anfordern"-Button triggert on-demand LLM-Call.
 
-6. **SignalR als eigenständiger Sub-Slice (P3-8) oder Teil des Shopping-List-Slices?**
-   Recommendation: **eigenständig**, weil es querschnittlich gebraucht wird (auch MealPlanSlot-Changes + zukünftige Features). Landet nach P3-7 damit es eine komplette End-to-End-Use-Case hat zum Testen (Shopping-Check-off sync).
+6. **SignalR**: eigenständiger Sub-Slice P3-8. Wird querschnittlich gebraucht (MealPlanSlot-Changes, Shopping-Check-off, zukünftige Features).
 
-Wenn du alle 6 mit meinen Empfehlungen OK bist: ein "passt" reicht.
+## Carryover: offene Shopping-List-Items in die nächste Woche übernehmen
+
+**User-Anforderung 2026-04-19:** "offene sachen die man nicht bekommen hat in neue woche übernehmen".
+
+Use-case: User macht Samstag Einkauf, bekommt keine reifen Avocados → bleibt unchecked. Nächste Woche soll die Avocado automatisch wieder auf der Liste stehen.
+
+**Daten-Modell-Erweiterung:**
+- `ShoppingListItem` gains `CarriedOverFromPreviousWeek: bool` (default false). Purely display — zeigt ein kleines "↺ aus KW 16"-Badge auf der neuen Liste.
+
+**Flow:**
+- Beim **Generate** der ShoppingList für KW N (durch explizite User-Action oder beim ersten Open der Woche):
+  1. Aggregiere Zutaten aus KW-N-Slots wie bisher.
+  2. Wenn KW N-1 eine persistierte ShoppingList hat: **unchecked** + **nicht-manuell-entfernte** Items aus KW N-1 mit `CarriedOverFromPreviousWeek=true` zur neuen Liste hinzufügen (merging-by-name+unit: wenn der Slot-basierte Generator bereits eine Avocado gelistet hat, wird die Carryover-Avocado mit ihrer Menge addiert; sonst steht sie allein da).
+  3. Zur Transparenz: "↺ aus letzter Woche"-Badge auf jedem Carryover-Item.
+- User kann im Shopping-List-UI pro Item "nicht übernehmen" (X) wenn er das Item final aufgegeben hat.
+- Carryover-Merge ist einmalig (beim Generate/Regenerate); subsequent Regenerates der gleichen Woche wiederholen den Merge nicht (sonst würde gecheckte Items die carryover-Herkunft verlieren).
+
+**Regenerate-Flow (mid-week):**
+- Button "Einkaufsliste neu erzeugen" im Shopping-List-Header.
+- Dialog: "Aktuelle Häkchen beibehalten? Offene Items beibehalten?"
+- Default: Häkchen behalten (für bereits gekauft), offene Items auch behalten, nur neu-hinzugekommene Slots werden hinzugefügt.
+
+**Zusätzlicher Sub-Slice nötig:** P3-5a (Regenerate + Carryover) — entweder inline im P3-5 oder als eigener Mini-Slice. Entscheidung bei P3-5-Dispatch.
+
+## Total scope (aktualisiert)
 
 ## Acceptance criteria (Phase 3 overall)
 
