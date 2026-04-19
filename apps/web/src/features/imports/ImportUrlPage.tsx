@@ -124,7 +124,7 @@ export function ImportUrlPage() {
   const submitPending = enqueue.isPending
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-5 py-8 md:px-8 md:py-12">
+    <main className="mx-auto w-full max-w-2xl overflow-hidden px-5 py-8 md:px-8 md:py-12">
       <div className="mb-6 flex items-center gap-2 text-[13px] font-medium uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
         <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
         KI-Import
@@ -173,7 +173,7 @@ export function ImportUrlPage() {
           placeholder="https://…"
           aria-invalid={error != null}
           aria-describedby={error ? 'import-url-error' : undefined}
-          className="mt-2 w-full rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[15px] leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 focus-visible:bg-card"
+          className="mt-2 w-full max-w-full min-w-0 rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[15px] leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 focus-visible:bg-card"
         />
         <p className="mt-2 text-[12.5px] text-[hsl(var(--muted-foreground))]">
           Unterstützt: YouTube, Instagram Reels, TikTok, Facebook, Foodblogs mit
@@ -184,7 +184,7 @@ export function ImportUrlPage() {
           <p
             id="import-url-error"
             role="alert"
-            className="mt-4 rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
+            className="mt-4 break-all rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
           >
             {error}
           </p>

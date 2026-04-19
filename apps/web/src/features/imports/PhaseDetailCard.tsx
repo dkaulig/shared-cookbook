@@ -61,7 +61,7 @@ export function PhaseDetailCard({ phase, payload, onRetry }: PhaseDetailCardProp
         <div className="flex-1 min-w-0">
           <p
             className={cn(
-              'text-[15px] font-semibold leading-snug',
+              'text-[15px] font-semibold leading-snug break-words',
               phase === 'error'
                 ? 'text-[hsl(var(--destructive))]'
                 : 'text-foreground',
@@ -70,7 +70,7 @@ export function PhaseDetailCard({ phase, payload, onRetry }: PhaseDetailCardProp
             {content.primary}
           </p>
           {content.sub && (
-            <p className="mt-1 text-[13px] leading-[1.5] text-[hsl(var(--muted-foreground))]">
+            <p className="mt-1 break-all text-[13px] leading-[1.5] text-[hsl(var(--muted-foreground))]">
               {content.sub}
             </p>
           )}

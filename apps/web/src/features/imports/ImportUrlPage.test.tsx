@@ -248,6 +248,64 @@ describe('<ImportUrlPage />', () => {
     expect(document.activeElement).not.toBe(input)
   })
 
+  // BUG-009 regression: at 375px width the page must not horizontally
+  // overflow. We assert the structural classes that prevent it — the
+  // <main> caps at max-w-2xl + clips overflow, the URL <input> has
+  // max-w-full + min-w-0 so a pasted-1k-char URL cannot push the form
+  // wider than its parent, and the inline error is wrapped with
+  // break-all so a long URL inside an error message wraps instead of
+  // pushing the layout.
+  it('BUG-009: main container clips overflow + url input is max-w-full', async () => {
+    server.use(
+      http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
+    )
+    renderPage()
+    const heading = await screen.findByRole('heading', {
+      name: /Rezept aus Video importieren/i,
+    })
+    const main = heading.closest('main')
+    expect(main).not.toBeNull()
+    expect(main!.className).toMatch(/max-w-2xl/)
+    expect(main!.className).toMatch(/overflow-hidden/)
+    // No w-screen / 100vw escapes inside the page subtree.
+    expect(main!.innerHTML).not.toMatch(/w-screen/)
+    expect(main!.innerHTML).not.toMatch(/100vw/)
+
+    const input = screen.getByLabelText(/Video- oder Blog-URL/i)
+    expect(input.className).toMatch(/w-full/)
+    expect(input.className).toMatch(/max-w-full/)
+    expect(input.className).toMatch(/min-w-0/)
+  })
+
+  it('BUG-009: long error text uses break-all so it wraps inside the viewport', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'only' })]),
+      ),
+      http.post('/api/recipes/import/url', () =>
+        HttpResponse.json(
+          {
+            code: 'invalid_url',
+            message:
+              'Die URL https://example.com/very/very/long/path/that/would/otherwise/overflow/the/viewport/on/mobile?query=' +
+              'a'.repeat(200) +
+              ' ist nicht erlaubt.',
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+    renderPage()
+    await user.type(
+      screen.getByLabelText(/Video- oder Blog-URL/i),
+      'https://example.com/r',
+    )
+    await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.className).toMatch(/break-all/)
+  })
+
   it('surfaces a server 400 error inline (no navigation)', async () => {
     const user = userEvent.setup()
     server.use(

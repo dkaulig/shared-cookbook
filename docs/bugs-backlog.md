@@ -244,7 +244,17 @@ für User um neue Inhalte anzulegen — aktuell sackt die Erwartung ab)
 
 ## BUG-009 · Import-Seite content-area läuft rechts aus dem Viewport
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `<main>` auf `ImportUrlPage` und
+`ImportProgressPage` cappt jetzt mit `overflow-hidden` zusätzlich zu
+`max-w-2xl`. URL-`<input>` bekommt `max-w-full min-w-0` damit eine
+gepastete 1k-char-URL die Form nicht über die Viewport-Breite drückt.
+Inline-Error-Banner (URL-Page) wickelt mit `break-all` damit eine
+URL im server-Error-Text wrapped statt zu überlaufen.
+`PhaseDetailCard` sub-line bekommt `break-all` (errorMessage enthält
+oft eine lange URL/Stacktrace) und primary `break-words`.
+`OverallProgressBar` Label `min-w-0 break-words` + Prozent-Span
+`flex-none`. 2 Regression-Tests in `ImportUrlPage.test.tsx` +
+1 in `ImportProgressPage.test.tsx` asserten classes + No-w-screen.)
 **Where:** URL-Import-Seite (wahrscheinlich `/import/url` oder
 `/imports/{id}`) auf mobile
 **Symptom:** Content-Bereich ist zu breit — irgendwas läuft rechts
