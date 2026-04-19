@@ -162,9 +162,14 @@ export function GroupDetailPage() {
     <div className="mx-auto w-full max-w-[1120px]">
       {/* Sub-top-nav inside the app shell. AppLayout already owns the
           global TopNav above this — this is the page-scoped sub-nav. */}
+      {/* Sticky page sub-nav. z-20 so it sits ABOVE the GroupDetailHeader
+          avatar (z-10) when the page scrolls — otherwise the avatar slid
+          on top of the back-arrow + settings cog (BUG-005). Same scale as
+          the global TopNav (also z-20); they sit stacked vertically so
+          equal z is fine. */}
       <nav
         className={cn(
-          'sticky top-[56px] z-[9] flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-[56px] z-20 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Gruppen-Navigation"

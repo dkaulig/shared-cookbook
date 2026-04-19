@@ -77,6 +77,22 @@ describe('<TopNav />', () => {
     expect(screen.queryByTestId('invites-dot')).toBeNull()
   })
 
+  // BUG-005 regression — the shared TopNav anchors the project-wide
+  // z-scale: sticky top-navs ⇒ z-20 (above page avatars at z-10, below
+  // dialogs at z-50). If this drops to z-10 or below, the global avatar
+  // chip starts overlapping page-scoped sub-navs again.
+  it('renders as sticky top-0 z-20 with an opaque background (BUG-005)', () => {
+    server.use(http.get('/api/groups/invites', () => HttpResponse.json([])))
+    renderTopNav()
+    const banner = screen.getByRole('banner')
+    expect(banner.className).toContain('sticky')
+    expect(banner.className).toContain('top-0')
+    expect(banner.className).toContain('z-20')
+    // Some level of background opacity so scrolled content does not bleed
+    // through the bar — keeps back-arrow + settings cog readable.
+    expect(banner.className).toMatch(/bg-(background|\[hsl)/)
+  })
+
   it('still renders even when received-invites would have been non-empty (no bell to hang badges on)', async () => {
     server.use(
       http.get('/api/groups/invites', () =>

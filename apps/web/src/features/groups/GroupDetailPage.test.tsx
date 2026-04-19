@@ -256,4 +256,21 @@ describe('<GroupDetailPage />', () => {
     expect(list).toHaveTextContent('Alice')
     expect(list).toHaveTextContent('Bob')
   })
+
+  // BUG-005 regression — the page sub-nav (back arrow + settings cog)
+  // used to be `z-[9]`, which lost the stacking fight against the
+  // `GroupDetailHeader` avatar (`z-10`). The avatar then overlapped the
+  // back/settings tap-targets while scrolling. We standardise sub-navs
+  // to `z-20` (same as the global TopNav) so they sit above any in-flow
+  // avatars on the page.
+  it('sticky sub-nav uses z-20 so it stays above page avatars (BUG-005)', async () => {
+    render(withProviders('/groups/g1'))
+    const subnav = await screen.findByRole('navigation', { name: /gruppen-navigation/i })
+    expect(subnav.className).toContain('sticky')
+    expect(subnav.className).toContain('top-[56px]')
+    expect(subnav.className).toContain('z-20')
+    // Belt-and-braces: the old z-[9] token is gone — otherwise the avatar
+    // would slide back over the back-arrow + settings cog.
+    expect(subnav.className).not.toContain('z-[9]')
+  })
 })
