@@ -50,13 +50,13 @@ export function OverallProgressBar({
       </div>
       <div className="mt-4 flex items-baseline justify-between gap-3">
         {label ? (
-          <p className="text-[15px] font-semibold leading-snug text-foreground">
+          <p className="min-w-0 break-words text-[15px] font-semibold leading-snug text-foreground">
             {label}
           </p>
         ) : (
           <span aria-hidden="true" />
         )}
-        <span className="text-[12.5px] font-medium tabular-nums text-[hsl(var(--muted-foreground))]">
+        <span className="flex-none text-[12.5px] font-medium tabular-nums text-[hsl(var(--muted-foreground))]">
           {clamped}%
         </span>
       </div>

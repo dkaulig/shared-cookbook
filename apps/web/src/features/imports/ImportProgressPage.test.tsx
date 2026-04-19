@@ -421,6 +421,62 @@ describe('<ImportProgressPage />', () => {
     expect(manualLink).toHaveAttribute('href', '/groups/g1/recipes/new')
   })
 
+  // BUG-009 regression: at 375px width the page must not horizontally
+  // overflow. Long error messages (typically a stack-trace-with-URL from
+  // the extractor) used to push the layout wider than the viewport. We
+  // now (a) clip overflow on the <main> wrapper, (b) wrap the
+  // PhaseDetailCard sub-line with `break-all` so embedded URLs wrap on
+  // any character, and (c) ensure no descendant uses w-screen / 100vw.
+  it('BUG-009: long error message wraps via break-all and main clips overflow', async () => {
+    const longErr =
+      'Extractor crashed at https://very-long-host.example.com/path/to/' +
+      'a'.repeat(200) +
+      '?query=' +
+      'b'.repeat(200)
+    server.use(
+      http.get('/api/imports/imp-err', () =>
+        HttpResponse.json({
+          id: 'imp-err',
+          groupId: 'g1',
+          source: 'Url',
+          status: 'Error',
+          progress: 35,
+          sourceUrl: 'https://example.com',
+          result: null,
+          error: longErr,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:00:05Z',
+          phase: 'error',
+          phaseProgress: 0,
+          progressLabel: 'Fehler',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-18T00:00:05Z',
+        }),
+      ),
+    )
+
+    renderProgress({ importId: 'imp-err', initialState: { groupId: 'g1' } })
+
+    const alert = await screen.findByRole('alert')
+    // PhaseDetailCard renders the long error inside a <p> with break-all.
+    const longParagraph = alert.querySelector('p.break-all')
+    expect(longParagraph).not.toBeNull()
+    expect(longParagraph!.textContent).toContain(longErr)
+
+    // <main> caps width + clips overflow.
+    const main = alert.closest('main')
+    expect(main).not.toBeNull()
+    expect(main!.className).toMatch(/max-w-2xl/)
+    expect(main!.className).toMatch(/overflow-hidden/)
+    // No w-screen / 100vw escapes inside the page subtree.
+    expect(main!.innerHTML).not.toMatch(/w-screen/)
+    expect(main!.innerHTML).not.toMatch(/100vw/)
+  })
+
   it('falls back to /groups when status=error and no groupId is known', async () => {
     // PV4 data-corruption scenario: wire groupId is empty + location
     // state is absent + sessionStorage memo is missing — the Manuell-

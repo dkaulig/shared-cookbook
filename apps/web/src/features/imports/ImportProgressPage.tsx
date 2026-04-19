@@ -98,7 +98,7 @@ export function ImportProgressPage() {
     effectiveStatus === 'loading'
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-5 py-10 md:px-8 md:py-14">
+    <main className="mx-auto w-full max-w-2xl overflow-hidden px-5 py-10 md:px-8 md:py-14">
       <div className="mb-6 flex items-center gap-2 text-[13px] font-medium uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
         <Loader2
           className={cn(
