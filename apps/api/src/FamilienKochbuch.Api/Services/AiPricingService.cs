@@ -3,7 +3,7 @@ using Microsoft.Extensions.Options;
 namespace FamilienKochbuch.Api.Services;
 
 /// <summary>
-/// PF2 cost calculator. Applies the configured per-1M-token rates to
+/// AI-cost calculator. Applies the configured per-1M-token rates to
 /// token counts surfaced by the Python extractor.
 ///
 /// Storage is USD internally (matches Azure's billing unit); callers

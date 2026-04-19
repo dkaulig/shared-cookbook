@@ -49,7 +49,7 @@ from extractor.security import HmacVerificationMiddleware
 
 _PACKAGE_NAME: Final[str] = "extractor"
 
-# PF2 response-header names for token-usage propagation. The .NET side
+# Response-header names for token-usage propagation. The .NET side
 # reads these off the Python response and persists them on
 # ``RecipeImport`` + ``ChatUsageLog`` rows so admins can see spend by
 # user / model. Keep the names stable — changing them is a breaking
@@ -271,7 +271,7 @@ def _as_chat_messages(messages: list[ChatMessageModel]) -> list[ChatMessage]:
 
 
 def _apply_usage_headers(response: Response, usage: TokenUsage) -> None:
-    """Stamp the four ``X-Extractor-*`` PF2 headers onto ``response``.
+    """Stamp the four ``X-Extractor-*`` usage headers onto ``response``.
 
     Takes a :class:`TokenUsage` from either the provider directly
     (chat endpoint) or from :class:`ExtractionResult.usage` (extract
@@ -368,7 +368,7 @@ def create_app() -> FastAPI:
           ``transcription_failed`` → 500.
 
         On success the four ``X-Extractor-*`` headers carry the
-        token-usage numbers for the .NET side to persist (PF2).
+        token-usage numbers for the .NET side to persist.
         """
         logger.info(
             "extract_url request group_id=%s user_id=%s",
@@ -412,7 +412,7 @@ def create_app() -> FastAPI:
           ``rate_limited`` → 503. Other codes → 500.
 
         On success the four ``X-Extractor-*`` headers carry the
-        token-usage numbers for the .NET side to persist (PF2).
+        token-usage numbers for the .NET side to persist.
         """
         logger.info(
             "extract_photos request group_id=%s user_id=%s count=%d",
@@ -452,7 +452,7 @@ def create_app() -> FastAPI:
         accidental transcript archive.
 
         On success the four ``X-Extractor-*`` headers carry the
-        token-usage numbers for the .NET side to persist (PF2).
+        token-usage numbers for the .NET side to persist.
         """
         logger.info(
             "chat request session_id=%s turns=%d",
@@ -486,7 +486,7 @@ def create_app() -> FastAPI:
         stateless.
 
         On success the four ``X-Extractor-*`` headers carry the
-        token-usage numbers for the .NET side to persist (PF2).
+        token-usage numbers for the .NET side to persist.
         """
         logger.info(
             "chat_to_recipe request session_id=%s turns=%d",

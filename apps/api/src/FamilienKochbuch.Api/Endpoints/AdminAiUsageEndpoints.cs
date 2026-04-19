@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace FamilienKochbuch.Api.Endpoints;
 
 /// <summary>
-/// PF2 admin endpoint: <c>GET /api/admin/ai-usage</c>. Aggregates token
+/// Admin endpoint: <c>GET /api/admin/ai-usage</c>. Aggregates token
 /// spend across both <see cref="RecipeImport"/> rows (where the usage
 /// columns are non-null) and the <see cref="ChatUsageLog"/> table, and
 /// returns grand totals plus a grouping breakdown.

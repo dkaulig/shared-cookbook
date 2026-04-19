@@ -7,10 +7,10 @@ import { useSession } from './useSession'
  * initial silent-refresh round-trip we render a neutral splash instead
  * of flicker-redirecting to /login.
  *
- * PF2 extension: `requireAdmin` gates the route behind the site's
- * Admin role. Non-admin authenticated users bounce to `/` so a
- * bookmark to an admin route doesn't dead-end. Anonymous users still
- * go to `/login` as before.
+ * `requireAdmin` gates the route behind the site's Admin role.
+ * Non-admin authenticated users bounce to `/` so a bookmark to an
+ * admin route doesn't dead-end. Anonymous users still go to `/login`
+ * as before.
  */
 export function ProtectedRoute({
   children,

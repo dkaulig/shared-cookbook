@@ -10,12 +10,12 @@ real Azure calls out of CI) and the same base class:
   ``AZURE_OPENAI_API_KEY`` is empty, so a misconfigured deploy surfaces
   the problem at the first call site instead of silently succeeding.
 
-PF2 extension: every method now returns ``(result, TokenUsage)``. For
+Every method returns ``(result, TokenUsage)``. For
 :class:`MockLLMProvider` the default usage is
-``TokenUsage(0, 0, 0, "mock")`` so existing tests that don't care
-about accounting keep scripting a bare payload. Tests that *do* care
-can script an expanded tuple ``(payload, usage)`` on the same key so
-the mock returns the scripted usage instead of the zero default.
+``TokenUsage(0, 0, 0, "mock")`` so tests that don't care about
+accounting keep scripting a bare payload. Tests that *do* care can
+script an expanded tuple ``(payload, usage)`` on the same key so the
+mock returns the scripted usage instead of the zero default.
 """
 
 from __future__ import annotations

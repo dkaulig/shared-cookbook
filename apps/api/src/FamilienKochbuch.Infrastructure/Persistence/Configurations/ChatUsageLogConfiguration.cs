@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace FamilienKochbuch.Infrastructure.Persistence.Configurations;
 
 /// <summary>
-/// EF Core mapping for <see cref="ChatUsageLog"/> (PF2). Stores the
-/// kind enum as <c>int</c> to survive renames; indexes cover the two
+/// EF Core mapping for <see cref="ChatUsageLog"/>. Stores the kind
+/// enum as <c>int</c> to survive renames; indexes cover the two
 /// admin-dashboard query shapes: "per-user spend over a period" and
 /// "per-model spend over a period".
 /// </summary>

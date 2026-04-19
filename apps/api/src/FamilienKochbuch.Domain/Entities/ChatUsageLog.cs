@@ -21,7 +21,7 @@ public enum ChatUsageKind
 
 /// <summary>
 /// Per-call record of token usage for the synchronous chat proxy
-/// endpoints (PF2). One row per successful Python call — missing rows
+/// endpoints. One row per successful Python call — missing rows
 /// mean the call never completed (auth failure, 4xx from Python,
 /// network blip) which is the same semantic as <see cref="RecipeImport"/>
 /// columns staying <c>null</c>.

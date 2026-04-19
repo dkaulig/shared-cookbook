@@ -86,7 +86,7 @@ public sealed class RecipeImport
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset? CompletedAt { get; private set; }
 
-    // ── PF2 token-usage tracking ────────────────────────────────────
+    // ── Token-usage tracking ────────────────────────────────────────
     //
     // Populated by <see cref="RecordUsage"/> when the Python response
     // arrives. All four fields stay <c>null</c> on any path that never
@@ -184,7 +184,7 @@ public sealed class RecipeImport
 
     /// <summary>
     /// Records the token-usage numbers the Python extractor reported
-    /// for this import (PF2). Only legal while the import is running —
+    /// for this import. Only legal while the import is running —
     /// the job reads the <c>X-Extractor-*</c> headers off the Python
     /// response and calls this before transitioning to <see cref="ImportStatus.Done"/>
     /// or <see cref="ImportStatus.Error"/>. Non-negative token counts

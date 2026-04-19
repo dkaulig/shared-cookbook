@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { fetchAiUsage } from './aiUsageApi'
 
 /**
- * PF2 admin dashboard — `/admin/ai-usage`. Admin-only (guarded at the
+ * Admin dashboard — `/admin/ai-usage`. Admin-only (guarded at the
  * route level via `ProtectedRoute requireAdmin`).
  *
  * Surface:

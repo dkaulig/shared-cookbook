@@ -1,7 +1,7 @@
 namespace FamilienKochbuch.Api.Services;
 
 /// <summary>
-/// Strongly-typed settings for PF2 AI-cost accounting. Sourced from
+/// Strongly-typed settings for AI-cost accounting. Sourced from
 /// <c>appsettings.json</c> under <c>AiPricing:*</c>; the user can tweak
 /// the rates without a redeploy when Microsoft publishes new pricing.
 ///
@@ -25,9 +25,8 @@ public class AiPricingOptions
 }
 
 /// <summary>
-/// Per-1M-token USD rates for one Azure deployment. Mirrors the table
-/// pinned in the PF2 plan doc. All three values are USD per 1 million
-/// tokens.
+/// Per-1M-token USD rates for one Azure deployment. All three values
+/// are USD per 1 million tokens.
 /// </summary>
 public class ModelRates
 {

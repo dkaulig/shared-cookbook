@@ -80,9 +80,9 @@ export default function App() {
           </Route>
 
           {/*
-            PF2: admin-only KI-Verbrauch dashboard. Non-admin
-            authenticated visitors redirect to `/` via ProtectedRoute
-            requireAdmin; anonymous visitors still bounce to /login.
+            Admin-only KI-Verbrauch dashboard. Non-admin authenticated
+            visitors redirect to `/` via ProtectedRoute requireAdmin;
+            anonymous visitors still bounce to /login.
           */}
           <Route
             element={

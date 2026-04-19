@@ -11,7 +11,7 @@ import { useAuthStore } from '@/features/auth/authStore'
 import { AiUsagePage } from './AiUsagePage'
 
 /**
- * MSW-driven tests for PF2 `/admin/ai-usage`. Covers the happy-path
+ * MSW-driven tests for `/admin/ai-usage`. Covers the happy-path
  * render (totals + breakdown rows), the empty-range state, and the
  * groupBy picker updating the query.
  */

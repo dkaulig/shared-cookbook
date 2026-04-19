@@ -46,7 +46,7 @@ class VisionInput(TypedDict):
 
 
 class TokenUsage(TypedDict):
-    """Token-consumption metadata reported by the provider (PF2).
+    """Token-consumption metadata reported by the provider.
 
     Every ``LLMProvider`` method returns a ``TokenUsage`` alongside its
     result. The service emits these as ``X-Extractor-*`` response
@@ -97,7 +97,8 @@ class LLMProvider(ABC):
         """Run a structured extraction.
 
         Returns the parsed JSON payload + a :class:`TokenUsage` record
-        (PF2 cost-tracking). The response is parsed JSON, guaranteed
+        used by the .NET side for cost tracking. The response is
+        parsed JSON, guaranteed
         to match ``json_schema`` at the response-format level (Azure
         enforces). Callers still perform their own pydantic validation
         downstream — defence in depth.

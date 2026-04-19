@@ -28,7 +28,7 @@ internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<Recip
 
         e.Property(r => r.ErrorMessage).HasMaxLength(RecipeImport.ErrorMessageMaxLength);
 
-        // PF2 token-usage tracking — all four columns are nullable so
+        // Token-usage tracking — all four columns are nullable so
         // existing rows (pre-migration) and error-path imports (where
         // no LLM call happened) stay NULL rather than pretending to
         // have zero-cost usage.

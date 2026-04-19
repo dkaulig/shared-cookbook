@@ -437,7 +437,7 @@ class AzureOpenAIProvider(LLMProvider):
 
     @staticmethod
     def _extract_usage(response_body: dict[str, Any], *, fallback_model: str) -> TokenUsage:
-        """Pull a :class:`TokenUsage` out of the Responses-API body (PF2).
+        """Pull a :class:`TokenUsage` out of the Responses-API body.
 
         Azure reports ``usage`` as:
 
