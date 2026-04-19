@@ -36,6 +36,7 @@ const recipe: RecipeDetailDto = {
     { id: 's2', position: 1, content: 'Eier und Salz hinzufügen.' },
   ],
   tags: [{ id: 't1', name: 'deftig', category: 'Typ', isGlobal: true, groupId: null }],
+  nutritionEstimate: null,
 }
 
 beforeEach(() => {
@@ -192,6 +193,108 @@ describe('RecipeDetailPage', () => {
     expect(
       await screen.findByRole('heading', { name: /In andere Gruppe kopieren/i, level: 2 }),
     ).toBeInTheDocument()
+  })
+
+  // ── P2-10 — Nutrition section ─────────────────────────────────────
+
+  it('does not render the Nährwerte section when nutritionEstimate is null for a non-author', async () => {
+    useAuthStore.setState({
+      accessToken: 't',
+      // A different user id → not the author of r1 (createdByUserId=u1).
+      user: { id: 'u-other', email: 'other@ex.com', displayName: 'O', role: 'User' },
+    })
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    expect(screen.queryByRole('heading', { name: /Nährwerte/i })).not.toBeInTheDocument()
+  })
+
+  it('renders the Nährwerte section with a "geschätzt" badge when values are present', async () => {
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json({
+          ...recipe,
+          nutritionEstimate: {
+            kcal: 420,
+            proteinG: 24,
+            carbsG: 38,
+            fatG: 9,
+          },
+        }),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    const heading = screen.getByRole('heading', { name: /Nährwerte/i })
+    expect(heading).toBeInTheDocument()
+    expect(heading).toHaveTextContent(/geschätzt/i)
+    // Four rows rendered with unit suffixes.
+    expect(screen.getByText(/^420 kcal$/)).toBeInTheDocument()
+    expect(screen.getByText(/^24 g$/)).toBeInTheDocument()
+    expect(screen.getByText(/^38 g$/)).toBeInTheDocument()
+    expect(screen.getByText(/^9 g$/)).toBeInTheDocument()
+  })
+
+  it('inline-edits a nutrition value and PATCHes the recipe', async () => {
+    const user = userEvent.setup()
+    let patched: unknown = null
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json({
+          ...recipe,
+          nutritionEstimate: {
+            kcal: 420,
+            proteinG: 24,
+            carbsG: 38,
+            fatG: 9,
+          },
+        }),
+      ),
+      http.patch('/api/recipes/r1/nutrition', async ({ request }) => {
+        patched = await request.json()
+        return HttpResponse.json({
+          ...recipe,
+          nutritionEstimate: patched,
+        })
+      }),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Nährwerte/i })
+
+    await user.click(screen.getByRole('button', { name: /Energie bearbeiten/i }))
+    const input = screen.getByLabelText(/Energie/i, { selector: 'input' })
+    await user.clear(input)
+    await user.type(input, '500')
+    await user.click(screen.getByRole('button', { name: /^Speichern$/i }))
+
+    await screen.findByText(/^500 kcal$/)
+    expect(patched).toMatchObject({ kcal: 500, proteinG: 24, carbsG: 38, fatG: 9 })
+  })
+
+  it('rejects an out-of-range nutrition value with an inline error', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json({
+          ...recipe,
+          nutritionEstimate: {
+            kcal: 420,
+            proteinG: 24,
+            carbsG: 38,
+            fatG: 9,
+          },
+        }),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Nährwerte/i })
+
+    await user.click(screen.getByRole('button', { name: /Energie bearbeiten/i }))
+    const input = screen.getByLabelText(/Energie/i, { selector: 'input' })
+    await user.clear(input)
+    await user.type(input, '99999')
+    await user.click(screen.getByRole('button', { name: /^Speichern$/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/zwischen 0 und 5000/i)
   })
 
   it('fires the mark-as-cooked mutation when the sticky "Jetzt gekocht" button is tapped', async () => {

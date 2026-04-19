@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   CreateRecipeRequest,
   ForkRecipeRequest,
+  NutritionEstimate,
   RecipeDetailDto,
   RecipeRevisionDetail,
   RecipeRevisionSummary,
@@ -19,6 +20,7 @@ import {
   fetchRecipe,
   forkRecipe,
   markRecipeAsCooked,
+  patchRecipeNutrition,
   updateRecipe,
   uploadRecipePhoto,
 } from './recipesApi'
@@ -138,6 +140,22 @@ export function useMarkAsCooked(id: string) {
       // Recency sort on Home may now differ — invalidate the
       // "recently cooked" query family so it re-runs.
       void client.invalidateQueries({ queryKey: ['recentlyCooked'] })
+    },
+  })
+}
+
+/**
+ * P2-10 — PATCH the per-portion nutrition estimate on a recipe. `null`
+ * body clears the stored estimate, a populated object replaces it. The
+ * refreshed detail DTO is written straight into the TanStack cache so
+ * the UI reflects the edit without a follow-up GET.
+ */
+export function useUpdateRecipeNutrition(id: string) {
+  const client = useQueryClient()
+  return useMutation<RecipeDetailDto, Error, NutritionEstimate | null>({
+    mutationFn: (body) => patchRecipeNutrition(id, body),
+    onSuccess: (detail) => {
+      client.setQueryData(recipeQueryKeys.detail(id), detail)
     },
   })
 }
