@@ -42,6 +42,24 @@ export interface TagDto {
   createdByUserId?: string | null
 }
 
+/**
+ * LLM-estimated per-portion nutrition values (P2-10). All four fields
+ * are integers (kcal whole; macros in grams). The Python post-processor
+ * clamps to sane ranges (kcal 0..5000, macros 0..500) before the value
+ * reaches this DTO.
+ *
+ * `null` on the DTOs means "no estimate available" — either the LLM
+ * couldn't infer quantities from the source or the user cleared the
+ * estimate manually via the PATCH endpoint. The detail page hides the
+ * Nährwerte section entirely in that case.
+ */
+export interface NutritionEstimate {
+  kcal: number
+  proteinG: number
+  carbsG: number
+  fatG: number
+}
+
 export interface RecipeSummaryDto {
   id: string
   groupId: string
@@ -85,6 +103,8 @@ export interface RecipeDetailDto {
   ingredients: IngredientDto[]
   steps: RecipeStepDto[]
   tags: TagDto[]
+  /** P2-10: optional per-portion nutrition estimate. `null` = no estimate. */
+  nutritionEstimate: NutritionEstimate | null
 }
 
 export interface CreateRecipeRequest {
@@ -97,6 +117,12 @@ export interface CreateRecipeRequest {
   ingredients: IngredientDto[]
   steps: RecipeStepDto[]
   tagIds: string[]
+  /**
+   * P2-10: optional per-portion nutrition estimate flowed through from
+   * the AI import pipeline (URL / photo / chat). Omit or pass `null`
+   * when the LLM couldn't estimate — the server stores `null`.
+   */
+  nutritionEstimate?: NutritionEstimate | null
 }
 
 export interface UpdateRecipeRequest extends CreateRecipeRequest {}
