@@ -155,6 +155,43 @@ public sealed class MealPlanSlot
         UpdatedAt = at;
     }
 
+    /// <summary>
+    /// Replaces <see cref="RecipeId"/> — pass <c>null</c> to clear it
+    /// (the slot then relies on <see cref="Label"/> alone). Throws when
+    /// both ends up null. Used by the P3-1 PATCH endpoint.
+    /// </summary>
+    public void SetRecipe(Guid? recipeId, DateTimeOffset at)
+    {
+        if (recipeId is null && string.IsNullOrWhiteSpace(Label))
+            throw new ArgumentException(
+                "At least one of RecipeId or Label must be provided.", nameof(recipeId));
+        RecipeId = recipeId;
+        UpdatedAt = at;
+    }
+
+    /// <summary>
+    /// Replaces <see cref="Label"/>. Pass <c>null</c> or whitespace to
+    /// clear it (the slot must still have a <see cref="RecipeId"/>).
+    /// Trims + enforces the 120-char limit; throws when both ends up
+    /// null. Used by the P3-1 PATCH endpoint.
+    /// </summary>
+    public void SetLabel(string? label, DateTimeOffset at)
+    {
+        string? normalized = null;
+        if (!string.IsNullOrWhiteSpace(label))
+        {
+            normalized = label.Trim();
+            if (normalized.Length > LabelMaxLength)
+                throw new ArgumentException(
+                    $"Label must be at most {LabelMaxLength} characters.", nameof(label));
+        }
+        if (normalized is null && RecipeId is null)
+            throw new ArgumentException(
+                "At least one of RecipeId or Label must be provided.", nameof(label));
+        Label = normalized;
+        UpdatedAt = at;
+    }
+
     // ── Validation helpers ────────────────────────────────────────────
 
     private static void ValidateDateWithinWeek(DateOnly date, DateOnly weekStart)

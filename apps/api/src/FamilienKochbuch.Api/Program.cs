@@ -1,6 +1,7 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using FamilienKochbuch.Api.Endpoints;
+using FamilienKochbuch.Api.Endpoints.MealPlanning;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
@@ -323,6 +324,7 @@ app.MapPhotoProxyEndpoints();
 app.MapImportEndpoints();
 app.MapChatEndpoints();
 app.MapAdminAiUsageEndpoints();
+app.MapMealPlanEndpoints();
 
 // ── P2-5: Hangfire dashboard (admin-only, skipped in Testing env) ─
 if (!app.Environment.IsEnvironment("Testing"))
