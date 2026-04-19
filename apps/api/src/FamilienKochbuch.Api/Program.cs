@@ -282,6 +282,7 @@ app.MapSearchEndpoints();
 app.MapPhotoProxyEndpoints();
 app.MapImportEndpoints();
 app.MapChatEndpoints();
+app.MapAdminAiUsageEndpoints();
 
 // ── P2-5: Hangfire dashboard (admin-only, skipped in Testing env) ─
 if (!app.Environment.IsEnvironment("Testing"))
