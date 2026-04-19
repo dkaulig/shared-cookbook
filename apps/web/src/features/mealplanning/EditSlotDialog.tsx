@@ -82,19 +82,14 @@ export function EditSlotDialog({
     }
 
     // When a recipe is selected, the label slot is conceptually a
-    // sidecar note and we only send it if the user actually typed
-    // something; otherwise we mirror the AddSlot contract and clear
-    // the label when switching from free-text → recipe.
-    const normalisedLabel =
-      hasRecipe && trimmedLabel.length === 0 ? null : trimmedLabel
-    if (normalisedLabel !== (slot.label ?? (hasRecipe ? null : ''))) {
-      // Compare against the slot's current label (null → '' when there
-      // was no recipe before so a user clearing the label submits null).
-      if (normalisedLabel === null) {
-        body.label = null
-      } else if (normalisedLabel !== slot.label) {
-        body.label = normalisedLabel
-      }
+    // sidecar note: an empty string clears it. When there's no recipe
+    // the label IS the title so we keep the trimmed string. Either
+    // way the wire value is "trimmed string or null" — compared
+    // against the slot's current label to decide whether to ship it.
+    const normalisedLabel: string | null =
+      hasRecipe && trimmedLabel.length === 0 ? null : trimmedLabel || null
+    if (normalisedLabel !== (slot.label ?? null)) {
+      body.label = normalisedLabel
     }
 
     if (servings !== slot.servings) {
@@ -143,8 +138,11 @@ export function EditSlotDialog({
         >
           Gericht bearbeiten
         </h2>
-        <p className="mb-4 text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {formatGermanDate(slot.date)} · {MEAL_SLOT_LABELS[slot.meal]}
+        </p>
+        <p className="mb-4 text-xs text-muted-foreground">
+          Zum Verschieben: Slot löschen und neu anlegen.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>

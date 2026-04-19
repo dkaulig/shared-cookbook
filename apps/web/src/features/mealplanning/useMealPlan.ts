@@ -108,34 +108,60 @@ export function useAddSlot(groupId: string, weekStart: string, planId: string) {
 /**
  * PATCH a slot with JSON Merge Patch semantics. Only fields actually
  * included in `patch` are shipped (see `mealPlanApi.patchSlot` which
- * filters `undefined` keys). The server responds with the updated
- * slot DTO; we splice it into the cached plan so the UI reflects
- * servings / recipe / isCooked / sortOrder changes without a refetch,
- * then invalidate to keep other tabs (P3-8 SignalR will trigger the
- * same invalidation path) consistent.
+ * filters `undefined` keys).
+ *
+ * Optimistic update: we splice the patch into the cached plan in
+ * `onMutate` *before* the network call so the UI reacts immediately
+ * (gekocht-toggle ticks, servings update, drag-reordered rows stay
+ * where the user dropped them). `onError` rolls the cache back to the
+ * pre-mutation snapshot; `onSettled` invalidates so the server stays
+ * authoritative and other tabs (P3-8 SignalR will fan out the same
+ * invalidation) see the real row.
  */
 export function usePatchSlot(groupId: string, weekStart: string, planId: string) {
   const client = useQueryClient()
+  const queryKey = mealPlanQueryKeys.forWeek(groupId, weekStart)
   return useMutation<
     MealPlanSlotDto,
     Error,
-    { slotId: string; patch: PatchSlotRequest }
+    { slotId: string; patch: PatchSlotRequest },
+    { previous: MealPlanDto | null | undefined }
   >({
     mutationFn: ({ slotId, patch }) => patchSlot(planId, slotId, patch),
-    onSuccess: (updated) => {
-      client.setQueryData<MealPlanDto | null>(
-        mealPlanQueryKeys.forWeek(groupId, weekStart),
-        (prev) => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            slots: prev.slots.map((s) => (s.id === updated.id ? updated : s)),
-          }
-        },
-      )
-      void client.invalidateQueries({
-        queryKey: mealPlanQueryKeys.forWeek(groupId, weekStart),
+    onMutate: async (variables) => {
+      // Cancel any in-flight refetch so it can't clobber the optimistic
+      // snapshot after we apply it.
+      await client.cancelQueries({ queryKey })
+      const previous = client.getQueryData<MealPlanDto | null>(queryKey)
+      client.setQueryData<MealPlanDto | null>(queryKey, (prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          slots: prev.slots.map((s) =>
+            s.id === variables.slotId ? { ...s, ...variables.patch } : s,
+          ),
+        }
       })
+      return { previous }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previous !== undefined) {
+        client.setQueryData(queryKey, context.previous)
+      }
+    },
+    onSuccess: (updated) => {
+      // Replace the optimistic row with the server's authoritative DTO —
+      // picks up server-computed fields like `updatedAt`.
+      client.setQueryData<MealPlanDto | null>(queryKey, (prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          slots: prev.slots.map((s) => (s.id === updated.id ? updated : s)),
+        }
+      })
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey })
     },
   })
 }
@@ -144,25 +170,39 @@ export function usePatchSlot(groupId: string, weekStart: string, planId: string)
  * DELETE a slot. The backend detaches child slots (sets their
  * `ParentSlotId` to null) rather than cascade-deleting them, so we
  * still need a full refetch after success to pick up those changes.
+ *
+ * Optimistic: the row disappears from the grid before the network
+ * call; rollback on error restores it.
  */
 export function useDeleteSlot(groupId: string, weekStart: string, planId: string) {
   const client = useQueryClient()
-  return useMutation<void, Error, { slotId: string }>({
+  const queryKey = mealPlanQueryKeys.forWeek(groupId, weekStart)
+  return useMutation<
+    void,
+    Error,
+    { slotId: string },
+    { previous: MealPlanDto | null | undefined }
+  >({
     mutationFn: ({ slotId }) => deleteSlot(planId, slotId),
-    onSuccess: (_data, variables) => {
-      client.setQueryData<MealPlanDto | null>(
-        mealPlanQueryKeys.forWeek(groupId, weekStart),
-        (prev) => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            slots: prev.slots.filter((s) => s.id !== variables.slotId),
-          }
-        },
-      )
-      void client.invalidateQueries({
-        queryKey: mealPlanQueryKeys.forWeek(groupId, weekStart),
+    onMutate: async (variables) => {
+      await client.cancelQueries({ queryKey })
+      const previous = client.getQueryData<MealPlanDto | null>(queryKey)
+      client.setQueryData<MealPlanDto | null>(queryKey, (prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          slots: prev.slots.filter((s) => s.id !== variables.slotId),
+        }
       })
+      return { previous }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previous !== undefined) {
+        client.setQueryData(queryKey, context.previous)
+      }
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey })
     },
   })
 }

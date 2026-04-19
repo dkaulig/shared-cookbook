@@ -10,6 +10,7 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core'
 import {
   SortableContext,
+  arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
@@ -18,7 +19,6 @@ import { CSS } from '@dnd-kit/utilities'
 import { CheckCircle2, GripVertical, MoreHorizontal } from 'lucide-react'
 import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
 import { cn } from '@/lib/utils'
-import { computeReorder } from './sortableMealRow.helpers'
 
 /**
  * Drag-reorder wrapper for all slots within a single (date, meal)
@@ -32,7 +32,7 @@ import { computeReorder } from './sortableMealRow.helpers'
  * it impossible to accidentally drop a Monday-Mittag slot into a
  * Tuesday-Abend cell today.
  *
- * The reorder scheme steps by `SORT_ORDER_STEP` (see helpers) so
+ * The reorder scheme steps by `SORT_ORDER_STEP` (see `constants.ts`) so
  * later phases can insert a slot between two existing ones without
  * a global reindex. P3-3 always reindexes the full list of affected
  * rows for simplicity, but the spacing is in place.
@@ -71,9 +71,10 @@ export function SortableMealRow({
     const overId = String(over.id)
     if (activeId === overId) return
     const ids = slots.map((s) => s.id)
-    const reordered = computeReorder(ids, activeId, overId)
-    if (reordered === ids) return
-    onReorder(reordered)
+    const oldIndex = ids.indexOf(activeId)
+    const newIndex = ids.indexOf(overId)
+    if (oldIndex < 0 || newIndex < 0) return
+    onReorder(arrayMove(ids, oldIndex, newIndex))
   }
 
   if (slots.length === 0) return null

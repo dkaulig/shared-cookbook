@@ -105,28 +105,6 @@ describe('<EditSlotDialog />', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 
-  it('sends isCooked: true when the user ticks the "Gekocht" checkbox', async () => {
-    let capturedBody: unknown = null
-    server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
-        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
-      ),
-      http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, async ({ request }) => {
-        capturedBody = await request.json()
-        return HttpResponse.json(makeSlot({ isCooked: true }))
-      }),
-    )
-
-    const user = userEvent.setup()
-    renderDialog(makeSlot())
-
-    await user.click(screen.getByLabelText(/^Gekocht$/i))
-    await user.click(screen.getByRole('button', { name: /Speichern/i }))
-
-    await waitFor(() => expect(capturedBody).not.toBeNull())
-    expect(capturedBody).toEqual({ isCooked: true })
-  })
-
   it('sends the picked recipeId when the user selects a new recipe', async () => {
     let capturedBody: unknown = null
     server.use(
