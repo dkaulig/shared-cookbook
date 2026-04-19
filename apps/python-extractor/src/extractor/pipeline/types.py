@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import Final, Literal, NotRequired, TypedDict, get_args
 
+from extractor.llm.provider import TokenUsage
+
 ConfidenceLevel = Literal["high", "medium", "low"]
 """Aggregate confidence classification — used for the overall badge.
 
@@ -147,23 +149,6 @@ class ExtractionConfidence(TypedDict):
     notes: list[str]
 
 
-class ExtractionUsage(TypedDict):
-    """Aggregated :class:`TokenUsage` for one extraction (PF2).
-
-    Pipelines accumulate token counts across any multi-call scenarios
-    (currently each pipeline makes exactly one LLM call; this shape is
-    future-proof for stages that chain multiple). ``model`` reflects
-    the last deployment actually called — all LLM calls in a single
-    pipeline invocation hit the same deployment today, so this is
-    unambiguous.
-    """
-
-    prompt_tokens: int
-    completion_tokens: int
-    cached_prompt_tokens: int
-    model: str
-
-
 class ExtractionResult(TypedDict):
     """Top-level response body for ``POST /extract/url``.
 
@@ -173,11 +158,16 @@ class ExtractionResult(TypedDict):
     result path might return an :class:`ExtractionResult` without
     hitting the model at all. The .NET side treats a missing
     ``usage`` as "no data, leave columns NULL".
+
+    ``usage`` carries the provider-reported :class:`TokenUsage` — the
+    pipeline makes exactly one LLM call today so there's nothing to
+    aggregate; if we ever chain multiple calls this field will be a
+    sum.
     """
 
     recipe: ExtractedRecipe
     confidence: ExtractionConfidence
-    usage: NotRequired[ExtractionUsage]
+    usage: NotRequired[TokenUsage]
 
 
 __all__ = [
@@ -190,7 +180,6 @@ __all__ = [
     "ExtractedStep",
     "ExtractionConfidence",
     "ExtractionResult",
-    "ExtractionUsage",
     "IngredientConfidenceLevel",
     "NutritionEstimate",
     "StepConfidenceLevel",

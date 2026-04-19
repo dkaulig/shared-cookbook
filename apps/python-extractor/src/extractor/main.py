@@ -38,7 +38,7 @@ from extractor.pipeline.chat import (
     chat_turn,
 )
 from extractor.pipeline.photo import extract_from_photos
-from extractor.pipeline.types import ExtractionResult, ExtractionUsage
+from extractor.pipeline.types import ExtractionResult
 from extractor.pipeline.url import extract_from_url
 from extractor.pipeline.video import (
     ExtractionError,
@@ -270,12 +270,12 @@ def _as_chat_messages(messages: list[ChatMessageModel]) -> list[ChatMessage]:
     return [{"role": m.role, "content": m.content} for m in messages]
 
 
-def _apply_usage_headers(response: Response, usage: TokenUsage | ExtractionUsage) -> None:
+def _apply_usage_headers(response: Response, usage: TokenUsage) -> None:
     """Stamp the four ``X-Extractor-*`` PF2 headers onto ``response``.
 
-    Accepts either :class:`TokenUsage` (raw provider output) or
-    :class:`ExtractionUsage` (pipeline-aggregated shape — same keys
-    today) so the chat + extract endpoints can share one code path.
+    Takes a :class:`TokenUsage` from either the provider directly
+    (chat endpoint) or from :class:`ExtractionResult.usage` (extract
+    endpoints) — both carry the same shape.
     """
     response.headers[_HEADER_PROMPT_TOKENS] = str(usage["prompt_tokens"])
     response.headers[_HEADER_COMPLETION_TOKENS] = str(usage["completion_tokens"])
