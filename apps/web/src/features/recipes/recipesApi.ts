@@ -2,6 +2,7 @@ import type {
   ApiError,
   CreateRecipeRequest,
   ForkRecipeRequest,
+  NutritionEstimate,
   RecipeDetailDto,
   RecipeSummaryListDto,
   TagDto,
@@ -122,6 +123,28 @@ export async function markRecipeAsCooked(id: string): Promise<RecipeDetailDto> {
   return request<RecipeDetailDto>(`/api/recipes/${encodeURIComponent(id)}/cook`, {
     method: 'POST',
   })
+}
+
+// ── Nutrition (P2-10) ──────────────────────────────────────────────
+
+/**
+ * Patch the per-portion nutrition estimate. Pass `null` to clear, or a
+ * populated `NutritionEstimate` to replace. Server enforces the same
+ * bounds the domain record does; out-of-range values come back as a
+ * 400 via `throwApiError`.
+ */
+export async function patchRecipeNutrition(
+  id: string,
+  body: NutritionEstimate | null,
+): Promise<RecipeDetailDto> {
+  return request<RecipeDetailDto>(
+    `/api/recipes/${encodeURIComponent(id)}/nutrition`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
 }
 
 // ── Tags ────────────────────────────────────────────────────────────

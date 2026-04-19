@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useRatings } from '@/features/ratings/hooks'
 import { useGroup } from '@/features/groups/hooks'
+import { useAuth } from '@/features/auth/useAuth'
 import {
   useDeleteRecipe,
   useMarkAsCooked,
@@ -14,6 +15,7 @@ import { RecipeDetailHeader } from './RecipeDetailHeader'
 import { PortionStepperCard } from './PortionStepperCard'
 import { IngredientChecklist } from './IngredientChecklist'
 import { StepList } from './StepList'
+import { NutritionSection } from './NutritionSection'
 import { RecipeHistoryPanel } from './RecipeHistoryPanel'
 import { RecipeActionBar } from './RecipeActionBar'
 import { ForkRecipeDialog } from './ForkRecipeDialog'
@@ -46,6 +48,7 @@ export function RecipeDetailPage() {
   const ratings = useRatings(recipeId)
   const deleteMutation = useDeleteRecipe(groupId)
   const markCooked = useMarkAsCooked(recipeId)
+  const { user } = useAuth()
 
   const [servings, setServings] = useState<number | null>(null)
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
@@ -163,6 +166,14 @@ export function RecipeDetailPage() {
             servings={currentServings}
           />
         </section>
+
+        <NutritionSection
+          recipeId={recipe.id}
+          nutrition={recipe.nutritionEstimate}
+          canEdit={
+            user?.role === 'Admin' || user?.id === recipe.createdByUserId
+          }
+        />
 
         <section className="mt-7">
           <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
