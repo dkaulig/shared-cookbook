@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
+  ShoppingBasket,
 } from 'lucide-react'
 import type { MealPlanSlotDto, MealSlot, PatchSlotRequest } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
@@ -288,6 +289,15 @@ export function MealPlanPage() {
             aria-label="Nächste Woche"
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          </Button>
+          <Button asChild type="button" variant="outline" size="sm">
+            <Link
+              to={`/groups/${groupId}/mealplan/${weekStart}/shopping-list`}
+              aria-label="Einkaufsliste öffnen"
+            >
+              <ShoppingBasket className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Einkaufsliste
+            </Link>
           </Button>
         </div>
       </header>

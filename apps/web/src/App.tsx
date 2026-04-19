@@ -19,6 +19,7 @@ import { ImportProgressPage } from '@/features/imports/ImportProgressPage'
 import { ChatPage } from '@/features/chat/ChatPage'
 import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
 import { MealPlanPage } from '@/features/mealplanning/MealPlanPage'
+import { ShoppingListPage } from '@/features/shoppinglist/ShoppingListPage'
 import { WochenplanStub } from '@/features/stubs/WochenplanStub'
 import { ProfilStub } from '@/features/stubs/ProfilStub'
 import { AiUsagePage } from '@/features/admin/AiUsagePage'
@@ -57,6 +58,10 @@ export default function App() {
             <Route path="/groups" element={<GroupsPage />} />
             <Route path="/groups/:id" element={<GroupDetailPage />} />
             <Route path="/groups/:groupId/tags" element={<TagManagementPage />} />
+            <Route
+              path="/groups/:groupId/mealplan/:weekStart/shopping-list"
+              element={<ShoppingListPage />}
+            />
             <Route
               path="/groups/:groupId/mealplan/:weekStart"
               element={<MealPlanPage />}
