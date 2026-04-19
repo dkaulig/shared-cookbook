@@ -75,10 +75,12 @@ export type {
   ExtractionConfidence,
   ExtractionResult,
   ImportEnqueueResponse,
+  ImportPhotosRequest,
   ImportSourceKind,
   ImportStatus,
   ImportUrlRequest,
   IngredientConfidenceLevel,
   RecipeImportDto,
+  StagedPhotoResponse,
   StepConfidenceLevel,
 } from './imports.ts'

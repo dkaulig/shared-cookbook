@@ -99,6 +99,28 @@ export interface ImportUrlRequest {
 }
 
 /**
+ * Body for `POST /api/recipes/import/photos`. Same shape as the .NET
+ * `PhotoImportRequest` record — an ordered array of signed photo URLs
+ * (each produced by the staged-upload endpoint) plus a target groupId.
+ */
+export interface ImportPhotosRequest {
+  photoUrls: string[]
+  groupId: string
+}
+
+/**
+ * Response for `POST /api/recipes/photos/staged` (P2-8). The server
+ * returns a bare storage path (`photoId`) plus a freshly-signed proxy
+ * URL (`signedUrl`). The frontend hands the signed URL back to
+ * `POST /api/recipes/import/photos` which verifies the signature
+ * before enqueueing the extraction job.
+ */
+export interface StagedPhotoResponse {
+  photoId: string
+  signedUrl: string
+}
+
+/**
  * Response for the enqueue endpoints — matches
  * `ImportEndpoints.ImportEnqueueResponse` on the .NET side.
  */
