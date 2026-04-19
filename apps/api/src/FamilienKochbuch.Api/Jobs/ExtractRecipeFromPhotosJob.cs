@@ -13,33 +13,25 @@ namespace FamilienKochbuch.Api.Jobs;
 /// Mirrors <see cref="ExtractRecipeFromUrlJob"/> — same signer, same
 /// HttpClient, same status-transition shape — but POSTs to
 /// <c>/extract/photos</c> with the ordered list of signed photo URLs
-/// that the user uploaded to SeaweedFS (via the existing S4 upload
-/// flow). The photo URLs are stored in <see cref="RecipeImport.ResultJson"/>
-/// during enqueue; the job reads them out before handing off to Python.
+/// that the user uploaded to SeaweedFS. Transport + retry logic lives
+/// on <see cref="PythonExtractorRunner"/>; this class only loads the
+/// import, validates the transit payload, and hands off.
 ///
-/// P2-5 scope note: the job trusts the enqueue step to have populated
+/// The job trusts the enqueue step to have populated
 /// <c>ResultJson</c> as a JSON array of strings. That contract is
-/// private — only the enqueue endpoint writes it; the endpoint lives
-/// in P2-6. The job rejects missing / malformed input loudly.
+/// private — only the enqueue endpoint writes it. The job rejects
+/// missing / malformed input loudly.
 /// </summary>
 [AutomaticRetry(Attempts = 3)]
 public class ExtractRecipeFromPhotosJob
 {
     private readonly AppDbContext _db;
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ExtractorHmacSigner _signer;
-    private readonly TimeProvider _clock;
+    private readonly PythonExtractorRunner _runner;
 
-    public ExtractRecipeFromPhotosJob(
-        AppDbContext db,
-        IHttpClientFactory httpClientFactory,
-        ExtractorHmacSigner signer,
-        TimeProvider clock)
+    public ExtractRecipeFromPhotosJob(AppDbContext db, PythonExtractorRunner runner)
     {
         _db = db;
-        _httpClientFactory = httpClientFactory;
-        _signer = signer;
-        _clock = clock;
+        _runner = runner;
     }
 
     public async Task ExecuteAsync(Guid importId, CancellationToken ct)
@@ -53,24 +45,21 @@ public class ExtractRecipeFromPhotosJob
                 $"RecipeImport {importId} has source {import.Source}; expected Photos.");
 
         // For Photos, the enqueue step stashes the ordered URL list in
-        // ResultJson pre-run; the job reads, clears it (so a stale list
-        // doesn't linger when MarkDone writes the real result), and
-        // forwards.
+        // ResultJson pre-run; the job reads it, then forwards. MarkDone
+        // overwrites ResultJson with the real result so the transit
+        // list doesn't linger.
         var photoUrls = ReadPhotoUrls(import);
 
-        // Use the URL-job's internal RunAsync by instantiating a tiny
-        // delegate — the shape is identical apart from body + path.
-        var runner = new ExtractRecipeFromUrlJob(_db, _httpClientFactory, _signer, _clock);
-        await runner.RunAsync(
+        await _runner.RunAsync(
             import,
             relativeUrl: "/extract/photos",
-            buildBody: () => new
+            buildBody: i => new
             {
                 photo_urls = photoUrls,
                 hint = new
                 {
-                    group_id = import.GroupId.ToString("D"),
-                    user_id = import.UserId.ToString("D"),
+                    group_id = i.GroupId.ToString("D"),
+                    user_id = i.UserId.ToString("D"),
                 },
             },
             ct);
