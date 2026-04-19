@@ -93,13 +93,14 @@ class LLMProvider(ABC):
         system_prompt: str,
         messages: Sequence[ChatMessage],
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         """Run a structured extraction.
 
-        The response is parsed JSON, guaranteed to match ``json_schema``
-        at the response-format level (Azure enforces). Callers still
-        perform their own pydantic validation downstream — defence in
-        depth.
+        Returns the parsed JSON payload + a :class:`TokenUsage` record
+        (PF2 cost-tracking). The response is parsed JSON, guaranteed
+        to match ``json_schema`` at the response-format level (Azure
+        enforces). Callers still perform their own pydantic validation
+        downstream — defence in depth.
         """
 
     @abstractmethod
@@ -107,8 +108,12 @@ class LLMProvider(ABC):
         self,
         system_prompt: str,
         messages: Sequence[ChatMessage],
-    ) -> str:
-        """Plain conversational turn. Returns the assistant's reply text."""
+    ) -> tuple[str, TokenUsage]:
+        """Plain conversational turn.
+
+        Returns the assistant's reply text + a :class:`TokenUsage`
+        record for the request.
+        """
 
     @abstractmethod
     async def vision_extract(
@@ -117,9 +122,10 @@ class LLMProvider(ABC):
         images: Sequence[VisionInput],
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         """Vision-LLM structured extraction from ordered image inputs.
 
+        Returns the parsed JSON payload + a :class:`TokenUsage` record.
         ``instruction`` is the user-level prompt explaining *what* to
         extract (e.g. "Extrahiere ein Rezept aus diesen Kochbuch-
         Seiten"). ``json_schema`` constrains the output the same way

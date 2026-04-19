@@ -41,7 +41,7 @@ import tenacity
 import tenacity.wait
 
 from extractor.llm.errors import LLMProviderError
-from extractor.llm.provider import ChatMessage, LLMProvider, VisionInput
+from extractor.llm.provider import ChatMessage, LLMProvider, TokenUsage, VisionInput
 
 logger = logging.getLogger("extractor.llm")
 
@@ -194,7 +194,7 @@ class AzureOpenAIProvider(LLMProvider):
         system_prompt: str,
         messages: Sequence[ChatMessage],
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         body = self._build_request(
             model=self._deployment_structuring,
             system_prompt=system_prompt,
@@ -215,13 +215,14 @@ class AzureOpenAIProvider(LLMProvider):
                 "Azure response JSON is not a JSON object (expected dict at top level)",
                 code="schema_mismatch",
             )
-        return parsed
+        usage = self._extract_usage(response_body, fallback_model=self._deployment_structuring)
+        return parsed, usage
 
     async def chat(
         self,
         system_prompt: str,
         messages: Sequence[ChatMessage],
-    ) -> str:
+    ) -> tuple[str, TokenUsage]:
         body = self._build_request(
             model=self._deployment_chat,
             system_prompt=system_prompt,
@@ -229,7 +230,9 @@ class AzureOpenAIProvider(LLMProvider):
             json_schema=None,
         )
         response_body = await self._post_with_retries(body)
-        return self._extract_output_text(response_body)
+        text = self._extract_output_text(response_body)
+        usage = self._extract_usage(response_body, fallback_model=self._deployment_chat)
+        return text, usage
 
     async def vision_extract(
         self,
@@ -237,7 +240,7 @@ class AzureOpenAIProvider(LLMProvider):
         images: Sequence[VisionInput],
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         content_parts: list[dict[str, Any]] = [{"type": "input_text", "text": instruction}]
         for image in images:
             content_parts.append(
@@ -267,7 +270,8 @@ class AzureOpenAIProvider(LLMProvider):
                 "Azure vision response JSON is not a JSON object",
                 code="schema_mismatch",
             )
-        return parsed
+        usage = self._extract_usage(response_body, fallback_model=self._deployment_structuring)
+        return parsed, usage
 
     # -- helpers ---------------------------------------------------------
 
@@ -432,6 +436,56 @@ class AzureOpenAIProvider(LLMProvider):
         )
 
     @staticmethod
+    def _extract_usage(response_body: dict[str, Any], *, fallback_model: str) -> TokenUsage:
+        """Pull a :class:`TokenUsage` out of the Responses-API body (PF2).
+
+        Azure reports ``usage`` as:
+
+        .. code-block:: json
+
+            {"input_tokens": 123, "output_tokens": 45,
+             "input_tokens_details": {"cached_tokens": 40}}
+
+        Missing / malformed numbers degrade to zero rather than raising
+        so an unusual response (e.g. a streamed chunk without a final
+        ``usage`` envelope) doesn't kill a successful extraction. The
+        .NET side treats zero token-counts as "no data, leave columns
+        NULL". ``model`` comes from the top-level ``model`` field Azure
+        echoes back; when absent we fall back to the caller's
+        deployment name so operators always see *some* label.
+
+        Logs prompt + completion counts at INFO so we have
+        operational visibility (useful to spot runaway cost) without
+        leaking any user content.
+        """
+        usage_raw = response_body.get("usage") if isinstance(response_body, dict) else None
+        prompt_tokens = _safe_int(usage_raw, "input_tokens")
+        completion_tokens = _safe_int(usage_raw, "output_tokens")
+        cached_prompt_tokens = 0
+        if isinstance(usage_raw, dict):
+            details = usage_raw.get("input_tokens_details")
+            if isinstance(details, dict):
+                cached_prompt_tokens = _safe_int(details, "cached_tokens")
+
+        model_raw = response_body.get("model") if isinstance(response_body, dict) else None
+        model = model_raw if isinstance(model_raw, str) and model_raw else fallback_model
+
+        logger.info(
+            "azure-openai usage model=%s prompt=%d completion=%d cached=%d",
+            model,
+            prompt_tokens,
+            completion_tokens,
+            cached_prompt_tokens,
+        )
+
+        return TokenUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_prompt_tokens=cached_prompt_tokens,
+            model=model,
+        )
+
+    @staticmethod
     def _extract_output_text(response_body: dict[str, Any]) -> str:
         """Pull the first ``output_text`` string out of a Responses-API body.
 
@@ -463,6 +517,30 @@ class AzureOpenAIProvider(LLMProvider):
             "Azure response had no output_text part",
             code="schema_mismatch",
         )
+
+
+def _safe_int(source: Any, key: str) -> int:
+    """Coerce ``source[key]`` to a non-negative int, defaulting to 0.
+
+    Defends the usage-parsing path against Azure quirks: missing keys,
+    string-typed numbers, negative values, or a ``usage`` envelope that
+    isn't a dict at all. Anything unparseable → 0 so a successful
+    extraction is never sacrificed to a telemetry detail.
+    """
+    if not isinstance(source, dict):
+        return 0
+    value = source.get(key)
+    if isinstance(value, bool):  # bool is a subclass of int — reject.
+        return 0
+    if isinstance(value, int):
+        return value if value >= 0 else 0
+    if isinstance(value, str):
+        try:
+            n = int(value)
+        except ValueError:
+            return 0
+        return n if n >= 0 else 0
+    return 0
 
 
 def _decode_json_or_raise(response: httpx.Response) -> dict[str, Any]:

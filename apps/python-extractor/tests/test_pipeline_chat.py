@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from extractor.llm import ChatMessage, LLMProvider, LLMProviderError
+from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, TokenUsage
 from extractor.pipeline.chat import (
     MAX_MESSAGES,
     EmptyMessagesError,
@@ -37,17 +37,30 @@ from extractor.prompts.chat import (
 # ─────────────────────────────────────────────────────────────────────
 
 
+def _stub_usage() -> TokenUsage:
+    """Fresh :class:`TokenUsage` dict the fakes return. Built per call so
+    mutating one doesn't leak into the shared template."""
+    return {
+        "prompt_tokens": 120,
+        "completion_tokens": 40,
+        "cached_prompt_tokens": 0,
+        "model": "gpt-5.1-chat",
+    }
+
+
 class _RecordingProvider(LLMProvider):
-    """Captures call arguments and returns a canned reply."""
+    """Captures call arguments and returns a canned reply + usage."""
 
     def __init__(
         self,
         *,
         chat_reply: str = "Klar, ich helfe gerne!",
         extract_reply: dict[str, Any] | None = None,
+        usage: TokenUsage | None = None,
     ) -> None:
         self.chat_reply = chat_reply
         self.extract_reply: dict[str, Any] = extract_reply or _canonical_recipe_payload()
+        self.usage: TokenUsage = usage if usage is not None else _stub_usage()
         self.chat_calls: list[tuple[str, tuple[ChatMessage, ...]]] = []
         self.extract_calls: list[tuple[str, tuple[ChatMessage, ...], dict[str, Any]]] = []
 
@@ -56,13 +69,15 @@ class _RecordingProvider(LLMProvider):
         system_prompt: str,
         messages: Sequence[ChatMessage],
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         self.extract_calls.append((system_prompt, tuple(messages), json_schema))
-        return dict(self.extract_reply)
+        return dict(self.extract_reply), self.usage
 
-    async def chat(self, system_prompt: str, messages: Sequence[ChatMessage]) -> str:
+    async def chat(
+        self, system_prompt: str, messages: Sequence[ChatMessage]
+    ) -> tuple[str, TokenUsage]:
         self.chat_calls.append((system_prompt, tuple(messages)))
-        return self.chat_reply
+        return self.chat_reply, self.usage
 
     async def vision_extract(
         self,
@@ -70,7 +85,7 @@ class _RecordingProvider(LLMProvider):
         images: Sequence[Any],
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise NotImplementedError
 
 
@@ -85,10 +100,12 @@ class _FailingProvider(LLMProvider):
         system_prompt: str,
         messages: Sequence[ChatMessage],
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise self.error
 
-    async def chat(self, system_prompt: str, messages: Sequence[ChatMessage]) -> str:
+    async def chat(
+        self, system_prompt: str, messages: Sequence[ChatMessage]
+    ) -> tuple[str, TokenUsage]:
         raise self.error
 
     async def vision_extract(
@@ -97,7 +114,7 @@ class _FailingProvider(LLMProvider):
         images: Sequence[Any],
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise self.error
 
 

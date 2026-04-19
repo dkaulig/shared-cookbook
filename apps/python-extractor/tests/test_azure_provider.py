@@ -54,11 +54,23 @@ async def provider() -> AsyncIterator[AzureOpenAIProvider]:
         await p.aclose()
 
 
-def _responses_payload(text: str) -> dict[str, Any]:
-    """Minimal Responses-API success body shaped like Azure returns."""
+def _responses_payload(
+    text: str,
+    *,
+    input_tokens: int = 42,
+    output_tokens: int = 17,
+    cached_tokens: int = 0,
+    model: str = _DEPLOYMENT_CHAT,
+) -> dict[str, Any]:
+    """Minimal Responses-API success body shaped like Azure returns.
+
+    Defaults include a realistic ``usage`` envelope so every test
+    exercising the happy path also covers the PF2 token-usage parse.
+    Tests that want to assert explicit counts pass explicit values.
+    """
     return {
         "id": "resp_123",
-        "model": _DEPLOYMENT_CHAT,
+        "model": model,
         "output": [
             {
                 "type": "message",
@@ -66,6 +78,11 @@ def _responses_payload(text: str) -> dict[str, Any]:
                 "content": [{"type": "output_text", "text": text}],
             }
         ],
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "input_tokens_details": {"cached_tokens": cached_tokens},
+        },
     }
 
 
@@ -86,7 +103,7 @@ async def test_extract_structured_sends_correct_request(
         return_value=httpx.Response(200, json=_structured_payload({"title": "Pizza"}))
     )
 
-    result = await provider.extract_structured(
+    result, usage = await provider.extract_structured(
         system_prompt="Du bist ein Rezept-Extraktor.",
         messages=[{"role": "user", "content": "Extrahiere aus: Pizza Margherita"}],
         json_schema={
@@ -97,6 +114,12 @@ async def test_extract_structured_sends_correct_request(
     )
 
     assert result == {"title": "Pizza"}
+    assert usage == {
+        "prompt_tokens": 42,
+        "completion_tokens": 17,
+        "cached_prompt_tokens": 0,
+        "model": _DEPLOYMENT_CHAT,
+    }
     assert route.called
     request = route.calls.last.request
 
@@ -175,14 +198,17 @@ async def test_extract_structured_schema_mismatch_on_invalid_json(
 
 @respx.mock
 async def test_chat_returns_plain_text(provider: AzureOpenAIProvider) -> None:
-    """``chat`` returns the ``output_text`` string verbatim."""
+    """``chat`` returns the ``output_text`` string verbatim + usage."""
     respx.post(_URL).mock(return_value=httpx.Response(200, json=_responses_payload("Hallo!")))
 
-    reply = await provider.chat(
+    reply, usage = await provider.chat(
         system_prompt="sei nett",
         messages=[{"role": "user", "content": "hallo"}],
     )
     assert reply == "Hallo!"
+    assert usage["prompt_tokens"] == 42
+    assert usage["completion_tokens"] == 17
+    assert usage["model"] == _DEPLOYMENT_CHAT
 
 
 @respx.mock
@@ -233,7 +259,7 @@ async def test_vision_extract_serialises_images(
         return_value=httpx.Response(200, json=_structured_payload({"t": "Brot"}))
     )
 
-    result = await provider.vision_extract(
+    result, usage = await provider.vision_extract(
         system_prompt="extract recipe",
         images=[
             {"image_url": "https://cdn.test/a.jpg", "detail": "high"},
@@ -243,6 +269,7 @@ async def test_vision_extract_serialises_images(
         json_schema={"type": "object"},
     )
     assert result == {"t": "Brot"}
+    assert usage["prompt_tokens"] == 42
 
     body = json.loads(route.calls.last.request.content)
     # Vision uses the structuring deployment (bigger model).
@@ -313,7 +340,7 @@ async def test_429_retries_and_then_succeeds(provider: AzureOpenAIProvider) -> N
         ]
     )
 
-    reply = await provider.chat(
+    reply, _ = await provider.chat(
         system_prompt="sys",
         messages=[{"role": "user", "content": "x"}],
     )
@@ -349,7 +376,7 @@ async def test_500_retries_then_succeeds(provider: AzureOpenAIProvider) -> None:
         ]
     )
 
-    reply = await provider.chat(
+    reply, _ = await provider.chat(
         system_prompt="sys",
         messages=[{"role": "user", "content": "x"}],
     )
@@ -441,6 +468,117 @@ async def test_429_honours_retry_after_header(
 
     # The 7-second header must appear in the observed sleep sequence.
     assert any(abs(s - 7.0) < 0.01 for s in sleeps)
+
+
+# ---------- PF2 token usage parsing ----------
+
+
+@respx.mock
+async def test_token_usage_parses_all_three_counts(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """Every Azure success includes ``usage``; the provider surfaces it
+    alongside the parsed payload. Counts + cached tokens + model round
+    through the returned tuple."""
+    respx.post(_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=_responses_payload(
+                "hello",
+                input_tokens=1000,
+                output_tokens=200,
+                cached_tokens=800,
+                model="gpt-5.1-chat",
+            ),
+        )
+    )
+
+    reply, usage = await provider.chat(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert reply == "hello"
+    assert usage == {
+        "prompt_tokens": 1000,
+        "completion_tokens": 200,
+        "cached_prompt_tokens": 800,
+        "model": "gpt-5.1-chat",
+    }
+
+
+@respx.mock
+async def test_token_usage_missing_falls_back_to_zero(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """A 200 response without a ``usage`` key degrades to zero counts
+    (defensive — don't sacrifice a successful extraction to a telemetry
+    detail). Model falls back to the provider's deployment name when
+    ``model`` is also absent."""
+    respx.post(_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "resp_x",
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "ok"}],
+                    }
+                ],
+            },
+        )
+    )
+
+    _, usage = await provider.chat(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "x"}],
+    )
+
+    assert usage["prompt_tokens"] == 0
+    assert usage["completion_tokens"] == 0
+    assert usage["cached_prompt_tokens"] == 0
+    # Fallback: the caller's deployment name is preserved so downstream
+    # pricing still has something sensible to look up.
+    assert usage["model"] == _DEPLOYMENT_CHAT
+
+
+@respx.mock
+async def test_token_usage_logs_counts_not_content(
+    provider: AzureOpenAIProvider,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Anti-shortcut: the INFO usage line carries integers only. Neither
+    the prompt nor the assistant reply appears in the log record."""
+    import logging
+
+    caplog.set_level(logging.INFO, logger="extractor.llm")
+
+    respx.post(_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=_responses_payload(
+                "geheim-antwort-XYZ",
+                input_tokens=777,
+                output_tokens=88,
+            ),
+        )
+    )
+
+    await provider.chat(
+        system_prompt="streng geheim system",
+        messages=[{"role": "user", "content": "streng geheim user"}],
+    )
+
+    usage_records = [r for r in caplog.records if "usage" in r.getMessage()]
+    assert usage_records, "expected at least one usage log line"
+    for record in usage_records:
+        msg = record.getMessage()
+        assert "777" in msg
+        assert "88" in msg
+        assert "geheim-antwort-XYZ" not in msg
+        assert "streng geheim" not in msg
 
 
 # ---------- never log API key ----------
