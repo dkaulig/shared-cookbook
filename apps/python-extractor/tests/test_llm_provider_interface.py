@@ -13,7 +13,7 @@ from typing import Literal, get_type_hints
 
 import pytest
 
-from extractor.llm.provider import ChatMessage, LLMProvider, VisionInput
+from extractor.llm.provider import ChatMessage, LLMProvider, TokenUsage, VisionInput
 
 
 def test_llm_provider_is_abstract() -> None:
@@ -74,3 +74,34 @@ def test_vision_input_round_trips_dict_literal() -> None:
     vi: VisionInput = {"image_url": "https://example.test/x.jpg", "detail": "auto"}
     assert vi["image_url"] == "https://example.test/x.jpg"
     assert vi["detail"] == "auto"
+
+
+def test_token_usage_typed_dict_fields() -> None:
+    """``TokenUsage`` (PF2) is the stable shape every provider returns
+    alongside its payload. Drift breaks header emission + .NET-side
+    pricing calculation."""
+    hints = get_type_hints(TokenUsage)
+    assert set(hints.keys()) == {
+        "prompt_tokens",
+        "completion_tokens",
+        "cached_prompt_tokens",
+        "model",
+    }
+    assert hints["prompt_tokens"] is int
+    assert hints["completion_tokens"] is int
+    assert hints["cached_prompt_tokens"] is int
+    assert hints["model"] is str
+
+
+def test_token_usage_round_trips_dict_literal() -> None:
+    """``TokenUsage`` is a ``TypedDict`` — instantiable from a dict literal."""
+    usage: TokenUsage = {
+        "prompt_tokens": 100,
+        "completion_tokens": 42,
+        "cached_prompt_tokens": 30,
+        "model": "gpt-5.1",
+    }
+    assert usage["prompt_tokens"] == 100
+    assert usage["completion_tokens"] == 42
+    assert usage["cached_prompt_tokens"] == 30
+    assert usage["model"] == "gpt-5.1"

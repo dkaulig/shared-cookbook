@@ -10,7 +10,7 @@ from extractor.llm.azure_openai import AzureOpenAIProvider
 from extractor.llm.errors import LLM_ERROR_CODES, LLMErrorCode, LLMProviderError
 from extractor.llm.factory import build_provider
 from extractor.llm.mock import MockLLMProvider, NullProvider
-from extractor.llm.provider import ChatMessage, LLMProvider, VisionInput
+from extractor.llm.provider import ChatMessage, LLMProvider, TokenUsage, VisionInput
 
 __all__ = [
     "LLM_ERROR_CODES",
@@ -21,6 +21,7 @@ __all__ = [
     "LLMProviderError",
     "MockLLMProvider",
     "NullProvider",
+    "TokenUsage",
     "VisionInput",
     "build_provider",
 ]

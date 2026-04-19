@@ -45,6 +45,39 @@ class VisionInput(TypedDict):
     detail: Literal["low", "high", "auto"]
 
 
+class TokenUsage(TypedDict):
+    """Token-consumption metadata reported by the provider (PF2).
+
+    Every ``LLMProvider`` method returns a ``TokenUsage`` alongside its
+    result. The service emits these as ``X-Extractor-*`` response
+    headers; the .NET side persists them on ``RecipeImport`` +
+    ``ChatUsageLog`` rows so ops can see per-user / per-model spend.
+
+    - ``prompt_tokens`` — input tokens sent to the model (post-caching
+      is counted separately via ``cached_prompt_tokens``, which is a
+      subset of the total input the model actually billed at the
+      cached rate — Azure reports both on every Responses API call).
+    - ``completion_tokens`` — output tokens the model generated.
+    - ``cached_prompt_tokens`` — portion of ``prompt_tokens`` billed at
+      the cached-input rate. Azure reports this via
+      ``input_tokens_details.cached_tokens``; zero when the request
+      didn't hit cache.
+    - ``model`` — deployment name as Azure returned it (e.g.
+      ``"gpt-5.1-chat"``). Used by :class:`AiPricingService` on the
+      .NET side to look up $/1M rates.
+
+    Fakes and the ``MockLLMProvider`` return ``model="mock"`` + zeros
+    by default so tests that don't care about accounting don't have to
+    script anything; tests that *do* care can pin explicit counts via
+    the scripted-entry expanded-tuple format.
+    """
+
+    prompt_tokens: int
+    completion_tokens: int
+    cached_prompt_tokens: int
+    model: str
+
+
 class LLMProvider(ABC):
     """Abstract provider contract.
 
