@@ -52,6 +52,13 @@ builder.Services.PostConfigure<ExtractorOptions>(opts =>
         opts.SharedSecret = envSecret;
 });
 
+// PF2 — AI pricing table + EUR conversion. Rates live in
+// appsettings.json so the user can update them when Microsoft
+// publishes new pricing without a redeploy.
+builder.Services.Configure<AiPricingOptions>(
+    builder.Configuration.GetSection(AiPricingOptions.SectionName));
+builder.Services.AddSingleton<AiPricingService>();
+
 builder.Services.AddSingleton(TimeProvider.System);
 
 // ── EF Core + Identity ────────────────────────────────────────────────
