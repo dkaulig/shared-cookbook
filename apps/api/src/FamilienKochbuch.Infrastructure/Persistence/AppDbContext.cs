@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
+using FamilienKochbuch.Infrastructure.Persistence.Configurations;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -29,10 +30,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
     public DbSet<Rating> Ratings => Set<Rating>();
     public DbSet<RecipeRevision> RecipeRevisions => Set<RecipeRevision>();
+    public DbSet<RecipeImport> RecipeImports => Set<RecipeImport>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        // Apply IEntityTypeConfiguration<T> classes from the Configurations
+        // folder. New entities go there; legacy ones stay inline below
+        // until they get refactored.
+        builder.ApplyConfiguration(new RecipeImportConfiguration());
 
         builder.Entity<User>(e =>
         {
