@@ -186,9 +186,8 @@ export function ImportPhotosPage() {
     setUploadPhase('uploading')
     setUploadedCount(0)
     const signedUrls: string[] = []
-    // PF1 — collect the stagedPhotoIds alongside the signed URLs so we
-    // can stash them in sessionStorage for the create-recipe step to
-    // adopt the originals onto the saved recipe.
+    // Collected so the create-recipe step can adopt the originals
+    // onto the saved recipe — see `rememberImportStagedPhotoIds`.
     const stagedPhotoIds: string[] = []
     try {
       // Sequential upload — see module docstring for rationale.
@@ -214,9 +213,6 @@ export function ImportPhotosPage() {
       // Same sessionStorage sidecar the URL-import uses so the progress
       // page can route to the right group on reload.
       rememberImportGroup(importId, groupId)
-      // PF1 — stash the stagedPhotoIds under the same importId so the
-      // RecipeFormPage prefill can attach them to the create-recipe
-      // payload once the user saves.
       rememberImportStagedPhotoIds(importId, stagedPhotoIds)
       navigate(`/rezepte/import/${importId}`, { state: { groupId } })
     } catch (err) {

@@ -1,32 +1,15 @@
 /**
  * Session-scoped memo: map an `importId` to the `groupId` it was
- * enqueued against, so the progress page + the RecipeFormPage prefill
- * know where to route the user once extraction completes.
+ * enqueued against (plus, for the photo flow, the `stagedPhotoIds`
+ * the upload step produced). Consumed by the progress page + the
+ * RecipeFormPage prefill so the user can be routed + the staged
+ * photos adopted onto the saved recipe.
  *
- * PF1 — the photo-import flow now ALSO stashes the
- * `stagedPhotoIds` here, so the create-recipe payload assembled in
- * `RecipeFormPage` can attach the originals once the user saves.
- * Stored as a JSON-encoded string under a sibling key so the legacy
- * groupId-only consumer keeps working unchanged.
- *
- * Why this exists: the P2-6 `GET /api/imports/{id}` response does not
- * include the groupId (its shape was fixed before the P2-7 UI dispatch
- * and changing it is out of scope for P2-7 — the plan explicitly bans
- * backend changes). So we keep a client-side sidecar.
- *
- * Why sessionStorage (not localStorage):
- * - Automatically cleared when the tab closes — no stale entries.
- * - Survives soft refreshes within the same tab, which is the main
- *   reload case we care about on the progress screen.
- * - Users on multiple devices don't leak state to each other.
- *
- * Contract:
- * - Writes happen on enqueue success (the ImportUrlPage stashes the
- *   groupId it just POSTed with; the ImportPhotosPage additionally
- *   stashes the stagedPhotoIds it just uploaded).
- * - Reads happen on the progress page + the recipe-form prefill;
- *   consumers fall back gracefully when the memo is missing (e.g. the
- *   user shared the progress URL to another tab).
+ * Why this exists: `GET /api/imports/{id}` doesn't echo the groupId,
+ * so the client has to remember it. Kept in sessionStorage so the
+ * memo auto-clears on tab close and doesn't leak between devices;
+ * consumers fall back gracefully when the memo is absent (e.g. the
+ * user shared the progress URL into a new tab).
  */
 const STORAGE_PREFIX = 'fk.importGroup.'
 const STAGED_PHOTOS_PREFIX = 'fk.importStagedPhotos.'
@@ -82,12 +65,9 @@ export function forgetImportGroup(importId: string): void {
 }
 
 /**
- * PF1 — stash the staged-photo ids that the photo import just
- * uploaded. The create-recipe handler reads them so the originals
- * land on the saved recipe automatically. JSON-encoded so an empty
- * list still round-trips as `[]`, distinguishing "user uploaded zero"
- * from "no memo present" (which the recall function returns as
- * `null`).
+ * JSON-encoded so an empty list round-trips as `[]`, distinguishing
+ * "user uploaded zero" from "no memo present" (the latter returns
+ * `null` from the recall function).
  */
 export function rememberImportStagedPhotoIds(
   importId: string,

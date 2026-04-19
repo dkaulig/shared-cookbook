@@ -250,11 +250,8 @@ export function RecipeFormPage({ mode }: Props) {
     // deliberately session-scoped feature.
   }
 
-  // PF1 — when the user is coming back from the photo-import flow we
-  // stash the stagedPhotoIds the upload step produced, so the
-  // create-recipe payload can adopt them onto the new recipe. Read
-  // here at the wrapper level so the inner form can seed its initial
-  // state without the setState-in-effect dance.
+  // Read at the wrapper level so the inner form can seed its
+  // initial state without the setState-in-effect dance.
   const stagedPhotoIds: string[] =
     mode === 'create' && importId && prefill?.isPhotoImport
       ? recallImportStagedPhotoIds(importId) ?? []
@@ -289,11 +286,10 @@ function RecipeFormInner({
    */
   chatImportId?: string | null
   /**
-   * PF1 — staged-photo ids stashed by `ImportPhotosPage`. Empty unless
-   * the user came in via the photo-import flow. Forwarded into the
-   * create-recipe payload so the saved recipe automatically adopts
-   * the originals. The "{N} Fotos werden beim Speichern angehängt."
-   * info badge keys off `stagedPhotoIds.length > 0`.
+   * Staged-photo ids stashed by `ImportPhotosPage`. Empty unless the
+   * user came in via the photo-import flow. Forwarded into the
+   * create-recipe payload so the server adopts the originals onto
+   * the saved recipe.
    */
   stagedPhotoIds?: string[]
 }) {
@@ -518,10 +514,8 @@ function RecipeFormInner({
       // carry a prefill, so this is naturally omitted there — nutrition
       // edits post-save go through PATCH /nutrition instead.
       nutritionEstimate: prefillNutrition,
-      // PF1: forward the photo-import stagedPhotoIds (if any) so the
-      // server promotes them onto the new recipe. Edit mode + non-photo
-      // imports leave this undefined, so the server treats it as a
-      // standard manual create.
+      // Edit mode + non-photo imports leave this undefined, so the
+      // server treats it as a standard manual create.
       stagedPhotoIds:
         mode === 'create' && stagedPhotoIds && stagedPhotoIds.length > 0
           ? stagedPhotoIds
@@ -535,10 +529,9 @@ function RecipeFormInner({
           ? await createMutation.mutateAsync(payload)
           : await updateMutation.mutateAsync(payload)
 
-      // PF1 — surface server-side promote failures (from
-      // stagedPhotoIds) BEFORE we kick off the client-side
-      // PhotoUploadGrid uploads. The user sees a single banner with
-      // both classes of failure folded together if both apply.
+      // Capture server-side promote failures BEFORE the client-side
+      // PhotoUploadGrid uploads so the user sees a single banner
+      // covering both classes of failure.
       const promoteFailures = result.partialPhotoFailures ?? []
       const promoteAttempted = stagedPhotoIds?.length ?? 0
 
@@ -575,9 +568,8 @@ function RecipeFormInner({
         }
       }
 
-      // PF1 — server-side promote failures land us back on the form
-      // with the German banner the plan specifies. The recipe row is
-      // saved + the surviving photos are attached, so the user can
+      // Server-side promote failures keep us on the form: the recipe
+      // row is saved + surviving photos are attached, so the user can
       // re-upload the missing ones from the detail page.
       if (promoteFailures.length > 0) {
         setError(
@@ -681,11 +673,8 @@ function RecipeFormInner({
               title="Fotos"
               description="Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP. Werden beim Speichern hochgeladen."
             >
-              {/* PF1 — info badge for photo-imports: the user uploaded
-                  N photos in the previous step and they'll attach
-                  automatically once the recipe saves. Renders ONLY in
-                  create mode when the photo-import flow stashed
-                  staged-photo ids into sessionStorage. */}
+              {/* Info badge for the photo-import flow: staged photos
+                  attach automatically on save. Create-mode only. */}
               {mode === 'create' &&
                 stagedPhotoIds &&
                 stagedPhotoIds.length > 0 && (

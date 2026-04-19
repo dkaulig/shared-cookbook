@@ -8,31 +8,11 @@ using Microsoft.Extensions.Logging;
 namespace FamilienKochbuch.Api.Jobs;
 
 /// <summary>
-/// PF1 — hourly Hangfire recurring job that reaps abandoned
-/// <see cref="Domain.Entities.StagedPhoto"/> rows.
-///
-/// Selection rule: any row whose <c>CreatedAt</c> is older than 24 hours
-/// AND whose <c>PromotedAt</c> is still <c>null</c>. The 24h grace
-/// window is intentionally generous — a user can pause mid-import
-/// flow for a long lunch break and still have their staged uploads
-/// available when they return. Beyond that, the upload is unbounded
-/// storage we can't bill back to anyone, so it goes.
-///
-/// Each row drives two side effects:
-/// <list type="number">
-///   <item>Best-effort delete of the SeaweedFS blob via
-///   <see cref="IPhotoStorage.DeleteAsync"/> (the implementation is
-///   idempotent so a missing blob is a no-op).</item>
-///   <item>Hard delete of the row.</item>
-/// </list>
-///
-/// Failures during the blob delete are logged + the row is still
-/// removed: a stale blob without a row pointing at it is harmless and
-/// will get garbage-collected on the next manual SeaweedFS cleanup.
-///
-/// The job is registered as a Hangfire RecurringJob in <c>Program.cs</c>
-/// with a cron of "every hour, 5 minutes past" so it doesn't compete
-/// with end-of-hour user activity.
+/// Hourly Hangfire job that reaps <see cref="Domain.Entities.StagedPhoto"/>
+/// rows older than 24h with <c>PromotedAt == null</c>. Blob deletes are
+/// per-photo best-effort; the row is removed even when the blob delete
+/// fails (an orphan blob without a row is harmless and can be cleaned
+/// up manually on SeaweedFS).
 /// </summary>
 public class SweepAbandonedStagedPhotosJob
 {
