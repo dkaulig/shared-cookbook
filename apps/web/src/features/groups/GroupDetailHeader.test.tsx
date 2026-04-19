@@ -1,22 +1,9 @@
 import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { GroupDetail, GroupMember } from '@familien-kochbuch/shared'
 import { GroupDetailHeader } from './GroupDetailHeader'
-
-function withClient(node: ReactNode): ReactNode {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
-  })
-  return (
-    <QueryClientProvider client={client}>
-      <MemoryRouter>{node}</MemoryRouter>
-    </QueryClientProvider>
-  )
-}
 
 function withRouter(node: ReactNode): ReactNode {
   return <MemoryRouter>{node}</MemoryRouter>
@@ -130,26 +117,24 @@ describe('<GroupDetailHeader />', () => {
     expect(link).toHaveAttribute('href', '/groups/g1/mealplan')
   })
 
-  it('admin sees a "Gruppe bearbeiten" button that opens EditGroupDialog', async () => {
-    render(withClient(<GroupDetailHeader group={baseGroup} recipeCount={47} />))
-    const btn = screen.getByRole('button', { name: /gruppe bearbeiten/i })
-    expect(btn).toBeInTheDocument()
-
-    const user = userEvent.setup()
-    await user.click(btn)
-    expect(
-      screen.getByRole('heading', { level: 2, name: /gruppe bearbeiten/i }),
-    ).toBeInTheDocument()
+  // BUG-002 — admins now navigate to a dedicated /groups/:id/settings
+  // page instead of opening an inline EditGroupDialog modal. The button
+  // is rendered as an anchor (Button asChild + Link) so we assert the
+  // href, not a click handler.
+  it('admin sees an "Einstellungen" link pointing at the group settings page (BUG-002)', () => {
+    render(withRouter(<GroupDetailHeader group={baseGroup} recipeCount={47} />))
+    const link = screen.getByRole('link', { name: /einstellungen/i })
+    expect(link).toHaveAttribute('href', '/groups/g1/settings')
   })
 
-  it('member does NOT see the "Gruppe bearbeiten" button', () => {
+  it('member does NOT see the "Einstellungen" link', () => {
     render(
-      withClient(
+      withRouter(
         <GroupDetailHeader group={{ ...baseGroup, myRole: 'Member' }} recipeCount={47} />,
       ),
     )
     expect(
-      screen.queryByRole('button', { name: /gruppe bearbeiten/i }),
+      screen.queryByRole('link', { name: /einstellungen/i }),
     ).not.toBeInTheDocument()
   })
 

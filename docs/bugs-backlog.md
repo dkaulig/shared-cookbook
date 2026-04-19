@@ -55,7 +55,14 @@ possibly a shared `MobileSafeArea` layout primitive.
 
 ## BUG-002 · "Gruppe bearbeiten" vs. Gruppen-Einstellungen UX split
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — bundled with BUG-003. Neue Route
+`/groups/:groupId/settings` mit dedizierter `GroupSettingsPage` die
+Name/Beschreibung/Standard-Portionen + Foto-Upload + den existierenden
+`GroupMembersAndInvitesPanel` zentral managed. `GroupDetailHeader`
+"Gruppe bearbeiten"-Button → `Settings`-Link auf die neue Page; alter
+`EditGroupDialog` + Tests entfernt. Regression-Tests in
+`GroupSettingsPage.test.tsx` (7 Tests) + aktualisierte
+`GroupDetailHeader.test.tsx` Asserts auf den Settings-Link.)
 **Where:** Group detail page (`/groups/:id`)
 **Symptom:** "Gruppe bearbeiten" opens a dialog that feels disconnected
 from group-management UX. User expects either:
@@ -71,7 +78,15 @@ from group-management UX. User expects either:
 
 ## BUG-003 · Group photo is text-input, not image-upload
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — bundled mit BUG-002. Foto-Upload-
+Section auf der neuen `GroupSettingsPage`: tap → File-Picker (JPG/PNG/
+WebP, max 5 MB) → reused `POST /api/recipes/photos/staged` Endpoint
+liefert `signedUrl` → wird via `PUT /api/groups/{id}` mit
+`coverImageUrl` persistiert. Kein neuer Backend-Endpoint nötig — der
+existierende staged-photo-Flow ist generisch genug. `GroupDetailHeader`
+Cover-Banner zeigt jetzt `coverImageUrl` als `background-image` wenn
+gesetzt, sonst die Sage-Gradient-Default. Regression-Tests:
+upload-flow + persist-flow + invalid-MIME-rejection.)
 **Where:** EditGroupDialog (opened via "Gruppe bearbeiten")
 **Symptom:** The group-photo field accepts only a URL text input.
 Users expect a proper image-upload component (click-to-select +
