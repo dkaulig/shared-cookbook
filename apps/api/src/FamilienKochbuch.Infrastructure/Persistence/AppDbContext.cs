@@ -32,6 +32,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RecipeRevision> RecipeRevisions => Set<RecipeRevision>();
     public DbSet<RecipeImport> RecipeImports => Set<RecipeImport>();
     public DbSet<StagedPhoto> StagedPhotos => Set<StagedPhoto>();
+    public DbSet<ChatUsageLog> ChatUsageLogs => Set<ChatUsageLog>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -42,6 +43,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         // until they get refactored.
         builder.ApplyConfiguration(new RecipeImportConfiguration());
         builder.ApplyConfiguration(new StagedPhotoConfiguration());
+        builder.ApplyConfiguration(new ChatUsageLogConfiguration());
 
         builder.Entity<User>(e =>
         {

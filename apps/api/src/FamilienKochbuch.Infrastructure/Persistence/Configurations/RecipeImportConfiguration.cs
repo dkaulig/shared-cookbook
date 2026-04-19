@@ -28,6 +28,12 @@ internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<Recip
 
         e.Property(r => r.ErrorMessage).HasMaxLength(RecipeImport.ErrorMessageMaxLength);
 
+        // PF2 token-usage tracking — all four columns are nullable so
+        // existing rows (pre-migration) and error-path imports (where
+        // no LLM call happened) stay NULL rather than pretending to
+        // have zero-cost usage.
+        e.Property(r => r.ModelDeployment).HasMaxLength(RecipeImport.ModelDeploymentMaxLength);
+
         // Index supporting "give me this user's imports ordered by recency".
         e.HasIndex(r => new { r.UserId, r.CreatedAt });
         e.HasIndex(r => r.Status);

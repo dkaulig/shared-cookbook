@@ -131,6 +131,53 @@ public class RecipeImportPersistenceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RecipeImport_Persists_Token_Usage_Columns()
+    {
+        var import = new RecipeImport(
+            _userId, _groupId, ImportSource.Url, "https://example.com/r",
+            DateTimeOffset.UtcNow);
+        _db.RecipeImports.Add(import);
+        await _db.SaveChangesAsync();
+
+        import.MarkRunning(80);
+        import.RecordUsage(
+            promptTokens: 1234,
+            completionTokens: 567,
+            cachedPromptTokens: 900,
+            modelDeployment: "gpt-5.1-chat");
+        import.MarkDone("{\"title\":\"Spätzle\"}", DateTimeOffset.UtcNow.AddMinutes(1));
+        await _db.SaveChangesAsync();
+
+        using var fresh = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await fresh.RecipeImports.SingleAsync(r => r.Id == import.Id);
+
+        Assert.Equal(1234, reloaded.PromptTokens);
+        Assert.Equal(567, reloaded.CompletionTokens);
+        Assert.Equal(900, reloaded.CachedPromptTokens);
+        Assert.Equal("gpt-5.1-chat", reloaded.ModelDeployment);
+    }
+
+    [Fact]
+    public async Task RecipeImport_Token_Usage_Null_By_Default()
+    {
+        var import = new RecipeImport(
+            _userId, _groupId, ImportSource.Url, "https://example.com/r",
+            DateTimeOffset.UtcNow);
+        _db.RecipeImports.Add(import);
+        await _db.SaveChangesAsync();
+
+        using var fresh = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await fresh.RecipeImports.SingleAsync(r => r.Id == import.Id);
+
+        Assert.Null(reloaded.PromptTokens);
+        Assert.Null(reloaded.CompletionTokens);
+        Assert.Null(reloaded.CachedPromptTokens);
+        Assert.Null(reloaded.ModelDeployment);
+    }
+
+    [Fact]
     public async Task Query_By_User_Filters_To_Owner()
     {
         var t0 = DateTimeOffset.UtcNow;
