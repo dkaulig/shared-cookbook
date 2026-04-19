@@ -85,6 +85,15 @@ export function ImportProgressPage() {
           }
           fallbackHref={groupId ? `/groups/${groupId}/recipes/new` : '/groups'}
         />
+      ) : effectiveStatus === 'done' && !groupId ? (
+        // Edge case: the import completed but we never learned which
+        // group the user intended (e.g. they opened the progress URL in
+        // a fresh tab where navigation state is empty and the
+        // sessionStorage memo is not populated). Rather than leave a
+        // done-but-stuck progress bar with only a Back button, guide
+        // them to a group-picker so the extraction result doesn't get
+        // orphaned.
+        <DoneWithoutGroupPanel />
       ) : (
         <ProgressPanel
           progress={data?.progress ?? 0}
@@ -92,7 +101,7 @@ export function ImportProgressPage() {
         />
       )}
 
-      {effectiveStatus !== 'error' && (
+      {effectiveStatus !== 'error' && !(effectiveStatus === 'done' && !groupId) && (
         <div className="mt-6 flex items-center justify-between gap-3">
           <p className="text-[12.5px] text-[hsl(var(--muted-foreground))]">
             Du kannst die Seite verlassen — wir führen den Import fertig. Öffne
@@ -136,6 +145,28 @@ function ProgressPanel({
         <span className="text-[12.5px] font-medium tabular-nums text-[hsl(var(--muted-foreground))]">
           {clamped}%
         </span>
+      </div>
+    </section>
+  )
+}
+
+function DoneWithoutGroupPanel() {
+  return (
+    <section
+      role="status"
+      data-testid="import-done-no-group"
+      className="mt-6 rounded-[18px] border border-border bg-card px-6 py-6 shadow-[0_1px_2px_rgba(28,25,23,0.04)]"
+    >
+      <p className="font-semibold text-foreground">Import abgeschlossen</p>
+      <p className="mt-1 text-[14px] leading-[1.5] text-[hsl(var(--muted-foreground))]">
+        Die Rezept-Vorschau ist bereit, aber die Ziel-Gruppe ist in dieser
+        Sitzung nicht bekannt. Wähle eine Gruppe, um die Vorschau zu prüfen
+        und zu speichern.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button asChild>
+          <Link to="/groups">Gruppe auswählen</Link>
+        </Button>
       </div>
     </section>
   )

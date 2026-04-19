@@ -209,6 +209,60 @@ describe('<ImportProgressPage />', () => {
     )
   })
 
+  // Reviewer-flagged edge case: user opens the progress URL in a new
+  // tab (no navigation state) AFTER extraction already completed, and
+  // no sessionStorage memo exists for this importId. Without a CTA the
+  // user gets stuck on a "Fertig" progress bar with only a Back button
+  // — the extracted recipe would be orphaned. Now we render a
+  // DoneWithoutGroupPanel with a "Gruppe auswählen" link to /groups.
+  it('shows a group-picker CTA when status=done but groupId is unknown', async () => {
+    // Explicitly clear the memo in case a previous test polluted it,
+    // matching the "fresh tab" conditions this edge case describes.
+    forgetImportGroup('imp-orphan')
+
+    server.use(
+      http.get('/api/imports/imp-orphan', () =>
+        HttpResponse.json({
+          id: 'imp-orphan',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com',
+          result: JSON.stringify({
+            recipe: {
+              title: 'T',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [],
+              steps: [],
+              tags: [],
+              source_url: 'https://example.com',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:00:05Z',
+        }),
+      ),
+    )
+
+    renderProgress({ importId: 'imp-orphan' })
+
+    // Fallback panel visible.
+    await waitFor(() =>
+      expect(screen.getByTestId('import-done-no-group')).toBeInTheDocument(),
+    )
+    const link = screen.getByRole('link', { name: /gruppe auswählen/i })
+    expect(link).toHaveAttribute('href', '/groups')
+    // No navigation happened (the recipe-form fallback testid is absent).
+    expect(screen.queryByTestId('recipe-form')).toBeNull()
+  })
+
   it('renders the error message + "Manuell anlegen" CTA when status=error', async () => {
     server.use(
       http.get('/api/imports/imp-err', () =>

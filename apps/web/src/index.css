@@ -78,6 +78,18 @@
   --border: 50 7% 89%; /* #e4e4e0 */
   --input: 50 6% 78%; /* #c8c8c2 */
   --ring: 148 21% 40%; /* #4f7961 sage */
+
+  /*
+   * P2-7 — review-surface warning/caution tones used by ConfidenceBadge
+   * on AI-imported recipes. Yellow for "Menge fehlt" (user action needed,
+   * not destructive); orange for "Handschrift prüfen" (stronger signal,
+   * photo-path uncertainty). Both stay clear of --destructive/red-600,
+   * which is reserved for true errors.
+   */
+  --warning: 45 93% 47%; /* amber-ish */
+  --warning-foreground: 36 80% 35%;
+  --caution: 25 95% 53%; /* orange-ish */
+  --caution-foreground: 20 85% 40%;
 }
 
 .dark {
