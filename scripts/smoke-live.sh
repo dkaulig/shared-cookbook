@@ -201,14 +201,11 @@ if [[ -n "$IMPORT_URL" ]]; then
   ok "Import enqueued: ${IMPORT_ID}"
 
   # ── Step 5: Poll + collect ≥3 distinct (phase, progress) snapshots ──
-  # The GET /api/imports/:id endpoint currently serialises only
-  # `status` (Queued/Running/Done/Error) + `progress` (int 0..100) —
-  # the `phase` field is emitted via SignalR, not this REST response
-  # (see packages/shared/src/types/imports.ts RecipeImportDto doc).
-  # So we bucket `progress` into the same ranges the domain's
-  # `PhaseWeightedFormula` uses (RecipeImport.cs §RangeOf): that's the
-  # canonical mapping between global-progress and phase, and lets this
-  # smoke test assert phase coverage without touching any server code.
+  # PV4 — the GET /api/imports/:id endpoint now carries `phase` directly
+  # (snake-case wire form), but this smoke script keeps the legacy
+  # progress-bucketing logic below so it remains backward compatible
+  # with older API versions in a mixed-deploy window. The integer-based
+  # mapping follows `PhaseWeightedFormula` (RecipeImport.cs §RangeOf).
   #   0..4   → queued
   #   5..14  → downloading
   #   15..84 → transcribing

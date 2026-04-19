@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { ImportStatus, RecipeImportPhase } from '@familien-kochbuch/shared'
 import { Loader2 } from 'lucide-react'
@@ -32,12 +32,12 @@ import { StaleBanner } from './StaleBanner'
  * with the original URL pre-filled. A real retry-endpoint is deferred
  * to a future slice per the design doc §Stale Progress.
  *
- * The `groupId` for the redirect is NOT in the P2-6 GET response
- * (the .NET `ImportStatusResponse` intentionally omits it), so we
- * pull it from the navigation state (set by ImportUrlPage on submit)
- * or the sessionStorage sidecar (for reload / deep-link survival).
- * Without a groupId we render an inline fallback that points the
- * user at `/groups` to pick one manually.
+ * PV4 — the `groupId` is now present on the status response itself
+ * (`data.groupId`), which makes the auto-redirect survive reloads and
+ * new-tab deep-links (BUG-012). We still fall back to navigation state
+ * / sessionStorage so the very-first-render before the status query
+ * settles can redirect instantly when the user submits + gets a fast
+ * Done, but the wire value is the new authoritative source.
  */
 export function ImportProgressPage() {
   const params = useParams<{ importId: string }>()
@@ -45,12 +45,23 @@ export function ImportProgressPage() {
   const location = useLocation()
   const importId = params.importId ?? ''
   const locationState = location.state as { groupId?: string } | null
-  const [groupId] = useState<string | null>(
-    () => locationState?.groupId ?? recallImportGroup(importId),
-  )
 
   const status = useImportStatus(importId)
   const data = status.data
+
+  // Resolution order: navigation-state (submit path) → sessionStorage
+  // sidecar (reload survival) → `data.groupId` from the status response.
+  // The last branch resolves BUG-012: when the user reloads the tab
+  // mid-import (or opens the progress URL in a fresh tab), the first
+  // two sources are empty but the server always knows the target group.
+  const groupId = useMemo<string | null>(() => {
+    if (locationState?.groupId) return locationState.groupId
+    const cached = recallImportGroup(importId)
+    if (cached) return cached
+    // Treat an empty-string wire value as "missing" so the
+    // DoneWithoutGroupPanel fallback still fires for data corruption.
+    return data?.groupId ? data.groupId : null
+  }, [locationState, importId, data])
   const effectiveStatus: ImportStatus | 'loading' = data?.status ?? 'loading'
   const phase: RecipeImportPhase = derivePhase(data)
 
@@ -103,10 +114,12 @@ export function ImportProgressPage() {
       </h1>
 
       {effectiveStatus === 'done' && !groupId ? (
-        // Edge case: the import completed but we never learned which
-        // group the user intended (e.g. they opened the progress URL in
-        // a fresh tab). Guide them to a group-picker so the result
-        // isn't orphaned.
+        // PV4 rare edge case: post-BUG-012 the server always sends
+        // `data.groupId` on the status response, so this branch should
+        // only fire if the backend row itself lost the groupId (data
+        // corruption) or we're mid-first-render before the status query
+        // has settled. Kept as defensive fallback so a broken backend
+        // doesn't silently leave the user on a spinning loader.
         <DoneWithoutGroupPanel />
       ) : (
         <div className="mt-6 flex flex-col gap-4">

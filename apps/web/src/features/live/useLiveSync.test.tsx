@@ -279,6 +279,7 @@ describe('useLiveSync', () => {
     // seed a minimal DTO here to exercise the merge path.
     const seeded: RecipeImportDto = {
       id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
       source: 'url',
       status: 'running',
       progress: 0,
@@ -363,6 +364,7 @@ describe('useLiveSync', () => {
 
     const seeded: RecipeImportDto = {
       id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
       source: 'photos',
       status: 'running',
       progress: 5,
@@ -402,6 +404,7 @@ describe('useLiveSync', () => {
     // Seed the cache so the merge happens (see phantom-DTO guard above).
     const seeded: RecipeImportDto = {
       id: 'imp-done',
+      groupId: 'g1',
       source: 'url',
       status: 'running',
       progress: 90,
@@ -432,6 +435,7 @@ describe('useLiveSync', () => {
     const queryClient = new QueryClient()
     const seeded: RecipeImportDto = {
       id: 'imp-err',
+      groupId: 'g1',
       source: 'url',
       status: 'running',
       progress: 10,

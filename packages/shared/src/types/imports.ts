@@ -165,16 +165,27 @@ export interface ImportEnqueueResponse {
  *   - `result` parsed from JSON string → `ExtractionResult` when done.
  *     While still queued/running/errored it stays `null`.
  *
- * The `groupId` is NOT on the wire today (the server deliberately
- * leaves it off so the import status endpoint is cheap), so this DTO
- * also omits it. The progress page reads the groupId from the
- * `ExtractionResult.recipe.source_url`? — no, from the import
- * record's group scoping stashed separately by the client once the
- * enqueue response returns. The progress page therefore receives
- * `groupId` via route state / search params, not via this DTO.
+ * PV4 — the server now includes the full phase-tracking snapshot AND
+ * `groupId` directly on the wire. The previous "groupId is route-state
+ * only" comment (and the BUG-012 redirect fragility that entailed) is
+ * gone; the auto-redirect on Done now works reliably even after reload
+ * or a new-tab deep-link.
+ *
+ * Phase-related fields stay optional on the TS type to keep the union
+ * compatible with the historic SignalR-only-populates-these path in
+ * `useLiveSync` (which seeds the cache before the first poll completes).
+ * The REST endpoint always populates them now, so the "?" is purely
+ * defensive against the SignalR-first race.
  */
 export interface RecipeImportDto {
   id: string
+  /**
+   * PV4 — target group for the import. Present on every wire response
+   * (the .NET endpoint owner-check already loaded the row). Used by the
+   * progress page to redirect to `/groups/{groupId}/recipes/new` on Done
+   * without depending on fragile navigation-state / sessionStorage.
+   */
+  groupId: string
   source: ImportSourceKind
   status: ImportStatus
   /** Integer 0–100 (weighted across all phases). */
@@ -187,11 +198,8 @@ export interface RecipeImportDto {
   completedAt: string | null
   /**
    * PV3 — phase-aware progress fields. Populated from the SignalR
-   * `RecipeImportProgressChanged` event (see {@link ./recipeImport.ts}).
-   * The REST `GET /api/imports/:id` endpoint currently does NOT expose
-   * these fields, so they're optional on the normalised client DTO and
-   * filled in only as SignalR events arrive. Defaults chosen to render
-   * a sensible "queued" UI before the first event lands.
+   * `RecipeImportProgressChanged` event (see {@link ./recipeImport.ts})
+   * AND (PV4) from `GET /api/imports/:id` directly.
    */
   phase?: RecipeImportPhase
   /** 0–100 progress within the current phase. */

@@ -7,7 +7,9 @@ import type {
   ImportStatus,
   ImportUrlRequest,
   RecipeImportDto,
+  RecipeImportPhase,
 } from '@familien-kochbuch/shared'
+import { RECIPE_IMPORT_PHASES } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**
@@ -57,9 +59,16 @@ async function throwApiError(response: Response): Promise<never> {
  * TitleCase enum name (`"Queued"`, `"Url"`) and `result` is either
  * `null` or a serialised JSON string. `mapStatusResponse` normalises
  * both.
+ *
+ * PV4 additions: `groupId` (fixes BUG-012's auto-redirect fragility)
+ * plus the full phase-tracking snapshot (`phase`, `phaseProgress`,
+ * `progressLabel`, `attemptNumber`, bytes/segments counts,
+ * `lastProgressAt`). `phase` travels in the same snake-case wire form
+ * the SignalR event and Python callback use.
  */
-interface ImportStatusResponseWire {
+export interface ImportStatusResponseWire {
   id: string
+  groupId: string
   source: string
   status: string
   progress: number
@@ -68,6 +77,15 @@ interface ImportStatusResponseWire {
   error: string | null
   createdAt: string
   completedAt: string | null
+  phase: string
+  phaseProgress: number
+  progressLabel: string | null
+  attemptNumber: number
+  bytesDownloaded: number | null
+  bytesTotal: number | null
+  segmentsDone: number | null
+  segmentsTotal: number | null
+  lastProgressAt: string
 }
 
 function normaliseStatus(raw: string): ImportStatus {
@@ -88,6 +106,23 @@ function normaliseSource(raw: string): ImportSourceKind {
   return 'url'
 }
 
+/**
+ * Guards the wire `phase` string against the known snake-case union
+ * exported as {@link RECIPE_IMPORT_PHASES}. An unknown wire value
+ * (future-server-before-deploy-propagates, or a bad proxy) collapses
+ * to `'error'` so the UI shows the terminal branch instead of silently
+ * drifting into an "undefined phase" visual. A missing/blank wire value
+ * collapses to `'queued'` — the sensible pre-first-callback default and
+ * what the backend ships on a freshly-created import before any phase
+ * update lands.
+ */
+function normalisePhase(raw: string | null | undefined): RecipeImportPhase {
+  if (raw == null || raw === '') return 'queued'
+  const lower = raw.toLowerCase()
+  const match = (RECIPE_IMPORT_PHASES as readonly string[]).includes(lower)
+  return match ? (lower as RecipeImportPhase) : 'error'
+}
+
 export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportDto {
   let result: ExtractionResult | null = null
   if (wire.result != null) {
@@ -102,6 +137,7 @@ export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportD
   }
   return {
     id: wire.id,
+    groupId: wire.groupId,
     source: normaliseSource(wire.source),
     status: normaliseStatus(wire.status),
     progress: wire.progress,
@@ -110,6 +146,18 @@ export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportD
     errorMessage: wire.error,
     createdAt: wire.createdAt,
     completedAt: wire.completedAt,
+    // PV4 — phase-tracking snapshot. The endpoint always populates
+    // these now; the TS type keeps them optional for SignalR-first
+    // race where the live cache seed has not yet happened.
+    phase: normalisePhase(wire.phase),
+    phaseProgress: wire.phaseProgress,
+    progressLabel: wire.progressLabel,
+    attemptNumber: wire.attemptNumber,
+    bytesDownloaded: wire.bytesDownloaded,
+    bytesTotal: wire.bytesTotal,
+    segmentsDone: wire.segmentsDone,
+    segmentsTotal: wire.segmentsTotal,
+    lastProgressAt: wire.lastProgressAt,
   }
 }
 

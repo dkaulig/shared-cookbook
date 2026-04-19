@@ -51,21 +51,48 @@ describe('useEnqueueUrlImport', () => {
   })
 })
 
+// PV4 — every status response carries the full phase-tracking snapshot
+// + groupId. Helper keeps the individual tests focused on the single
+// field they assert.
+function wirePayload(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: 'imp-x',
+    groupId: 'g-x',
+    source: 'Url',
+    status: 'Running',
+    progress: 0,
+    sourceUrl: 'https://example.com',
+    result: null,
+    error: null,
+    createdAt: '2026-04-18T00:00:00Z',
+    completedAt: null,
+    phase: 'queued',
+    phaseProgress: 0,
+    progressLabel: null,
+    attemptNumber: 1,
+    bytesDownloaded: null,
+    bytesTotal: null,
+    segmentsDone: null,
+    segmentsTotal: null,
+    lastProgressAt: '2026-04-18T00:00:00Z',
+    ...overrides,
+  }
+}
+
 describe('useImportStatus', () => {
   it('returns the normalised DTO on first poll', async () => {
     server.use(
       http.get('/api/imports/imp-1', () =>
-        HttpResponse.json({
-          id: 'imp-1',
-          source: 'Url',
-          status: 'Running',
-          progress: 10,
-          sourceUrl: 'https://example.com',
-          result: null,
-          error: null,
-          createdAt: '2026-04-18T00:00:00Z',
-          completedAt: null,
-        }),
+        HttpResponse.json(
+          wirePayload({
+            id: 'imp-1',
+            groupId: 'g-1',
+            status: 'Running',
+            progress: 10,
+            phase: 'downloading',
+            phaseProgress: 50,
+          }),
+        ),
       ),
     )
     const { result } = renderHook(() => useImportStatus('imp-1'), {
@@ -92,44 +119,44 @@ describe('useImportStatus', () => {
         // hook must stop polling as soon as it sees "done", so we
         // should never see more than 2 calls (one running, one done).
         if (calls === 1) {
-          return HttpResponse.json({
-            id: 'imp-2',
-            source: 'Url',
-            status: 'Running',
-            progress: 50,
-            sourceUrl: 'https://example.com',
-            result: null,
-            error: null,
-            createdAt: '2026-04-18T00:00:00Z',
-            completedAt: null,
-          })
+          return HttpResponse.json(
+            wirePayload({
+              id: 'imp-2',
+              groupId: 'g-2',
+              status: 'Running',
+              progress: 50,
+              phase: 'transcribing',
+              phaseProgress: 50,
+            }),
+          )
         }
-        return HttpResponse.json({
-          id: 'imp-2',
-          source: 'Url',
-          status: 'Done',
-          progress: 100,
-          sourceUrl: 'https://example.com',
-          result: JSON.stringify({
-            recipe: {
-              title: 'T',
-              description: null,
-              servings: null,
-              difficulty: null,
-              prep_minutes: null,
-              cook_minutes: null,
-              ingredients: [],
-              steps: [],
-              tags: [],
-              source_url: 'https://example.com',
-              thumbnail_url: null,
-            },
-            confidence: { overall: 'high', notes: [] },
+        return HttpResponse.json(
+          wirePayload({
+            id: 'imp-2',
+            groupId: 'g-2',
+            status: 'Done',
+            progress: 100,
+            result: JSON.stringify({
+              recipe: {
+                title: 'T',
+                description: null,
+                servings: null,
+                difficulty: null,
+                prep_minutes: null,
+                cook_minutes: null,
+                ingredients: [],
+                steps: [],
+                tags: [],
+                source_url: 'https://example.com',
+                thumbnail_url: null,
+              },
+              confidence: { overall: 'high', notes: [] },
+            }),
+            completedAt: '2026-04-18T00:00:30Z',
+            phase: 'done',
+            phaseProgress: 100,
           }),
-          error: null,
-          createdAt: '2026-04-18T00:00:00Z',
-          completedAt: '2026-04-18T00:00:30Z',
-        })
+        )
       }),
     )
 
@@ -167,17 +194,16 @@ describe('useImportStatus', () => {
       server.use(
         http.get('/api/imports/imp-sig', () => {
           calls += 1
-          return HttpResponse.json({
-            id: 'imp-sig',
-            source: 'Url',
-            status: 'Running',
-            progress: 50,
-            sourceUrl: 'https://example.com',
-            result: null,
-            error: null,
-            createdAt: '2026-04-18T00:00:00Z',
-            completedAt: null,
-          })
+          return HttpResponse.json(
+            wirePayload({
+              id: 'imp-sig',
+              groupId: 'g-sig',
+              status: 'Running',
+              progress: 50,
+              phase: 'transcribing',
+              phaseProgress: 50,
+            }),
+          )
         }),
       )
       clearImportLiveEvents()
@@ -213,29 +239,30 @@ describe('useImportStatus', () => {
       http.get('/api/imports/imp-3', () => {
         calls += 1
         if (calls === 1) {
-          return HttpResponse.json({
-            id: 'imp-3',
-            source: 'Url',
-            status: 'Running',
-            progress: 20,
-            sourceUrl: 'https://example.com',
-            result: null,
-            error: null,
-            createdAt: '2026-04-18T00:00:00Z',
-            completedAt: null,
-          })
+          return HttpResponse.json(
+            wirePayload({
+              id: 'imp-3',
+              groupId: 'g-3',
+              status: 'Running',
+              progress: 20,
+              phase: 'transcribing',
+              phaseProgress: 10,
+            }),
+          )
         }
-        return HttpResponse.json({
-          id: 'imp-3',
-          source: 'Url',
-          status: 'Error',
-          progress: 20,
-          sourceUrl: 'https://example.com',
-          result: null,
-          error: 'Privat oder nicht verfügbar.',
-          createdAt: '2026-04-18T00:00:00Z',
-          completedAt: '2026-04-18T00:00:05Z',
-        })
+        return HttpResponse.json(
+          wirePayload({
+            id: 'imp-3',
+            groupId: 'g-3',
+            status: 'Error',
+            progress: 20,
+            error: 'Privat oder nicht verfügbar.',
+            completedAt: '2026-04-18T00:00:05Z',
+            phase: 'error',
+            phaseProgress: 0,
+            progressLabel: 'Fehler',
+          }),
+        )
       }),
     )
 

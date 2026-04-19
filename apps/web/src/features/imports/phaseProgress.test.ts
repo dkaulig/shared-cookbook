@@ -145,6 +145,7 @@ describe('derivePhase', () => {
     expect(
       derivePhase({
         id: 'i1',
+        groupId: 'g1',
         source: 'url',
         status: 'running',
         progress: 50,
@@ -161,6 +162,7 @@ describe('derivePhase', () => {
   it('falls back to a coarse phase from status when phase is absent', () => {
     const base = {
       id: 'i1',
+      groupId: 'g1',
       source: 'url' as const,
       progress: 0,
       sourceUrl: null,
@@ -184,6 +186,7 @@ describe('resolveLabel', () => {
       resolveLabel(
         {
           id: 'i1',
+          groupId: 'g1',
           source: 'url',
           status: 'running',
           progress: 45,
@@ -208,6 +211,7 @@ describe('resolveLabel', () => {
       resolveLabel(
         {
           id: 'i1',
+          groupId: 'g1',
           source: 'url',
           status: 'running',
           progress: 45,
