@@ -266,7 +266,14 @@ auch im Überblick sehen)
 
 ## BUG-011 · Foto-Import failed 422 "python extractor returned http 422"
 **Reported:** 2026-04-19 (user tested with 2 photos)
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `ExtractRecipeFromPhotosJob`
+absolutiziert path-absolute Foto-URLs (`/api/photos/...?sig=...&exp=...`)
+mit `App:FrontendBaseUrl` Prefix bevor sie an Python gehen. Pydantic
+HttpUrl validiert wieder + Azure Vision kann die URLs öffentlich fetchen.
+8 neue Regressions-Tests: 5 .NET (`BUG011_*` in `ExtractRecipeFromPhotosJobTests`,
+inkl. backward-compat für bereits-absolute URLs + Theory für die
+URL-Promotion + Reject-Tests) + 2 Python (`test_extract_photos_endpoint`:
+relativ→422, absolut→200))
 **Severity:** CRITICAL — complete photo-import pipeline broken in prod
 **Symptom:** User lädt 2 Fotos hoch, klickt Import, Hangfire-Job failed
 mit `python extractor returned http 422`. Prod-Logs bestätigen:

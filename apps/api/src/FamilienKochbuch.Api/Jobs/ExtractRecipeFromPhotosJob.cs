@@ -4,6 +4,7 @@ using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace FamilienKochbuch.Api.Jobs;
 
@@ -27,11 +28,16 @@ public class ExtractRecipeFromPhotosJob
 {
     private readonly AppDbContext _db;
     private readonly PythonExtractorRunner _runner;
+    private readonly IOptions<AppOptions> _appOptions;
 
-    public ExtractRecipeFromPhotosJob(AppDbContext db, PythonExtractorRunner runner)
+    public ExtractRecipeFromPhotosJob(
+        AppDbContext db,
+        PythonExtractorRunner runner,
+        IOptions<AppOptions> appOptions)
     {
         _db = db;
         _runner = runner;
+        _appOptions = appOptions;
     }
 
     public async Task ExecuteAsync(Guid importId, CancellationToken ct)
@@ -50,12 +56,29 @@ public class ExtractRecipeFromPhotosJob
         // list doesn't linger.
         var photoUrls = ReadPhotoUrls(import);
 
+        // BUG-011: the frontend's signed-URL builder produces
+        // path-absolute URLs like "/api/photos/recipes/{id}?sig=…&exp=…"
+        // because they're meant to be consumed by the same browser that
+        // already knows the origin. .NET happily forwards them — but
+        // Python's ExtractPhotosRequest declares `photo_urls: list[HttpUrl]`,
+        // and pydantic's HttpUrl is strict about absolute http(s) schemes,
+        // so a relative path round-trips as 422. Worse: even if the
+        // string parsed, Azure Vision needs a publicly fetchable URL,
+        // not a docker-internal one. So before we hand off, we promote
+        // each URL to absolute by prefixing the configured FrontendBaseUrl
+        // (in prod: https://${CADDY_DOMAIN}). Already-absolute URLs pass
+        // through unchanged so existing tests + manual callers stay
+        // backward-compatible.
+        var absoluteUrls = photoUrls
+            .Select(u => AbsolutizePhotoUrl(u, _appOptions.Value.FrontendBaseUrl))
+            .ToList();
+
         await _runner.RunAsync(
             import,
             relativeUrl: "/extract/photos",
             buildBody: i => new
             {
-                photo_urls = photoUrls,
+                photo_urls = absoluteUrls,
                 hint = new
                 {
                     group_id = i.GroupId.ToString("D"),
@@ -63,6 +86,46 @@ public class ExtractRecipeFromPhotosJob
                 },
             },
             ct);
+    }
+
+    /// <summary>
+    /// Promotes a frontend-issued signed photo URL to an absolute
+    /// http(s) URL that pydantic <c>HttpUrl</c> accepts and Azure Vision
+    /// can fetch. Leaves URLs that already start with <c>http://</c> or
+    /// <c>https://</c> unchanged so externally-supplied URLs (and
+    /// existing tests) continue to work.
+    ///
+    /// Path-absolute inputs (<c>/api/photos/...</c>) are concatenated
+    /// onto <paramref name="frontendBaseUrl"/> after stripping a trailing
+    /// slash so the result has exactly one separator. Path-relative or
+    /// blank inputs throw — they shouldn't reach this point because
+    /// <c>IsSignedPhotoUrl</c> already rejected them at the enqueue
+    /// edge, but failing loud here makes any future regression
+    /// observable in the Hangfire failure log instead of silently
+    /// producing a 404 on Azure's side.
+    /// </summary>
+    internal static string AbsolutizePhotoUrl(string raw, string frontendBaseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            throw new InvalidOperationException("photo URL is blank.");
+
+        if (raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return raw;
+        }
+
+        if (!raw.StartsWith('/'))
+            throw new InvalidOperationException(
+                $"photo URL '{raw}' is neither absolute http(s) nor path-absolute; "
+                + "the enqueue endpoint should have rejected it.");
+
+        if (string.IsNullOrWhiteSpace(frontendBaseUrl))
+            throw new InvalidOperationException(
+                "App:FrontendBaseUrl is not configured; cannot promote relative photo URL "
+                + $"'{raw}' to absolute. Set the env var App__FrontendBaseUrl.");
+
+        return $"{frontendBaseUrl.TrimEnd('/')}{raw}";
     }
 
     private static IReadOnlyList<string> ReadPhotoUrls(RecipeImport import)
