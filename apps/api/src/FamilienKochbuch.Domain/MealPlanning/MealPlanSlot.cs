@@ -94,25 +94,25 @@ public sealed class MealPlanSlot
         if (candidate.Id == Id) return false;
         if (candidate.MealPlanId != MealPlanId) return false;
 
-        // Walk the candidate's parent chain — if we meet ourselves, the new
-        // link would close a cycle. Cap the walk length defensively: the
-        // chain is in-memory and we expect < 10 hops, so 100 is a safe
-        // guard without allocating a HashSet for the common case.
-        var cursor = candidate;
-        var hops = 0;
-        while (cursor.ParentSlot is not null && hops < 100)
+        // Walk the candidate's parent chain tracking visited IDs; if we hit
+        // ourselves or a node we've already seen, a cycle would form.
+        var visited = new HashSet<Guid> { candidate.Id };
+        for (var cursor = candidate.ParentSlot; cursor is not null; cursor = cursor.ParentSlot)
         {
-            if (cursor.ParentSlot.Id == Id) return false;
-            cursor = cursor.ParentSlot;
-            hops++;
+            if (cursor.Id == Id) return false;
+            if (!visited.Add(cursor.Id)) return false;
         }
-
         return true;
     }
 
     /// <summary>
     /// Attaches this slot to a meal-prep parent. Enforces the
     /// acyclicity + same-plan invariants. Pass <c>null</c> to detach.
+    /// Note: cross-plan parent is enforced ONLY here in the domain. The
+    /// endpoint layer (P3-1 PATCH) MUST reload the candidate via
+    /// <c>.Include(s =&gt; s.MealPlan)</c> and call <see cref="SetParent"/>
+    /// — never assign <see cref="ParentSlotId"/> directly on a detached
+    /// entity or the guard is bypassed.
     /// </summary>
     public void SetParent(MealPlanSlot? parent, DateTimeOffset at)
     {
