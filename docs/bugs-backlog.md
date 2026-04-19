@@ -491,3 +491,117 @@ dass `input[type=file]` KEIN `capture` attribute hat, oder falls zwei
 separate Inputs: assert beide vorhanden mit entsprechend
 unterschiedlicher Config. Plus Snapshot damit es nicht versehentlich
 zurückkommt.
+
+---
+
+## BUG-016 · Deploy v0.4.0: docker-network DNS kaputt nach Subnet-Change (recovery-flow needed)
+**Reported:** 2026-04-19 (post v0.4.0 deploy — prod crashed ~2 min)
+**Status:** `[ ] open` (runbook-documentation-only needed, fix = deploy.yml enhancement)
+**Severity:** operational — deploy succeeded at GHA-level but api container
+crash-looped bis manual intervention.
+**Symptom:** PV1 hatte `networks.default.ipam.config.subnet: 172.28.0.0/16`
+ergänzt (docker-compose pin). Nach deploy.yml "docker compose up -d":
+- Docker migrated containers ins neue subnet (alle 172.28.0.2-8)
+- **ABER**: embedded-DNS (127.0.0.11) konnte Container-Hostnames NICHT
+  mehr auflösen — `nslookup postgres` from JEDEM container → SERVFAIL
+- api crashed beim Boot weil Hangfire `UsePostgreSqlStorage` im DI-init
+  `NpgsqlConnection.Open()` machte → DNS resolution failed → SIGSEGV
+  (exit 139) → restart-loop
+**Mitigation applied:** `docker compose -f ... down` + `up -d` →
+Network wurde komplett neu gebaut → DNS repariert → alle Container
+healthy. **Downtime**: ~2-3 min bis manuelle Intervention.
+**Root cause insight:** Docker's `compose up` mit geänderter Netzwerk-
+IPAM-Config migriert bestehende Container OHNE das embedded-DNS-state
+zu refreshen. Bug / undocumented behavior. Compose `down`+`up` ist der
+sichere Weg bei Network-Config-Änderungen.
+**Likely fix (deploy.yml enhancement):**
+Erweitere den SSH-deploy-step um eine Hash-Compare-Logik:
+```bash
+# Compute hash of docker-compose.prod.yml
+NEW_HASH=$(sha256sum /srv/familien-kochbuch/docker-compose.prod.yml | cut -d' ' -f1)
+LAST_HASH=$(cat /srv/familien-kochbuch/.last-compose-hash 2>/dev/null || echo "")
+if [ "$NEW_HASH" != "$LAST_HASH" ]; then
+    echo "compose file changed → full recreate"
+    docker compose -f docker-compose.prod.yml down
+fi
+docker compose -f docker-compose.prod.yml up -d
+echo "$NEW_HASH" > /srv/familien-kochbuch/.last-compose-hash
+```
+Trade-off: 20-30s downtime bei compose-file-Changes vs. zero-downtime
+bei reinen Image-Updates. Selten passiert + macht Infra-Bugs vermeidbar.
+**Priority:** medium (one-off-scenario, aber würde vergleichbare
+Vorfälle künftig verhindern)
+**Test-Strategie:** Deploy-workflow-simulation via `act` (GH Actions
+local runner) mit compose-file-Change + zweiter Deploy ohne Change →
+assert dass down+up nur beim ersten fires. Oder: simpler Shell-Test
+des Hash-Compare-Blocks. Docs-only Fallback: Runbook in docs/ops.md
+mit "Wenn Prod post-deploy rot ist: ssh + `compose down && up -d`".
+**Add to docs/ops.md**: dedicated recovery section für diesen Fall.
+
+---
+
+## BUG-017 · Recipe-Form nach Auto-Redirect leer (Race Condition)
+**Reported:** 2026-04-19 (user tested post-v0.4.0)
+**Status:** `[ ] open` (fix in progress)
+**Severity:** HIGH — blockiert primary video-import UX
+**Symptom:** Nach Video-Import Done → Auto-Redirect zu
+`/groups/{g}/recipes/new?importId=X` → **Form komplett leer**.
+ABER: wenn User dieselbe URL manuell/bookmarked öffnet → Form IST
+prefilled.
+**Root cause:** `RecipeFormInner` verwendet `useState(prefill?.title ?? '')`
+als initialisizer. `prefill` wird im Wrapper aus
+`importQuery.data?.result` berechnet. Beim Auto-Redirect-Pfad hat die
+TanStack-Cache evtl. einen transient-state wo `status === 'done'`
+(erforderlich um redirect zu triggern) ABER `result` null ist —
+SignalR-`setQueryData`-Merges können cache touchen ohne result zu
+setzen. Wrapper rendert Inner mit `prefill === undefined` → useState
+committed leere values → spätere rerender mit populated prefill
+UPDATEN useState NICHT (nur initial wird einmalig evaluiert).
+**Likely fix (im Wrapper vor Inner-Render):**
+```tsx
+if (importId && importQuery.isLoading) return <LoadingSpinner />
+// NEW: block Inner-render bis result tatsächlich da ist
+if (importId && importQuery.data?.status === 'done' && !importQuery.data.result) {
+  // Cache hat done aber noch kein result — warte auf next poll
+  return <LoadingSpinner />
+}
+// Optional: handle error state explicitly
+if (importId && importQuery.data?.status === 'error') {
+  return <ErrorPanel message={importQuery.data.errorMessage} />
+}
+```
+**Test-Strategie:** Component-Test: render RecipeFormPage mit
+importId + seedCache({status:'done', result:null}) → assert
+LoadingSpinner rendered, nicht leeres Form. Dann seed mit
+{status:'done', result:{...}} → assert form prefilled. 
+Zusätzlich: Integration-Test: simulate auto-redirect path mit
+SignalR-event + polling-race → assert Inner rendert EINMAL mit
+vollem prefill.
+
+---
+
+## BUG-018 · Video-Thumbnail wird nicht als Recipe-Photo attached
+**Reported:** 2026-04-19 (feature-request)
+**Status:** `[ ] open`
+**Severity:** LOW (feature-request, nicht bug)
+**Symptom:** Nach Video-Import hat das Rezept keine Fotos. User
+erwartet mindestens den Video-Thumbnail als Recipe-Hero-Image.
+**Current**: `ExtractedRecipe.thumbnail_url` wird von yt-dlp gezogen
+(z.B. `https://scontent-fra3-2.xx.fbcdn.net/...`), landet auch im
+`ResultJson`, aber RecipeFormPage/Inner zieht ihn nicht in die
+PhotoUploadGrid.
+**Likely fix**:
+- Backend: neuer Step im `ExtractRecipeFromUrlJob` der den
+  `thumbnail_url` downloaded + via `IPhotoStorage` als SeaweedFS-
+  Objekt speichert + das Recipe-Row auf `thumbnail_photo_id` referenzing
+  setzt ODER als Staged-Photo via PF1 promote-flow anhängt.
+- Frontend: prefill berücksichtigt `thumbnail_url` + zeigt ihn als
+  Staged-Photo im PhotoUploadGrid; user kann ihn löschen wenn nicht
+  gewünscht.
+- Edge: FB-CDN-URLs können ablaufen — beim Import-done-Zeitpunkt
+  sofort downloaden + persist, nicht nur URL referenzieren.
+**Priority:** LOW (nice-to-have); größerer Scope — braucht neue
+Download-Logic + Staged-Photo-Integration. Eigener kleiner Slice
+"IMPORT-THUMB" post-Bug-Sweep.
+**Test-Strategie:** E2E-Test mit einem bekannten public Video-URL,
+assert dass nach Import das Recipe mindestens 1 Photo hat.
