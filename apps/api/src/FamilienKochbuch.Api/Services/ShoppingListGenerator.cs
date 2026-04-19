@@ -246,39 +246,64 @@ public static class ShoppingListGenerator
             existing.Source = ShoppingListItemSource.CarriedOver;
         }
 
-        // Numeric sum path — both have a numeric bucket, we just
-        // add.
-        if (existing.NumericQuantity is { } e && incoming.NumericQuantity is { } i)
+        // Numeric-only merge path: both sides parse as a decimal, so
+        // we can sum them safely (same unit by definition of the
+        // merge key).
+        if (existing.NumericQuantity is not null && incoming.NumericQuantity is not null)
         {
-            existing.NumericQuantity = e + i;
+            MergeNumericInto(existing, incoming);
             return;
         }
 
-        // If existing is numeric but incoming is freeform, append the
-        // freeform as a note — we can't safely sum "eine Prise" with
-        // 200g. Same the other way around: preserve the first
-        // occurrence's quantity, append the second as a note.
+        // Everything else goes through the freeform path: preserve
+        // the first occurrence's quantity and append the second as a
+        // "+ X" note — we can't safely sum "eine Prise" with 200g.
+        MergeFreeformInto(existing, incoming);
+    }
+
+    /// <summary>
+    /// Both sides carry a numeric quantity and share the merge key
+    /// (same lower-cased name + unit). Sum them into existing; the
+    /// formatted <see cref="AggregatedItem.QuantityString"/> will
+    /// pick the new numeric value up automatically.
+    /// </summary>
+    private static void MergeNumericInto(AggregatedItem existing, AggregatedItem incoming)
+    {
+        existing.NumericQuantity = existing.NumericQuantity!.Value + incoming.NumericQuantity!.Value;
+    }
+
+    /// <summary>
+    /// At least one side is freeform (or both empty). Keep the
+    /// existing quantity untouched and append the incoming quantity
+    /// to the Note as "+ X" so the user still sees it. If neither
+    /// side has any quantity yet, prefer whatever the incoming row
+    /// brought so at least some measure lands on the list.
+    /// </summary>
+    private static void MergeFreeformInto(AggregatedItem existing, AggregatedItem incoming)
+    {
+        // existing numeric + incoming freeform → append freeform as note.
         if (existing.NumericQuantity is not null && incoming.FreeformQuantity is { } iff)
         {
             existing.Note = AppendAdditionalQuantityNote(existing.Note, iff);
             return;
         }
 
+        // existing freeform + incoming numeric → format numeric, append as note.
         if (existing.FreeformQuantity is not null && incoming.NumericQuantity is { } in2)
         {
             existing.Note = AppendAdditionalQuantityNote(existing.Note, FormatNumericQuantity(in2));
             return;
         }
 
+        // existing freeform + incoming freeform → append incoming freeform as note.
         if (existing.FreeformQuantity is not null && incoming.FreeformQuantity is { } iff2)
         {
             existing.Note = AppendAdditionalQuantityNote(existing.Note, iff2);
             return;
         }
 
-        // Existing has no quantity at all and incoming brings one —
-        // prefer the incoming so at least some measure lands on the
-        // list.
+        // Neither side had a quantity — prefer incoming so the user
+        // at least sees one measure.
         if (existing.NumericQuantity is null && existing.FreeformQuantity is null)
         {
             existing.NumericQuantity = incoming.NumericQuantity;
@@ -286,17 +311,35 @@ public static class ShoppingListGenerator
         }
     }
 
+    /// <summary>
+    /// Concatenates a freeform "+ X" fragment onto the existing note,
+    /// deduplicating back-to-back regenerates that produce the same
+    /// clash, and capping the total length at
+    /// <see cref="ShoppingListItem.NoteMaxLength"/> so a long-running
+    /// regen loop cannot push the domain constructor past its limit
+    /// and throw (would DoS /generate).
+    /// </summary>
     private static string AppendAdditionalQuantityNote(string? existingNote, string addition)
     {
         var fragment = $"+ {addition}";
+        string candidate;
         if (string.IsNullOrWhiteSpace(existingNote))
-            return fragment;
+        {
+            candidate = fragment;
+        }
+        else if (existingNote.Contains(fragment, StringComparison.Ordinal))
+        {
+            // Already present — don't grow the note on repeat regens.
+            return existingNote;
+        }
+        else
+        {
+            candidate = $"{existingNote}; {fragment}";
+        }
 
-        // Avoid duplicating the same addition if a user triggers two
-        // back-to-back regenerates that produce the same clash.
-        return existingNote.Contains(fragment, StringComparison.Ordinal)
-            ? existingNote
-            : $"{existingNote}; {fragment}";
+        return candidate.Length <= ShoppingListItem.NoteMaxLength
+            ? candidate
+            : candidate[..(ShoppingListItem.NoteMaxLength - 1)] + "…";
     }
 
     private static bool TryParseInvariantDecimal(string? s, out decimal value)
@@ -314,15 +357,15 @@ public static class ShoppingListGenerator
     /// Formats a decimal quantity back to a user-friendly string.
     /// Trims trailing zeros so 2.000 → "2" and 1.250 → "1.25". Uses
     /// invariant culture so the wire format never shifts with the
-    /// user's locale ("3,5" vs "3.5").
+    /// user's locale ("3,5" vs "3.5"). The "0.###############" format
+    /// string alone strips trailing zeros — no division trick needed;
+    /// attempting one with a 30-digit divisor is a decimal-precision
+    /// trap that introduces rounding noise rather than removing it.
+    /// 15 fractional digits cover Ingredient.Quantity's numeric(12,3)
+    /// precision with headroom for the scaling multiplication.
     /// </summary>
     private static string FormatNumericQuantity(decimal value)
     {
-        // Normalize — strips trailing zeros while preserving sign.
-        var normalized = value / 1.000000000000000000000000000000000m;
-        // "0.###############" keeps up to 15 fractional digits, which
-        // covers Ingredient.Quantity's numeric(12,3) precision with
-        // headroom for the scaling multiplication.
-        return normalized.ToString("0.###############", CultureInfo.InvariantCulture);
+        return value.ToString("0.###############", CultureInfo.InvariantCulture);
     }
 }

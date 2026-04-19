@@ -95,7 +95,13 @@ public static class ShoppingListEndpoints
             .WithTags("ShoppingList")
             .RequireAuthorization();
         plan.MapGet("/shopping-list", GetAsync);
-        plan.MapPost("/shopping-list/generate", GenerateAsync);
+        // POST /generate is per-user rate-limited (10/min) to blunt
+        // runaway-client loops or malicious repeat calls — the regen
+        // path walks all slots + recipes + ingredients + existing
+        // list rows, so it's the most expensive endpoint in this
+        // group. See Program.cs → RateLimitPolicies.Generate.
+        plan.MapPost("/shopping-list/generate", GenerateAsync)
+            .RequireRateLimiting(RateLimitPolicies.Generate);
 
         var list = app.MapGroup("/api/shopping-lists/{listId:guid}")
             .WithTags("ShoppingList")
@@ -292,6 +298,35 @@ public static class ShoppingListEndpoints
 
         var recomputed = ShoppingListGenerator.Generate(plan, recipesById, carryoverCandidates: null);
 
+        ApplyRegenMerge(db, existing, existingItems, recomputed, now);
+
+        existing.MarkRegenerated(now);
+        await db.SaveChangesAsync(ct);
+
+        var refreshed = await db.ShoppingListItems
+            .Where(i => i.ShoppingListId == existing.Id)
+            .ToListAsync(ct);
+        return Results.Ok(ToDto(existing, refreshed));
+    }
+
+    /// <summary>
+    /// Three-phase merge applied on regen: (1) update-in-place
+    /// existing FromPlan/CarriedOver rows that still match a
+    /// recomputed (name, unit) key so user-driven flags like
+    /// <c>IsChecked</c> survive; (2) insert recomputed rows that
+    /// don't match anything existing (new ingredient added to a
+    /// slot); (3) drop stale FromPlan/CarriedOver rows whose slot
+    /// was deleted. Manual items always survive. Mutates
+    /// <paramref name="existingItems"/> and the <paramref name="db"/>
+    /// change tracker in place.
+    /// </summary>
+    private static void ApplyRegenMerge(
+        AppDbContext db,
+        ShoppingList existing,
+        List<ShoppingListItem> existingItems,
+        IReadOnlyList<ShoppingListGenerator.ComputedShoppingItem> recomputed,
+        DateTimeOffset now)
+    {
         // Build a lookup keyed by (name.lower, unit.lower) so we can
         // match recomputed rows to existing rows for in-place update.
         static string KeyFor(string name, string? unit) =>
@@ -307,10 +342,11 @@ public static class ShoppingListEndpoints
             .ToDictionary(g => g.Key, g => g.First());
 
         var keepIds = new HashSet<Guid>();
-        // Manual items always survive regen.
+        // Phase 0: manual items always survive regen.
         foreach (var i in existingItems.Where(i => i.Source == ShoppingListItemSource.Manual))
             keepIds.Add(i.Id);
 
+        // Phase 1 + 2: update-in-place or insert new.
         foreach (var c in recomputed)
         {
             var key = KeyFor(c.Name, c.Unit);
@@ -346,21 +382,14 @@ public static class ShoppingListEndpoints
             }
         }
 
-        // Drop stale FromPlan / CarriedOver rows — the user removed a
-        // slot so the aggregated ingredient isn't needed anymore. We
-        // only drop non-manual rows to preserve user-typed entries.
+        // Phase 3: drop stale FromPlan / CarriedOver rows — the user
+        // removed a slot so the aggregated ingredient isn't needed
+        // anymore. We only drop non-manual rows to preserve user-
+        // typed entries.
         var toDelete = existingItems
             .Where(i => i.Source != ShoppingListItemSource.Manual && !keepIds.Contains(i.Id))
             .ToList();
         db.ShoppingListItems.RemoveRange(toDelete);
-
-        existing.MarkRegenerated(now);
-        await db.SaveChangesAsync(ct);
-
-        var refreshed = await db.ShoppingListItems
-            .Where(i => i.ShoppingListId == existing.Id)
-            .ToListAsync(ct);
-        return Results.Ok(ToDto(existing, refreshed));
     }
 
     // ── POST /api/shopping-lists/{listId}/items ─────────────────────
@@ -377,6 +406,13 @@ public static class ShoppingListEndpoints
 
         var (list, _, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
         if (err is not null) return err;
+
+        // Reject out-of-range enum values: System.Text.Json happily
+        // deserializes any int into an enum, so `{ "category": 9999 }`
+        // would otherwise persist a nonsense bucket that UIs can't
+        // render and downstream sort code can't group.
+        if (body.Category is { } cat && !Enum.IsDefined(typeof(IngredientCategory), cat))
+            return FamilienResults.BadRequest("category.invalid", "Unbekannte Kategorie.");
 
         var now = clock.GetUtcNow();
 
