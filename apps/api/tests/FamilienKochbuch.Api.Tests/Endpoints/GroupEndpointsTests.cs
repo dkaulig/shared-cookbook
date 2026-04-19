@@ -952,6 +952,61 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
 
+    // ── PF3 — outbound email on group-invite create ─────────────────
+
+    [Fact]
+    public async Task CreateGroupInvite_Sends_Mail_To_Invited_User()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("mailer-a@example.com", "Alice");
+        var (bobId, _) = await SignupAndLoginAsync("mailer-b@example.com", "Bob");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Koch-Crew", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        _factory.Email.Clear();
+
+        var invite = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(bobId));
+        Assert.Equal(HttpStatusCode.Created, invite.StatusCode);
+
+        Assert.Single(_factory.Email.GroupInvites);
+        var sent = _factory.Email.LastGroupInvite!;
+        Assert.Equal("mailer-b@example.com", sent.ToEmail);
+        Assert.Equal("Alice", sent.InviterDisplayName);
+        Assert.Equal("Koch-Crew", sent.GroupName);
+        Assert.Contains("/groups?invite=", sent.AcceptUrl);
+    }
+
+    [Fact]
+    public async Task CreateGroupInvite_Still_Returns_201_When_Mail_Delivery_Fails()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("resilient-a@example.com", "Alice");
+        var (bobId, _) = await SignupAndLoginAsync("resilient-b@example.com", "Bob");
+
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var create = await clientA.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Familie", null, null));
+        var group = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        _factory.Email.Clear();
+        _factory.Email.ThrowOnSend = new InvalidOperationException("simulated SMTP failure");
+
+        var invite = await clientA.PostAsJsonAsync($"/api/groups/{group.Id}/invites",
+            new GroupEndpoints.InviteToGroupRequest(bobId));
+        Assert.Equal(HttpStatusCode.Created, invite.StatusCode);
+
+        // Invite row is the source of truth; mail failure must not 5xx.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var saved = await db.GroupInvites
+            .SingleAsync(i => i.GroupId == group.Id && i.InvitedUserId == bobId);
+        Assert.Equal(Domain.Enums.InviteStatus.Pending, saved.Status);
+    }
+
     // ── internal helper ─────────────────────────────────────────────
 
     private async Task AddMembershipAsync(Guid groupId, Guid userId, GroupRole role)

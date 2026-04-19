@@ -3,7 +3,10 @@ using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
+using FamilienKochbuch.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace FamilienKochbuch.Api.Endpoints;
 
@@ -262,6 +265,9 @@ public static class GroupEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        IEmailSender emailSender,
+        IOptions<AppOptions> appOptions,
+        ILogger<GroupInvite> logger,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -278,8 +284,11 @@ public static class GroupEndpoints
         if (body.InvitedUserId == userId)
             return FamilienResults.BadRequest("invalid_input", "Du kannst dich nicht selbst einladen.");
 
-        var invitedExists = await db.Users.AnyAsync(u => u.Id == body.InvitedUserId, ct);
-        if (!invitedExists)
+        var invitedUser = await db.Users
+            .Where(u => u.Id == body.InvitedUserId)
+            .Select(u => new { u.Id, u.Email })
+            .SingleOrDefaultAsync(ct);
+        if (invitedUser is null)
             return FamilienResults.BadRequest("user_not_found", "Nutzer:in nicht gefunden.");
 
         var alreadyMember = await db.GroupMemberships
@@ -297,6 +306,33 @@ public static class GroupEndpoints
         var invite = new GroupInvite(id, userId, body.InvitedUserId, clock.GetUtcNow());
         db.GroupInvites.Add(invite);
         await db.SaveChangesAsync(ct);
+
+        // PF3 — best-effort mail delivery. Group invites always target a
+        // registered user, so their email is on the User row. Mail failures
+        // must not 5xx the endpoint — the invite row remains authoritative
+        // and the invitee will see the pending invite in-app on next login.
+        if (!string.IsNullOrWhiteSpace(invitedUser.Email))
+        {
+            try
+            {
+                var inviterDisplayName = principal.FindFirstValue("displayName")
+                                          ?? principal.FindFirstValue(ClaimTypes.Name)
+                                          ?? "Jemand";
+                var acceptUrl = $"{appOptions.Value.FrontendBaseUrl.TrimEnd('/')}/groups?invite={invite.Id}";
+                await emailSender.SendGroupInviteAsync(
+                    toEmail: invitedUser.Email,
+                    inviterDisplayName: inviterDisplayName,
+                    groupName: group.Name,
+                    acceptUrl: acceptUrl,
+                    ct: ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Group-invite mail delivery failed for inviteId={InviteId}; invitee will still see the invite in-app.",
+                    invite.Id);
+            }
+        }
 
         return Results.Created($"/api/groups/invites/{invite.Id}",
             new GroupInviteDto(invite.Id, invite.GroupId, invite.InvitedUserId,
