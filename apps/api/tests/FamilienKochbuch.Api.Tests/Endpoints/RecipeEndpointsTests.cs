@@ -51,6 +51,9 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         db.RecipeTags.RemoveRange(db.RecipeTags);
         db.Ingredients.RemoveRange(db.Ingredients);
         db.RecipeSteps.RemoveRange(db.RecipeSteps);
+        // PF1 — clear any leftover staged-photo rows between tests so
+        // FK + ownership assertions stay deterministic.
+        db.StagedPhotos.RemoveRange(db.StagedPhotos);
         db.Recipes.RemoveRange(db.Recipes);
         // Custom (group-scoped) tags may accumulate across tests; global
         // seed tags stay.
@@ -834,6 +837,35 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
 
         // Bytes actually landed in the storage fake.
         Assert.True(_factory.Photos.Uploads.ContainsKey(body.PhotoId));
+
+        // PF1 — the response now also carries a non-empty stagedPhotoId
+        // (the StagedPhoto row's domain key) so the create-recipe
+        // promote flow can adopt the blob later.
+        Assert.NotEqual(Guid.Empty, body.StagedPhotoId);
+    }
+
+    [Fact]
+    public async Task UploadStagedPhoto_Inserts_StagedPhoto_Row_Owned_By_Caller()
+    {
+        var (userId, token) = await SignupAndLoginAsync("staged-row@ex.com", "SR");
+        AuthorizeClient(_client, token);
+
+        using var content = BuildPhoto(ValidPngBytes(), "photo.png", "image/png");
+        var response = await _client.PostAsync("/api/recipes/photos/staged", content);
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.StagedPhotoResponse>())!;
+
+        // PF1 — verify the row was actually persisted with the right
+        // owner + storage key, and is NOT yet marked promoted.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var staged = await db.StagedPhotos.SingleAsync(s => s.Id == body.StagedPhotoId);
+        Assert.Equal(userId, staged.UserId);
+        Assert.Equal(body.PhotoId, staged.PhotoId);
+        Assert.Equal(body.SignedUrl, staged.SignedUrl);
+        Assert.Equal("image/png", staged.ContentType);
+        Assert.Null(staged.PromotedAt);
+        Assert.Null(staged.PromotedToRecipeId);
     }
 
     [Fact]

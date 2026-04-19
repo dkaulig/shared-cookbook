@@ -158,14 +158,22 @@ public static class RecipeEndpoints
     public record ForkRecipeRequest(Guid TargetGroupId);
 
     /// <summary>
-    /// Response for <c>POST /api/recipes/photos/staged</c> (P2-8): the
-    /// bare storage path (<c>photoId</c>) plus a freshly-signed public
-    /// URL. The signed URL is what the caller hands back to the import
-    /// endpoint — the <c>photoId</c> is surfaced for symmetry with the
-    /// abandoned promote flow (see the P2-8 commit note for the
-    /// "skip-promote" decision).
+    /// Response for <c>POST /api/recipes/photos/staged</c>.
+    ///
+    /// Original P2-8 contract returned the bare SeaweedFS storage path
+    /// (<c>PhotoId</c>) + the freshly-signed proxy URL. PF1 extends the
+    /// shape with <see cref="StagedPhotoId"/>, the <c>StagedPhoto</c>
+    /// row's domain id — that's what the create-recipe endpoint
+    /// consumes when promoting staged uploads onto a saved recipe.
+    ///
+    /// Both ids coexist deliberately: <see cref="PhotoId"/> stays for
+    /// backward compatibility with anyone who already round-trips it
+    /// (the import-photos flow still serializes the signed URL), and
+    /// <see cref="StagedPhotoId"/> is the new currency for the
+    /// promote handshake. A future slice can deprecate
+    /// <see cref="PhotoId"/> once no client touches it.
     /// </summary>
-    public record StagedPhotoResponse(string PhotoId, string SignedUrl);
+    public record StagedPhotoResponse(string PhotoId, string SignedUrl, Guid StagedPhotoId);
 
     // ── Endpoint wiring ─────────────────────────────────────────────
 
@@ -711,10 +719,12 @@ public static class RecipeEndpoints
     private static async Task<IResult> UploadStagedPhotoAsync(
         [FromForm] IFormFile file,
         ClaimsPrincipal principal,
+        AppDbContext db,
         IPhotoStorage photoStorage,
+        TimeProvider clock,
         CancellationToken ct)
     {
-        if (!TryGetUserId(principal, out _)) return Results.Unauthorized();
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
         if (file is null || file.Length == 0)
             return FamilienResults.BadRequest("file_missing", "Es wurde keine Datei übermittelt.");
@@ -736,7 +746,27 @@ public static class RecipeEndpoints
         }
 
         var signedUrl = photoStorage.GetPublicUrl(path);
-        return Results.Ok(new StagedPhotoResponse(PhotoId: path, SignedUrl: signedUrl));
+
+        // PF1 — persist a StagedPhoto row alongside the SeaweedFS upload
+        // so the create-recipe endpoint's promote flow can verify
+        // ownership + adopt the blob. The endpoint deliberately swallows
+        // the row insert into the success path: if EF blows up after
+        // the blob is in place, surface the error so the caller can
+        // retry — the abandoned blob will get reaped by the hourly
+        // sweep job (PF1 step 4) once the row is missing.
+        var staged = new StagedPhoto(
+            userId: userId,
+            photoId: path,
+            signedUrl: signedUrl,
+            contentType: file.ContentType!,
+            createdAt: clock.GetUtcNow());
+        db.StagedPhotos.Add(staged);
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new StagedPhotoResponse(
+            PhotoId: path,
+            SignedUrl: signedUrl,
+            StagedPhotoId: staged.Id));
     }
 
     // ── DELETE /api/recipes/{id}/photos ─────────────────────────────

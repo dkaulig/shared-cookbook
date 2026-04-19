@@ -127,15 +127,23 @@ export interface ImportPhotosRequest {
 }
 
 /**
- * Response for `POST /api/recipes/photos/staged` (P2-8). The server
- * returns a bare storage path (`photoId`) plus a freshly-signed proxy
- * URL (`signedUrl`). The frontend hands the signed URL back to
- * `POST /api/recipes/import/photos` which verifies the signature
- * before enqueueing the extraction job.
+ * Response for `POST /api/recipes/photos/staged`.
+ *
+ * Original P2-8 contract returned `{ photoId, signedUrl }`: the bare
+ * SeaweedFS storage path + the freshly-signed proxy URL handed off to
+ * `POST /api/recipes/import/photos`. PF1 adds `stagedPhotoId` — the
+ * `StagedPhoto` row's domain key, consumed by the create-recipe
+ * endpoint when promoting the staged blob onto a saved recipe.
+ *
+ * Both ids coexist deliberately: `photoId` stays for backward
+ * compatibility (the import-photos flow still serializes the signed
+ * URL), and `stagedPhotoId` is the new currency for the promote
+ * handshake.
  */
 export interface StagedPhotoResponse {
   photoId: string
   signedUrl: string
+  stagedPhotoId: string
 }
 
 /**
