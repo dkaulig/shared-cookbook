@@ -67,7 +67,13 @@ public static class RecipeEndpoints
         Guid[] TagIds,
         // P2-10: optional per-portion nutrition estimate. ``null`` when
         // the caller can't supply one (manual recipe, legacy client).
-        NutritionEstimateRequest? NutritionEstimate = null);
+        NutritionEstimateRequest? NutritionEstimate = null,
+        // PF1: optional list of StagedPhoto.Id values to "promote" onto
+        // the new recipe. The handler verifies ownership server-side
+        // and copies the underlying SeaweedFS blobs into the recipe's
+        // namespace before attaching them. Failures are reported per
+        // photo via the response's ``partialPhotoFailures`` field.
+        Guid[]? StagedPhotoIds = null);
 
     public record UpdateRecipeRequest(
         string Title,
@@ -149,7 +155,20 @@ public static class RecipeEndpoints
         // P2-10: nullable per-portion nutrition estimate — always
         // present on the response (null when unset) so the frontend
         // never has to probe for a missing key.
-        NutritionEstimateDto? NutritionEstimate);
+        NutritionEstimateDto? NutritionEstimate,
+        // PF1: per-photo failures from the create-recipe promote flow.
+        // Always ``null`` outside the create response — existing
+        // endpoints (Get/Update/Fork/PatchNutrition/MarkCooked) leave
+        // this off so the contract for read paths is unchanged.
+        PartialPhotoFailureDto[]? PartialPhotoFailures = null);
+
+    /// <summary>
+    /// PF1 — surfaces the reason a single staged-photo promote failed
+    /// during create-recipe. The ``StagedPhotoId`` echoes the value the
+    /// caller supplied; the ``Reason`` carries a short German error
+    /// message the frontend banner can display verbatim.
+    /// </summary>
+    public record PartialPhotoFailureDto(Guid StagedPhotoId, string Reason);
 
     public record UploadPhotoResponse(string Url);
 
@@ -248,7 +267,8 @@ public static class RecipeEndpoints
         AppDbContext db,
         Recipe recipe,
         IPhotoStorage photoStorage,
-        CancellationToken ct)
+        CancellationToken ct,
+        PartialPhotoFailureDto[]? partialPhotoFailures = null)
     {
         var creator = await db.Users
             .Where(u => u.Id == recipe.CreatedByUserId)
@@ -314,7 +334,8 @@ public static class RecipeEndpoints
             ingredients,
             steps,
             tags,
-            nutritionDto);
+            nutritionDto,
+            partialPhotoFailures);
     }
 
     // ── POST /api/groups/{groupId}/recipes ──────────────────────────
@@ -327,6 +348,7 @@ public static class RecipeEndpoints
         IPhotoStorage photoStorage,
         IRecipeRevisionService revisionService,
         TimeProvider clock,
+        ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -402,8 +424,186 @@ public static class RecipeEndpoints
         await revisionService.RecordAsync(
             recipe.Id, userId, RecipeChangeType.Created, clock.GetUtcNow(), ct);
 
-        var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
+        // PF1: promote any staged photos onto the freshly-saved recipe.
+        // Sequential (a single failed photo doesn't take down the rest)
+        // and best-effort (the recipe row already exists; the worst
+        // case is the user has to re-upload the photos from the detail
+        // page).
+        var partialFailures = await PromoteStagedPhotosAsync(
+            db, photoStorage, clock,
+            loggerFactory.CreateLogger("FamilienKochbuch.Api.RecipeCreate.Promote"),
+            recipe, userId, body.StagedPhotoIds, ct);
+
+        var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct,
+            partialPhotoFailures: partialFailures.Count == 0 ? null : partialFailures.ToArray());
         return Results.Created($"/api/recipes/{recipe.Id}", detail);
+    }
+
+    /// <summary>
+    /// PF1 — adopt staged photos onto the freshly-saved recipe.
+    ///
+    /// Per the plan's transaction-boundary guidance: the blob copy +
+    /// <see cref="Recipe.AddPhoto"/> + <c>StagedPhoto.MarkPromoted</c>
+    /// happen inside a single <see cref="AppDbContext.SaveChangesAsync"/>
+    /// call so a database failure rolls back both the photo-attach and
+    /// the staged-photo lifecycle change. The blob delete on the
+    /// staged source is best-effort, post-commit — a leftover staged
+    /// blob will be reaped by the hourly sweep job once its row is
+    /// missing (PF1 step 4).
+    ///
+    /// Failure handling: any per-photo error (missing row, ownership
+    /// mismatch, already-promoted, blob-copy 5xx, EF blow-up) is
+    /// captured into the returned partial-failure list and the loop
+    /// continues with the next id. The recipe itself stays alive — we
+    /// don't roll back a saved recipe just because a photo failed.
+    ///
+    /// Ownership filter rationale: a caller passing another user's
+    /// stagedPhotoId silently lands in the partial-failure list with
+    /// reason "Foto gehört nicht dir" rather than a 400. The recipe is
+    /// still valid (the bad id is a frontend bug, not an attack
+    /// surface — the photo's bytes never make it onto the recipe).
+    /// </summary>
+    private static async Task<List<PartialPhotoFailureDto>> PromoteStagedPhotosAsync(
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        TimeProvider clock,
+        ILogger logger,
+        Recipe recipe,
+        Guid userId,
+        Guid[]? stagedPhotoIds,
+        CancellationToken ct)
+    {
+        var failures = new List<PartialPhotoFailureDto>();
+        if (stagedPhotoIds is null || stagedPhotoIds.Length == 0)
+            return failures;
+
+        // Stable order = caller-provided order; de-dup so the same id
+        // doesn't get processed twice.
+        var distinctIds = stagedPhotoIds.Distinct().ToArray();
+        var rows = await db.StagedPhotos
+            .Where(s => distinctIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, ct);
+
+        foreach (var stagedId in distinctIds)
+        {
+            // Photo cap: stop attaching once the recipe is full. Surface
+            // the remaining ids as partial failures so the user knows
+            // why their later photos didn't land.
+            if (recipe.Photos.Count >= Recipe.MaxPhotos)
+            {
+                failures.Add(new PartialPhotoFailureDto(
+                    stagedId,
+                    $"Maximal {Recipe.MaxPhotos} Fotos pro Rezept – Limit erreicht."));
+                continue;
+            }
+
+            if (!rows.TryGetValue(stagedId, out var staged))
+            {
+                failures.Add(new PartialPhotoFailureDto(
+                    stagedId, "Foto wurde nicht gefunden."));
+                continue;
+            }
+
+            if (staged.UserId != userId)
+            {
+                logger.LogWarning(
+                    "User {UserId} tried to promote staged photo {StagedPhotoId} owned by {OwnerId} — silently filtered out.",
+                    userId, staged.Id, staged.UserId);
+                failures.Add(new PartialPhotoFailureDto(
+                    stagedId, "Foto gehört nicht dir."));
+                continue;
+            }
+
+            if (staged.PromotedAt is not null)
+            {
+                failures.Add(new PartialPhotoFailureDto(
+                    stagedId, "Foto wurde bereits einem Rezept zugeordnet."));
+                continue;
+            }
+
+            string destinationPath;
+            try
+            {
+                // Copy first so a download/upload failure is surfaced
+                // BEFORE we touch the recipe + staged-photo state.
+                destinationPath = BuildPromotedPath(staged.PhotoId);
+                await photoStorage.CopyAsync(
+                    staged.PhotoId, destinationPath, staged.ContentType, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Failed to copy staged photo {StagedPhotoId} ({SourcePath}) for recipe {RecipeId}.",
+                    staged.Id, staged.PhotoId, recipe.Id);
+                failures.Add(new PartialPhotoFailureDto(
+                    stagedId, "Foto konnte nicht kopiert werden."));
+                continue;
+            }
+
+            try
+            {
+                // Atomic per-photo: photo-attach + StagedPhoto state
+                // change in one SaveChanges.
+                recipe.AddPhoto(destinationPath);
+                staged.MarkPromoted(recipe.Id, clock.GetUtcNow());
+                await db.SaveChangesAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Promote DB write failed for staged photo {StagedPhotoId} -> recipe {RecipeId}.",
+                    staged.Id, recipe.Id);
+                // Roll back the in-memory recipe.AddPhoto so the next
+                // iteration's MaxPhotos check is honest, and best-effort
+                // delete the just-copied destination blob so it doesn't
+                // linger orphaned.
+                recipe.RemovePhoto(destinationPath);
+                try
+                {
+                    await photoStorage.DeleteAsync(destinationPath, ct);
+                }
+                catch (Exception cleanupEx)
+                {
+                    logger.LogWarning(cleanupEx,
+                        "Cleanup of orphaned destination blob {DestinationPath} failed; sweep job will retry.",
+                        destinationPath);
+                }
+                failures.Add(new PartialPhotoFailureDto(
+                    stagedId, "Foto konnte nicht gespeichert werden."));
+                continue;
+            }
+
+            // Best-effort delete of the staged source blob. If this
+            // fails (filer hiccup), the sweep job reaps it later via
+            // the StagedPhoto row's PromotedAt > 24h pathway being
+            // covered by a separate cleanup pass — for now we just log.
+            try
+            {
+                await photoStorage.DeleteAsync(staged.PhotoId, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Cleanup of staged source blob {StagedPath} failed after promote — leaving for sweep job.",
+                    staged.PhotoId);
+            }
+        }
+
+        return failures;
+    }
+
+    /// <summary>
+    /// PF1 — derive the destination storage path for a promoted staged
+    /// photo. Mirrors <see cref="SeaweedFsPhotoStorage"/>'s upload
+    /// shape (<c>recipes/{guid:N}{ext}</c>) so the result fits the
+    /// existing photo-proxy + retrieval flow without per-recipe
+    /// subdirectories. Inheriting the source extension preserves the
+    /// MIME type signal even though the filer doesn't enforce it.
+    /// </summary>
+    private static string BuildPromotedPath(string sourcePath)
+    {
+        var ext = Path.GetExtension(sourcePath);
+        return $"{SeaweedFsPhotoStorage.PathPrefix}/{Guid.NewGuid():N}{ext}";
     }
 
     private static async Task<bool> AreTagIdsValidForGroupAsync(
