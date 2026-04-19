@@ -576,7 +576,7 @@ internal static class RateLimitPolicies
 }
 
 /// <summary>Strongly-typed options for non-auth app config.</summary>
-internal class AppOptions
+public class AppOptions
 {
     public const string SectionName = "App";
     public string FrontendBaseUrl { get; set; } = "http://localhost";

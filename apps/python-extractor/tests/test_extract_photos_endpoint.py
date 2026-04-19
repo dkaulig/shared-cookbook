@@ -226,6 +226,46 @@ def test_post_extract_photos_rejects_non_http_url_at_pydantic_layer() -> None:
     assert response.status_code == 422
 
 
+def test_post_extract_photos_rejects_relative_path_at_pydantic_layer() -> None:
+    """BUG-011 regression — pydantic ``HttpUrl`` is strict and rejects
+    path-absolute URLs (``/api/photos/...?sig=...&exp=...``) which is
+    exactly the shape the frontend's signed-URL builder produces. The
+    .NET ``ExtractRecipeFromPhotosJob`` is responsible for promoting
+    these to absolute http(s) before forwarding; this test pins the
+    pydantic side of that contract so a future "let's relax the type"
+    refactor can't silently reintroduce the prod 422.
+    """
+    app = create_app()
+    client = TestClient(app)
+    response = client.post(
+        "/extract/photos",
+        json={
+            "photo_urls": ["/api/photos/recipes/abc.jpg?sig=AAA&exp=9999999999"],
+            "hint": {"group_id": "g", "user_id": "u"},
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_post_extract_photos_accepts_absolute_signed_photo_url() -> None:
+    """BUG-011 regression — once .NET has prefixed FrontendBaseUrl, the
+    pydantic layer must accept the resulting absolute URL (the original
+    sig/exp query string survives URL absolutization unchanged)."""
+    provider = _VisionAnyCallProvider()
+    client = _build_client(provider)
+    response = client.post(
+        "/extract/photos",
+        json={
+            "photo_urls": [
+                "https://kochbuch.example/api/photos/recipes/abc.jpg?sig=AAA&exp=9999999999",
+            ],
+            "hint": {"group_id": "g", "user_id": "u"},
+        },
+    )
+    assert response.status_code == 200
+    assert provider.calls == 1
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Input validation — pipeline layer (HTTP 422 via ExtractionError)
 # ─────────────────────────────────────────────────────────────────────
