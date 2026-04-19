@@ -22,9 +22,12 @@
 #   SMOKE_BOT_EMAIL      default orchestrator@kochbuch.kaulig.dev
 #   SMOKE_BOT_PASSWORD   REQUIRED — no default; never hardcoded.
 #
-# Requires: bash, curl (>= 7.76 for --fail-with-body), jq.
+# Requires: bash, curl, jq.
 
 set -euo pipefail
+
+command -v jq >/dev/null || { echo "jq required" >&2; exit 2; }
+command -v curl >/dev/null || { echo "curl required" >&2; exit 2; }
 
 BASE_URL="${SMOKE_BASE_URL:-https://kochbuch.kaulig.dev}"
 BOT_EMAIL="${SMOKE_BOT_EMAIL:-orchestrator@kochbuch.kaulig.dev}"
@@ -53,28 +56,11 @@ fail_step() {
   exit 1
 }
 
-require() {
-  command -v "$1" >/dev/null 2>&1 || {
-    printf '✗ Missing dependency: %s\n' "$1" >&2
-    exit 2
-  }
-}
-require curl
-require jq
-
 [[ -n "$BOT_PASSWORD" ]] || {
   printf '✗ SMOKE_BOT_PASSWORD is not set. Refusing to run.\n' >&2
   printf '  Export it from the locally-cached .env (see docs/ops.md §2 + §6).\n' >&2
   exit 2
 }
-
-# --fail-with-body: curl 7.76+ — exits non-zero on 4xx/5xx but still writes
-# the server's body to stdout so we can surface the error code/message.
-# Fallback for older curls: plain --fail (body discarded on error).
-CURL_FAIL="--fail-with-body"
-if ! curl --help all 2>/dev/null | grep -q -- '--fail-with-body'; then
-  CURL_FAIL="--fail"
-fi
 
 # Best-effort cleanup if the script exits early — swallows errors so a
 # double-failure (impl bug + cleanup 404) surfaces the original failure.
@@ -97,7 +83,7 @@ trap cleanup_on_exit EXIT
 
 # ─────────────────────────────────────────────────────────────────────────
 info 1 "Health"
-HEALTH_RESP="$(curl -sS $CURL_FAIL "${BASE_URL}/api/health" 2>&1)" \
+HEALTH_RESP="$(curl -sS --fail-with-body "${BASE_URL}/api/health" 2>&1)" \
   || fail_step 1 "GET /api/health unreachable or non-2xx: ${HEALTH_RESP}"
 STATUS="$(jq -r .status <<<"$HEALTH_RESP" 2>/dev/null || echo '')"
 [[ "$STATUS" == "ok" ]] \
@@ -111,7 +97,7 @@ info 2 "Login (orchestrator bot)"
 # shellcheck disable=SC2016  # $email/$password are jq vars, not shell
 LOGIN_BODY="$(jq -nc --arg email "$BOT_EMAIL" --arg password "$BOT_PASSWORD" \
   '{email:$email, password:$password}')"
-LOGIN_RESP="$(curl -sS $CURL_FAIL \
+LOGIN_RESP="$(curl -sS --fail-with-body \
   -H 'Content-Type: application/json' \
   -d "$LOGIN_BODY" \
   "${BASE_URL}/api/auth/login" 2>&1)" \
@@ -125,7 +111,7 @@ ok "Access token acquired for ${BOT_EMAIL}"
 info 3 "Create group"
 GROUP_BODY="$(jq -nc --arg name "$GROUP_NAME" \
   '{name:$name, description:"OPS1 smoke", defaultServings:2}')"
-GROUP_RESP="$(curl -sS $CURL_FAIL \
+GROUP_RESP="$(curl -sS --fail-with-body \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$GROUP_BODY" \
@@ -153,7 +139,7 @@ RECIPE_BODY="$(jq -nc --arg title "$RECIPE_TITLE" '{
   ],
   tagIds: []
 }')"
-RECIPE_RESP="$(curl -sS $CURL_FAIL \
+RECIPE_RESP="$(curl -sS --fail-with-body \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$RECIPE_BODY" \
@@ -166,7 +152,7 @@ ok "Recipe created: ${RECIPE_TITLE} (${RECIPE_ID})"
 
 # ─────────────────────────────────────────────────────────────────────────
 info 5 "Rate recipe (5 ★)"
-RATE_RESP="$(curl -sS $CURL_FAIL \
+RATE_RESP="$(curl -sS --fail-with-body \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"stars":5,"comment":"Smoke"}' \
@@ -181,11 +167,11 @@ ok "Rating upserted (5★)"
 info 6 "Fetch recipe — verify averageRating ≈ 5"
 # Recipe detail doesn't carry the aggregate, but the ratings list does;
 # and a GET of the recipe itself confirms the read path end-to-end.
-curl -sS $CURL_FAIL -o /dev/null \
+curl -sS --fail-with-body -o /dev/null \
   -H "Authorization: Bearer $TOKEN" \
   "${BASE_URL}/api/recipes/${RECIPE_ID}" \
   || fail_step 6 "GET /api/recipes/${RECIPE_ID} failed"
-AGG_RESP="$(curl -sS $CURL_FAIL \
+AGG_RESP="$(curl -sS --fail-with-body \
   -H "Authorization: Bearer $TOKEN" \
   "${BASE_URL}/api/recipes/${RECIPE_ID}/ratings/" 2>&1)" \
   || fail_step 6 "GET ratings failed: ${AGG_RESP}"
@@ -201,7 +187,7 @@ ok "averageRating=${AVG} within tolerance"
 
 # ─────────────────────────────────────────────────────────────────────────
 info 7 "Cook marker"
-COOK_RESP="$(curl -sS $CURL_FAIL \
+COOK_RESP="$(curl -sS --fail-with-body \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -X POST \

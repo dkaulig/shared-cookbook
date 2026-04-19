@@ -193,13 +193,53 @@ public class SeedDataServiceTests : IAsyncLifetime
 
         var bot = await _db.Users.SingleAsync(
             u => u.Email == "orchestrator@kochbuch.kaulig.dev");
+        // Hash-equality is the authoritative "not rehashed" guarantee.  We
+        // deliberately don't assert "old password verifies / new doesn't"
+        // here — an Identity hasher version bump would re-verify through
+        // the rehash-on-verify path and make those assertions flaky
+        // without the underlying seed-idempotency invariant actually
+        // breaking.
         Assert.Equal(firstHash, bot.PasswordHash);
         Assert.Equal(UserRole.User, bot.Role);
+    }
 
-        // The old password still verifies — the new one does not.
+    [Fact]
+    public async Task Orchestrator_Bot_Password_Rotates_When_Flag_Set()
+    {
+        // Seed once with password A.
+        var firstConfig = Config(new()
+        {
+            ["ADMIN_EMAIL"] = "admin@test.local",
+            ["ADMIN_PASSWORD"] = "AdminPassword123!",
+            ["ORCHESTRATOR_PASSWORD"] = "BotPasswordA1!",
+        });
+        await BuildSeeder(firstConfig).SeedAsync();
+
+        var firstHash = (await _db.Users.SingleAsync(
+            u => u.Email == "orchestrator@kochbuch.kaulig.dev")).PasswordHash;
+
+        _db.ChangeTracker.Clear();
+
+        // Change password env to B and set ORCHESTRATOR_PASSWORD_ROTATE=true.
+        var rotateConfig = Config(new()
+        {
+            ["ADMIN_EMAIL"] = "admin@test.local",
+            ["ADMIN_PASSWORD"] = "AdminPassword123!",
+            ["ORCHESTRATOR_PASSWORD"] = "BotPasswordB2!",
+            ["ORCHESTRATOR_PASSWORD_ROTATE"] = "true",
+        });
+        await BuildSeeder(rotateConfig).SeedAsync();
+
+        var bot = await _db.Users.SingleAsync(
+            u => u.Email == "orchestrator@kochbuch.kaulig.dev");
+
+        // Hash must have changed — the rotate path re-hashed via Identity.
+        Assert.NotEqual(firstHash, bot.PasswordHash);
+
+        // Password B works; password A no longer verifies.
         var users = _provider.GetRequiredService<UserManager<User>>();
-        Assert.True(await users.CheckPasswordAsync(bot, "BotPassword123!"));
-        Assert.False(await users.CheckPasswordAsync(bot, "SomeOtherPassword!"));
+        Assert.True(await users.CheckPasswordAsync(bot, "BotPasswordB2!"));
+        Assert.False(await users.CheckPasswordAsync(bot, "BotPasswordA1!"));
     }
 
     [Fact]

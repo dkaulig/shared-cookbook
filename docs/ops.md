@@ -138,10 +138,16 @@ Bot-Passwort aus der lokal gecachten `.env` (siehe §2) ziehen und als
 Shell-History landen lassen:
 
 ```bash
-SMOKE_BOT_PASSWORD="$(grep ^ORCHESTRATOR_PASSWORD= \
-    ~/.config/familien-kochbuch/.env.prod.tmp | cut -d= -f2-)" \
-  scripts/smoke-live.sh
+# Bot-Passwort aus dem lokal gecachten .env laden
+set -a
+source ~/.config/familien-kochbuch/.env.prod.tmp
+set +a
+SMOKE_BOT_PASSWORD="$ORCHESTRATOR_PASSWORD" scripts/smoke-live.sh
 ```
+
+`source` respektiert Shell-Quoting und funktioniert mit `KEY=VALUE`,
+`KEY="VALUE"` und `KEY='VALUE'`. Nach dem Smoke-Run
+`unset ORCHESTRATOR_PASSWORD SMOKE_BOT_PASSWORD` ausführen.
 
 Ausgabe: bei Erfolg `SMOKE PASSED (8/8)`, bei Fehler
 `SMOKE FAILED at step N: …`.
@@ -155,3 +161,20 @@ Fehler deuten:
 - Step 6 → Aggregations-/Read-Pfad — Postgres-Verbindung?
 - Step 7 → Cook-Marker / Recipe-Update-Pfad
 - Step 8 → Soft-Delete — nur Warnung, schlägt den Run nicht fehl
+
+---
+
+## 6.1 Bot-Passwort rotieren
+
+1. VPS: `/srv/familien-kochbuch/.env` editieren
+   ```
+   ORCHESTRATOR_PASSWORD=neuerWert
+   # temporär anhängen:
+   ORCHESTRATOR_PASSWORD_ROTATE=true
+   ```
+2. Container neustarten: `docker compose -f docker-compose.prod.yml restart api`
+3. Startup-Log prüfen: `"Orchestrator bot password rotated"`
+4. `ORCHESTRATOR_PASSWORD_ROTATE` wieder aus `.env` entfernen (sonst läuft
+   jede Startup den Rotate-Pfad)
+5. Lokal in `~/.config/familien-kochbuch/.env.prod.tmp` (falls noch
+   vorhanden) den neuen Wert eintragen oder neu scpen
