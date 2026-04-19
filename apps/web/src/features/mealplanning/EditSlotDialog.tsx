@@ -1,0 +1,273 @@
+import { useState } from 'react'
+import type { FormEvent } from 'react'
+import type {
+  MealPlanSlotDto,
+  PatchSlotRequest,
+} from '@familien-kochbuch/shared'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { useRecipeSearch } from '@/features/search/hooks'
+import { MealPlanApiError } from './mealPlanApi'
+import { usePatchSlot } from './useMealPlan'
+import { MEAL_SLOT_LABELS, formatGermanDate } from './weekGrid'
+
+/**
+ * Modal for editing an existing meal-plan slot (P3-3).
+ *
+ * Follows JSON Merge Patch semantics: only fields the user actually
+ * changed end up in the PATCH body. Fields left untouched stay
+ * `undefined` in state and are stripped by `patchSlot` before the
+ * request goes out (see `mealPlanApi.stripUndefined`).
+ *
+ * Scope (matches the P3-1 `SlotPatchRequest` DTO the backend accepts):
+ *   - `recipeId` — swap to another recipe or clear to "free text"
+ *   - `label`   — free-form title (max 40 chars, validated server-side)
+ *   - `servings`— 1..50 per domain; form caps at 1..20 like AddSlot
+ *   - `isCooked`— "Gekocht"-Toggle
+ *
+ * `date` and `meal` are deliberately read-only in this dialog. The
+ * backend PATCH DTO doesn't accept them (only AddSlot does), and the
+ * master plan defers cross-cell drag to P3-10. Users can delete +
+ * re-add if they need to move a slot to another cell today.
+ *
+ * `parentSlotId` lives in P3-4's meal-prep UX, not here.
+ */
+export function EditSlotDialog({
+  groupId,
+  weekStart,
+  planId,
+  slot,
+  onClose,
+}: {
+  groupId: string
+  weekStart: string
+  planId: string
+  slot: MealPlanSlotDto
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const [recipeId, setRecipeId] = useState<string | null>(slot.recipeId)
+  const [label, setLabel] = useState<string>(slot.label ?? '')
+  const [servings, setServings] = useState<number>(slot.servings)
+  const [isCooked, setIsCooked] = useState<boolean>(slot.isCooked)
+  const [error, setError] = useState<string | null>(null)
+
+  const search = useRecipeSearch(groupId, { q: query || undefined, pageSize: 8 })
+  const patch = usePatchSlot(groupId, weekStart, planId)
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+
+    const trimmedLabel = label.trim()
+    const hasRecipe = recipeId !== null
+    const hasLabel = trimmedLabel.length > 0
+    if (!hasRecipe && !hasLabel) {
+      setError('Bitte wähle ein Rezept oder gib einen Titel ein.')
+      return
+    }
+    if (!Number.isFinite(servings) || servings < 1 || servings > 20) {
+      setError('Portionen müssen zwischen 1 und 20 liegen.')
+      return
+    }
+
+    // Build a JSON Merge Patch body containing only the fields that
+    // differ from the original slot. `undefined` means "leave alone"
+    // (stripped by the API layer); explicit `null` means "clear".
+    const body: PatchSlotRequest = {}
+
+    if (recipeId !== slot.recipeId) {
+      body.recipeId = recipeId
+    }
+
+    // When a recipe is selected, the label slot is conceptually a
+    // sidecar note and we only send it if the user actually typed
+    // something; otherwise we mirror the AddSlot contract and clear
+    // the label when switching from free-text → recipe.
+    const normalisedLabel =
+      hasRecipe && trimmedLabel.length === 0 ? null : trimmedLabel
+    if (normalisedLabel !== (slot.label ?? (hasRecipe ? null : ''))) {
+      // Compare against the slot's current label (null → '' when there
+      // was no recipe before so a user clearing the label submits null).
+      if (normalisedLabel === null) {
+        body.label = null
+      } else if (normalisedLabel !== slot.label) {
+        body.label = normalisedLabel
+      }
+    }
+
+    if (servings !== slot.servings) {
+      body.servings = servings
+    }
+
+    if (isCooked !== slot.isCooked) {
+      body.isCooked = isCooked
+    }
+
+    if (Object.keys(body).length === 0) {
+      // Nothing changed — just close without firing a request.
+      onClose()
+      return
+    }
+
+    try {
+      await patch.mutateAsync({ slotId: slot.id, patch: body })
+      onClose()
+    } catch (err) {
+      if (err instanceof MealPlanApiError) {
+        setError(err.message || 'Slot konnte nicht gespeichert werden.')
+      } else {
+        setError('Slot konnte nicht gespeichert werden.')
+      }
+    }
+  }
+
+  const recipes = search.data?.items ?? []
+
+  return (
+    <div
+      role="dialog"
+      aria-labelledby="edit-slot-dialog-title"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-lg bg-background p-6 shadow-lg ring-1 ring-border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2
+          id="edit-slot-dialog-title"
+          className="mb-1 font-serif text-xl font-semibold"
+        >
+          Gericht bearbeiten
+        </h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          {formatGermanDate(slot.date)} · {MEAL_SLOT_LABELS[slot.meal]}
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-slot-search">Rezept suchen</Label>
+            <Input
+              id="edit-slot-search"
+              type="search"
+              placeholder="Titel eingeben …"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value)
+                // Clear the pinned selection whenever the query changes
+                // so the user doesn't accidentally save a stale pick.
+                if (recipeId) setRecipeId(null)
+              }}
+            />
+            {recipes.length > 0 && (
+              <ul
+                aria-label="Rezepttreffer"
+                className="max-h-40 divide-y divide-border overflow-y-auto rounded-md border border-input bg-background"
+              >
+                {recipes.map((r) => {
+                  const selected = r.id === recipeId
+                  return (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRecipeId(r.id)
+                          setLabel('')
+                          setQuery(r.title)
+                        }}
+                        aria-pressed={selected}
+                        className={
+                          'block w-full px-3 py-2 text-left text-sm transition-colors ' +
+                          (selected
+                            ? 'bg-primary/10 text-foreground'
+                            : 'hover:bg-primary/5')
+                        }
+                      >
+                        {r.title}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {recipeId && (
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>Rezept verknüpft.</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecipeId(null)
+                    setQuery('')
+                  }}
+                  className="text-xs text-[hsl(var(--destructive))] underline-offset-2 hover:underline"
+                >
+                  Rezept entfernen
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-slot-label">
+              {recipeId ? 'Notiz (optional)' : 'Freier Titel'}
+            </Label>
+            <Input
+              id="edit-slot-label"
+              type="text"
+              placeholder={recipeId ? 'z.B. doppelte Portion' : 'z.B. Reste, Restaurant'}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              maxLength={40}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-slot-servings">Portionen</Label>
+            <Input
+              id="edit-slot-servings"
+              type="number"
+              min={1}
+              max={20}
+              value={servings}
+              onChange={(e) => setServings(Number(e.target.value))}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              id="edit-slot-cooked"
+              type="checkbox"
+              checked={isCooked}
+              onChange={(e) => setIsCooked(e.target.checked)}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring/40"
+            />
+            <Label htmlFor="edit-slot-cooked" className="!m-0 cursor-pointer">
+              Gekocht
+            </Label>
+          </div>
+
+          {error && (
+            <p
+              role="alert"
+              className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Abbrechen
+            </Button>
+            <Button type="submit" disabled={patch.isPending}>
+              {patch.isPending ? 'Speichert …' : 'Speichern'}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}

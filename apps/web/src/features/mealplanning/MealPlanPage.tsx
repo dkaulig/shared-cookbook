@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   CalendarDays,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -13,7 +12,11 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { AddSlotDialog } from './AddSlotDialog'
-import { useCreateMealPlan, useMealPlan } from './useMealPlan'
+import { DeleteSlotDialog } from './DeleteSlotDialog'
+import { EditSlotDialog } from './EditSlotDialog'
+import { SortableMealRow } from './SortableMealRow'
+import { SORT_ORDER_STEP } from './sortableMealRow.helpers'
+import { useCreateMealPlan, useMealPlan, usePatchSlot } from './useMealPlan'
 import {
   MEAL_SLOTS,
   MEAL_SLOT_LABELS,
@@ -51,6 +54,8 @@ export function MealPlanPage() {
   const groupId = params.groupId ?? ''
   const rawWeek = params.weekStart ?? ''
   const [openCell, setOpenCell] = useState<{ date: string; meal: MealSlot } | null>(null)
+  const [editSlot, setEditSlot] = useState<MealPlanSlotDto | null>(null)
+  const [deleteSlotState, setDeleteSlotState] = useState<MealPlanSlotDto | null>(null)
 
   const weekStart = useMemo(() => {
     if (!rawWeek) return ''
@@ -67,6 +72,13 @@ export function MealPlanPage() {
     weekStart || undefined,
   )
   const create = useCreateMealPlan(groupId)
+  // The patch + delete hooks require a planId. We wire them with the
+  // current plan's id when it exists; the empty-string fallback keeps
+  // the hook call-order stable across renders (required by React's
+  // rules-of-hooks). The mutations are only triggered from UI that
+  // only renders when `plan` is truthy, so the empty-string branch
+  // never reaches the network.
+  const patchMutation = usePatchSlot(groupId, weekStart || '', plan?.id ?? '')
 
   // `slotsByDayMeal` walks every slot + builds a 7×4 map; recomputing on
   // every render will start to matter once P3-3 drag adds re-render
@@ -75,8 +87,44 @@ export function MealPlanPage() {
   // stable across renders (React's rules-of-hooks).
   const planSlots = plan?.slots
   const buckets = useMemo(
-    () => (planSlots ? slotsByDayMeal(planSlots, weekStart) : null),
+    () => (planSlots && weekStart ? slotsByDayMeal(planSlots, weekStart) : null),
     [planSlots, weekStart],
+  )
+
+  // Reorder handler — receives the final ordered slot IDs for one
+  // (date, meal) bucket and ships one PATCH per slot whose position
+  // changed. Using a step of `SORT_ORDER_STEP` (10) leaves room for
+  // future "drop between existing neighbours" insertions without a
+  // full reindex — see P3-10 mobile polish in the master plan. Kept
+  // above the early returns so the hook-order stays stable.
+  const handleReorder = useCallback(
+    (orderedIds: readonly string[]) => {
+      if (!plan) return
+      // Build { id -> current slot } map so we can compare + avoid
+      // round-tripping rows whose position didn't actually move.
+      const byId = new Map(plan.slots.map((s) => [s.id, s]))
+      orderedIds.forEach((id, index) => {
+        const slot = byId.get(id)
+        if (!slot) return
+        const nextSortOrder = index * SORT_ORDER_STEP
+        if (slot.sortOrder === nextSortOrder) return
+        patchMutation.mutate({
+          slotId: id,
+          patch: { sortOrder: nextSortOrder },
+        })
+      })
+    },
+    [plan, patchMutation],
+  )
+
+  const handleToggleCooked = useCallback(
+    (slot: MealPlanSlotDto, nextCooked: boolean) => {
+      patchMutation.mutate({
+        slotId: slot.id,
+        patch: { isCooked: nextCooked },
+      })
+    },
+    [patchMutation],
   )
 
   if (!groupId) return <Navigate to="/groups" replace />
@@ -213,6 +261,10 @@ export function MealPlanPage() {
                   weekdayLabel={weekday}
                   buckets={dayBuckets}
                   onAdd={(meal) => setOpenCell({ date: dateKey, meal })}
+                  onEdit={setEditSlot}
+                  onDelete={setDeleteSlotState}
+                  onReorder={handleReorder}
+                  onToggleCooked={handleToggleCooked}
                 />
               )
             })}
@@ -230,6 +282,26 @@ export function MealPlanPage() {
           onClose={() => setOpenCell(null)}
         />
       )}
+
+      {editSlot && plan && (
+        <EditSlotDialog
+          groupId={groupId}
+          weekStart={weekStart}
+          planId={plan.id}
+          slot={editSlot}
+          onClose={() => setEditSlot(null)}
+        />
+      )}
+
+      {deleteSlotState && plan && (
+        <DeleteSlotDialog
+          groupId={groupId}
+          weekStart={weekStart}
+          planId={plan.id}
+          slot={deleteSlotState}
+          onClose={() => setDeleteSlotState(null)}
+        />
+      )}
     </div>
   )
 }
@@ -239,11 +311,19 @@ function DayColumn({
   weekdayLabel,
   buckets,
   onAdd,
+  onEdit,
+  onDelete,
+  onReorder,
+  onToggleCooked,
 }: {
   date: string
   weekdayLabel: string
   buckets: Record<MealSlot, MealPlanSlotDto[]>
   onAdd: (meal: MealSlot) => void
+  onEdit: (slot: MealPlanSlotDto) => void
+  onDelete: (slot: MealPlanSlotDto) => void
+  onReorder: (orderedIds: readonly string[]) => void
+  onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
 }) {
   return (
     <section
@@ -266,6 +346,10 @@ function DayColumn({
             meal={meal}
             slots={buckets[meal]}
             onAdd={() => onAdd(meal)}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onReorder={onReorder}
+            onToggleCooked={onToggleCooked}
           />
         ))}
       </div>
@@ -278,11 +362,19 @@ function MealCell({
   meal,
   slots,
   onAdd,
+  onEdit,
+  onDelete,
+  onReorder,
+  onToggleCooked,
 }: {
   date: string
   meal: MealSlot
   slots: MealPlanSlotDto[]
   onAdd: () => void
+  onEdit: (slot: MealPlanSlotDto) => void
+  onDelete: (slot: MealPlanSlotDto) => void
+  onReorder: (orderedIds: readonly string[]) => void
+  onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
 }) {
   return (
     <div>
@@ -308,43 +400,15 @@ function MealCell({
           Noch keine Gerichte für diesen Tag
         </button>
       ) : (
-        <ul className="space-y-1.5">
-          {slots.map((slot) => (
-            <li key={slot.id}>
-              <SlotCard slot={slot} />
-            </li>
-          ))}
-        </ul>
+        <SortableMealRow
+          slots={slots}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onReorder={onReorder}
+          onToggleCooked={onToggleCooked}
+        />
       )}
     </div>
-  )
-}
-
-function SlotCard({ slot }: { slot: MealPlanSlotDto }) {
-  const title = slot.label?.trim() || (slot.recipeId ? 'Rezept' : 'Unbenanntes Gericht')
-  const servingsLabel = slot.servings === 1 ? 'Portion' : 'Portionen'
-  return (
-    <article
-      aria-label={`Slot ${title}`}
-      data-testid="mealplan-slot"
-      className="flex items-start justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-2 text-sm shadow-sm"
-    >
-      <div className="min-w-0">
-        <p className="truncate font-medium text-foreground">{title}</p>
-        <p className="text-[11px] text-muted-foreground">
-          {slot.servings} {servingsLabel}
-        </p>
-      </div>
-      {slot.isCooked && (
-        <span
-          aria-label="Gekocht"
-          className="inline-flex items-center text-[hsl(var(--primary))]"
-          data-testid="mealplan-slot-cooked"
-        >
-          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-        </span>
-      )}
-    </article>
   )
 }
 

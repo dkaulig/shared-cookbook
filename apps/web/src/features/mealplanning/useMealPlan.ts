@@ -4,8 +4,16 @@ import type {
   CreateMealPlanRequest,
   MealPlanDto,
   MealPlanSlotDto,
+  PatchSlotRequest,
 } from '@familien-kochbuch/shared'
-import { MealPlanApiError, addSlot, createMealPlan, fetchMealPlan } from './mealPlanApi'
+import {
+  MealPlanApiError,
+  addSlot,
+  createMealPlan,
+  deleteSlot,
+  fetchMealPlan,
+  patchSlot,
+} from './mealPlanApi'
 
 /**
  * Centralised TanStack-Query key factory for the meal-planning cache.
@@ -90,6 +98,68 @@ export function useAddSlot(groupId: string, weekStart: string, planId: string) {
   return useMutation<MealPlanSlotDto, Error, AddSlotRequest>({
     mutationFn: (body) => addSlot(planId, body),
     onSuccess: () => {
+      void client.invalidateQueries({
+        queryKey: mealPlanQueryKeys.forWeek(groupId, weekStart),
+      })
+    },
+  })
+}
+
+/**
+ * PATCH a slot with JSON Merge Patch semantics. Only fields actually
+ * included in `patch` are shipped (see `mealPlanApi.patchSlot` which
+ * filters `undefined` keys). The server responds with the updated
+ * slot DTO; we splice it into the cached plan so the UI reflects
+ * servings / recipe / isCooked / sortOrder changes without a refetch,
+ * then invalidate to keep other tabs (P3-8 SignalR will trigger the
+ * same invalidation path) consistent.
+ */
+export function usePatchSlot(groupId: string, weekStart: string, planId: string) {
+  const client = useQueryClient()
+  return useMutation<
+    MealPlanSlotDto,
+    Error,
+    { slotId: string; patch: PatchSlotRequest }
+  >({
+    mutationFn: ({ slotId, patch }) => patchSlot(planId, slotId, patch),
+    onSuccess: (updated) => {
+      client.setQueryData<MealPlanDto | null>(
+        mealPlanQueryKeys.forWeek(groupId, weekStart),
+        (prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            slots: prev.slots.map((s) => (s.id === updated.id ? updated : s)),
+          }
+        },
+      )
+      void client.invalidateQueries({
+        queryKey: mealPlanQueryKeys.forWeek(groupId, weekStart),
+      })
+    },
+  })
+}
+
+/**
+ * DELETE a slot. The backend detaches child slots (sets their
+ * `ParentSlotId` to null) rather than cascade-deleting them, so we
+ * still need a full refetch after success to pick up those changes.
+ */
+export function useDeleteSlot(groupId: string, weekStart: string, planId: string) {
+  const client = useQueryClient()
+  return useMutation<void, Error, { slotId: string }>({
+    mutationFn: ({ slotId }) => deleteSlot(planId, slotId),
+    onSuccess: (_data, variables) => {
+      client.setQueryData<MealPlanDto | null>(
+        mealPlanQueryKeys.forWeek(groupId, weekStart),
+        (prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            slots: prev.slots.filter((s) => s.id !== variables.slotId),
+          }
+        },
+      )
       void client.invalidateQueries({
         queryKey: mealPlanQueryKeys.forWeek(groupId, weekStart),
       })

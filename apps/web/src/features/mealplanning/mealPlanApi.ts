@@ -4,6 +4,7 @@ import type {
   CreateMealPlanRequest,
   MealPlanDto,
   MealPlanSlotDto,
+  PatchSlotRequest,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
@@ -99,5 +100,47 @@ export async function addSlot(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     },
+  )
+}
+
+/**
+ * Strips keys whose value is `undefined` so the JSON body we ship
+ * faithfully represents a JSON Merge Patch — "absent" keys mean
+ * "leave untouched" on the server (see `SlotPatchRequest.ReadAsync`
+ * in `MealPlanEndpoints.cs`). A `null` value stays in the body and
+ * signals "clear this field" for the nullable columns (`recipeId`,
+ * `label`, `parentSlotId`).
+ */
+function stripUndefined(patch: PatchSlotRequest): Record<string, unknown> {
+  const body: Record<string, unknown> = {}
+  for (const key of Object.keys(patch) as Array<keyof PatchSlotRequest>) {
+    const value = patch[key]
+    if (value !== undefined) {
+      body[key] = value
+    }
+  }
+  return body
+}
+
+export async function patchSlot(
+  planId: string,
+  slotId: string,
+  patch: PatchSlotRequest,
+): Promise<MealPlanSlotDto> {
+  return request<MealPlanSlotDto>(
+    `/api/mealplans/${encodeURIComponent(planId)}/slots/${encodeURIComponent(slotId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(stripUndefined(patch)),
+    },
+  )
+}
+
+export async function deleteSlot(planId: string, slotId: string): Promise<void> {
+  await request<void>(
+    `/api/mealplans/${encodeURIComponent(planId)}/slots/${encodeURIComponent(slotId)}`,
+    { method: 'DELETE' },
+    undefined,
   )
 }
