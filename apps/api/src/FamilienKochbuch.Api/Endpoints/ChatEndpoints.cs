@@ -7,6 +7,8 @@ using System.Text.Json.Serialization;
 using System.Text.Unicode;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
+using FamilienKochbuch.Domain.Entities;
+using FamilienKochbuch.Infrastructure.Persistence;
 
 namespace FamilienKochbuch.Api.Endpoints;
 
@@ -102,6 +104,8 @@ public static class ChatEndpoints
         HttpContext ctx,
         IHttpClientFactory httpFactory,
         ExtractorHmacSigner signer,
+        AppDbContext db,
+        TimeProvider clock,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
@@ -141,6 +145,7 @@ public static class ChatEndpoints
             callerId,
             relativeUrl: "/chat",
             pythonBody,
+            usageContext: new UsageLogContext(db, clock, body.SessionId, ChatUsageKind.ChatTurn),
             ct);
     }
 
@@ -152,6 +157,8 @@ public static class ChatEndpoints
         HttpContext ctx,
         IHttpClientFactory httpFactory,
         ExtractorHmacSigner signer,
+        AppDbContext db,
+        TimeProvider clock,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
@@ -190,8 +197,19 @@ public static class ChatEndpoints
             callerId,
             relativeUrl: $"/chat/{Uri.EscapeDataString(sessionId)}/to-recipe",
             pythonBody,
+            usageContext: new UsageLogContext(db, clock, sessionId, ChatUsageKind.ChatToRecipe),
             ct);
     }
+
+    /// <summary>Data the proxy needs to insert a <see cref="ChatUsageLog"/>
+    /// row after the Python call succeeds (PF2). Bundled into one
+    /// record so <see cref="ForwardAsync{TBody}"/> has a single extra
+    /// parameter instead of four.</summary>
+    private sealed record UsageLogContext(
+        AppDbContext Db,
+        TimeProvider Clock,
+        string SessionId,
+        ChatUsageKind Kind);
 
     // ── Shared forwarding + validation helpers ──────────────────────
 
@@ -208,6 +226,7 @@ public static class ChatEndpoints
         Guid callerId,
         string relativeUrl,
         TBody body,
+        UsageLogContext usageContext,
         CancellationToken ct)
     {
         var client = httpFactory.CreateClient(ExtractRecipeFromUrlJob.HttpClientName);
@@ -245,6 +264,27 @@ public static class ChatEndpoints
         {
             if (!response.IsSuccessStatusCode)
                 return PythonProxyErrorMapper.MapErrorResponse(response, bodyText);
+
+            // PF2: persist a ChatUsageLog row if Python supplied the
+            // X-Extractor-* headers. Missing headers (mock provider /
+            // older build) → no row, no failure; the admin dashboard
+            // treats it as "no data, hide".
+            if (ExtractRecipeFromUrlJob.TryReadUsageHeaders(
+                    response, out var prompt, out var completion,
+                    out var cached, out var model))
+            {
+                var log = new ChatUsageLog(
+                    userId: callerId,
+                    sessionId: usageContext.SessionId,
+                    kind: usageContext.Kind,
+                    promptTokens: prompt,
+                    completionTokens: completion,
+                    cachedPromptTokens: cached,
+                    modelDeployment: model,
+                    createdAt: usageContext.Clock.GetUtcNow());
+                usageContext.Db.ChatUsageLogs.Add(log);
+                await usageContext.Db.SaveChangesAsync(ct);
+            }
 
             // Re-emit the body verbatim. The response is already JSON in
             // Python's snake_case shape; keeping it as-is means the

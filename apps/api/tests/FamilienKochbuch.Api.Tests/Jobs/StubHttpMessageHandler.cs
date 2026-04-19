@@ -36,6 +36,31 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         });
     }
 
+    /// <summary>PF2 helper: enqueue a 200 response carrying the four
+    /// <c>X-Extractor-*</c> token-usage headers the .NET side reads in
+    /// extraction-job tests and chat-endpoint tests.</summary>
+    public void QueueResponseWithUsage(
+        HttpStatusCode status,
+        string? body,
+        int promptTokens,
+        int completionTokens,
+        int cachedPromptTokens,
+        string model,
+        string contentType = "application/json")
+    {
+        _responders.Enqueue(_ =>
+        {
+            var resp = new HttpResponseMessage(status);
+            if (body is not null)
+                resp.Content = new StringContent(body, System.Text.Encoding.UTF8, contentType);
+            resp.Headers.Add("X-Extractor-Prompt-Tokens", promptTokens.ToString());
+            resp.Headers.Add("X-Extractor-Completion-Tokens", completionTokens.ToString());
+            resp.Headers.Add("X-Extractor-Cached-Tokens", cachedPromptTokens.ToString());
+            resp.Headers.Add("X-Extractor-Model", model);
+            return resp;
+        });
+    }
+
     public void QueueResponder(Func<HttpRequestMessage, HttpResponseMessage> responder)
     {
         _responders.Enqueue(responder);

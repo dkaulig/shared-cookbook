@@ -96,6 +96,52 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         Assert.Equal(recipe, reloaded.ResultJson);
         Assert.Null(reloaded.ErrorMessage);
         Assert.NotNull(reloaded.CompletedAt);
+        // No usage headers in the stubbed response → columns stay null.
+        Assert.Null(reloaded.PromptTokens);
+        Assert.Null(reloaded.ModelDeployment);
+    }
+
+    [Fact]
+    public async Task Happy_Path_Persists_Token_Usage_From_Headers()
+    {
+        var import = await SeedImportAsync();
+        _handler.QueueResponseWithUsage(
+            HttpStatusCode.OK,
+            "{\"title\":\"Spätzle\"}",
+            promptTokens: 1500,
+            completionTokens: 400,
+            cachedPromptTokens: 800,
+            model: "gpt-5.1-chat");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Equal(1500, reloaded.PromptTokens);
+        Assert.Equal(400, reloaded.CompletionTokens);
+        Assert.Equal(800, reloaded.CachedPromptTokens);
+        Assert.Equal("gpt-5.1-chat", reloaded.ModelDeployment);
+    }
+
+    [Fact]
+    public async Task Happy_Path_Without_Usage_Headers_Leaves_Columns_Null()
+    {
+        // A response that's missing the prompt-tokens header (e.g. an
+        // older Python build, or a mock provider) must not fail the
+        // extraction — the telemetry is "best effort, skip if absent".
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, "{\"title\":\"x\"}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.PromptTokens);
+        Assert.Null(reloaded.CompletionTokens);
+        Assert.Null(reloaded.CachedPromptTokens);
+        Assert.Null(reloaded.ModelDeployment);
     }
 
     [Fact]

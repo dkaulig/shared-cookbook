@@ -105,6 +105,28 @@ public class ExtractRecipeFromPhotosJobTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Happy_Path_Persists_Token_Usage_From_Headers()
+    {
+        var import = await SeedImportAsync(new[] { "https://photos/1.jpg" });
+        _handler.QueueResponseWithUsage(
+            HttpStatusCode.OK,
+            "{\"title\":\"Foto-Rezept\"}",
+            promptTokens: 3000,
+            completionTokens: 600,
+            cachedPromptTokens: 0,
+            model: "gpt-4.1-mini");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(3000, reloaded.PromptTokens);
+        Assert.Equal(600, reloaded.CompletionTokens);
+        Assert.Equal(0, reloaded.CachedPromptTokens);
+        Assert.Equal("gpt-4.1-mini", reloaded.ModelDeployment);
+    }
+
+    [Fact]
     public async Task Missing_Photo_List_Throws()
     {
         var import = new RecipeImport(

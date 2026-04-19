@@ -54,6 +54,7 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.ChatUsageLogs.RemoveRange(db.ChatUsageLogs);
         db.RecipeImports.RemoveRange(db.RecipeImports);
         db.RefreshTokens.RemoveRange(db.RefreshTokens);
         db.AppInvites.RemoveRange(db.AppInvites);
@@ -148,6 +149,64 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         Assert.Contains("\"session_id\":\"session-xyz\"", captured.Body);
         Assert.Contains("\"messages\"", captured.Body);
         Assert.Contains("Spinat", captured.Body);
+    }
+
+    [Fact]
+    public async Task Chat_Happy_Path_Persists_Usage_Log_Row()
+    {
+        var (userId, token) = await SignupAsync("chatter@ex.com", "Chat");
+
+        _factory.ExtractorHandler.QueueResponseWithUsage(
+            HttpStatusCode.OK,
+            "{\"assistant_message\":\"ok\"}",
+            promptTokens: 555,
+            completionTokens: 222,
+            cachedPromptTokens: 100,
+            model: "gpt-5.1-chat");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/chat");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new ChatTurnRequest(
+            "sess-usage-1",
+            new[] { new ChatMessageDto("user", "Hi") }));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var log = await db.ChatUsageLogs.SingleAsync(c => c.UserId == userId);
+        Assert.Equal("sess-usage-1", log.SessionId);
+        Assert.Equal(Domain.Entities.ChatUsageKind.ChatTurn, log.Kind);
+        Assert.Equal(555, log.PromptTokens);
+        Assert.Equal(222, log.CompletionTokens);
+        Assert.Equal(100, log.CachedPromptTokens);
+        Assert.Equal("gpt-5.1-chat", log.ModelDeployment);
+    }
+
+    [Fact]
+    public async Task Chat_Happy_Path_Without_Usage_Headers_Skips_Log()
+    {
+        // When Python doesn't supply the X-Extractor-* headers (mock
+        // provider in an old deploy, etc.) the proxy must still return
+        // 200 + the reply, but skip the ChatUsageLog insert.
+        var (userId, token) = await SignupAsync("chatter@ex.com", "Chat");
+
+        _factory.ExtractorHandler.QueueResponse(
+            HttpStatusCode.OK, "{\"assistant_message\":\"ok\"}");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/chat");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new ChatTurnRequest(
+            "sess-no-usage",
+            new[] { new ChatMessageDto("user", "Hi") }));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Empty(db.ChatUsageLogs.Where(c => c.UserId == userId));
     }
 
     [Fact]
@@ -352,6 +411,37 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         // The body forwarded only the messages (the session id lives
         // in the path, not the body).
         Assert.DoesNotContain("session_id", captured.Body);
+    }
+
+    [Fact]
+    public async Task ChatToRecipe_Happy_Path_Persists_Usage_Log_With_ChatToRecipe_Kind()
+    {
+        var (userId, token) = await SignupAsync("chatter@ex.com", "Chat");
+
+        _factory.ExtractorHandler.QueueResponseWithUsage(
+            HttpStatusCode.OK,
+            "{\"title\":\"Spätzle\",\"ingredients\":[],\"steps\":[]}",
+            promptTokens: 2000,
+            completionTokens: 450,
+            cachedPromptTokens: 0,
+            model: "gpt-5.1");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post,
+            "/api/chat/sess-42/to-recipe");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new ChatToRecipeRequest(
+            new[] { new ChatMessageDto("user", "Mach ein Rezept.") }));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var log = await db.ChatUsageLogs.SingleAsync(c => c.UserId == userId);
+        Assert.Equal(Domain.Entities.ChatUsageKind.ChatToRecipe, log.Kind);
+        Assert.Equal("sess-42", log.SessionId);
+        Assert.Equal(2000, log.PromptTokens);
+        Assert.Equal("gpt-5.1", log.ModelDeployment);
     }
 
     [Fact]
