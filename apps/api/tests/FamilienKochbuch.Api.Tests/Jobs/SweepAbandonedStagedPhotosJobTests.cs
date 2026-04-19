@@ -207,7 +207,7 @@ public class SweepAbandonedStagedPhotosJobTests : IAsyncLifetime
         public string GetPublicUrl(string path) => _inner.GetPublicUrl(path);
 
         public Task<string> CopyAsync(
-            string sourcePath, string destinationPath, string contentType, CancellationToken ct = default)
-            => _inner.CopyAsync(sourcePath, destinationPath, contentType, ct);
+            string sourcePath, string contentType, CancellationToken ct = default)
+            => _inner.CopyAsync(sourcePath, contentType, ct);
     }
 }

@@ -474,6 +474,7 @@ public static class RecipeEndpoints
         CancellationToken ct)
     {
         var failures = new List<PartialPhotoFailureDto>();
+        var sourceBlobsToDelete = new List<string>();
         if (stagedPhotoIds is null || stagedPhotoIds.Length == 0)
             return failures;
 
@@ -525,10 +526,10 @@ public static class RecipeEndpoints
             try
             {
                 // Copy first so a download/upload failure is surfaced
-                // BEFORE we touch the recipe + staged-photo state.
-                destinationPath = BuildPromotedPath(staged.PhotoId);
-                await photoStorage.CopyAsync(
-                    staged.PhotoId, destinationPath, staged.ContentType, ct);
+                // BEFORE we touch the recipe + staged-photo state. The
+                // storage layer owns path generation.
+                destinationPath = await photoStorage.CopyAsync(
+                    staged.PhotoId, staged.ContentType, ct);
             }
             catch (Exception ex)
             {
@@ -573,37 +574,48 @@ public static class RecipeEndpoints
                 continue;
             }
 
-            // Best-effort delete of the staged source blob. If this
-            // fails (filer hiccup), the sweep job reaps it later via
-            // the StagedPhoto row's PromotedAt > 24h pathway being
-            // covered by a separate cleanup pass — for now we just log.
-            try
-            {
-                await photoStorage.DeleteAsync(staged.PhotoId, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "Cleanup of staged source blob {StagedPath} failed after promote — leaving for sweep job.",
-                    staged.PhotoId);
-            }
+            // Queue the staged-source-blob deletion for post-response
+            // cleanup — it's not on the critical path (the sweep job
+            // reaps orphans anyway) so we don't make the user wait
+            // for N sequential filer DELETEs. See FireAndForget call
+            // after the loop.
+            sourceBlobsToDelete.Add(staged.PhotoId);
         }
+
+        FireAndForgetDeleteStagedBlobs(photoStorage, sourceBlobsToDelete, logger);
 
         return failures;
     }
 
     /// <summary>
-    /// PF1 — derive the destination storage path for a promoted staged
-    /// photo. Mirrors <see cref="SeaweedFsPhotoStorage"/>'s upload
-    /// shape (<c>recipes/{guid:N}{ext}</c>) so the result fits the
-    /// existing photo-proxy + retrieval flow without per-recipe
-    /// subdirectories. Inheriting the source extension preserves the
-    /// MIME type signal even though the filer doesn't enforce it.
+    /// Deletes staged source blobs in the background after a successful
+    /// promote cycle. The caller has already returned by the time this
+    /// runs, so a slow filer doesn't block the user's response. Any
+    /// leftover blobs are reaped by SweepAbandonedStagedPhotosJob on
+    /// the next hourly pass, so failures here are non-critical.
     /// </summary>
-    private static string BuildPromotedPath(string sourcePath)
+    private static void FireAndForgetDeleteStagedBlobs(
+        IPhotoStorage photoStorage,
+        IReadOnlyList<string> sourcePaths,
+        ILogger logger)
     {
-        var ext = Path.GetExtension(sourcePath);
-        return $"{SeaweedFsPhotoStorage.PathPrefix}/{Guid.NewGuid():N}{ext}";
+        if (sourcePaths.Count == 0) return;
+        _ = Task.Run(async () =>
+        {
+            foreach (var sourcePath in sourcePaths)
+            {
+                try
+                {
+                    await photoStorage.DeleteAsync(sourcePath, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex,
+                        "Background cleanup of staged source blob {StagedPath} failed — sweep job will retry.",
+                        sourcePath);
+                }
+            }
+        });
     }
 
     private static async Task<bool> AreTagIdsValidForGroupAsync(

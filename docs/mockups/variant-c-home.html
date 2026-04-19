@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#fafaf9" />
+    <title>Variante C · Startseite · Warm-Neutral Editorial</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --primary: #1c1917;
+        --primary-hover: #292524;
+        --primary-weak: rgba(28,25,23,0.06);
+        --primary-weak-strong: rgba(28,25,23,0.1);
+        --accent: #c2410c;
+        --accent-hover: #9a3412;
+        --accent-weak: rgba(194,65,12,0.08);
+        --bg: #fafaf9;
+        --bg-2: #f5f5f4;
+        --surface: #ffffff;
+        --surface-muted: #fafaf9;
+        --border: #e7e5e4;
+        --border-soft: #f5f5f4;
+        --border-strong: #d6d3d1;
+        --text: #1c1917;
+        --text-muted: #57534e;
+        --text-soft: #78716c;
+        --star: #c2410c;
+        --radius: 10px;
+        --radius-lg: 18px;
+        --radius-xl: 22px;
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+      body { font-family: "Inter", system-ui, sans-serif; color: var(--text); background: var(--bg); min-height: 100vh; padding-bottom: calc(88px + var(--safe-bottom)); }
+      .topnav { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; position: sticky; top: 0; background: rgba(250,250,249,0.9); backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); z-index: 5; }
+      .brand { display: flex; align-items: center; gap: 11px; }
+      .logo { width: 36px; height: 36px; display: grid; place-items: center; background: var(--primary); color: var(--bg); border-radius: 10px; }
+      .brand-name { font-family: "Manrope", sans-serif; font-weight: 600; font-size: 16px; letter-spacing: -0.02em; }
+      .nav-actions { display: flex; align-items: center; gap: 4px; }
+      .icon-btn { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; color: var(--text-muted); background: transparent; border: 0; cursor: pointer; position: relative; }
+      .icon-btn:hover { background: var(--primary-weak); color: var(--text); }
+      .icon-btn .badge { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
+      .avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #e7d4c3 0%, #c9a987 100%); display: grid; place-items: center; font-weight: 600; font-size: 13px; color: #4a2d16; font-family: "Manrope", sans-serif; letter-spacing: -0.01em; }
+      main { max-width: 720px; margin: 0 auto; padding: 0 20px 32px; }
+      .greeting { padding: 28px 0 18px; }
+      .greet-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--accent); padding: 4px 11px; background: var(--accent-weak); border-radius: 999px; margin-bottom: 14px; letter-spacing: 0.005em; }
+      .greet-kicker-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+      .greet-title { font-family: "Manrope", sans-serif; font-size: clamp(30px, 7.5vw, 42px); font-weight: 600; line-height: 1.04; letter-spacing: -0.025em; margin: 0 0 8px; }
+      .greet-sub { font-size: 15px; color: var(--text-muted); line-height: 1.55; max-width: 34ch; }
+      .chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 6px 20px 8px; margin: 14px -20px 0; }
+      .chips::-webkit-scrollbar { display: none; }
+      .chip { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+      .chip:hover { border-color: var(--border-strong); }
+      .chip.chip-primary { background: var(--primary); color: var(--bg); border-color: var(--primary); }
+      .chip.chip-primary:hover { background: var(--primary-hover); }
+      .chip svg { width: 13px; height: 13px; }
+      section { margin-top: 30px; }
+      .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      .section-title { font-family: "Manrope", sans-serif; font-size: 20px; font-weight: 600; letter-spacing: -0.022em; }
+      .section-link { font-size: 13px; color: var(--accent); font-weight: 600; text-decoration: none; }
+      .section-link:hover { color: var(--accent-hover); text-decoration: underline; }
+      .invite-banner { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; box-shadow: 0 1px 2px rgba(28,25,23,0.03); position: relative; overflow: hidden; }
+      .invite-banner::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent); }
+      .invite-icon { width: 34px; height: 34px; flex-shrink: 0; background: var(--accent-weak); color: var(--accent); border-radius: 10px; display: grid; place-items: center; margin-left: 4px; }
+      .invite-text { flex: 1; font-size: 14px; line-height: 1.55; }
+      .invite-text strong { font-family: "Manrope", sans-serif; font-weight: 600; }
+      .invite-text .group-name { color: var(--accent); font-weight: 600; font-family: "Manrope", sans-serif; }
+      .invite-actions { display: flex; gap: 8px; margin-top: 10px; }
+      .btn-ghost, .btn-primary-sm { font-family: "Manrope", sans-serif; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 8px; cursor: pointer; letter-spacing: -0.005em; }
+      .btn-ghost { background: transparent; border: 1px solid var(--border-strong); color: var(--text-muted); }
+      .btn-ghost:hover { background: var(--bg-2); color: var(--text); }
+      .btn-primary-sm { background: var(--primary); color: var(--bg); border: 1px solid var(--primary); }
+      .btn-primary-sm:hover { background: var(--primary-hover); }
+      .groups { display: grid; grid-template-columns: 1fr; gap: 10px; }
+      .group-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; cursor: pointer; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 2px rgba(28,25,23,0.03); transition: box-shadow 150ms, border-color 150ms; }
+      .group-card:hover { box-shadow: 0 6px 18px -6px rgba(28,25,23,0.1); border-color: var(--border-strong); }
+      .group-row { display: flex; align-items: center; gap: 14px; }
+      .group-avatar { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 17px; font-weight: 600; font-family: "Manrope", sans-serif; letter-spacing: -0.015em; }
+      .group-avatar.tint-1 { background: #f5e6d3; color: #7a3f21; }
+      .group-avatar.tint-2 { background: #ede8dc; color: #4a3d25; }
+      .group-avatar.tint-3 { background: #e7d9cb; color: #5a3820; }
+      .group-name-big { font-family: "Manrope", sans-serif; font-size: 17px; font-weight: 600; letter-spacing: -0.018em; }
+      .group-meta { font-size: 13px; color: var(--text-soft); display: flex; gap: 6px; flex-wrap: wrap; }
+      .group-badge-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+      .group-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 6px; font-size: 11px; font-weight: 500; background: var(--bg-2); color: var(--text-muted); }
+      .group-badge.is-admin { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+      .group-add-card { display: flex; align-items: center; justify-content: center; min-height: 76px; background: transparent; border: 1.5px dashed var(--border-strong); border-radius: var(--radius-lg); color: var(--text-muted); font-size: 14px; font-weight: 500; cursor: pointer; font-family: "Manrope", sans-serif; letter-spacing: -0.005em; }
+      .group-add-card:hover { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+      .recipes { display: grid; grid-template-columns: 1fr; gap: 12px; }
+      @media (min-width: 640px) { .recipes { grid-template-columns: 1fr 1fr; } }
+      .recipe-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; text-decoration: none; color: inherit; display: flex; flex-direction: column; box-shadow: 0 1px 2px rgba(28,25,23,0.03); transition: box-shadow 180ms, transform 180ms; }
+      .recipe-card:hover { box-shadow: 0 10px 26px -10px rgba(28,25,23,0.12); transform: translateY(-1px); }
+      .recipe-photo { aspect-ratio: 16/10; background-size: cover; background-position: center; position: relative; }
+      .recipe-photo-1 { background: linear-gradient(135deg, #d9a87a 0%, #8c4e1f 100%); }
+      .recipe-photo-2 { background: linear-gradient(135deg, #e9bb8e 0%, #b35a2a 100%); }
+      .recipe-photo-3 { background: linear-gradient(135deg, #dbc685 0%, #7a5a2a 100%); }
+      .recipe-photo-4 { background: linear-gradient(135deg, #e3c8a5 0%, #8f5f3a 100%); }
+      .recipe-rating-pill { position: absolute; top: 10px; right: 10px; background: rgba(250,250,249,0.95); color: var(--text); backdrop-filter: blur(4px); padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; font-family: "Manrope", sans-serif; }
+      .recipe-rating-pill .star { color: var(--accent); }
+      .recipe-info { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 5px; }
+      .recipe-title { font-family: "Manrope", sans-serif; font-size: 16.5px; font-weight: 600; line-height: 1.22; letter-spacing: -0.02em; }
+      .recipe-meta { font-size: 12.5px; color: var(--text-soft); display: flex; gap: 6px; flex-wrap: wrap; }
+      .mini-tag { font-size: 11px; font-weight: 500; padding: 1.5px 7px; border-radius: 5px; background: var(--bg-2); color: var(--text-muted); }
+      .bottomnav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(250,250,249,0.94); backdrop-filter: blur(14px); border-top: 1px solid var(--border); display: flex; justify-content: space-around; padding-bottom: var(--safe-bottom); z-index: 10; }
+      .nav-item { flex: 1; padding: 10px 4px 12px; display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--text-soft); text-decoration: none; font-size: 10.5px; font-weight: 500; min-height: 56px; letter-spacing: -0.005em; }
+      .nav-item.active { color: var(--accent); }
+      .nav-item svg { width: 20px; height: 20px; }
+      .nav-add { position: relative; transform: translateY(-16px); }
+      .nav-add .nav-add-btn { width: 52px; height: 52px; background: var(--accent); color: #fff; border-radius: 50%; display: grid; place-items: center; box-shadow: 0 8px 20px -4px rgba(194,65,12,0.4); }
+      .nav-add .nav-add-label { color: var(--accent); margin-top: 3px; font-weight: 600; }
+      .switch { position: fixed; top: 62px; right: 12px; font-size: 11px; background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; color: var(--text-muted); text-decoration: none; z-index: 6; }
+    </style>
+  </head>
+  <body>
+    <a href="./variants-picker.html" class="switch">← Varianten</a>
+    <nav class="topnav">
+      <div class="brand"><div class="logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21a1 1 0 0 0 1-1v-5.35c0-.457.316-.844.727-1.041a4 4 0 0 0-2.134-7.589 5 5 0 0 0-9.186 0 4 4 0 0 0-2.134 7.588c.411.198.727.585.727 1.041V20a1 1 0 0 0 1 1Z"/><path d="M6 17h12"/></svg></div><div class="brand-name">Familien-Kochbuch</div></div>
+      <div class="nav-actions">
+        <button class="icon-btn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></button>
+        <button class="icon-btn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge"></span></button>
+        <div class="avatar">D</div>
+      </div>
+    </nav>
+    <main>
+      <div class="greeting">
+        <div class="greet-kicker"><span class="greet-kicker-dot"></span>Guten Abend, David</div>
+        <div class="greet-title">Was kochen wir heute?</div>
+        <div class="greet-sub">Ein schneller Tipp, was Hunger beruhigt — frisch aus deinen Gruppen.</div>
+        <div class="chips">
+          <button class="chip chip-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Schnell</button>
+          <button class="chip">Warm</button>
+          <button class="chip">Vegetarisch</button>
+          <button class="chip">Zufall</button>
+          <button class="chip">Sommer-Abend</button>
+        </div>
+      </div>
+      <section>
+        <div class="invite-banner">
+          <div class="invite-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+          <div><div class="invite-text"><strong>Maren</strong> lädt dich zu <span class="group-name">„Backkurs-Crew"</span> ein.</div><div class="invite-actions"><button class="btn-ghost">Ablehnen</button><button class="btn-primary-sm">Annehmen</button></div></div>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><h2 class="section-title">Meine Gruppen</h2><a href="#" class="section-link">Alle ansehen →</a></div>
+        <div class="groups">
+          <a href="#" class="group-card"><div class="group-row"><div class="group-avatar tint-1">K</div><div><div class="group-name-big">Example Family</div><div class="group-meta"><span>47 Rezepte</span><span>·</span><span>4 Mitglieder</span><span>·</span><span>3 Portionen</span></div></div></div><div class="group-badge-row"><span class="group-badge is-admin">Admin</span><span class="group-badge">Zuletzt: gestern</span></div></a>
+          <a href="#" class="group-card"><div class="group-row"><div class="group-avatar tint-2">W</div><div><div class="group-name-big">WG-Donnerstage</div><div class="group-meta"><span>12 Rezepte</span><span>·</span><span>3 Mitglieder</span></div></div></div><div class="group-badge-row"><span class="group-badge">Mitglied</span></div></a>
+          <button class="group-add-card">＋ Neue Gruppe anlegen</button>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><h2 class="section-title">Zuletzt gekocht</h2><a href="#" class="section-link">Alle →</a></div>
+        <div class="recipes">
+          <a href="#" class="recipe-card"><div class="recipe-photo recipe-photo-1"><div class="recipe-rating-pill"><span class="star">★</span> 4,8</div></div><div class="recipe-info"><div class="recipe-title">Omas Schnitzel mit Kartoffelpüree</div><div class="recipe-meta"><span>Example Family</span><span>·</span><span>45 Min</span></div><div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px"><span class="mini-tag">Abend</span><span class="mini-tag">warm</span></div></div></a>
+          <a href="#" class="recipe-card"><div class="recipe-photo recipe-photo-2"><div class="recipe-rating-pill"><span class="star">★</span> 4,5</div></div><div class="recipe-info"><div class="recipe-title">Bacon-Cheeseburger Hot Pockets</div><div class="recipe-meta"><span>Example Family</span><span>·</span><span>60 Min</span></div></div></a>
+          <a href="#" class="recipe-card"><div class="recipe-photo recipe-photo-3"><div class="recipe-rating-pill"><span class="star">★</span> 4,7</div></div><div class="recipe-info"><div class="recipe-title">Gochujang-Erdnuss-Nudeln</div><div class="recipe-meta"><span>WG-Donnerstage</span><span>·</span><span>20 Min</span></div></div></a>
+          <a href="#" class="recipe-card"><div class="recipe-photo recipe-photo-4"><div class="recipe-rating-pill"><span class="star">★</span> 5,0</div></div><div class="recipe-info"><div class="recipe-title">Mamas Apfelkuchen</div><div class="recipe-meta"><span>Example Family</span><span>·</span><span>75 Min</span></div></div></a>
+        </div>
+      </section>
+    </main>
+    <nav class="bottomnav">
+      <a href="#" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Start</a>
+      <a href="#" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/></svg>Gruppen</a>
+      <a href="#" class="nav-item nav-add"><div class="nav-add-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div><span class="nav-add-label">Neu</span></a>
+      <a href="#" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Plan</a>
+      <a href="#" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Profil</a>
+    </nav>
+  </body>
+</html>
