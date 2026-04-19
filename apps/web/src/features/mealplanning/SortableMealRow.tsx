@@ -224,6 +224,7 @@ function SortableSlotCard({
         <p className="text-[11px] text-muted-foreground">
           {slot.servings} {servingsLabel}
         </p>
+        {/* Badge sits inside the click-to-edit button intentionally — clicking badge opens edit dialog. If wrapped in a nested interactive element later, extract to a top-right absolute-positioned element. */}
         {parentLabel && (
           <span
             data-testid={`mealplan-slot-parent-badge-${slot.id}`}
