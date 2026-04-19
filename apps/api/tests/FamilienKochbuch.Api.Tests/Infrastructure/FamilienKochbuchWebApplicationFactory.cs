@@ -41,6 +41,8 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
     /// registration tests flip between populated / empty values.</summary>
     private string? _smtpHost;
     private string? _smtpFromAddress;
+    private int? _smtpPort;
+    private bool? _smtpUseStartTls;
 
     /// <summary>
     /// Captures every HTTP request sent through the named
@@ -77,6 +79,10 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
             builder.UseSetting("Smtp:Host", _smtpHost);
         if (_smtpFromAddress is not null)
             builder.UseSetting("Smtp:FromAddress", _smtpFromAddress);
+        if (_smtpPort is int port)
+            builder.UseSetting("Smtp:Port", port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (_smtpUseStartTls is bool startTls)
+            builder.UseSetting("Smtp:UseStartTls", startTls ? "true" : "false");
 
         builder.ConfigureServices(services =>
         {
@@ -168,11 +174,17 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
 
     /// <summary>PF3 — fluent helper for the registration tests. Sets the
     /// <c>Smtp:Host</c> and <c>Smtp:FromAddress</c> configuration values
-    /// that the conditional registration in Program.cs reads.</summary>
-    public FamilienKochbuchWebApplicationFactory WithSmtpConfig(string host, string fromAddress)
+    /// that the conditional registration in Program.cs reads. Optional
+    /// <paramref name="port"/> + <paramref name="useStartTls"/> flip the
+    /// matching settings for integration tests that point the real
+    /// SmtpEmailSender at a netDumbster fake.</summary>
+    public FamilienKochbuchWebApplicationFactory WithSmtpConfig(
+        string host, string fromAddress, int? port = null, bool? useStartTls = null)
     {
         _smtpHost = host;
         _smtpFromAddress = fromAddress;
+        _smtpPort = port;
+        _smtpUseStartTls = useStartTls;
         return this;
     }
 
