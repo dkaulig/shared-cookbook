@@ -88,10 +88,14 @@ if (!builder.Environment.IsEnvironment("Testing"))
             }));
     builder.Services.AddHangfireServer(opts =>
     {
-        // Hard cap at 2: each extraction job calls python-extractor which
-        // is budgeted at 8 GB / 8 CPU. Whisper large-v3 alone is ~3 GB
+        // Default cap at 2: each extraction job calls python-extractor which
+        // is budgeted at 8 GB / 6 CPU. Whisper large-v3 alone is ~3 GB
         // resident, so >2 concurrent extractions would OOM the VPS.
-        opts.WorkerCount = 2;
+        // Override via HANGFIRE_WORKERS env var if ressource envelope changes.
+        var workerCount = int.TryParse(
+            Environment.GetEnvironmentVariable("HANGFIRE_WORKERS"),
+            out var parsed) && parsed > 0 ? parsed : 2;
+        opts.WorkerCount = workerCount;
     });
 }
 
