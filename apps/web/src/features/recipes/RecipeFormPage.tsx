@@ -39,6 +39,10 @@ import {
   type ImportPrefill,
 } from '@/features/imports/importPrefill'
 import {
+  forgetChatImport,
+  recallChatImport,
+} from '@/features/chat/chatImportMemo'
+import {
   useCreateRecipe,
   useGroupTags,
   useRecipe,
@@ -171,6 +175,14 @@ export function RecipeFormPage({ mode }: Props) {
   const recipeId = params.recipeId ?? ''
   const [searchParams] = useSearchParams()
   const importId = mode === 'create' ? searchParams.get('importId') ?? '' : ''
+  // P2-9 — the chat-to-recipe handoff stashes the ExtractionResult in
+  // sessionStorage under a transient id the URL carries via
+  // `?chatImportId=<uuid>`. Reads happen once on first render (the
+  // outer wrapper is a natural gate for prefill composition). We keep
+  // the stashed payload around until the user saves or explicitly
+  // discards — see `chatImport.onDiscard` wiring below.
+  const chatImportId =
+    mode === 'create' ? searchParams.get('chatImportId') ?? '' : ''
 
   const recipeQuery = useRecipe(mode === 'edit' ? recipeId : undefined)
   // useImportStatus manages its own enabled/disabled logic. When
@@ -215,20 +227,34 @@ export function RecipeFormPage({ mode }: Props) {
     )
   }
 
-  // If the import fetch errored or returned without a recipe, drop into
-  // a normal blank create form — the user can still save manually. The
-  // progress page should have caught backend errors already, so this is
-  // a defensive fallback.
-  const prefill: ImportPrefill | undefined =
-    mode === 'create' && importQuery.data?.result
-      ? extractedRecipeToPrefill(importQuery.data.result.recipe)
-      : undefined
+  // Prefill resolution order: URL import (Hangfire-polled) → chat
+  // import (synchronous sessionStorage stash). The two paths are
+  // mutually exclusive by construction — the source URL is either
+  // an `/api/imports/{importId}` payload or the chat → recipe
+  // structuring output — but the chain-of-responsibility below is
+  // cheap and defensive.
+  let prefill: ImportPrefill | undefined
+  let chatImportSource: 'chat' | null = null
+  if (mode === 'create' && importQuery.data?.result) {
+    prefill = extractedRecipeToPrefill(importQuery.data.result.recipe)
+  } else if (mode === 'create' && chatImportId) {
+    const stashed = recallChatImport(chatImportId)
+    if (stashed) {
+      prefill = extractedRecipeToPrefill(stashed.result.recipe)
+      chatImportSource = 'chat'
+    }
+    // If the stash is missing (bookmarked link, expired tab) we fall
+    // through to a blank create form — the user keeps their URL but
+    // loses the chat payload, which is an acceptable outcome for a
+    // deliberately session-scoped feature.
+  }
 
   return (
     <RecipeFormInner
       mode={mode}
       initial={mode === 'edit' ? recipeQuery.data! : undefined}
       prefill={prefill}
+      chatImportId={chatImportSource ? chatImportId : null}
     />
   )
 }
@@ -237,10 +263,18 @@ function RecipeFormInner({
   mode,
   initial,
   prefill,
+  chatImportId,
 }: {
   mode: 'create' | 'edit'
   initial?: RecipeDetailDto
   prefill?: ImportPrefill
+  /**
+   * Non-null when the prefill came from the P2-9 chat → recipe handoff.
+   * Used to (a) swap the banner copy to the chat-specific variant,
+   * (b) drop the sessionStorage stash once the recipe saves
+   * successfully or the user explicitly cancels.
+   */
+  chatImportId?: string | null
 }) {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
@@ -275,9 +309,15 @@ function RecipeFormInner({
       (prefill?.difficulty as DifficultyLevel | undefined) ??
       1,
   )
-  const [sourceUrl, setSourceUrl] = useState(
-    initial?.sourceUrl ?? prefill?.sourceUrl ?? '',
-  )
+  const [sourceUrl, setSourceUrl] = useState(() => {
+    if (initial?.sourceUrl != null) return initial.sourceUrl
+    // Chat imports emit a synthetic `chat://…` URL the user never
+    // pasted — strip it here so the saved recipe doesn't persist the
+    // sentinel as a junk "source" link. Mirrors the photo-import
+    // sentinel stripping in extractedRecipeToPrefill.
+    if (chatImportId && prefill?.sourceUrl.startsWith('chat://')) return ''
+    return prefill?.sourceUrl ?? ''
+  })
   const [ingredients, setIngredients] = useState<IngredientRow[]>(() => {
     if (initial && initial.ingredients.length > 0) {
       return initial.ingredients.map(ingredientFromDto)
@@ -382,6 +422,12 @@ function RecipeFormInner({
   }
 
   function cancel() {
+    // P2-9 — if the prefill came from the chat flow, discard the
+    // sessionStorage stash on explicit cancel so the user's dialogue
+    // doesn't linger for the next tab visit. We keep the stash when
+    // the user saves (cleared at the end of handleSubmit instead),
+    // to avoid wiping mid-save on transient navigation.
+    if (chatImportId) forgetChatImport(chatImportId)
     navigate(`/groups/${groupId}`)
   }
 
@@ -484,6 +530,10 @@ function RecipeFormInner({
       }
 
       setSubmitPhase('idle')
+      // P2-9 — clean the sessionStorage stash once the recipe lives in
+      // the DB. Skipped if chatImportId is null so the URL / photo
+      // import paths are unaffected.
+      if (chatImportId) forgetChatImport(chatImportId)
       navigate(`/groups/${groupId}/recipes/${result.id}`)
     } catch (err) {
       setSubmitPhase('idle')
@@ -512,6 +562,7 @@ function RecipeFormInner({
           <ImportProvenanceBanner
             sourceUrl={prefill.sourceUrl}
             isPhotoImport={prefill.isPhotoImport}
+            isChatImport={chatImportId != null}
             onDismiss={() => setBannerDismissed(true)}
           />
         )}
@@ -1277,18 +1328,22 @@ function SortableStepRow({
  * dismissible — the dismissal only hides the chrome, the prefilled
  * form keeps its data.
  *
- * The P2-8 photo-import branch (`isPhotoImport === true`) replaces the
- * URL phrase with "aus deinen Fotos" because the underlying sentinel
- * (`photos://upload`) is a machine-facing pin, not a human-meaningful
- * link — hiding it is strictly better than showing it.
+ * Three provenance variants share the same chrome:
+ *   - URL import (default): "AI-Vorschlag aus <url>".
+ *   - Photo import (`isPhotoImport === true`): "AI-Vorschlag aus deinen
+ *     Fotos" — the `photos://upload` sentinel never reaches the user.
+ *   - Chat import (P2-9, `isChatImport === true`): "AI-Vorschlag aus
+ *     dem Chat" — chat has no source URL at all, just the dialogue.
  */
 function ImportProvenanceBanner({
   sourceUrl,
   isPhotoImport,
+  isChatImport,
   onDismiss,
 }: {
   sourceUrl: string
   isPhotoImport: boolean
+  isChatImport: boolean
   onDismiss: () => void
 }) {
   const displayUrl =
@@ -1304,7 +1359,13 @@ function ImportProvenanceBanner({
         aria-hidden="true"
       />
       <p className="min-w-0 flex-1 text-foreground">
-        {isPhotoImport ? (
+        {isChatImport ? (
+          <>
+            AI-Vorschlag aus{' '}
+            <span className="font-medium text-primary">dem Chat</span>. Bitte
+            durchsehen, bevor du speicherst.
+          </>
+        ) : isPhotoImport ? (
           <>
             AI-Vorschlag aus{' '}
             <span className="font-medium text-primary">deinen Fotos</span>.

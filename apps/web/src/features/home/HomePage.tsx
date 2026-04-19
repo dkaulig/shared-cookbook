@@ -7,6 +7,7 @@ import {
   Check,
   Clock,
   Leaf,
+  MessageSquare,
   Plus,
   Shuffle,
   Soup,
@@ -158,6 +159,21 @@ export function HomePage() {
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
             <Camera className="h-3.5 w-3.5" aria-hidden="true" />
             Rezept aus Foto importieren
+          </Link>
+          {/*
+            P2-9 — third KI-import entry: conversational recipe creation.
+            Rendered as a sibling of the Video + Foto links; MessageSquare
+            icon picks out the conversational medium. "Erfinden" instead
+            of "Importieren" because the chat path creates something new
+            rather than pulling an existing recipe from a source.
+          */}
+          <Link
+            to="/chat"
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+            Rezept im Chat erfinden
           </Link>
         </div>
       </section>
