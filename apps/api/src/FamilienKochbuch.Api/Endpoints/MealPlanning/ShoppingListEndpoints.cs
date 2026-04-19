@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
@@ -205,6 +206,7 @@ public static class ShoppingListEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -282,6 +284,18 @@ public static class ShoppingListEndpoints
             db.ShoppingLists.Add(list);
             await db.SaveChangesAsync(ct);
 
+            // itemId=Guid.Empty signals a list-wide change — the
+            // frontend invalidates the whole ['shoppinglist', planId]
+            // query rather than trying to splice individual rows from
+            // a bulk-generate. Same convention applied on regen below.
+            await liveSync.ShoppingListItemChangedAsync(
+                groupId: plan.GroupId,
+                planId: plan.Id,
+                listId: list.Id,
+                itemId: Guid.Empty,
+                action: LiveSyncAction.Created,
+                ct: ct);
+
             return Results.Created(
                 $"/api/mealplans/{plan.Id}/shopping-list",
                 ToDto(list, list.Items.ToList()));
@@ -302,6 +316,14 @@ public static class ShoppingListEndpoints
 
         existing.MarkRegenerated(now);
         await db.SaveChangesAsync(ct);
+
+        await liveSync.ShoppingListItemChangedAsync(
+            groupId: plan.GroupId,
+            planId: plan.Id,
+            listId: existing.Id,
+            itemId: Guid.Empty,
+            action: LiveSyncAction.Updated,
+            ct: ct);
 
         var refreshed = await db.ShoppingListItems
             .Where(i => i.ShoppingListId == existing.Id)
@@ -400,11 +422,12 @@ public static class ShoppingListEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
-        var (list, _, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
+        var (list, plan, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
         if (err is not null) return err;
 
         // Reject out-of-range enum values: System.Text.Json happily
@@ -449,6 +472,14 @@ public static class ShoppingListEndpoints
         list!.Touch(now);
         await db.SaveChangesAsync(ct);
 
+        await liveSync.ShoppingListItemChangedAsync(
+            groupId: plan!.GroupId,
+            planId: plan.Id,
+            listId: list.Id,
+            itemId: item.Id,
+            action: LiveSyncAction.Created,
+            ct: ct);
+
         return Results.Created(
             $"/api/shopping-lists/{list.Id}/items/{item.Id}",
             ToDto(item));
@@ -463,11 +494,12 @@ public static class ShoppingListEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
-        var (list, _, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
+        var (list, plan, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
         if (err is not null) return err;
 
         var item = await db.ShoppingListItems
@@ -516,6 +548,14 @@ public static class ShoppingListEndpoints
         list!.Touch(now);
         await db.SaveChangesAsync(ct);
 
+        await liveSync.ShoppingListItemChangedAsync(
+            groupId: plan!.GroupId,
+            planId: plan.Id,
+            listId: list.Id,
+            itemId: item.Id,
+            action: LiveSyncAction.Updated,
+            ct: ct);
+
         return Results.Ok(ToDto(item));
     }
 
@@ -527,11 +567,12 @@ public static class ShoppingListEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
-        var (list, _, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
+        var (list, plan, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
         if (err is not null) return err;
 
         var item = await db.ShoppingListItems
@@ -543,6 +584,14 @@ public static class ShoppingListEndpoints
         db.ShoppingListItems.Remove(item);
         list!.Touch(clock.GetUtcNow());
         await db.SaveChangesAsync(ct);
+
+        await liveSync.ShoppingListItemChangedAsync(
+            groupId: plan!.GroupId,
+            planId: plan.Id,
+            listId: list.Id,
+            itemId: itemId,
+            action: LiveSyncAction.Deleted,
+            ct: ct);
 
         return Results.NoContent();
     }

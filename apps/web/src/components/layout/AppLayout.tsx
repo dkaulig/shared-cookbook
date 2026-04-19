@@ -1,6 +1,7 @@
 import { Outlet, useMatch } from 'react-router-dom'
 import { TopNav } from './TopNav'
 import { BottomNav } from './BottomNav'
+import { useLiveSync } from '@/features/live/useLiveSync'
 
 /**
  * DS3 protected-route shell.
@@ -20,6 +21,13 @@ import { BottomNav } from './BottomNav'
  *                       with a side or top expansion lands in DS7.
  */
 export function AppLayout() {
+  // P3-8 — open ONE SignalR connection per authenticated session,
+  // shared across every protected page. Per-page subscribes would
+  // multiply sockets; hooking it on the layout means the hub opens
+  // when the user lands on any protected route and closes when they
+  // log out + ProtectedRoute unmounts AppLayout.
+  useLiveSync()
+
   // DS5: the recipe detail page has its own floating top bar that
   // overlays the hero photo — suppress the shared TopNav there so we
   // don't end up with two stacked top chrome strips.

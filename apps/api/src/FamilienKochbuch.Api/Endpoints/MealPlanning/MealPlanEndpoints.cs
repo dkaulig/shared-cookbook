@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Json;
+using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.MealPlanning;
 using FamilienKochbuch.Infrastructure.Persistence;
@@ -323,6 +324,7 @@ public static class MealPlanEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -361,10 +363,22 @@ public static class MealPlanEndpoints
         db.MealPlans.Add(plan);
         await db.SaveChangesAsync(ct);
 
+        await liveSync.MealPlanChangedAsync(
+            groupId: plan.GroupId,
+            planId: plan.Id,
+            weekStart: FormatWeekStart(plan.WeekStart),
+            action: LiveSyncAction.Created,
+            ct: ct);
+
         return Results.Created(
             $"/api/groups/{groupId}/mealplans/{plan.WeekStart:yyyy-MM-dd}",
             ToDto(plan, Array.Empty<MealPlanSlot>()));
     }
+
+    /// <summary>Canonical ISO YYYY-MM-DD for the wire payload — kept
+    /// invariant regardless of the server's culture.</summary>
+    private static string FormatWeekStart(DateOnly weekStart) =>
+        weekStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     // ── POST /api/mealplans/{planId}/slots ──────────────────────────
 
@@ -374,6 +388,7 @@ public static class MealPlanEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -426,7 +441,40 @@ public static class MealPlanEndpoints
         plan!.BumpVersion(now);
         await db.SaveChangesAsync(ct);
 
+        await PublishSlotAndPlanChangedAsync(
+            liveSync, plan, slot.Id, LiveSyncAction.Created, LiveSyncAction.Updated, ct);
+
         return Results.Created($"/api/mealplans/{plan.Id}/slots/{slot.Id}", ToDto(slot));
+    }
+
+    /// <summary>
+    /// Publishes a <c>MealPlanSlotChanged</c> event alongside a
+    /// <c>MealPlanChanged</c> (version-bump) event. Centralised here
+    /// so every slot-mutation endpoint fans out the same event pair
+    /// with the same payload shape.
+    /// </summary>
+    private static async Task PublishSlotAndPlanChangedAsync(
+        ILiveSyncPublisher liveSync,
+        MealPlan plan,
+        Guid slotId,
+        LiveSyncAction slotAction,
+        LiveSyncAction planAction,
+        CancellationToken ct)
+    {
+        var weekStart = FormatWeekStart(plan.WeekStart);
+        await liveSync.MealPlanSlotChangedAsync(
+            groupId: plan.GroupId,
+            planId: plan.Id,
+            slotId: slotId,
+            weekStart: weekStart,
+            action: slotAction,
+            ct: ct);
+        await liveSync.MealPlanChangedAsync(
+            groupId: plan.GroupId,
+            planId: plan.Id,
+            weekStart: weekStart,
+            action: planAction,
+            ct: ct);
     }
 
     private static async Task<int> NextSortOrderAsync(
@@ -450,6 +498,7 @@ public static class MealPlanEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -533,6 +582,9 @@ public static class MealPlanEndpoints
         plan!.BumpVersion(now);
         await db.SaveChangesAsync(ct);
 
+        await PublishSlotAndPlanChangedAsync(
+            liveSync, plan, slot.Id, LiveSyncAction.Updated, LiveSyncAction.Updated, ct);
+
         return Results.Ok(ToDto(slot));
     }
 
@@ -544,6 +596,7 @@ public static class MealPlanEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -575,6 +628,9 @@ public static class MealPlanEndpoints
         plan!.BumpVersion(now);
         await db.SaveChangesAsync(ct);
 
+        await PublishSlotAndPlanChangedAsync(
+            liveSync, plan, slotId, LiveSyncAction.Deleted, LiveSyncAction.Updated, ct);
+
         return Results.NoContent();
     }
 
@@ -586,6 +642,7 @@ public static class MealPlanEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
+        ILiveSyncPublisher liveSync,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -659,6 +716,13 @@ public static class MealPlanEndpoints
 
         targetPlan.BumpVersion(now);
         await db.SaveChangesAsync(ct);
+
+        await liveSync.MealPlanChangedAsync(
+            groupId: targetPlan.GroupId,
+            planId: targetPlan.Id,
+            weekStart: FormatWeekStart(targetPlan.WeekStart),
+            action: LiveSyncAction.Updated,
+            ct: ct);
 
         var refreshed = await db.MealPlanSlots
             .Where(s => s.MealPlanId == targetPlan.Id)
