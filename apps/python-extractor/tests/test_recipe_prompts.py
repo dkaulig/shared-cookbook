@@ -46,6 +46,7 @@ def test_recipe_schema_accepts_minimal_valid_payload() -> None:
         "tags": [],
         "source_url": "https://example.com/rezept",
         "thumbnail_url": None,
+        "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
 
@@ -63,6 +64,7 @@ def test_recipe_schema_rejects_missing_title() -> None:
         "tags": [],
         "source_url": "https://example.com/rezept",
         "thumbnail_url": None,
+        "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -82,6 +84,7 @@ def test_recipe_schema_rejects_extra_top_level_properties() -> None:
         "tags": [],
         "source_url": "https://example.com/rezept",
         "thumbnail_url": None,
+        "nutrition_estimate": None,
         "bogus_field": "should not be here",
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -120,6 +123,7 @@ def test_recipe_schema_validates_full_payload() -> None:
         "tags": ["dessert", "süß", "klassiker"],
         "source_url": "https://example.com/kaiserschmarrn",
         "thumbnail_url": "https://example.com/kaiserschmarrn.jpg",
+        "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
 
@@ -138,6 +142,7 @@ def test_recipe_schema_rejects_invalid_confidence_level() -> None:
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
+        "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -164,6 +169,7 @@ def test_recipe_schema_rejects_ingredient_without_name() -> None:
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
+        "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -279,8 +285,11 @@ def test_recipe_schema_accepts_null_nutrition_estimate() -> None:
     jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
 
 
-def test_recipe_schema_accepts_missing_nutrition_estimate() -> None:
-    """Back-compat: payloads without the key still validate."""
+def test_recipe_schema_rejects_missing_nutrition_estimate() -> None:
+    """Azure Responses-API strict mode (2025-04) requires every
+    ``properties`` key in ``required`` — omitting ``nutrition_estimate``
+    now fails validation. Callers must pass the key explicitly (``null``
+    is accepted because the field is typed ``["object", "null"]``)."""
     payload: dict[str, Any] = {
         "title": "X",
         "description": None,
@@ -294,7 +303,25 @@ def test_recipe_schema_accepts_missing_nutrition_estimate() -> None:
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
     }
-    jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_requires_nutrition_estimate() -> None:
+    """Regression guard for the Azure strict-mode fix.
+
+    Azure Responses API (strict schema, 2025-04) rejects any
+    ``response_format`` JSON schema that has a ``properties`` key absent
+    from ``required``. The schema keeps ``nutrition_estimate`` nullable
+    via ``type: ["object", "null"]`` so the LLM can still signal "no
+    estimate possible" by emitting ``null``."""
+    assert "nutrition_estimate" in RECIPE_SCHEMA["required"]
+    assert "nutrition_estimate" in RECIPE_SCHEMA["properties"]
+    assert "null" in RECIPE_SCHEMA["properties"]["nutrition_estimate"]["type"]
+    # Defensive: every declared property is listed in required — this
+    # mirrors the Azure strict-mode invariant for the whole schema, not
+    # just ``nutrition_estimate``.
+    assert set(RECIPE_SCHEMA["required"]) == set(RECIPE_SCHEMA["properties"].keys())
 
 
 def test_recipe_schema_rejects_nutrition_with_extra_field() -> None:
