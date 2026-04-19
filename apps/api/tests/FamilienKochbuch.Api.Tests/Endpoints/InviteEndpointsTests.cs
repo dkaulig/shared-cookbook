@@ -34,6 +34,7 @@ public class InviteEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         {
             HandleCookies = true,
         });
+        _factory.Email.Clear();
         await ResetAsync();
     }
 
@@ -161,6 +162,52 @@ public class InviteEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var (adminClient, _) = await CreateAuthenticatedClient("global.admin@example.com", UserRole.Admin);
         var delete = await adminClient.DeleteAsync($"/api/invites/app/{created!.Id}");
         Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
+    }
+
+    // ── PF3 — outbound email on invite create ───────────────────────
+
+    [Fact]
+    public async Task Create_Invite_With_Email_Sends_AppInvite_Mail()
+    {
+        var (client, creator) = await CreateAuthenticatedClient("mailer@example.com");
+
+        var response = await client.PostAsJsonAsync("/api/invites/app/",
+            new InviteEndpoints.CreateInviteRequest("invitee@example.com"));
+        response.EnsureSuccessStatusCode();
+
+        Assert.Single(_factory.Email.AppInvites);
+        var sent = _factory.Email.LastAppInvite!;
+        Assert.Equal("invitee@example.com", sent.ToEmail);
+        Assert.Equal(creator.DisplayName, sent.InviterDisplayName);
+        Assert.Contains("/signup?token=", sent.AcceptUrl);
+    }
+
+    [Fact]
+    public async Task Create_Invite_Without_Email_Does_Not_Send_Mail()
+    {
+        var (client, _) = await CreateAuthenticatedClient("nomail@example.com");
+
+        var response = await client.PostAsJsonAsync("/api/invites/app/",
+            new InviteEndpoints.CreateInviteRequest(Email: null));
+        response.EnsureSuccessStatusCode();
+
+        Assert.Empty(_factory.Email.AppInvites);
+    }
+
+    [Fact]
+    public async Task Create_Invite_Still_Returns_200_When_Mail_Delivery_Fails()
+    {
+        var (client, _) = await CreateAuthenticatedClient("resilient@example.com");
+        _factory.Email.ThrowOnSend = new InvalidOperationException("simulated SMTP failure");
+
+        var response = await client.PostAsJsonAsync("/api/invites/app/",
+            new InviteEndpoints.CreateInviteRequest("recipient@example.com"));
+
+        // Endpoint must still succeed — the invite row is authoritative.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<InviteEndpoints.CreateInviteResponse>();
+        Assert.NotNull(body);
+        Assert.False(string.IsNullOrWhiteSpace(body!.Token));
     }
 
     [Fact]
