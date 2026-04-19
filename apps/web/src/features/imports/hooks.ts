@@ -67,6 +67,14 @@ interface UseImportStatusOptions {
   refetchInterval?: number
   /** Disable the query entirely — useful in tests or when the id is empty. */
   enabled?: boolean
+  /**
+   * BUG-017 — passthrough to TanStack Query's `refetchOnMount`. Let the
+   * caller force a fresh fetch when mounting (e.g. `RecipeFormPage` uses
+   * `'always'` to bypass a SignalR-polluted cache entry left behind by
+   * `ImportProgressPage`). Defaults to TanStack's standard staleness
+   * heuristic when omitted.
+   */
+  refetchOnMount?: boolean | 'always'
 }
 
 /**
@@ -95,6 +103,7 @@ export function useImportStatus(
       : ['imports', 'status', 'disabled'],
     queryFn: () => fetchImport(importId!),
     enabled,
+    refetchOnMount: options?.refetchOnMount,
     refetchInterval: (query) => {
       const data = query.state.data
       if (!data) return pollMs
