@@ -318,6 +318,23 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
     }
 
     [Fact]
+    public async Task PasswordResetRequest_Returns_204_When_Mail_Delivery_Fails()
+    {
+        // If SMTP is down a 5xx would leak account existence (200 = no
+        // account, 500 = account exists + SMTP broken). The endpoint must
+        // stay uniformly 204 regardless of mail failure.
+        await SeedUserAsync("reset-fail@example.com", "AltesPasswort1!");
+        _factory.Email.ThrowOnSend = new EmailSendException("simulated SMTP failure");
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/auth/password-reset-request",
+            new AuthEndpoints.PasswordResetRequestBody("reset-fail@example.com"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(_factory.Email.Messages);
+    }
+
+    [Fact]
     public async Task PasswordReset_With_Captured_Token_Updates_Password()
     {
         await SeedUserAsync("reset2@example.com", "AltesPasswort1!");
