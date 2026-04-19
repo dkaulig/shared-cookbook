@@ -2,7 +2,18 @@ import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { GroupSummary, RecipeSummaryDto } from '@familien-kochbuch/shared'
-import { Check, Clock, Leaf, Plus, Shuffle, Soup, Sparkles, Star } from 'lucide-react'
+import {
+  Camera,
+  Check,
+  Clock,
+  Leaf,
+  Plus,
+  Shuffle,
+  Soup,
+  Sparkles,
+  Star,
+  Video,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/useAuth'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
@@ -121,19 +132,32 @@ export function HomePage() {
         </div>
 
         {/*
-          P2-7 — discreet entry point to the URL-import flow. Sits right
-          under the hero chips because that's the "what do I do next?"
-          zone on Home; rendering it as a text link with a sparkle icon
-          keeps it secondary to the primary navigation without burying
-          it in a drawer.
+          P2-7 + P2-8 — two discreet KI-Import entry points sitting
+          under the hero chips: the "what do I do next?" zone on Home.
+          Rendered as text links with a sparkle + medium-specific icon
+          (Video for URL, Camera for Foto) so they stay secondary to
+          the primary navigation without burying themselves in a drawer.
+          The dashed-border + sage-text treatment is kept identical
+          between the two so they read as siblings — deliberately equal
+          weight, since video and photo are two legitimate starting
+          points for the AI flow.
         */}
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap gap-2">
           <Link
             to="/rezepte/import/url"
             className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            <Video className="h-3.5 w-3.5" aria-hidden="true" />
             Rezept aus Video importieren
+          </Link>
+          <Link
+            to="/rezepte/import/photos"
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+            Rezept aus Foto importieren
           </Link>
         </div>
       </section>

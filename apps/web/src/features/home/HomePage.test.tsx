@@ -426,4 +426,20 @@ describe('<HomePage />', () => {
     })
     expect(link).toHaveAttribute('href', '/rezepte/import/url')
   })
+
+  // P2-8 — the companion photo-import link sits next to the video-import
+  // one, same visual treatment, different route + icon. Both entry
+  // points deliberately share the dashed-border chip style so they read
+  // as sibling AI affordances.
+  it('renders the "Rezept aus Foto importieren" entry point linking to /rezepte/import/photos', async () => {
+    server.use(
+      http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
+      http.get('/api/groups/invites', () => HttpResponse.json([])),
+    )
+    renderHome()
+    const link = await screen.findByRole('link', {
+      name: /Rezept aus Foto importieren/i,
+    })
+    expect(link).toHaveAttribute('href', '/rezepte/import/photos')
+  })
 })
