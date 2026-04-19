@@ -1339,7 +1339,7 @@ export function ConfidenceBadge({
   if (confidence === 'missing') {
     return (
       <span
-        className="inline-flex items-center rounded-full border border-[hsl(45_93%_47%/0.35)] bg-[hsl(45_93%_47%/0.14)] px-2 py-0.5 text-[11px] font-semibold text-[hsl(36_80%_35%)]"
+        className="inline-flex items-center rounded-full border border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.14)] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--warning-foreground))]"
         aria-label="Menge fehlt"
       >
         Menge fehlt
@@ -1349,7 +1349,7 @@ export function ConfidenceBadge({
   if (confidence === 'handwritten_uncertain') {
     return (
       <span
-        className="inline-flex items-center rounded-full border border-[hsl(25_95%_53%/0.35)] bg-[hsl(25_95%_53%/0.14)] px-2 py-0.5 text-[11px] font-semibold text-[hsl(20_85%_40%)]"
+        className="inline-flex items-center rounded-full border border-[hsl(var(--caution)/0.35)] bg-[hsl(var(--caution)/0.14)] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--caution-foreground))]"
         aria-label="Handschrift prüfen"
       >
         Handschrift prüfen
