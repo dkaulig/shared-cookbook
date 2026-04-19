@@ -367,7 +367,7 @@ async def _run_llm_structuring(
     logger.info("llm_structuring start")
     # User content — DEBUG only.
     logger.debug("llm user_message (truncated): %s", user_message[:400])
-    result = await provider.extract_structured(SYSTEM_PROMPT_DE, messages, RECIPE_SCHEMA)
+    result, _usage = await provider.extract_structured(SYSTEM_PROMPT_DE, messages, RECIPE_SCHEMA)
     logger.info("llm_structuring done keys=%d", len(result))
     return result
 

@@ -10,7 +10,7 @@ import httpx
 import pytest
 import respx
 
-from extractor.llm import LLMProvider, LLMProviderError, MockLLMProvider
+from extractor.llm import LLMProvider, LLMProviderError, MockLLMProvider, TokenUsage
 from extractor.llm.mock import make_script_key
 from extractor.pipeline.types import ExtractionResult
 from extractor.pipeline.url import classify_url, extract_from_url
@@ -279,6 +279,15 @@ async def test_extract_flags_missing_quantities_end_to_end(tmp_path: Path) -> No
 # ─────────────────────────────────────────────────────────────────────
 
 
+def _stub_usage() -> TokenUsage:
+    return {
+        "prompt_tokens": 100,
+        "completion_tokens": 25,
+        "cached_prompt_tokens": 0,
+        "model": "gpt-4.1-mini",
+    }
+
+
 class _AnyCallMock(LLMProvider):
     """Returns the scripted response for any prompt; counts calls."""
 
@@ -288,11 +297,11 @@ class _AnyCallMock(LLMProvider):
 
     async def extract_structured(
         self, system_prompt: str, messages: Any, json_schema: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         self.calls += 1
-        return dict(self._response)
+        return dict(self._response), _stub_usage()
 
-    async def chat(self, system_prompt: str, messages: Any) -> str:
+    async def chat(self, system_prompt: str, messages: Any) -> tuple[str, TokenUsage]:
         raise NotImplementedError
 
     async def vision_extract(
@@ -301,7 +310,7 @@ class _AnyCallMock(LLMProvider):
         images: Any,
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise NotImplementedError
 
 
@@ -313,10 +322,10 @@ class _FailingProvider(LLMProvider):
 
     async def extract_structured(
         self, system_prompt: str, messages: Any, json_schema: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise self._error
 
-    async def chat(self, system_prompt: str, messages: Any) -> str:
+    async def chat(self, system_prompt: str, messages: Any) -> tuple[str, TokenUsage]:
         raise self._error
 
     async def vision_extract(
@@ -325,7 +334,7 @@ class _FailingProvider(LLMProvider):
         images: Any,
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise self._error
 
 

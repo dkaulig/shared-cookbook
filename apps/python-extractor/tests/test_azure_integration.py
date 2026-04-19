@@ -48,7 +48,7 @@ async def test_chat_round_trip_against_real_azure() -> None:
     )
 
     try:
-        reply = await provider.chat(
+        reply, usage = await provider.chat(
             system_prompt="Antworte kurz auf Deutsch.",
             messages=[{"role": "user", "content": "Sag hallo."}],
         )
@@ -57,3 +57,8 @@ async def test_chat_round_trip_against_real_azure() -> None:
 
     assert isinstance(reply, str)
     assert len(reply.strip()) > 0
+    # PF2: live Azure responses always carry usage; if the deployment
+    # returns zero counts something is off with Responses-API parsing.
+    assert usage["prompt_tokens"] > 0
+    assert usage["completion_tokens"] > 0
+    assert usage["model"]

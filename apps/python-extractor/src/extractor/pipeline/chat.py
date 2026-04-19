@@ -94,7 +94,7 @@ async def chat_turn(
     # User content stays out of INFO logs — turn count is enough for
     # operational visibility.
     logger.info("chat_turn start turns=%d", len(messages))
-    reply = await provider.chat(
+    reply, _usage = await provider.chat(
         system_prompt=CHAT_SYSTEM_PROMPT_DE,
         messages=messages,
     )
@@ -130,7 +130,7 @@ async def chat_to_recipe(
     """
     _validate_messages(messages)
     logger.info("chat_to_recipe start session_id=%s turns=%d", session_id, len(messages))
-    llm_output = await provider.extract_structured(
+    llm_output, _usage = await provider.extract_structured(
         system_prompt=TO_RECIPE_SYSTEM_PROMPT_DE,
         messages=messages,
         json_schema=RECIPE_SCHEMA,

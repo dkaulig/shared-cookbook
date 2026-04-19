@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from extractor.llm import ChatMessage, LLMProvider, LLMProviderError
+from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, TokenUsage
 from extractor.main import create_app, get_llm_provider
 
 
@@ -40,6 +40,15 @@ def _canonical_recipe_payload() -> dict[str, Any]:
     }
 
 
+def _stub_usage() -> TokenUsage:
+    return {
+        "prompt_tokens": 250,
+        "completion_tokens": 80,
+        "cached_prompt_tokens": 30,
+        "model": "gpt-5.1-chat",
+    }
+
+
 class _FakeProvider(LLMProvider):
     """Records chat / extract calls + returns canned replies."""
 
@@ -48,9 +57,11 @@ class _FakeProvider(LLMProvider):
         *,
         chat_reply: str = "Hallo aus dem Koch-Assistent!",
         extract_reply: dict[str, Any] | None = None,
+        usage: TokenUsage | None = None,
     ) -> None:
         self.chat_reply = chat_reply
         self.extract_reply = extract_reply or _canonical_recipe_payload()
+        self.usage: TokenUsage = usage if usage is not None else _stub_usage()
         self.chat_calls: list[tuple[str, list[ChatMessage]]] = []
         self.extract_calls: list[tuple[str, list[ChatMessage], dict[str, Any]]] = []
 
@@ -59,13 +70,15 @@ class _FakeProvider(LLMProvider):
         system_prompt: str,
         messages: Sequence[ChatMessage],
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         self.extract_calls.append((system_prompt, list(messages), json_schema))
-        return dict(self.extract_reply)
+        return dict(self.extract_reply), self.usage
 
-    async def chat(self, system_prompt: str, messages: Sequence[ChatMessage]) -> str:
+    async def chat(
+        self, system_prompt: str, messages: Sequence[ChatMessage]
+    ) -> tuple[str, TokenUsage]:
         self.chat_calls.append((system_prompt, list(messages)))
-        return self.chat_reply
+        return self.chat_reply, self.usage
 
     async def vision_extract(
         self,
@@ -73,7 +86,7 @@ class _FakeProvider(LLMProvider):
         images: Sequence[Any],
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise NotImplementedError
 
 
@@ -86,10 +99,12 @@ class _FailingProvider(LLMProvider):
         system_prompt: str,
         messages: Sequence[ChatMessage],
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise self.error
 
-    async def chat(self, system_prompt: str, messages: Sequence[ChatMessage]) -> str:
+    async def chat(
+        self, system_prompt: str, messages: Sequence[ChatMessage]
+    ) -> tuple[str, TokenUsage]:
         raise self.error
 
     async def vision_extract(
@@ -98,7 +113,7 @@ class _FailingProvider(LLMProvider):
         images: Sequence[Any],
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise self.error
 
 

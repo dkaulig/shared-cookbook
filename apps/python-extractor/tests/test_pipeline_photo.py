@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from extractor.llm import LLMProvider, LLMProviderError, VisionInput
+from extractor.llm import LLMProvider, LLMProviderError, TokenUsage, VisionInput
 from extractor.pipeline.photo import extract_from_photos
 from extractor.pipeline.video import ExtractionError
 
@@ -47,6 +47,15 @@ def _canonical_vision_response() -> dict[str, Any]:
     }
 
 
+def _stub_usage() -> TokenUsage:
+    return {
+        "prompt_tokens": 500,
+        "completion_tokens": 80,
+        "cached_prompt_tokens": 0,
+        "model": "gpt-4.1-mini",
+    }
+
+
 class _CapturingVisionProvider(LLMProvider):
     """Records every ``vision_extract`` call + returns a scripted response.
 
@@ -56,8 +65,14 @@ class _CapturingVisionProvider(LLMProvider):
     the kwargs is easier than pre-computing the mock's script key.
     """
 
-    def __init__(self, response: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        response: dict[str, Any],
+        *,
+        usage: TokenUsage | None = None,
+    ) -> None:
         self.response = response
+        self.usage: TokenUsage = usage if usage is not None else _stub_usage()
         self.last_system_prompt: str | None = None
         self.last_images: list[VisionInput] = []
         self.last_instruction: str | None = None
@@ -69,14 +84,14 @@ class _CapturingVisionProvider(LLMProvider):
         system_prompt: str,
         messages: Sequence[Any],
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise NotImplementedError
 
     async def chat(
         self,
         system_prompt: str,
         messages: Sequence[Any],
-    ) -> str:
+    ) -> tuple[str, TokenUsage]:
         raise NotImplementedError
 
     async def vision_extract(
@@ -85,13 +100,13 @@ class _CapturingVisionProvider(LLMProvider):
         images: Sequence[VisionInput],
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         self.calls += 1
         self.last_system_prompt = system_prompt
         self.last_images = [dict(img) for img in images]  # type: ignore[misc]
         self.last_instruction = instruction
         self.last_schema = json_schema
-        return dict(self.response)
+        return dict(self.response), self.usage
 
 
 class _FailingVisionProvider(LLMProvider):
@@ -105,14 +120,14 @@ class _FailingVisionProvider(LLMProvider):
         system_prompt: str,
         messages: Sequence[Any],
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise self.error
 
     async def chat(
         self,
         system_prompt: str,
         messages: Sequence[Any],
-    ) -> str:
+    ) -> tuple[str, TokenUsage]:
         raise self.error
 
     async def vision_extract(
@@ -121,7 +136,7 @@ class _FailingVisionProvider(LLMProvider):
         images: Sequence[VisionInput],
         instruction: str,
         json_schema: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TokenUsage]:
         raise self.error
 
 

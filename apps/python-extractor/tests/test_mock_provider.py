@@ -22,7 +22,7 @@ def test_mock_is_llm_provider_subclass() -> None:
 
 
 async def test_extract_structured_returns_scripted_dict() -> None:
-    """A matching script key returns its scripted dict payload."""
+    """A matching script key returns its scripted dict payload + default usage."""
     script = {
         make_script_key(
             system_prompt="sys",
@@ -31,13 +31,20 @@ async def test_extract_structured_returns_scripted_dict() -> None:
     }
     provider = MockLLMProvider(scripted=script)
 
-    result = await provider.extract_structured(
+    result, usage = await provider.extract_structured(
         system_prompt="sys",
         messages=[{"role": "user", "content": "extract"}],
         json_schema={"type": "object"},
     )
 
     assert result == {"title": "Spaghetti"}
+    # Default usage — zero counts, "mock" model.
+    assert usage == {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "model": "mock",
+    }
 
 
 async def test_chat_returns_scripted_text() -> None:
@@ -50,12 +57,14 @@ async def test_chat_returns_scripted_text() -> None:
     }
     provider = MockLLMProvider(scripted=script)
 
-    reply = await provider.chat(
+    reply, usage = await provider.chat(
         system_prompt="du bist eine hilfreiche KI",
         messages=[{"role": "user", "content": "hallo"}],
     )
 
     assert reply == "hallo selbst"
+    assert usage["model"] == "mock"
+    assert usage["prompt_tokens"] == 0
 
 
 async def test_vision_extract_returns_scripted_dict() -> None:
@@ -70,7 +79,7 @@ async def test_vision_extract_returns_scripted_dict() -> None:
     }
     provider = MockLLMProvider(scripted=script)
 
-    result = await provider.vision_extract(
+    result, usage = await provider.vision_extract(
         system_prompt="extract recipe",
         images=images,  # type: ignore[arg-type]
         instruction="read images",
@@ -78,6 +87,71 @@ async def test_vision_extract_returns_scripted_dict() -> None:
     )
 
     assert result == {"ingredients": ["Mehl"]}
+    assert usage["model"] == "mock"
+
+
+async def test_extract_structured_expanded_tuple_pins_usage() -> None:
+    """Scripting ``(payload, usage)`` overrides the default zero usage."""
+    key = make_script_key(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "extract"}],
+    )
+    script = {
+        key: (
+            {"title": "Pizza"},
+            {
+                "prompt_tokens": 123,
+                "completion_tokens": 45,
+                "cached_prompt_tokens": 100,
+                "model": "gpt-5.1",
+            },
+        )
+    }
+    provider = MockLLMProvider(scripted=script)
+
+    result, usage = await provider.extract_structured(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "extract"}],
+        json_schema={"type": "object"},
+    )
+
+    assert result == {"title": "Pizza"}
+    assert usage == {
+        "prompt_tokens": 123,
+        "completion_tokens": 45,
+        "cached_prompt_tokens": 100,
+        "model": "gpt-5.1",
+    }
+
+
+async def test_chat_expanded_tuple_pins_usage() -> None:
+    """Scripting chat replies with explicit usage works too."""
+    key = make_script_key(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+    script = {
+        key: (
+            "antwort",
+            {
+                "prompt_tokens": 50,
+                "completion_tokens": 12,
+                "cached_prompt_tokens": 0,
+                "model": "gpt-5.1-chat",
+            },
+        )
+    }
+    provider = MockLLMProvider(scripted=script)
+
+    reply, usage = await provider.chat(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert reply == "antwort"
+    assert usage["model"] == "gpt-5.1-chat"
+    assert usage["prompt_tokens"] == 50
+    assert usage["completion_tokens"] == 12
 
 
 async def test_unmapped_extract_structured_raises_not_configured() -> None:

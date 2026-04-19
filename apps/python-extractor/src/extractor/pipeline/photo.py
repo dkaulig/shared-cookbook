@@ -89,7 +89,7 @@ async def extract_from_photos(
     images: list[VisionInput] = [{"image_url": url, "detail": "auto"} for url in photo_urls]
     instruction = build_photo_instruction(len(photo_urls))
 
-    llm_output = await provider.vision_extract(
+    llm_output, _usage = await provider.vision_extract(
         system_prompt=SYSTEM_PROMPT_DE,
         images=images,
         instruction=instruction,
