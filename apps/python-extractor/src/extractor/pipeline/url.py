@@ -57,6 +57,7 @@ import logging
 import re
 import socket
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -80,6 +81,7 @@ from extractor.pipeline.video import (
 from extractor.pipeline.video import (
     FasterWhisperTranscriber as _FasterWhisperTranscriber,  # for lazy default
 )
+from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
 from extractor.prompts.recipe_extraction import (
     RECIPE_SCHEMA,
     SYSTEM_PROMPT_DE,
@@ -279,6 +281,7 @@ async def extract_from_url(
     provider: LLMProvider,
     downloader: VideoDownloader | None = None,
     transcriber: Transcriber | None = None,
+    reporter: ProgressReporter | None = None,
 ) -> ExtractionResult:
     """Run the full URL → structured-recipe pipeline.
 
@@ -298,7 +301,14 @@ async def extract_from_url(
         Injection point for the whisper transcriber. Tests pass a
         :class:`StubTranscriber`; production uses
         :class:`FasterWhisperTranscriber`. Ignored on the blog path.
+    reporter
+        Optional :class:`ProgressReporter` for phase/progress callbacks
+        to the .NET side. Defaults to a :class:`NullProgressReporter`
+        which incurs zero HTTP traffic — existing tests that don't care
+        about progress pass nothing.
     """
+    active_reporter: ProgressReporter = reporter or NullProgressReporter()
+
     kind = classify_url(url)
     logger.info("extract_from_url start host=%s kind=%s", _redact_host(url), kind)
 
@@ -314,6 +324,7 @@ async def extract_from_url(
             url=url,
             downloader=downloader,
             transcriber=transcriber,
+            reporter=active_reporter,
         )
         # P2-2.1 — if the caption references an external recipe blog,
         # fetch it once and attach its flattened text as another source
@@ -340,6 +351,11 @@ async def extract_from_url(
     else:
         (blog_text, thumbnail_url, notes) = await _run_blog_path(url, untrusted=False)
 
+    # Structuring phase — an async LLM call that yields no in-flight
+    # granularity, so a single "phase starts" event is enough. The
+    # reporter throttle handles any no-op state if we were already in
+    # this phase.
+    await active_reporter.report(ProgressEvent(phase="structuring", phase_progress=0))
     llm_output, usage = await _run_llm_structuring(
         provider=provider,
         transcript=transcript,
@@ -349,6 +365,7 @@ async def extract_from_url(
         blog_text_untrusted=blog_text_untrusted,
     )
 
+    await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
     return post_process(
         llm_output,
         original_url=url,
@@ -368,8 +385,16 @@ async def _run_video_path(
     url: str,
     downloader: VideoDownloader | None,
     transcriber: Transcriber | None,
+    reporter: ProgressReporter,
 ) -> tuple[str | None, str | None, str | None]:
-    """Execute the video branch. Returns (transcript, caption, thumbnail_url)."""
+    """Execute the video branch. Returns (transcript, caption, thumbnail_url).
+
+    Progress wiring:
+    - Fires ``downloading`` at 0% before handing off to yt-dlp, then
+      per-chunk events as yt-dlp's ``progress_hooks`` tick.
+    - Fires ``transcribing`` at 0% once the download returns, then
+      per-segment events during faster-whisper's iteration.
+    """
     active_downloader = downloader or YtDlpDownloader()
     # FasterWhisperTranscriber is heavy; lazy-instantiate only if the
     # caller didn't pre-supply a transcriber.
@@ -377,15 +402,144 @@ async def _run_video_path(
 
     with tempfile.TemporaryDirectory(prefix="extractor-video-") as tmp:
         workdir = Path(tmp)
-        assets = await active_downloader.download(url=url, workdir=workdir)
+        await reporter.report(ProgressEvent(phase="downloading", phase_progress=0))
+        download_hook = _make_download_progress_hook(reporter)
+        assets = await active_downloader.download(
+            url=url, workdir=workdir, on_progress=download_hook
+        )
         logger.info(
             "video_downloaded host=%s title=%s",
             _redact_host(url),
             assets.title[:60],
         )
-        transcript = await active_transcriber.transcribe(assets.mp4_path)
+
+        await reporter.report(ProgressEvent(phase="transcribing", phase_progress=0))
+        transcribe_hook = _make_transcribe_progress_hook(reporter)
+        transcript = await active_transcriber.transcribe(
+            assets.mp4_path, on_segment=transcribe_hook
+        )
         logger.info("transcript_done host=%s len=%d", _redact_host(url), len(transcript))
         return (transcript or None, assets.description or None, assets.thumbnail_url)
+
+
+def _make_download_progress_hook(
+    reporter: ProgressReporter,
+) -> Callable[[int, int], None]:
+    """Build a sync ``(done, total)`` hook that schedules async reports.
+
+    yt-dlp calls progress hooks from a worker thread; we bridge back
+    to the event loop via :func:`asyncio.run_coroutine_threadsafe`.
+    A missing / closed loop (test teardown, main thread context)
+    falls back to a best-effort no-op — the reporter is
+    fire-and-forget by design, so a dropped intra-phase event is
+    acceptable.
+    """
+
+    def _hook(done: int, total: int) -> None:
+        phase_progress = _safe_percent(done, total)
+        bytes_done = done if done > 0 else None
+        bytes_total = total if total > 0 else None
+        event = ProgressEvent(
+            phase="downloading",
+            phase_progress=phase_progress,
+            bytes_done=bytes_done,
+            bytes_total=bytes_total,
+        )
+        _schedule_report(reporter, event)
+
+    return _hook
+
+
+def _make_transcribe_progress_hook(
+    reporter: ProgressReporter,
+) -> Callable[[int, int], None]:
+    """Build a sync ``(done, total)`` hook for faster-whisper segments.
+
+    Same thread-bridging strategy as the download hook.
+    """
+
+    def _hook(done: int, total: int) -> None:
+        phase_progress = _safe_percent(done, total)
+        segments_done = done if done > 0 else None
+        segments_total = total if total > 0 else None
+        event = ProgressEvent(
+            phase="transcribing",
+            phase_progress=phase_progress,
+            segments_done=segments_done,
+            segments_total=segments_total,
+        )
+        _schedule_report(reporter, event)
+
+    return _hook
+
+
+def _schedule_report(reporter: ProgressReporter, event: ProgressEvent) -> None:
+    """Fire-and-forget scheduler for a :meth:`ProgressReporter.report` call.
+
+    The caller is a sync closure that may be invoked either from the
+    same thread as the asyncio loop (tests / stub-driven pipelines) or
+    from a worker thread (real yt-dlp / Whisper — they hand work to a
+    ``to_thread`` executor and call hooks from that thread).
+
+    - Same-thread + running loop → ``asyncio.ensure_future`` queues
+      the coroutine so it runs when control yields back to the loop.
+    - Worker-thread context → ``asyncio.run_coroutine_threadsafe``
+      submits the coroutine to the captured loop.
+    - No loop available → silently drop. Reporters are best-effort.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        same_thread = True
+    except RuntimeError:
+        # No loop running on this thread — fall back to discovering
+        # the module-level loop (set by the async caller) via
+        # ``get_event_loop`` without starting a new one.
+        try:
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+        except RuntimeError:
+            return
+        same_thread = False
+
+    if same_thread:
+        # Schedule for the next loop tick. The test / pipeline awaits
+        # back into the loop after this call, which drains the task.
+        task = loop.create_task(reporter.report(event))
+        # Keep a strong reference so the task isn't GC'd mid-flight;
+        # we store it on the reporter for introspection in tests.
+        _retain_task(reporter, task)
+    else:
+        asyncio.run_coroutine_threadsafe(reporter.report(event), loop)
+
+
+def _retain_task(reporter: ProgressReporter, task: asyncio.Task[None]) -> None:
+    """Stash ``task`` on the reporter to prevent GC before it runs.
+
+    asyncio only keeps weak refs to tasks; without a strong reference
+    a fire-and-forget task can be collected before it even executes.
+    """
+    pending: list[asyncio.Task[None]] = getattr(reporter, "_pending_tasks", [])
+    pending.append(task)
+    # Drop completed tasks to keep the list bounded on long runs.
+    pending[:] = [t for t in pending if not t.done()]
+    # Annotated setattr — the attribute is module-private by convention.
+    reporter._pending_tasks = pending  # type: ignore[attr-defined]  # reporter-internal cache
+
+
+def _safe_percent(done: int, total: int) -> int:
+    """Compute a 0..100 integer percentage, tolerant of ``total=0`` (unknown).
+
+    When total is unknown we return 0 so the phase-progress stays
+    anchored at the phase boundary; the .NET side still shows overall
+    progress advancing between phases.
+    """
+    if total <= 0:
+        return 0
+    pct = int(done / total * 100.0)
+    if pct < 0:
+        return 0
+    if pct > 100:
+        return 100
+    return pct
 
 
 # ─────────────────────────────────────────────────────────────────────

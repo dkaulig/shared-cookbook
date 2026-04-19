@@ -346,3 +346,63 @@ async def test_extract_from_photos_accepts_http_and_https() -> None:
         provider=provider,
     )
     assert provider.calls == 1
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PV2 — ProgressReporter integration
+# ─────────────────────────────────────────────────────────────────────
+
+
+from extractor.progress import (  # noqa: E402 — keep PV2 section self-contained
+    NullProgressReporter,
+    ProgressEvent,
+    ProgressReporter,
+)
+
+
+class _CapturingReporter(ProgressReporter):
+    """Records events instead of POSTing. Same shape as the url-test helper."""
+
+    def __init__(self) -> None:
+        super().__init__(callback_url=None, callback_token=None, attempt=1)
+        self.events: list[ProgressEvent] = []
+
+    async def report(self, event: ProgressEvent) -> None:
+        self.events.append(event)
+
+    async def _post(self, event: ProgressEvent) -> None:
+        return
+
+
+async def test_photo_pipeline_reports_vision_and_post_processing() -> None:
+    """Photo path emits ``vision_analysis`` + ``post_processing`` phases."""
+    provider = _CapturingVisionProvider(_canonical_vision_response())
+    reporter = _CapturingReporter()
+    await extract_from_photos(
+        ["https://example.com/photo.jpg"],
+        provider=provider,
+        reporter=reporter,
+    )
+    phases = [e.phase for e in reporter.events]
+    # dedup to phase transitions
+    deduped: list[str] = []
+    for p in phases:
+        if not deduped or deduped[-1] != p:
+            deduped.append(p)
+    assert deduped == ["vision_analysis", "post_processing"]
+
+
+async def test_photo_pipeline_null_reporter_reproduces_legacy_output() -> None:
+    """:class:`NullProgressReporter` doesn't alter the extraction result."""
+    provider_null = _CapturingVisionProvider(_canonical_vision_response())
+    provider_default = _CapturingVisionProvider(_canonical_vision_response())
+    result_null = await extract_from_photos(
+        ["https://example.com/photo.jpg"],
+        provider=provider_null,
+        reporter=NullProgressReporter(),
+    )
+    result_default = await extract_from_photos(
+        ["https://example.com/photo.jpg"],
+        provider=provider_default,
+    )
+    assert result_null["recipe"] == result_default["recipe"]
