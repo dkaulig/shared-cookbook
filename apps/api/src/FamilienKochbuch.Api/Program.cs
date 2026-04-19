@@ -1,11 +1,14 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using FamilienKochbuch.Api.Endpoints;
+using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Identity;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
+using Hangfire;
+using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -37,6 +40,18 @@ builder.Services.PostConfigure<JwtOptions>(opts =>
 
 builder.Services.Configure<AppOptions>(builder.Configuration.GetSection(AppOptions.SectionName));
 
+// P2-5 — Python extractor bridge config. SharedSecret comes from
+// EXTRACTOR_SHARED_SECRET at runtime; appsettings carries the dev
+// defaults. BaseUrl defaults to the internal docker hostname.
+builder.Services.Configure<ExtractorOptions>(
+    builder.Configuration.GetSection(ExtractorOptions.SectionName));
+builder.Services.PostConfigure<ExtractorOptions>(opts =>
+{
+    var envSecret = Environment.GetEnvironmentVariable("EXTRACTOR_SHARED_SECRET");
+    if (!string.IsNullOrWhiteSpace(envSecret))
+        opts.SharedSecret = envSecret;
+});
+
 builder.Services.AddSingleton(TimeProvider.System);
 
 // ── EF Core + Identity ────────────────────────────────────────────────
@@ -47,6 +62,27 @@ if (!builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddDbContext<AppDbContext>(opts =>
         opts.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
+
+    // ── P2-5: Hangfire job orchestration (skipped in Testing env) ──
+    // Dedicated "hangfire" schema in the same Postgres instance.
+    // PrepareSchemaIfNecessary = true creates the Hangfire tables
+    // idempotently on boot so there's no manual migration step.
+    var pgConnection = builder.Configuration.GetConnectionString("Postgres")
+        ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
+    builder.Services.AddHangfire(cfg => cfg
+        .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UsePostgreSqlStorage(opts => opts.UseNpgsqlConnection(pgConnection),
+            new PostgreSqlStorageOptions
+            {
+                SchemaName = "hangfire",
+                PrepareSchemaIfNecessary = true,
+            }));
+    builder.Services.AddHangfireServer(opts =>
+    {
+        opts.WorkerCount = Math.Min(4, Environment.ProcessorCount);
+    });
 }
 
 builder.Services.AddIdentityCore<User>(opts =>
@@ -124,6 +160,18 @@ builder.Services.AddHttpClient(SeaweedFsPhotoStorage.FilerHttpClientName);
 builder.Services.Configure<PhotoStorageOptions>(
     builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
 builder.Services.AddScoped<IPhotoStorage, SeaweedFsPhotoStorage>();
+
+// ── P2-5: Python extractor HTTP client + HMAC signer + jobs ──────────
+// 150s timeout covers the 120s Python video pipeline budget + overhead.
+builder.Services.AddHttpClient(ExtractRecipeFromUrlJob.HttpClientName, (sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<ExtractorOptions>>().Value;
+    client.BaseAddress = new Uri(opts.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(150);
+});
+builder.Services.AddSingleton<ExtractorHmacSigner>();
+builder.Services.AddScoped<ExtractRecipeFromUrlJob>();
+builder.Services.AddScoped<ExtractRecipeFromPhotosJob>();
 
 // ── Auth (JWT Bearer) ─────────────────────────────────────────────────
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -221,6 +269,17 @@ app.MapRecipeRevisionEndpoints();
 app.MapRatingEndpoints();
 app.MapSearchEndpoints();
 app.MapPhotoProxyEndpoints();
+app.MapImportEndpoints();
+
+// ── P2-5: Hangfire dashboard (admin-only, skipped in Testing env) ─
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseHangfireDashboard("/api/hangfire", new DashboardOptions
+    {
+        Authorization = new[] { new AdminOnlyAuthorizationFilter() },
+        DashboardTitle = "Familien-Kochbuch Jobs",
+    });
+}
 
 // ── Swagger UI (dev only) ─────────────────────────────────────────────
 if (openApiEnabled)
