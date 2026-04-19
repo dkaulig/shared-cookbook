@@ -20,6 +20,7 @@ from extractor.pipeline.types import (
     ExtractionConfidence,
     ExtractionResult,
     IngredientConfidenceLevel,
+    NutritionEstimate,
     StepConfidenceLevel,
 )
 
@@ -115,6 +116,7 @@ def test_extracted_recipe_shape() -> None:
         "tags": ["warm", "familie"],
         "source_url": "https://example.com/nudeln",
         "thumbnail_url": "https://example.com/nudeln.jpg",
+        "nutrition_estimate": None,
     }
     assert recipe["title"] == "Nudelauflauf"
     assert len(recipe["ingredients"]) == 1
@@ -136,6 +138,7 @@ def test_extraction_result_shape() -> None:
             "tags": [],
             "source_url": "https://example.com/kaiserschmarrn",
             "thumbnail_url": None,
+            "nutrition_estimate": None,
         },
         "confidence": {"overall": "medium", "notes": ["Keine Mengen erkannt"]},
     }
@@ -149,3 +152,61 @@ def test_extraction_confidence_shape() -> None:
     conf: ExtractionConfidence = {"overall": "low", "notes": []}
     assert conf["overall"] == "low"
     assert conf["notes"] == []
+
+
+def test_nutrition_estimate_shape() -> None:
+    """Per-portion nutrition estimate: four integers."""
+    estimate: NutritionEstimate = {
+        "kcal": 420,
+        "protein_g": 24,
+        "carbs_g": 38,
+        "fat_g": 9,
+    }
+    assert estimate["kcal"] == 420
+    assert estimate["protein_g"] == 24
+    assert estimate["carbs_g"] == 38
+    assert estimate["fat_g"] == 9
+
+
+def test_extracted_recipe_accepts_nutrition_estimate() -> None:
+    """``ExtractedRecipe`` carries an optional per-portion estimate."""
+    recipe: ExtractedRecipe = {
+        "title": "Testrezept",
+        "description": None,
+        "servings": 4,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": {
+            "kcal": 300,
+            "protein_g": 10,
+            "carbs_g": 30,
+            "fat_g": 8,
+        },
+    }
+    assert recipe["nutrition_estimate"] is not None
+    assert recipe["nutrition_estimate"]["kcal"] == 300
+
+
+def test_extracted_recipe_accepts_null_nutrition_estimate() -> None:
+    """Explicit ``None`` is valid — "LLM could not estimate"."""
+    recipe: ExtractedRecipe = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    assert recipe["nutrition_estimate"] is None

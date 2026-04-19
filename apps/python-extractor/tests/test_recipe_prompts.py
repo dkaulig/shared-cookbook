@@ -228,3 +228,131 @@ def test_build_user_message_labels_sections() -> None:
     assert "caption" in lowered or "beschreibung" in lowered
     assert "blog" in lowered or "webseite" in lowered
     assert "vorschau" in lowered or "thumbnail" in lowered
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Nutrition estimate (P2-10)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_recipe_schema_accepts_nutrition_estimate_payload() -> None:
+    """Nutrition estimate is optional; when supplied, all four fields
+    are integers per portion (kcal/protein_g/carbs_g/fat_g)."""
+    payload: dict[str, Any] = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": {
+            "kcal": 420,
+            "protein_g": 24,
+            "carbs_g": 38,
+            "fat_g": 9,
+        },
+    }
+    jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_accepts_null_nutrition_estimate() -> None:
+    """The field may be explicit ``null`` — means "LLM could not estimate"."""
+    payload: dict[str, Any] = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_accepts_missing_nutrition_estimate() -> None:
+    """Back-compat: payloads without the key still validate."""
+    payload: dict[str, Any] = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+    }
+    jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_rejects_nutrition_with_extra_field() -> None:
+    """The nutrition sub-object is closed — no ``fiber_g`` drift."""
+    payload: dict[str, Any] = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": {
+            "kcal": 100,
+            "protein_g": 1,
+            "carbs_g": 1,
+            "fat_g": 1,
+            "fiber_g": 2,
+        },
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_rejects_nutrition_with_missing_required_field() -> None:
+    """All four nutrition fields are required inside the object."""
+    payload: dict[str, Any] = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": {
+            "kcal": 100,
+            "protein_g": 10,
+            "carbs_g": 10,
+            # fat_g missing
+        },
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_system_prompt_de_requests_nutrition_estimation() -> None:
+    """The prompt explicitly asks the LLM to estimate per-portion
+    nutrition values when possible — the schema field alone isn't
+    enough of a hint for the model to fill it reliably."""
+    lowered = SYSTEM_PROMPT_DE.lower()
+    assert "nährwert" in lowered or "kalorien" in lowered or "kcal" in lowered
+    # Must also mention the per-portion contract.
+    assert "portion" in lowered or "pro portion" in lowered

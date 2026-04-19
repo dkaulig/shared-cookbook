@@ -53,6 +53,22 @@ _STEP_SCHEMA: Final[dict[str, Any]] = {
     },
 }
 
+# P2-10: per-portion nutrition estimate. All four fields are integers
+# clamped at post-process (kcal 0..5000, macros 0..500 g) as defence
+# against LLM hallucinations — the schema bounds match those ranges so
+# well-behaved LLMs stay within the window on the first pass.
+_NUTRITION_ESTIMATE_SCHEMA: Final[dict[str, Any]] = {
+    "type": ["object", "null"],
+    "additionalProperties": False,
+    "required": ["kcal", "protein_g", "carbs_g", "fat_g"],
+    "properties": {
+        "kcal": {"type": "integer", "minimum": 0, "maximum": 5000},
+        "protein_g": {"type": "integer", "minimum": 0, "maximum": 500},
+        "carbs_g": {"type": "integer", "minimum": 0, "maximum": 500},
+        "fat_g": {"type": "integer", "minimum": 0, "maximum": 500},
+    },
+}
+
 RECIPE_SCHEMA: Final[dict[str, Any]] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -97,6 +113,10 @@ RECIPE_SCHEMA: Final[dict[str, Any]] = {
         },
         "source_url": {"type": "string", "minLength": 1, "maxLength": 2048},
         "thumbnail_url": {"type": ["string", "null"], "maxLength": 2048},
+        # P2-10: optional, nullable nutrition estimate per portion. Not
+        # listed in ``required`` so legacy callers (no key at all) keep
+        # validating; present callers may pass ``null`` explicitly.
+        "nutrition_estimate": _NUTRITION_ESTIMATE_SCHEMA,
     },
 }
 
@@ -114,7 +134,12 @@ SYSTEM_PROMPT_DE: Final[str] = (
     "Die Sprache der Ausgabe ist Deutsch, auch wenn die Quelle eine "
     "andere Sprache hat. Tags sind kurze Kleinbuchstaben-Stichwörter "
     '(z.B. "warm", "vegetarisch", "abend"). Titel, Beschreibung '
-    "und Zubereitungsschritte bleiben prägnant."
+    "und Zubereitungsschritte bleiben prägnant. "
+    "Schätze pro Portion die Nährwerte (kcal, protein_g, carbs_g, "
+    "fat_g) als ganze Zahlen und gib sie im Feld `nutrition_estimate` "
+    "zurück. Die Werte beziehen sich auf EINE Portion (nicht das ganze "
+    "Rezept). Wenn du Mengen nicht einschätzen kannst, setze "
+    "`nutrition_estimate` auf null — erfinde keine Zahlen."
 )
 
 # ─────────────────────────────────────────────────────────────────────
