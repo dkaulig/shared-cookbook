@@ -335,7 +335,7 @@ public static class RecipeEndpoints
         IPhotoStorage photoStorage,
         IRecipeRevisionService revisionService,
         TimeProvider clock,
-        ILoggerFactory loggerFactory,
+        ILogger<PromoteStagedPhotosLogCategory> promoteLogger,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
@@ -416,8 +416,7 @@ public static class RecipeEndpoints
         // every promote fails (the user can re-upload from the detail
         // page).
         var partialFailures = await PromoteStagedPhotosAsync(
-            db, photoStorage, clock,
-            loggerFactory.CreateLogger("FamilienKochbuch.Api.RecipeCreate.Promote"),
+            db, photoStorage, clock, promoteLogger,
             recipe, userId, body.StagedPhotoIds, ct);
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct,
@@ -1369,4 +1368,7 @@ public static class RecipeEndpoints
 
         return Results.NoContent();
     }
+
+    /// <summary>Logger category marker for the staged-photo promote flow.</summary>
+    private sealed class PromoteStagedPhotosLogCategory;
 }
