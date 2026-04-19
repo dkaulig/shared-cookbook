@@ -285,8 +285,8 @@ async def test_chat_to_recipe_rejects_over_max_length() -> None:
 
 
 async def test_chat_to_recipe_attaches_usage_to_result() -> None:
-    """PF2: the aggregated :class:`ExtractionUsage` surfaces on the
-    returned :class:`ExtractionResult` so the HTTP layer can emit
+    """PF2: the provider :class:`TokenUsage` surfaces on the returned
+    :class:`ExtractionResult` so the HTTP layer can emit
     ``X-Extractor-*`` headers."""
     provider = _RecordingProvider()
     messages: list[ChatMessage] = [{"role": "user", "content": "Rezept bitte"}]

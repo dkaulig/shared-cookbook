@@ -45,7 +45,7 @@ from extractor.pipeline.blog import (
     extract_recipe_scrapers,
 )
 from extractor.pipeline.post_process import post_process
-from extractor.pipeline.types import ExtractionResult, ExtractionUsage
+from extractor.pipeline.types import ExtractionResult
 from extractor.pipeline.video import (
     ExtractionError,
     Transcriber,
@@ -164,7 +164,7 @@ async def extract_from_url(
         original_url=url,
         fallback_thumbnail=thumbnail_url,
         extra_notes=notes,
-        usage=_to_extraction_usage(usage),
+        usage=usage,
     )
 
 
@@ -371,22 +371,6 @@ async def _run_llm_structuring(
     result, usage = await provider.extract_structured(SYSTEM_PROMPT_DE, messages, RECIPE_SCHEMA)
     logger.info("llm_structuring done keys=%d", len(result))
     return result, usage
-
-
-def _to_extraction_usage(usage: TokenUsage) -> ExtractionUsage:
-    """Narrow :class:`TokenUsage` → :class:`ExtractionUsage`.
-
-    Same shape today; keeping the conversion explicit means if we ever
-    aggregate across multiple LLM calls (e.g. caption + transcript
-    routed through two separate model tiers) the accumulation logic
-    lands here instead of scattered through every pipeline.
-    """
-    return {
-        "prompt_tokens": usage["prompt_tokens"],
-        "completion_tokens": usage["completion_tokens"],
-        "cached_prompt_tokens": usage["cached_prompt_tokens"],
-        "model": usage["model"],
-    }
 
 
 # ─────────────────────────────────────────────────────────────────────

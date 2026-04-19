@@ -29,7 +29,7 @@ from typing import Final
 
 from extractor.llm import ChatMessage, LLMProvider, TokenUsage
 from extractor.pipeline.post_process import post_process
-from extractor.pipeline.types import ExtractionResult, ExtractionUsage
+from extractor.pipeline.types import ExtractionResult
 from extractor.prompts.chat import (
     CHAT_SYSTEM_PROMPT_DE,
     RECIPE_SCHEMA,
@@ -139,17 +139,11 @@ async def chat_to_recipe(
         messages=messages,
         json_schema=RECIPE_SCHEMA,
     )
-    extraction_usage: ExtractionUsage = {
-        "prompt_tokens": usage["prompt_tokens"],
-        "completion_tokens": usage["completion_tokens"],
-        "cached_prompt_tokens": usage["cached_prompt_tokens"],
-        "model": usage["model"],
-    }
     result = post_process(
         llm_output,
         original_url=f"chat:{session_id}",
         fallback_thumbnail=None,
-        usage=extraction_usage,
+        usage=usage,
     )
     logger.info("chat_to_recipe done session_id=%s", session_id)
     return result

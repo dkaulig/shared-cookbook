@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from extractor.llm.provider import TokenUsage
 from extractor.pipeline.types import (
     ConfidenceLevel,
     ExtractedIngredient,
@@ -29,7 +30,6 @@ from extractor.pipeline.types import (
     ExtractedStep,
     ExtractionConfidence,
     ExtractionResult,
-    ExtractionUsage,
     IngredientConfidenceLevel,
     NutritionEstimate,
     StepConfidenceLevel,
@@ -53,7 +53,7 @@ def post_process(
     original_url: str,
     fallback_thumbnail: str | None,
     extra_notes: list[str] | None = None,
-    usage: ExtractionUsage | None = None,
+    usage: TokenUsage | None = None,
 ) -> ExtractionResult:
     """Apply the defensive rules and return an :class:`ExtractionResult`.
 
@@ -70,8 +70,8 @@ def post_process(
         Optional extra strings to merge into ``confidence.notes``
         (e.g. ``"Website nicht erreichbar"``).
     usage
-        PF2 aggregated :class:`ExtractionUsage` for the whole
-        extraction. When provided it's attached to the returned
+        PF2 :class:`TokenUsage` for the whole extraction. When
+        provided it's attached to the returned
         :class:`ExtractionResult` so the HTTP layer can emit
         ``X-Extractor-*`` headers without a second round-trip
         through the pipeline.
