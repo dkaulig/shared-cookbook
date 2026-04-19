@@ -998,6 +998,62 @@ describe('RecipeFormPage (create)', () => {
     expect(screen.getByDisplayValue('Apfelkuchen')).toBeInTheDocument()
   })
 
+  it('renders "aus deinen Fotos" banner copy (and a blank Quelle input) when the extractor returned the photos:// sentinel', async () => {
+    server.use(
+      http.get('/api/imports/imp-photo-banner', () =>
+        HttpResponse.json({
+          id: 'imp-photo-banner',
+          source: 'Photos',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: null,
+          result: JSON.stringify({
+            recipe: {
+              title: 'Omas Apfelkuchen',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [
+                {
+                  name: 'Mehl',
+                  quantity: '300',
+                  unit: 'g',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [{ position: 1, content: 'Backen.', confidence: 'high' }],
+              tags: [],
+              source_url: 'photos://upload',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+    )
+    render(
+      withProvidersAndImport(
+        '/groups/g1/recipes/new?importId=imp-photo-banner',
+        '',
+      ),
+    )
+    const banner = await screen.findByRole('region', {
+      name: /ki-import-hinweis/i,
+    })
+    // Photo-specific copy: no URL, no ellipsis-truncation — the
+    // sentinel is hidden entirely.
+    expect(banner).toHaveTextContent(/AI-Vorschlag aus deinen Fotos/i)
+    expect(banner.textContent).not.toMatch(/photos:/)
+    // The Quelle (URL) input is blank — we mustn't persist the sentinel.
+    expect(screen.getByLabelText(/Quelle \(URL\)/i)).toHaveValue('')
+  })
+
   it('renders the yellow "Menge fehlt" badge for ingredients with confidence=missing', async () => {
     server.use(
       http.get('/api/imports/imp-miss', () =>

@@ -41,6 +41,14 @@ export interface ImportPrefill {
   sourceUrl: string
   ingredients: ImportPrefillIngredient[]
   steps: ImportPrefillStep[]
+  /**
+   * True when the extractor reported the photo-pipeline sentinel as
+   * `source_url`. The provenance banner branches on this to swap the
+   * "AI-Vorschlag aus {url}" copy for "AI-Vorschlag aus deinen Fotos".
+   * `sourceUrl` above is always emptied out when this flag is true so
+   * the saved recipe doesn't carry the junk sentinel into the DB.
+   */
+  isPhotoImport: boolean
 }
 
 /** Form default when the source is silent on servings. */
@@ -48,6 +56,21 @@ const DEFAULT_SERVINGS = 4
 
 /** Form difficulty default — mirrors the fresh-create seed. */
 const DEFAULT_DIFFICULTY: 1 | 2 | 3 = 1
+
+/**
+ * Python pipeline emits this sentinel for the Photo pipeline because
+ * there's no human-meaningful URL to anchor the recipe to. The frontend
+ * must not persist it on the saved recipe (it would leak as a junk
+ * "source" link in the UI) and the provenance banner needs different
+ * copy than the URL-import case ("aus deinen Fotos" vs "aus {url}").
+ * Kept exported for the banner + save-path shared detection.
+ */
+export const PHOTO_SOURCE_SENTINEL = 'photos://upload'
+
+/** True if the extracted recipe's `source_url` is the photo sentinel. */
+export function isPhotoImportSource(sourceUrl: string): boolean {
+  return sourceUrl === PHOTO_SOURCE_SENTINEL
+}
 
 /** Maps the free-text "unit" the LLM might emit into the form's select
  *  options. Items not in this list stay as the raw LLM string; the
@@ -128,14 +151,25 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
       ? (r.prep_minutes ?? 0) + (r.cook_minutes ?? 0)
       : null
 
+  // Photo imports have no real source URL — the Python pipeline pins
+  // the synthetic `photos://upload` sentinel to satisfy the required
+  // ExtractedRecipe.source_url field. Strip it here so the form's
+  // sourceUrl state defaults to "" and the saved recipe doesn't carry
+  // the junk scheme into the DB. The `isPhotoImport` flag carries the
+  // signal through to the provenance banner so it can render photo-
+  // specific copy.
+  const isPhotoImport = isPhotoImportSource(r.source_url)
+  const sourceUrl = isPhotoImport ? '' : r.source_url
+
   return {
     title: r.title,
     description: r.description ?? '',
     defaultServings: r.servings ?? DEFAULT_SERVINGS,
     prepTimeMinutes: prepMinutes,
     difficulty: clampDifficulty(r.difficulty),
-    sourceUrl: r.source_url,
+    sourceUrl,
     ingredients,
     steps,
+    isPhotoImport,
   }
 }

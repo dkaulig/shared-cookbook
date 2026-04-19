@@ -158,4 +158,24 @@ describe('extractedRecipeToPrefill', () => {
     expect(out.ingredients[0].confidence).toBe('handwritten_uncertain')
     expect(out.steps[0].confidence).toBe('handwritten_uncertain')
   })
+
+  it('flags URL-based imports as isPhotoImport:false with the URL passed through', () => {
+    const out = extractedRecipeToPrefill(
+      recipe({ source_url: 'https://example.com/blog/recipe' }),
+    )
+    expect(out.isPhotoImport).toBe(false)
+    expect(out.sourceUrl).toBe('https://example.com/blog/recipe')
+  })
+
+  it('detects the photos:// sentinel, blanks sourceUrl, and flags isPhotoImport:true', () => {
+    // The Python photo pipeline pins `source_url` to this sentinel so
+    // the ExtractedRecipe schema stays populated. The frontend must not
+    // persist it on the saved recipe and must render a photo-aware
+    // banner instead of the "AI-Vorschlag aus {url}" copy.
+    const out = extractedRecipeToPrefill(
+      recipe({ source_url: 'photos://upload' }),
+    )
+    expect(out.isPhotoImport).toBe(true)
+    expect(out.sourceUrl).toBe('')
+  })
 })

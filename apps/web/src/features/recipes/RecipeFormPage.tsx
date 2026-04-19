@@ -511,6 +511,7 @@ function RecipeFormInner({
         {prefill && !bannerDismissed && (
           <ImportProvenanceBanner
             sourceUrl={prefill.sourceUrl}
+            isPhotoImport={prefill.isPhotoImport}
             onDismiss={() => setBannerDismissed(true)}
           />
         )}
@@ -1275,12 +1276,19 @@ function SortableStepRow({
  * available on hover via the native `title` tooltip. The banner is
  * dismissible — the dismissal only hides the chrome, the prefilled
  * form keeps its data.
+ *
+ * The P2-8 photo-import branch (`isPhotoImport === true`) replaces the
+ * URL phrase with "aus deinen Fotos" because the underlying sentinel
+ * (`photos://upload`) is a machine-facing pin, not a human-meaningful
+ * link — hiding it is strictly better than showing it.
  */
 function ImportProvenanceBanner({
   sourceUrl,
+  isPhotoImport,
   onDismiss,
 }: {
   sourceUrl: string
+  isPhotoImport: boolean
   onDismiss: () => void
 }) {
   const displayUrl =
@@ -1296,14 +1304,24 @@ function ImportProvenanceBanner({
         aria-hidden="true"
       />
       <p className="min-w-0 flex-1 text-foreground">
-        AI-Vorschlag aus{' '}
-        <span
-          className="break-all font-medium text-primary"
-          title={sourceUrl}
-        >
-          {displayUrl}
-        </span>
-        . Bitte durchsehen, bevor du speicherst.
+        {isPhotoImport ? (
+          <>
+            AI-Vorschlag aus{' '}
+            <span className="font-medium text-primary">deinen Fotos</span>.
+            Bitte durchsehen, bevor du speicherst.
+          </>
+        ) : (
+          <>
+            AI-Vorschlag aus{' '}
+            <span
+              className="break-all font-medium text-primary"
+              title={sourceUrl}
+            >
+              {displayUrl}
+            </span>
+            . Bitte durchsehen, bevor du speicherst.
+          </>
+        )}
       </p>
       <button
         type="button"
