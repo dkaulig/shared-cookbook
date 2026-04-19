@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
@@ -72,7 +71,7 @@ public static class AdminAiUsageEndpoints
         string? groupBy,
         CancellationToken ct)
     {
-        if (!IsAdmin(ctx.User))
+        if (!ctx.User.IsAdmin())
             return Results.Forbid();
 
         var grouping = ParseGroupBy(groupBy);
@@ -240,13 +239,6 @@ public static class AdminAiUsageEndpoints
             "day" => GroupBy.Day,
             _ => GroupBy.Model,
         };
-
-    private static bool IsAdmin(ClaimsPrincipal user)
-    {
-        if (user.Identity is null || !user.Identity.IsAuthenticated) return false;
-        var role = user.FindFirstValue("role");
-        return string.Equals(role, UserRole.Admin.ToString(), StringComparison.Ordinal);
-    }
 
     /// <summary>Normalised row shape feeding the grouping helpers — one
     /// per LLM call, regardless of whether it came from
