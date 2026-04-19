@@ -6,7 +6,6 @@ using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 namespace FamilienKochbuch.Api.Services;
 
@@ -90,7 +89,7 @@ public sealed class PythonExtractorRunner
         var entryPhase = import.Source == ImportSource.Photos
             ? RecipeImportPhase.VisionAnalysis
             : RecipeImportPhase.Downloading;
-        import.MarkRunning(PhaseWeightedStart(entryPhase));
+        import.MarkRunning(PhaseWeightedFormula.StartOf(entryPhase));
         import.UpdateProgress(
             phase: entryPhase,
             phaseProgress: 0,
@@ -139,7 +138,7 @@ public sealed class PythonExtractorRunner
                 // the UI's progress bar jumps out of the long-running
                 // phase and into "Nachverarbeitung..." the moment Python
                 // returns.
-                import.MarkRunning(PhaseWeightedStart(RecipeImportPhase.PostProcessing));
+                import.MarkRunning(PhaseWeightedFormula.StartOf(RecipeImportPhase.PostProcessing));
                 import.UpdateProgress(
                     phase: RecipeImportPhase.PostProcessing,
                     phaseProgress: 0,
@@ -194,25 +193,6 @@ public sealed class PythonExtractorRunner
             throw new PythonExtractorException(message, isTerminal: false, statusCode: status);
         }
     }
-
-    /// <summary>
-    /// Returns the global <c>Progress</c> value at the start of the
-    /// given phase so <see cref="RecipeImport.MarkRunning"/> stays
-    /// consistent with the phase-weighted formula computed inside
-    /// <see cref="RecipeImport.UpdateProgress"/>. Only phases we
-    /// transition into from the job runner are supported.
-    /// </summary>
-    private static int PhaseWeightedStart(RecipeImportPhase phase) => phase switch
-    {
-        RecipeImportPhase.Queued => 0,
-        RecipeImportPhase.Downloading => 5,
-        RecipeImportPhase.Transcribing => 15,
-        RecipeImportPhase.Structuring => 85,
-        RecipeImportPhase.PostProcessing => 95,
-        RecipeImportPhase.VisionAnalysis => 5,
-        _ => throw new ArgumentOutOfRangeException(
-            nameof(phase), phase, "Runner only enters intermediate phases."),
-    };
 
     private static string ValidateJsonOrThrow(string bodyText)
     {

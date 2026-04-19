@@ -44,6 +44,41 @@ public class ImportProgressTokenServiceTests
     }
 
     [Fact]
+    public void Token_Exceeding_MaxLifetime_Is_Rejected()
+    {
+        // PV1 security — mis-wired signer baking a 24h expiry must not
+        // be silently accepted. Verifier enforces the 10-minute cap
+        // (MaxTokenLifetime) independently of the baked-in expiresAt.
+        var svc = NewService();
+        var importId = Guid.NewGuid();
+        var now = new DateTimeOffset(2026, 4, 19, 12, 0, 0, TimeSpan.Zero);
+
+        // Mint with a 24h TTL — way past the 10min cap.
+        var longLivedToken = svc.Sign(importId, now.AddHours(24));
+
+        var ok = svc.TryVerify(longLivedToken, importId, now, out var failure);
+
+        Assert.False(ok);
+        Assert.Equal(ImportTokenValidationFailure.Expired, failure);
+    }
+
+    [Fact]
+    public void Token_At_MaxLifetime_Boundary_Is_Accepted()
+    {
+        // Tokens minted with exactly the 10-minute TTL must still verify —
+        // the strict `>` comparison leaves the boundary valid.
+        var svc = NewService();
+        var importId = Guid.NewGuid();
+        var now = new DateTimeOffset(2026, 4, 19, 12, 0, 0, TimeSpan.Zero);
+        var token = svc.Sign(importId, now.Add(ImportProgressTokenService.MaxTokenLifetime));
+
+        var ok = svc.TryVerify(token, importId, now, out var failure);
+
+        Assert.True(ok);
+        Assert.Equal(ImportTokenValidationFailure.None, failure);
+    }
+
+    [Fact]
     public void Wrong_Import_Id_Rejected()
     {
         var svc = NewService();

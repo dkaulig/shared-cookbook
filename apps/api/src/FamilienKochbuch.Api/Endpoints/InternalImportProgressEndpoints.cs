@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Services;
+using FamilienKochbuch.Domain.Entities;
+using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -31,7 +33,11 @@ namespace FamilienKochbuch.Api.Endpoints;
 /// <item><c>401</c> — bad/expired/cross-import HMAC token.</item>
 /// <item><c>404</c> — <c>importId</c> unknown.</item>
 /// <item><c>422</c> — <c>phase</c> is not one of the accepted wire values,
-/// or <c>phase_progress</c> is out of [0, 100], or <c>attempt</c> &lt; 1.</item>
+/// <c>phase</c> is a terminal state (<c>done</c> / <c>error</c> —
+/// callbacks MUST NOT drive terminal transitions; those come from
+/// <see cref="RecipeImport.MarkDone"/> / <see cref="RecipeImport.MarkError"/>
+/// in the Hangfire job), <c>phase_progress</c> is out of [0, 100], or
+/// <c>attempt</c> is out of [1, <see cref="MaxAttempt"/>].</item>
 /// <item><c>429</c> — rate-limit burst (handled by the rate-limiter
 /// middleware automatically).</item>
 /// </list>
@@ -41,6 +47,26 @@ public static class InternalImportProgressEndpoints
     /// <summary>Authorization header scheme the Python reporter sends.
     /// Constant so middleware + tests agree on casing.</summary>
     public const string BearerScheme = "Bearer";
+
+    /// <summary>
+    /// PV1 security — upper bound on the <c>attempt</c> field accepted
+    /// from the wire. Matches the Hangfire <c>[AutomaticRetry]</c>
+    /// budget (3 retries total); a callback claiming attempt &gt; 3 is
+    /// either a mis-wired reporter or a forged-future replay by an
+    /// attacker trying to wedge the monotonic phase guard permanently
+    /// ahead of legitimate updates. Rejected with 422.
+    /// </summary>
+    public const int MaxAttempt = 3;
+
+    /// <summary>
+    /// PV1 security — body-size cap on the callback endpoint. The
+    /// payload is a ~200-byte JSON object (phase, two ints, optional
+    /// byte/segment counters); 4 KB is generous headroom. Cap prevents
+    /// an attacker with a valid token from tying up the JSON parser
+    /// with megabytes of garbage (default Kestrel is ~30 MB). Mirrors
+    /// the P3-3 pattern on the PATCH slot endpoint.
+    /// </summary>
+    public const long BodySizeLimitBytes = 4_096;
 
     /// <summary>
     /// Wire shape of the callback body — snake_case to match the Python
@@ -66,7 +92,21 @@ public static class InternalImportProgressEndpoints
             .WithTags("InternalImports");
 
         group.MapPost("/{importId:guid}/progress", PostProgressAsync)
-            .RequireRateLimiting(RateLimitPolicies.ImportProgress);
+            // PV1 security — two-layered rate limit:
+            //   Layer A (per-importId, 500/min): the named policy
+            //   below. One flooding import can't starve concurrent
+            //   imports' callbacks.
+            //   Layer B (global, 10_000/min): applied via
+            //   options.GlobalLimiter in Program.cs for every
+            //   /api/internal/* request. Stops a GUID-spray DoS from
+            //   growing the per-importId partition population
+            //   unbounded.
+            // Both layers fail the request independently (the global
+            // pipe runs first; if it 429s, the per-importId policy
+            // never sees the request).
+            .RequireRateLimiting(RateLimitPolicies.ImportProgress)
+            // PV1 security — cap body size at 4 KB (payload is ~200 B).
+            .WithMetadata(new RequestSizeLimitAttribute(BodySizeLimitBytes));
     }
 
     private static async Task<IResult> PostProgressAsync(
@@ -100,9 +140,14 @@ public static class InternalImportProgressEndpoints
         if (body is null)
             return ValidationProblem(
                 "Der Request-Body fehlt oder ist leer.", "body_missing");
-        if (body.Attempt is null || body.Attempt.Value < 1)
+        // PV1 security — bound the attempt field to [1, MaxAttempt] so
+        // a compromised / forged callback cannot wedge the monotonic
+        // phase guard permanently ahead of legitimate updates by
+        // claiming attempt=999 in a forged future.
+        if (body.Attempt is null || body.Attempt.Value < 1 || body.Attempt.Value > MaxAttempt)
             return ValidationProblem(
-                "Das Feld 'attempt' fehlt oder ist kleiner als 1.", "attempt_invalid");
+                $"Das Feld 'attempt' muss zwischen 1 und {MaxAttempt} liegen.",
+                "attempt.out_of_range");
         if (body.PhaseProgress is null || body.PhaseProgress is < 0 or > 100)
             return ValidationProblem(
                 "Das Feld 'phase_progress' muss zwischen 0 und 100 liegen.", "phase_progress_invalid");
@@ -110,6 +155,20 @@ public static class InternalImportProgressEndpoints
             return ValidationProblem(
                 $"Das Feld 'phase' '{body.Phase}' ist kein gültiger Phasen-Wert.",
                 "phase_invalid");
+        // PV1 security — reject terminal phases on the progress
+        // callback. Terminal transitions (Done / Error) are owned by
+        // MarkDone / MarkError invoked from the Hangfire job; allowing
+        // them here would let a compromised python-extractor (or an
+        // attacker who stole a valid token) flip the import to Done
+        // without actually persisting a recipe, leaving the user with
+        // a "Fertig" banner and an empty cookbook. Domain-level
+        // UpdateProgress ALSO rejects these values as defence-in-depth,
+        // but the endpoint returns a louder 422 so a mis-wired reporter
+        // gets a clear signal instead of a silent 204 no-op.
+        if (phase is RecipeImportPhase.Done or RecipeImportPhase.Error)
+            return ValidationProblem(
+                "Das Feld 'phase' darf keinen terminalen Zustand ('done' / 'error') tragen.",
+                "phase.illegal_terminal_state");
         if (body.BytesDownloaded() is long bd && bd < 0)
             return ValidationProblem(
                 "Das Feld 'bytes_done' darf nicht negativ sein.", "bytes_done_invalid");

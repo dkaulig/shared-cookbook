@@ -346,12 +346,10 @@ builder.Services.AddRateLimiter(options =>
             });
     });
 
-    // PV1 — internal Python progress-callback endpoint. Partitioned per
-    // importId (from the route value) so one flooding import can't
-    // starve concurrent imports' callbacks. 500/min is generous enough
-    // for the Python reporter's 500ms throttle (120/min typical) plus
-    // burst on phase transitions; a flood beyond that is almost
-    // certainly a bug or a replay attempt.
+    // PV1 — internal Python progress-callback endpoint: per-importId
+    // 500/min. One flooding import can't starve concurrent imports'
+    // callbacks. The global 10_000/min ceiling is applied separately
+    // via options.GlobalLimiter below (see comment there).
     options.AddPolicy(RateLimitPolicies.ImportProgress, httpContext =>
     {
         if (ShouldBypassForTests(httpContext))
@@ -371,6 +369,41 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 500,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
+    });
+
+    // PV1 security — GLOBAL ceiling on /api/internal/* traffic. Runs
+    // BEFORE the per-endpoint policy; caps total callback traffic at
+    // 10_000/min so an attacker holding a valid HMAC token cannot
+    // memory-DoS the server by POSTing with millions of freshly-
+    // generated fake GUIDs (the per-importId partitioner would
+    // otherwise allocate a brand-new bucket per unique GUID and grow
+    // memory unbounded). 10_000/min leaves headroom for ~20 parallel
+    // legitimate imports (20× the per-import ceiling). Non-internal
+    // routes fall through with NoLimiter so this global pipe doesn't
+    // affect unrelated traffic.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        if (ShouldBypassForTests(httpContext))
+            return RateLimitPartition.GetNoLimiter<string>("test-disabled");
+
+        // Only gate /api/internal/* — everything else is NoLimiter so
+        // this global pipe is effectively scoped.
+        if (!httpContext.Request.Path.StartsWithSegments(
+                InternalOnlyMiddleware.InternalPathPrefix,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return RateLimitPartition.GetNoLimiter<string>("non-internal");
+        }
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: "internal-global",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10_000,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
@@ -419,6 +452,15 @@ else
         + "Reset + invite links will appear in the API logs only.");
 }
 
+// Honours X-Forwarded-For/Proto from Caddy so downstream code sees the
+// real client IP + scheme. DO NOT add KnownNetworks / KnownProxies here
+// without re-auditing InternalOnlyMiddleware: the middleware inspects
+// Connection.RemoteIpAddress, so a broader forwarded-headers
+// configuration could silently change which CIDR the allowlist sees.
+// Today the default empty KnownProxies list means the middleware sees
+// the raw socket peer (Caddy's docker-bridge IP), which the 172.28.0.0/16
+// allowlist covers. Re-run the /api/internal/* reject-path tests
+// after any change here.
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
@@ -527,7 +569,9 @@ internal static class RateLimitPolicies
     public const string Hub = "hub";
 
     /// <summary>PV1 — per-importId 500/min partition guarding
-    /// <c>/api/internal/imports/{importId}/progress</c>.</summary>
+    /// <c>/api/internal/imports/{importId}/progress</c>. Stacked with
+    /// a global 10_000/min ceiling applied via
+    /// <c>RateLimiterOptions.GlobalLimiter</c> — see Program.cs.</summary>
     public const string ImportProgress = "import-progress";
 }
 
