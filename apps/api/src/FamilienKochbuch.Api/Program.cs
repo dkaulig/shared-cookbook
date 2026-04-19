@@ -172,6 +172,10 @@ builder.Services.AddHttpClient(ExtractRecipeFromUrlJob.HttpClientName, (sp, clie
 builder.Services.AddSingleton<ExtractorHmacSigner>();
 builder.Services.AddScoped<ExtractRecipeFromUrlJob>();
 builder.Services.AddScoped<ExtractRecipeFromPhotosJob>();
+// PF1 — hourly sweep job that reaps abandoned staged photos (>24h old,
+// never promoted onto a recipe). Registered as a recurring job below
+// after the Hangfire dashboard is mounted.
+builder.Services.AddScoped<SweepAbandonedStagedPhotosJob>();
 
 // ── Auth (JWT Bearer) ─────────────────────────────────────────────────
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -280,6 +284,14 @@ if (!app.Environment.IsEnvironment("Testing"))
         Authorization = new[] { new AdminOnlyAuthorizationFilter() },
         DashboardTitle = "Familien-Kochbuch Jobs",
     });
+
+    // PF1 — register the staged-photo sweep recurring job. Idempotent;
+    // re-registers on every boot so a deploy can adjust the schedule
+    // without manual intervention.
+    RecurringJob.AddOrUpdate<SweepAbandonedStagedPhotosJob>(
+        SweepAbandonedStagedPhotosJob.RecurringJobId,
+        job => job.ExecuteAsync(CancellationToken.None),
+        SweepAbandonedStagedPhotosJob.CronExpression);
 }
 
 // ── Swagger UI (dev only) ─────────────────────────────────────────────
