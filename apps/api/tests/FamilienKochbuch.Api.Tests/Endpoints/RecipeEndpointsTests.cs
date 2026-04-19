@@ -975,11 +975,13 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             Assert.Equal(body.Id, p.PromotedToRecipeId);
         });
 
-        // Source staged blobs got deleted (best-effort — visible in
-        // the Deleted bag of the fake).
-        Assert.Contains(
-            _factory.Photos.Deleted,
-            d => promoted.Any(p => p.PhotoId == d));
+        // Source staged blobs got deleted by the fire-and-forget path.
+        // On CI the delete is still in-flight when the HTTP response
+        // returns; poll briefly.
+        await PollUntilAsync(
+            () => promoted.All(p => _factory.Photos.Deleted.Contains(p.PhotoId)),
+            timeout: TimeSpan.FromSeconds(5),
+            description: "staged-blob delete to complete");
         // userId silenced — not used in this assertion path; only the
         // ownership filter test exercises it.
         _ = userId;
@@ -1573,5 +1575,39 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var afterRevs = await _client.GetFromJsonAsync<RecipeRevisionEndpoints.RevisionSummaryDto[]>(
             $"/api/recipes/{created.Id}/revisions");
         Assert.Equal(beforeRevs!.Length, afterRevs!.Length);
+    }
+
+    // ── test helpers ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Polls <paramref name="predicate"/> every 50ms up to
+    /// <paramref name="timeout"/>. Returns immediately once true;
+    /// throws <see cref="Xunit.Sdk.XunitException"/> on timeout.
+    /// Used to synchronize with fire-and-forget background work
+    /// (e.g. the PF1 staged-blob delete after promote) that races the
+    /// HTTP response on slower CI runners.
+    /// </summary>
+    private static async Task PollUntilAsync(
+        Func<bool> predicate,
+        TimeSpan timeout,
+        string description)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate())
+            {
+                return;
+            }
+            await Task.Delay(50);
+        }
+
+        if (predicate())
+        {
+            return;
+        }
+
+        throw new Xunit.Sdk.XunitException(
+            $"Timed out waiting for {description} (waited {timeout})");
     }
 }
