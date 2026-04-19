@@ -264,4 +264,110 @@ public class RecipeImportTests
         Assert.Throws<InvalidOperationException>(() =>
             import.StageTransitPayload("[\"x\"]"));
     }
+
+    // ── RecordUsage (PF2) ────────────────────────────────────────────
+
+    [Fact]
+    public void RecordUsage_Stores_Token_Counts_While_Running()
+    {
+        var import = NewImport();
+        import.MarkRunning(50);
+
+        import.RecordUsage(
+            promptTokens: 1000,
+            completionTokens: 250,
+            cachedPromptTokens: 800,
+            modelDeployment: "gpt-5.1-chat");
+
+        Assert.Equal(1000, import.PromptTokens);
+        Assert.Equal(250, import.CompletionTokens);
+        Assert.Equal(800, import.CachedPromptTokens);
+        Assert.Equal("gpt-5.1-chat", import.ModelDeployment);
+        // State unchanged — RecordUsage doesn't transition.
+        Assert.Equal(ImportStatus.Running, import.Status);
+    }
+
+    [Fact]
+    public void RecordUsage_Rejects_Before_Running()
+    {
+        var import = NewImport();
+        Assert.Throws<InvalidOperationException>(() =>
+            import.RecordUsage(10, 5, 0, "gpt-5.1"));
+    }
+
+    [Fact]
+    public void RecordUsage_Rejects_After_Done()
+    {
+        var import = NewImport();
+        import.MarkDone("{\"t\":\"x\"}", DateTimeOffset.UtcNow);
+        Assert.Throws<InvalidOperationException>(() =>
+            import.RecordUsage(10, 5, 0, "gpt-5.1"));
+    }
+
+    [Fact]
+    public void RecordUsage_Rejects_After_Error()
+    {
+        var import = NewImport();
+        import.MarkError("boom", DateTimeOffset.UtcNow);
+        Assert.Throws<InvalidOperationException>(() =>
+            import.RecordUsage(10, 5, 0, "gpt-5.1"));
+    }
+
+    [Theory]
+    [InlineData(-1, 0, 0)]
+    [InlineData(0, -1, 0)]
+    [InlineData(0, 0, -1)]
+    public void RecordUsage_Rejects_Negative_Counts(int prompt, int completion, int cached)
+    {
+        var import = NewImport();
+        import.MarkRunning(10);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            import.RecordUsage(prompt, completion, cached, "gpt-5.1"));
+    }
+
+    [Fact]
+    public void RecordUsage_Rejects_Cached_Exceeding_Prompt()
+    {
+        var import = NewImport();
+        import.MarkRunning(10);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            import.RecordUsage(promptTokens: 100, completionTokens: 10,
+                cachedPromptTokens: 200, modelDeployment: "gpt-5.1"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RecordUsage_Rejects_Blank_Model(string model)
+    {
+        var import = NewImport();
+        import.MarkRunning(10);
+        Assert.Throws<ArgumentException>(() =>
+            import.RecordUsage(10, 5, 0, model));
+    }
+
+    [Fact]
+    public void RecordUsage_Caps_Model_Length()
+    {
+        var import = NewImport();
+        import.MarkRunning(10);
+        var long_ = new string('x', RecipeImport.ModelDeploymentMaxLength + 50);
+
+        import.RecordUsage(10, 5, 0, long_);
+
+        Assert.Equal(RecipeImport.ModelDeploymentMaxLength, import.ModelDeployment!.Length);
+    }
+
+    [Fact]
+    public void RecordUsage_Allows_Zero_Counts()
+    {
+        // Zero is a legitimate value when the provider returns an
+        // empty usage envelope (mock provider, error path mid-stream).
+        // Only negatives are rejected.
+        var import = NewImport();
+        import.MarkRunning(10);
+        import.RecordUsage(0, 0, 0, "mock");
+        Assert.Equal(0, import.PromptTokens);
+        Assert.Equal("mock", import.ModelDeployment);
+    }
 }

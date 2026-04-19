@@ -41,6 +41,13 @@ public sealed class RecipeImport
     public const int ErrorMessageMaxLength = 2000;
     public const int SourceUrlMaxLength = 2000;
 
+    /// <summary>Maximum length of the stored Azure deployment name.
+    /// Azure's public names (e.g. <c>gpt-5.1-codex-mini</c>) sit well
+    /// under 100; the 200-char cap protects against a malicious /
+    /// malformed deployment string turning the text column into a
+    /// storage exploit.</summary>
+    public const int ModelDeploymentMaxLength = 200;
+
     // EF needs a parameterless ctor for materialization. Kept private so
     // domain construction always goes through the validating ctor below.
     private RecipeImport() { }
@@ -78,6 +85,18 @@ public sealed class RecipeImport
     public string? ErrorMessage { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset? CompletedAt { get; private set; }
+
+    // ── PF2 token-usage tracking ────────────────────────────────────
+    //
+    // Populated by <see cref="RecordUsage"/> when the Python response
+    // arrives. All four fields stay <c>null</c> on any path that never
+    // hit the LLM (e.g. a transport failure, or an import that errored
+    // before the extractor got a chance to run). The admin KI-usage
+    // dashboard treats null == "no data" and skips the row.
+    public int? PromptTokens { get; private set; }
+    public int? CompletionTokens { get; private set; }
+    public int? CachedPromptTokens { get; private set; }
+    public string? ModelDeployment { get; private set; }
 
     // ── State transitions ───────────────────────────────────────────
 
@@ -161,6 +180,49 @@ public sealed class RecipeImport
         ResultJson = null;
         ErrorMessage = Truncate(errorMessage.Trim(), ErrorMessageMaxLength);
         CompletedAt = completedAt;
+    }
+
+    /// <summary>
+    /// Records the token-usage numbers the Python extractor reported
+    /// for this import (PF2). Only legal while the import is running —
+    /// the job reads the <c>X-Extractor-*</c> headers off the Python
+    /// response and calls this before transitioning to <see cref="ImportStatus.Done"/>
+    /// or <see cref="ImportStatus.Error"/>. Non-negative token counts
+    /// and a non-blank model name are required; blank / negative
+    /// values crash fast rather than silently being stored, because a
+    /// silent bad record breaks the admin dashboard.
+    /// </summary>
+    public void RecordUsage(
+        int promptTokens,
+        int completionTokens,
+        int cachedPromptTokens,
+        string modelDeployment)
+    {
+        if (Status != ImportStatus.Running)
+            throw new InvalidOperationException(
+                $"RecordUsage is only legal while Running; current state is {Status}.");
+        if (promptTokens < 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(promptTokens), promptTokens, "Prompt tokens must be >= 0.");
+        if (completionTokens < 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(completionTokens), completionTokens, "Completion tokens must be >= 0.");
+        if (cachedPromptTokens < 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(cachedPromptTokens), cachedPromptTokens, "Cached prompt tokens must be >= 0.");
+        if (cachedPromptTokens > promptTokens)
+            throw new ArgumentOutOfRangeException(
+                nameof(cachedPromptTokens),
+                cachedPromptTokens,
+                "Cached prompt tokens cannot exceed total prompt tokens.");
+        if (string.IsNullOrWhiteSpace(modelDeployment))
+            throw new ArgumentException(
+                "Model deployment name must not be blank.", nameof(modelDeployment));
+
+        PromptTokens = promptTokens;
+        CompletionTokens = completionTokens;
+        CachedPromptTokens = cachedPromptTokens;
+        ModelDeployment = Truncate(modelDeployment.Trim(), ModelDeploymentMaxLength);
     }
 
     // Public setter used by the overload with only (message) — kept around
