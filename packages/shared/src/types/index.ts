@@ -105,3 +105,11 @@ export type {
   MealSlot,
   PatchSlotRequest,
 } from './mealPlanning.ts'
+export type {
+  AddShoppingListItemRequest,
+  IngredientCategory,
+  PatchShoppingListItemRequest,
+  ShoppingListDto,
+  ShoppingListItemDto,
+  ShoppingListItemSource,
+} from './shoppingList.ts'
