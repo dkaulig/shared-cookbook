@@ -63,6 +63,11 @@ services:
       SeaweedFS__FilerUrl: "${SEAWEEDFS_FILER_URL:-http://seaweedfs:8333}"
       # Signed photo URLs expire after this many hours (default 2 h).
       Images__SignatureValidityHours: "${IMAGES_SIGNATURE_VALIDITY_HOURS:-2}"
+      # ── P2-5: Python extractor bridge ───────────────────────────
+      # HMAC shared secret — MUST match the python-extractor container.
+      EXTRACTOR_SHARED_SECRET: "${EXTRACTOR_SHARED_SECRET:-dev-only-shared-secret}"
+      # Base URL of the internal Python service (docker hostname).
+      PythonExtractor__BaseUrl: "${PYTHON_EXTRACTOR_BASE_URL:-http://python-extractor:8000}"
     depends_on:
       postgres:
         condition: service_healthy
