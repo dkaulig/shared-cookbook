@@ -306,3 +306,94 @@ def test_post_extract_url_blog_path_success() -> None:
     )
     assert response.status_code == 200
     assert response.json()["recipe"]["source_url"] == "https://example.com/spag"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PV2 security — SSRF allowlist + UUID pattern on callback fields
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_post_extract_url_rejects_callback_url_outside_allowlist(app_client: TestClient) -> None:
+    """A callback_url host that isn't the docker-internal ``api`` must be
+    rejected with 422 at request-parse — the SSRF defence prevents an
+    attacker with a valid HMAC signature from steering the per-import
+    bearer token at ``169.254.169.254`` or an attacker-controlled host."""
+    response = app_client.post(
+        "/extract/url",
+        json={
+            "url": "https://youtu.be/abc",
+            "hint": {"group_id": "g1", "user_id": "u1"},
+            "callback_url": "http://169.254.169.254/latest/meta-data/",
+            "callback_token": "tok",
+            "import_id": "11111111-2222-3333-4444-555555555555",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_post_extract_url_rejects_attacker_host(app_client: TestClient) -> None:
+    """Any non-allowlisted host must be rejected, including attacker-hosted
+    public domains."""
+    response = app_client.post(
+        "/extract/url",
+        json={
+            "url": "https://youtu.be/abc",
+            "hint": {"group_id": "g1", "user_id": "u1"},
+            "callback_url": "https://attacker.evil/steal",
+            "callback_token": "tok",
+            "import_id": "11111111-2222-3333-4444-555555555555",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_post_extract_url_accepts_allowlisted_callback(
+    app_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default allowlist host ``api`` is accepted; a different host
+    can be configured via the PROGRESS_CALLBACK_HOST env var."""
+    monkeypatch.setenv("PROGRESS_CALLBACK_HOST", "api")
+    response = app_client.post(
+        "/extract/url",
+        json={
+            "url": "https://youtu.be/abc",
+            "hint": {"group_id": "g1", "user_id": "u1"},
+            "callback_url": "http://api/api/internal/imports/x/progress",
+            "callback_token": "tok",
+            "import_id": "11111111-2222-3333-4444-555555555555",
+            "attempt": 1,
+        },
+    )
+    # Reporter never actually fires during the request because the
+    # stubbed video path + any-call provider return fast; what we
+    # assert here is that the pydantic validator *accepts* the shape
+    # so the pipeline runs end-to-end and returns 200.
+    assert response.status_code == 200
+
+
+def test_post_extract_url_rejects_malformed_import_id(app_client: TestClient) -> None:
+    """A non-UUID ``import_id`` must be rejected at request parse so it
+    can never reach the logger or a downstream callback URL."""
+    response = app_client.post(
+        "/extract/url",
+        json={
+            "url": "https://youtu.be/abc",
+            "hint": {"group_id": "g1", "user_id": "u1"},
+            "import_id": "not-a-uuid",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_post_extract_url_accepts_valid_uuid_import_id(app_client: TestClient) -> None:
+    """A correctly-shaped UUID passes validation."""
+    response = app_client.post(
+        "/extract/url",
+        json={
+            "url": "https://youtu.be/abc",
+            "hint": {"group_id": "g1", "user_id": "u1"},
+            "import_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        },
+    )
+    assert response.status_code == 200

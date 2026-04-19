@@ -6,7 +6,11 @@ payload composition, and the null-reporter no-op.
 
 from __future__ import annotations
 
+import ipaddress
+import socket
+from collections.abc import Iterator
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -20,6 +24,31 @@ from extractor.progress import (
 
 _CALLBACK_URL = "https://api.test.invalid/api/internal/imports/abc/progress"
 _CALLBACK_TOKEN = "test-hmac-token"  # noqa: S105 — fixture value, not a secret
+
+
+@pytest.fixture(autouse=True)
+def _bypass_ssrf_guard() -> Iterator[None]:
+    """Make the defence-in-depth SSRF guard resolve test hosts to a public IP.
+
+    The reporter runs :func:`_assert_safe_http_target` before every
+    POST. Most progress-reporter tests use ``api.test.invalid`` — a
+    TLD that deliberately does not resolve. Without this fixture, the
+    guard would block every test's outbound POST. We patch
+    ``socket.getaddrinfo`` inside ``extractor.pipeline.url`` (the
+    helper's module) to return 1.1.1.1 for any hostname; IP literals
+    pass through so tests that specifically exercise SSRF blocks
+    (e.g. ``test_reporter_blocks_metadata_callback_url``) still work.
+    """
+
+    def _fake(host: str, *args: Any, **kwargs: Any) -> list[Any]:
+        try:
+            ipaddress.ip_address(host)
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (host, 0))]
+        except ValueError:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 0))]
+
+    with patch("extractor.pipeline.url.socket.getaddrinfo", side_effect=_fake):
+        yield
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -303,6 +332,102 @@ def test_progress_event_defaults_none_optionals() -> None:
     assert ev.bytes_total is None
     assert ev.segments_done is None
     assert ev.segments_total is None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PV2 hardening — SSRF guard + single-client + narrowed logging + force
+# ─────────────────────────────────────────────────────────────────────
+
+
+@respx.mock
+async def test_reporter_blocks_metadata_callback_url(caplog: pytest.LogCaptureFixture) -> None:
+    """A callback URL that DNS-resolves to link-local metadata must be
+    blocked at runtime — defence-in-depth behind the request-parse
+    allowlist. The log line must NOT include the URL."""
+    import logging
+
+    metadata_url = "http://169.254.169.254/latest"
+    # respx would otherwise intercept the POST — register a 500 that
+    # proves it is never reached because the SSRF guard fires first.
+    route = respx.post(metadata_url).mock(return_value=httpx.Response(500))
+    reporter = ProgressReporter(metadata_url, _CALLBACK_TOKEN, attempt=1, import_id="abc")
+    with caplog.at_level(logging.WARNING, logger="extractor.progress"):
+        await reporter.report(ProgressEvent(phase="downloading", phase_progress=0))
+    await reporter.aclose()
+    assert not route.called
+    # Log line must NOT contain the attacker-chosen URL.
+    all_log = " ".join(record.getMessage() for record in caplog.records)
+    assert "169.254.169.254" not in all_log
+
+
+@respx.mock
+async def test_reporter_reuses_single_httpx_client() -> None:
+    """Two reports on one reporter share a single AsyncClient instance."""
+    respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(204))
+    reporter = ProgressReporter(_CALLBACK_URL, _CALLBACK_TOKEN, attempt=1)
+    # First call creates the client.
+    await reporter.report(ProgressEvent(phase="downloading", phase_progress=0))
+    client_first = reporter._client  # private but stable across ctor
+    assert client_first is not None
+    # Second call reuses it — phase change bypasses throttle.
+    await reporter.report(ProgressEvent(phase="transcribing", phase_progress=0))
+    assert reporter._client is client_first
+    await reporter.aclose()
+    # After aclose, next call lazy-creates a fresh client.
+    assert reporter._client is None
+
+
+@respx.mock
+async def test_reporter_aclose_is_idempotent() -> None:
+    """Calling aclose twice must not raise."""
+    respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(204))
+    reporter = ProgressReporter(_CALLBACK_URL, _CALLBACK_TOKEN, attempt=1)
+    await reporter.report(ProgressEvent(phase="downloading", phase_progress=0))
+    await reporter.aclose()
+    await reporter.aclose()  # second call — no-op, no raise
+
+
+@respx.mock
+async def test_reporter_force_bypasses_throttle() -> None:
+    """force=True on ``report`` fires the POST even when within the
+    500 ms intra-phase throttle window."""
+    route = respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(204))
+    reporter = ProgressReporter(_CALLBACK_URL, _CALLBACK_TOKEN, attempt=1)
+    await reporter.report(ProgressEvent(phase="vision_analysis", phase_progress=0))
+    # Within throttle window, normal report drops silently.
+    await reporter.report(ProgressEvent(phase="vision_analysis", phase_progress=50))
+    assert route.call_count == 1
+    # But force=True fires.
+    await reporter.report(
+        ProgressEvent(phase="vision_analysis", phase_progress=95),
+        force=True,
+    )
+    assert route.call_count == 2
+    await reporter.aclose()
+
+
+@respx.mock
+async def test_reporter_log_never_includes_url_on_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Connection-error log line must carry the exception *type* + a
+    truncated message only — never the callback URL itself."""
+    import logging
+
+    attacker_host = "evil-attacker-hostname.invalid"
+    attacker_url = f"https://{attacker_host}/progress"
+    respx.post(attacker_url).mock(side_effect=httpx.ConnectError("Nope"))
+    reporter = ProgressReporter(attacker_url, _CALLBACK_TOKEN, attempt=1, import_id="abc")
+    with caplog.at_level(logging.WARNING, logger="extractor.progress"):
+        # Bypass the runtime SSRF guard by pointing our _post at the
+        # attacker host via DNS monkey — in real deployments the
+        # pydantic validator + runtime guard would block this first.
+        # Here we hit _post directly so only the exception-formatting
+        # path runs.
+        await reporter._post(ProgressEvent(phase="downloading", phase_progress=0))
+    await reporter.aclose()
+    all_log = " ".join(record.getMessage() for record in caplog.records)
+    assert attacker_host not in all_log
 
 
 # Silence unused-import lint when this module has no other pytest use.

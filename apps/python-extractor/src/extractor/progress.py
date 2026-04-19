@@ -12,10 +12,22 @@ Design constraints (see ``docs/plans/2026-04-19-video-import-progress-design.md`
   path is the user's result; progress is a UX nicety on top.
 - **Throttled**: max one POST per :data:`_THROTTLE_MS` ms within the
   same phase. Phase transitions flush immediately so the UI sees the
-  stepper advance without a stall.
+  stepper advance without a stall. End-of-phase events may pass
+  ``force=True`` to :meth:`ProgressReporter.report` to bypass the
+  throttle (e.g. the photo pipeline's 95% "vision done" tick).
 - **No-op without callback_url**: local direct-Python usage and the
   existing 280-test suite pass :class:`NullProgressReporter` (or omit
   the reporter entirely) and incur zero HTTP traffic.
+- **SSRF-hardened**: the runtime ``_post`` resolves the callback host
+  via :func:`_assert_safe_http_target` before each request so an
+  attacker who somehow bypasses the request-parse allowlist still
+  can't steer the callback at a metadata endpoint or internal
+  service. The allowlist at request-parse time is the primary
+  defence; this is defence-in-depth.
+- **Single httpx client per reporter lifetime**: connection pooling +
+  TLS reuse matter once we fire >1 callback per import. The endpoint
+  handlers in ``main.py`` call :meth:`ProgressReporter.aclose` after
+  pipeline completion via ``try/finally``.
 """
 
 from __future__ import annotations
@@ -104,6 +116,12 @@ class ProgressReporter:
     single asyncio task per import. Two concurrent imports should
     construct two reporters; sharing a single instance across tasks
     would race on the throttle state.
+
+    Callers MUST invoke :meth:`aclose` at end-of-pipeline (typically via
+    a ``try/finally`` in the endpoint handler) so the underlying
+    :class:`httpx.AsyncClient` pool shuts down cleanly. Forgetting is
+    not catastrophic (Python's async-cleanup guards prevent a hard
+    leak) but it prints an asyncio-level warning in test logs.
     """
 
     def __init__(
@@ -120,13 +138,23 @@ class ProgressReporter:
         self._import_id = import_id
         self._last_sent_at_ms: float = 0.0
         self._last_phase: str | None = None
+        # Lazy-created so a NullProgressReporter never constructs an
+        # AsyncClient — constructor-time was wasteful for the no-op
+        # path. Populated on first ``_post`` call.
+        self._client: httpx.AsyncClient | None = None
 
-    async def report(self, event: ProgressEvent) -> None:
+    async def report(self, event: ProgressEvent, *, force: bool = False) -> None:
         """Send the event if throttle permits, else silently drop.
 
         Phase transitions (``event.phase != self._last_phase``)
         bypass the throttle — the UI's phase-stepper advances
         immediately so users see the step change without a stall.
+
+        ``force=True`` also bypasses the throttle. Use it for
+        end-of-phase "final tick" events that the UI must always see
+        (e.g. the photo pipeline fires a 95% ``vision_analysis`` event
+        right before transitioning to ``post_processing``; without
+        ``force=True`` a <500 ms-apart fire would be dropped).
         """
         if not self._url or not self._token:
             return  # no-op mode
@@ -135,7 +163,7 @@ class ProgressReporter:
         is_phase_change = event.phase != self._last_phase
         since_last_ms = now_ms - self._last_sent_at_ms
 
-        if not is_phase_change and since_last_ms < _THROTTLE_MS:
+        if not force and not is_phase_change and since_last_ms < _THROTTLE_MS:
             return  # throttled — quietly drop this intra-phase tick
 
         self._last_phase = event.phase
@@ -152,8 +180,52 @@ class ProgressReporter:
         """
         return
 
+    async def aclose(self) -> None:
+        """Release the underlying :class:`httpx.AsyncClient` pool.
+
+        Safe to call multiple times; after the first call the reporter
+        lazy-creates a fresh client on the next :meth:`report`, which
+        keeps test helpers (e.g. ``_CapturingReporter``) that never
+        instantiate a real client working.
+        """
+        if self._client is not None:
+            try:
+                await self._client.aclose()
+            except httpx.HTTPError as exc:
+                # ``AsyncClient.aclose`` swallows most errors
+                # internally; a remaining httpx.HTTPError here means
+                # an in-flight request was aborted mid-stream. Log +
+                # move on — never raise into the pipeline shutdown
+                # path.
+                logger.warning(
+                    "progress callback aclose failed import_id=%s error=%s",
+                    self._import_id,
+                    type(exc).__name__,
+                )
+            finally:
+                self._client = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Return the lazy-created :class:`httpx.AsyncClient` for this reporter.
+
+        Single client per reporter lifetime: enables connection pooling
+        + TLS reuse across the ~4 callbacks a typical import fires
+        (phase starts for downloading / transcribing / structuring /
+        post_processing, plus per-tick throttled updates).
+        """
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=_TIMEOUT_S)
+        return self._client
+
     async def _post(self, event: ProgressEvent) -> None:
         """Build the body + POST. All network errors are swallowed.
+
+        Applies :func:`_assert_safe_http_target` as a defence-in-depth
+        SSRF guard on every call — primary defence is the pydantic
+        allowlist at request-parse time, but a misconfigured
+        ``PROGRESS_CALLBACK_HOST`` env var (say, pointing at a host
+        whose DNS records later flip to a private IP) would otherwise
+        slip through.
 
         This method is the only place httpx is touched; subclasses
         (:class:`NullProgressReporter`) override it to a no-op.
@@ -179,55 +251,77 @@ class ProgressReporter:
         token = self._token
         if url is None or token is None:
             return
+
+        # Defence-in-depth SSRF check — import lazily so we don't
+        # create a hard dep-cycle with ``pipeline.url`` at module
+        # import time.
+        from extractor.pipeline.url import SsrfBlockedError, _assert_safe_http_target
+
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
-                resp = await client.post(
-                    url,
-                    json=body,
-                    headers={"Authorization": f"Bearer {token}"},
+            await _assert_safe_http_target(url)
+        except SsrfBlockedError as exc:
+            # Never include the URL itself — the host name alone can
+            # be an attacker-chosen SSRF reconnaissance signal.
+            logger.warning(
+                "progress callback blocked by ssrf guard import_id=%s phase=%s error=%s",
+                self._import_id,
+                event.phase,
+                type(exc).__name__,
+            )
+            return
+
+        try:
+            client = await self._get_client()
+            resp = await client.post(
+                url,
+                json=body,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code >= 500:
+                logger.warning(
+                    "progress callback server-error import_id=%s phase=%s status=%s",
+                    self._import_id,
+                    event.phase,
+                    resp.status_code,
                 )
-                if resp.status_code >= 500:
-                    logger.warning(
-                        "progress callback server-error status=%s import_id=%s phase=%s",
-                        resp.status_code,
-                        self._import_id,
-                        event.phase,
-                    )
-                elif resp.status_code >= 400:
-                    # 401 = bad token, 422 = invalid phase, 404 = unknown
-                    # importId, 429 = rate-limit. All loggable but not fatal.
-                    logger.warning(
-                        "progress callback client-error status=%s import_id=%s phase=%s",
-                        resp.status_code,
-                        self._import_id,
-                        event.phase,
-                    )
+            elif resp.status_code >= 400:
+                # 401 = bad token, 422 = invalid phase, 404 = unknown
+                # importId, 429 = rate-limit. All loggable but not fatal.
+                logger.warning(
+                    "progress callback client-error import_id=%s phase=%s status=%s",
+                    self._import_id,
+                    event.phase,
+                    resp.status_code,
+                )
         except (httpx.HTTPError, TimeoutError) as exc:
             # Intentionally narrow catches — NEVER raise into the
             # pipeline. Callback outages degrade UX, not correctness.
+            # Log only the exception *type* + a truncated message —
+            # exposing ``exc`` verbatim leaks the callback URL (and via
+            # it, attacker-chosen internal hostnames as SSRF
+            # reconnaissance).
             logger.warning(
-                "progress callback failed import_id=%s phase=%s err=%s",
+                "progress callback failed import_id=%s phase=%s error=%s detail=%s",
                 self._import_id,
                 event.phase,
-                exc,
+                type(exc).__name__,
+                str(exc)[:80],
             )
 
 
 class NullProgressReporter(ProgressReporter):
     """Explicit no-op reporter for tests + direct-Python usage.
 
-    Overrides both :meth:`report` and :meth:`_post` so there is zero
-    network attempt — useful when the existing pipeline tests want to
-    exercise the new signature without wiring a callback URL.
+    Overrides :meth:`report` so ``report()`` never calls ``_post``; no
+    HTTP attempt is ever made. (The parent's ``_post`` would return
+    early anyway — ``self._url`` is ``None`` — but overriding
+    ``report`` keeps the hot path allocation-free.)
     """
 
     def __init__(self) -> None:
         super().__init__(callback_url=None, callback_token=None, attempt=1)
 
-    async def report(self, event: ProgressEvent) -> None:
-        return
-
-    async def _post(self, event: ProgressEvent) -> None:
+    async def report(self, event: ProgressEvent, *, force: bool = False) -> None:
         return
 
 

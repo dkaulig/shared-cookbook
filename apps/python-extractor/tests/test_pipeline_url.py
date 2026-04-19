@@ -720,7 +720,8 @@ class _CapturingReporter(ProgressReporter):
         super().__init__(callback_url=None, callback_token=None, attempt=1)
         self.events: list[ProgressEvent] = []
 
-    async def report(self, event: ProgressEvent) -> None:
+    async def report(self, event: ProgressEvent, *, force: bool = False) -> None:
+        # ``force`` is ignored — recorder bypasses the throttle.
         self.events.append(event)
 
     async def _post(self, event: ProgressEvent) -> None:
