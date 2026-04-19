@@ -82,13 +82,14 @@ export function CreateActionSheet({
 
   const groupCount = groups.data?.length ?? 0
   const hasGroup = groupCount > 0
+  const onlyGroup = groupCount === 1 ? groups.data?.[0] : undefined
   // When the user is in exactly one group we can deep-link straight to
   // its recipe-create route; otherwise route through `/groups` so the
   // user picks the target themselves (avoids inventing a 2-step picker
   // here — see component-level docs above).
   const newRecipeHref = hasGroup
-    ? groupCount === 1
-      ? `/groups/${groups.data![0].id}/recipes/new`
+    ? onlyGroup
+      ? `/groups/${onlyGroup.id}/recipes/new`
       : '/groups'
     : null
 
