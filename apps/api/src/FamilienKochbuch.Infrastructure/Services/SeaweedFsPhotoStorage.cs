@@ -130,15 +130,6 @@ public class SeaweedFsPhotoStorage : IPhotoStorage
         getResponse.EnsureSuccessStatusCode();
         var bytes = await getResponse.Content.ReadAsByteArrayAsync(ct);
 
-        if (bytes.LongLength > 5L * 1024 * 1024)
-        {
-            // Bounded by upstream validation; warn if the policy ever
-            // drifts so we notice before the copy chews up bandwidth.
-            _logger.LogWarning(
-                "Photo copy from {Source} is {Size} bytes — above the 5 MB staged cap.",
-                src, bytes.LongLength);
-        }
-
         using var payload = new ByteArrayContent(bytes);
         payload.Headers.ContentType = new MediaTypeHeaderValue(contentType);
 
