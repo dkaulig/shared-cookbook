@@ -68,6 +68,16 @@ services:
       EXTRACTOR_SHARED_SECRET: "${EXTRACTOR_SHARED_SECRET:-dev-only-shared-secret}"
       # Base URL of the internal Python service (docker hostname).
       PythonExtractor__BaseUrl: "${PYTHON_EXTRACTOR_BASE_URL:-http://python-extractor:8000}"
+      # ── PF3: SMTP for password-reset + invite emails ─────────────
+      # Leave empty in dev to fall back to NoOpEmailSender (links appear
+      # in the api container logs). Mirror of the prod compose block so
+      # a developer can point at Mailpit / a real sandbox account.
+      Smtp__Host: "${SMTP_HOST:-}"
+      Smtp__Port: "${SMTP_PORT:-587}"
+      Smtp__User: "${SMTP_USER:-}"
+      Smtp__Password: "${SMTP_PASSWORD:-}"
+      Smtp__FromAddress: "${SMTP_FROM_ADDRESS:-}"
+      Smtp__FromName: "${SMTP_FROM_NAME:-Familien-Kochbuch}"
     depends_on:
       postgres:
         condition: service_healthy
