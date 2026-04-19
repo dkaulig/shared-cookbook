@@ -210,3 +210,78 @@ Query-Param nach. Drei Ops-Konsequenzen:
    30/min gekappt (`RateLimitPolicies.Hub` in `Program.cs`) — schützt
    den JWT-Validierungs-Pfad vor Anonymous-Floods, ist aber großzügig
    genug für Reconnect-Bursts nach einem Netzwerk-Blip.
+
+---
+
+## 8. `/api/internal/*` Endpoints (PV1–PV4)
+
+Der Python-Extractor meldet Fortschritt per HTTP-Callback an die .NET-API
+zurück: `POST /api/internal/imports/{importId}/progress`. Der Pfad ist
+**ausschließlich intern** — extern antwortet er immer `404`.
+
+**Verteidigungs-Schichten (defense in depth):**
+
+1. **Caddy**: `@internal path /api/internal/*` → `respond 404` in
+   `infra/Caddyfile.prod`. Externe Requests treffen Kestrel nie.
+2. **.NET `InternalOnlyMiddleware`**: CIDR-Allowlist auf das Docker-
+   Bridge-Subnet. Das Subnet ist in `docker-compose.prod.yml` auf
+   `172.28.0.0/16` gepinnt — sonst würde Docker aus seinem Default-Pool
+   (`172.19+`) greifen und die Middleware würde legitime Extractor-Calls
+   aussperren. Beide Werte MÜSSEN matchen.
+
+**HMAC-Token**: pro Import einmalig, signiert `{importId, expiresAt}` mit
+`EXTRACTOR_SHARED_SECRET`, **10 min TTL** (siehe
+`ImportProgressTokenService.MaxTokenLifetime`). Beide Container müssen das
+gleiche Secret aus `.env` lesen — mismatch → 401 auf jedem Callback.
+
+### Troubleshooting
+
+- **Imports hängen bei Progress = 10** — der Python→.NET-Callback kommt
+  nicht an. Ursachen & Checks:
+  ```bash
+  # 1. Python-Logs auf HTTP-Fehler oder SsrfBlockedError
+  ssh deploy@kochbuch.kaulig.dev 'docker logs familien-kochbuch-python-extractor --tail=200 | grep -E "progress|callback|Ssrf"'
+  # 2. Subnet-Pin prüfen (muss 172.28.0.0/16 sein)
+  ssh deploy@kochbuch.kaulig.dev 'docker network inspect familien-kochbuch_default | jq ".[0].IPAM.Config"'
+  # 3. Shared-Secret auf beiden Containern vergleichen (Hash statt Klartext)
+  ssh deploy@kochbuch.kaulig.dev 'for c in familien-kochbuch-api familien-kochbuch-python-extractor; do
+    docker exec "$c" sh -c "printenv EXTRACTOR_SHARED_SECRET | sha256sum"; done'
+  ```
+
+- **".NET-Logs: Unbekannter importId"** — der Callback kam an, aber die
+  `RecipeImport`-Zeile wurde inzwischen gelöscht (z. B. Gruppe gelöscht
+  während Import lief). Harmlose Race, kein Action-Item.
+
+- **HTTP 429 / Rate-Limit auf Callbacks** — Python flutet. Deutet auf
+  einen Infinite-Loop-Bug im Callback-Scheduler hin (ProgressReporter sollte
+  throttled sein, siehe `apps/python-extractor/src/extractor/progress.py`).
+  Extractor-Container neu starten und Logs beobachten.
+
+- **Token expired** — 10-min-TTL überschritten. Entweder ein einzelner Import
+  dauert >10 min (sehr großes Video → yt-dlp/Whisper langsam) ODER
+  Clock-Skew zwischen den Containern:
+  ```bash
+  ssh deploy@kochbuch.kaulig.dev 'for c in familien-kochbuch-api familien-kochbuch-python-extractor; do
+    echo "$c: $(docker exec "$c" date -u)"; done'
+  ```
+  Bei >5 s Drift: Host-Zeit via `timedatectl` prüfen, Docker neu starten.
+
+- **UI-Banner "Import reagiert nicht"** — `lastProgressAt` ist älter als
+  2 min (`StaleBanner` in `apps/web/src/features/imports/`). Worker ist
+  abgestürzt oder steckt im Netzwerk-Blackhole. Manueller Retry via
+  "Neu starten"-Button im UI — das navigiert auf
+  `/rezepte/import/url?url=<sourceUrl>` und legt einen frischen Import an.
+
+### Post-Deploy-Verifikation
+
+Nach jedem Deploy den Progress-Flow End-to-End prüfen — neben dem 8-Step-
+CRUD-Smoke fährt das Skript auch den URL-Import inkl. Phasen-Assertion:
+
+```bash
+SMOKE_BOT_PASSWORD="$ORCHESTRATOR_PASSWORD" \
+  scripts/smoke-live.sh --import-url="https://www.facebook.com/share/r/<kurz-clip>"
+```
+
+Erwartete Ausgabe am Ende: `Observed N distinct phases: [queued downloading transcribing structuring post_processing done]`
+mit `N ≥ 3`. Weniger Phasen → der Progress-Callback ist stummgeschaltet
+(siehe Troubleshooting oben).
