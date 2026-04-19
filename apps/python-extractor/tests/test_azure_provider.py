@@ -141,15 +141,19 @@ async def test_extract_structured_sends_correct_request(
             "content": [{"type": "input_text", "text": "Extrahiere aus: Pizza Margherita"}],
         }
     ]
-    # Structured output enforcement via response_format.
-    fmt = body["response_format"]
+    # Structured output enforcement lives under ``text.format`` in the
+    # Responses API (Azure deprecated ``response_format`` in 2025-04+).
+    # The json_schema sub-object is flattened: name/schema/strict sit
+    # directly on ``format`` rather than nested under ``json_schema``.
+    assert "response_format" not in body
+    fmt = body["text"]["format"]
     assert fmt["type"] == "json_schema"
-    assert fmt["json_schema"]["schema"]["required"] == ["title"]
+    assert fmt["schema"]["required"] == ["title"]
     # P2-1 plan §3 explicitly requires ``strict: true`` so the LLM enforces
     # the schema rather than returning loose JSON. A ``name`` field is also
     # part of the Responses-API contract for json_schema responses.
-    assert fmt["json_schema"]["strict"] is True
-    assert fmt["json_schema"]["name"] == "extractor_response"
+    assert fmt["strict"] is True
+    assert fmt["name"] == "extractor_response"
 
 
 @respx.mock
@@ -175,6 +179,50 @@ async def test_extract_structured_schema_mismatch_on_missing_text(
             json_schema={"type": "object"},
         )
     assert exc_info.value.code == "schema_mismatch"
+
+
+@respx.mock
+async def test_extract_structured_uses_text_format_not_response_format(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """Regression guard for the Azure Responses-API deprecation.
+
+    Azure (mirroring OpenAI's Responses API contract) rejects the legacy
+    top-level ``response_format`` parameter since ~2025-04 with::
+
+        Unsupported parameter: 'response_format'. In the Responses API,
+        this parameter has moved to 'text.format'.
+
+    This test pins the new shape so a regression would fail immediately
+    rather than burn a production URL/photo extraction attempt.
+    """
+    route = respx.post(_URL).mock(
+        return_value=httpx.Response(200, json=_structured_payload({"x": 1}))
+    )
+
+    await provider.extract_structured(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "x"}],
+        json_schema={"type": "object", "properties": {"x": {"type": "integer"}}},
+    )
+
+    body = json.loads(route.calls.last.request.content)
+    # Must NOT use the deprecated top-level key.
+    assert "response_format" not in body, (
+        "legacy response_format must not be sent — Azure rejects it with "
+        "invalid_request since the Responses-API 2025-04 rollout"
+    )
+    # Must use the new nested path.
+    assert "text" in body
+    assert "format" in body["text"]
+    fmt = body["text"]["format"]
+    assert fmt["type"] == "json_schema"
+    # Flattened: no intermediate ``json_schema`` object; name/schema/strict
+    # live directly on ``format``.
+    assert "json_schema" not in fmt
+    assert "schema" in fmt
+    assert "name" in fmt
+    assert fmt["strict"] is True
 
 
 @respx.mock
@@ -223,8 +271,10 @@ async def test_chat_uses_chat_deployment(provider: AzureOpenAIProvider) -> None:
 
     body = json.loads(route.calls.last.request.content)
     assert body["model"] == _DEPLOYMENT_CHAT
-    # Chat calls don't include a response_format override.
+    # Chat calls don't include a structured-output override — neither the
+    # legacy ``response_format`` nor the new ``text`` wrapper.
     assert "response_format" not in body
+    assert "text" not in body
 
 
 @respx.mock
