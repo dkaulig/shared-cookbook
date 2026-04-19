@@ -442,4 +442,19 @@ describe('<HomePage />', () => {
     })
     expect(link).toHaveAttribute('href', '/rezepte/import/photos')
   })
+
+  // P2-9 — the third AI entry point: conversational recipe creation.
+  // Sibling of Video + Foto, different route + icon, same dashed chip
+  // visual treatment so it reads as an equal-weight alternative.
+  it('renders the "Rezept im Chat erfinden" entry point linking to /chat', async () => {
+    server.use(
+      http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
+      http.get('/api/groups/invites', () => HttpResponse.json([])),
+    )
+    renderHome()
+    const link = await screen.findByRole('link', {
+      name: /Rezept im Chat erfinden/i,
+    })
+    expect(link).toHaveAttribute('href', '/chat')
+  })
 })

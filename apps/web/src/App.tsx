@@ -16,6 +16,7 @@ import { RecipeFormPage } from '@/features/recipes/RecipeFormPage'
 import { ImportUrlPage } from '@/features/imports/ImportUrlPage'
 import { ImportPhotosPage } from '@/features/imports/ImportPhotosPage'
 import { ImportProgressPage } from '@/features/imports/ImportProgressPage'
+import { ChatPage } from '@/features/chat/ChatPage'
 import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
 import { WochenplanStub } from '@/features/stubs/WochenplanStub'
 import { ProfilStub } from '@/features/stubs/ProfilStub'
@@ -72,6 +73,7 @@ export default function App() {
               path="/rezepte/import/:importId"
               element={<ImportProgressPage />}
             />
+            <Route path="/chat" element={<ChatPage />} />
             <Route path="/wochenplan" element={<WochenplanStub />} />
             <Route path="/profil" element={<ProfilStub />} />
           </Route>

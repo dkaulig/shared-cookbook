@@ -1240,4 +1240,200 @@ describe('RecipeFormPage (create)', () => {
     // 13px horizontal padding (90 - 26 = 64px usable, comfortably > "Menge").
     expect(gridContainer!.className).toMatch(/grid-cols-\[(?:min\(|)9\d|grid-cols-\[1\d\d/)
   })
+
+  // ── P2-9 — chat-import handoff ────────────────────────────────────
+  // `?chatImportId=<uuid>` sources the prefill from sessionStorage
+  // (stashed by ChatPage before navigation). No Hangfire poll, no
+  // `/api/imports/{id}` roundtrip.
+
+  it('prefills from a sessionStorage chat-import stash when ?chatImportId is present', async () => {
+    // Arrange: seed the stash the way ChatPage would.
+    const { stashChatImport } = await import(
+      '@/features/chat/chatImportMemo'
+    )
+    stashChatImport('cim-pp', {
+      groupId: 'g1',
+      result: {
+        recipe: {
+          title: 'Kartoffel-Lauch-Auflauf',
+          description: 'Cremig und vegan.',
+          servings: 4,
+          difficulty: 1,
+          prep_minutes: 15,
+          cook_minutes: 35,
+          ingredients: [
+            {
+              name: 'Kartoffeln',
+              quantity: '800',
+              unit: 'g',
+              note: null,
+              confidence: 'high',
+            },
+          ],
+          steps: [
+            {
+              position: 1,
+              content: 'Kartoffeln schälen.',
+              confidence: 'high',
+            },
+          ],
+          tags: ['vegan'],
+          source_url: 'chat://session/abc',
+          thumbnail_url: null,
+        },
+        confidence: { overall: 'medium', notes: [] },
+      },
+    })
+
+    render(withProviders('/groups/g1/recipes/new?chatImportId=cim-pp'))
+    expect(
+      await screen.findByDisplayValue('Kartoffel-Lauch-Auflauf'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByDisplayValue('Cremig und vegan.'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/Portionen/i)).toHaveValue(4)
+    // chat:// sentinel is stripped — the source URL field is empty.
+    expect(screen.getByLabelText(/Quelle \(URL\)/i)).toHaveValue('')
+
+    window.sessionStorage.clear()
+  })
+
+  it('renders the chat-specific provenance banner copy ("aus dem Chat")', async () => {
+    const { stashChatImport } = await import(
+      '@/features/chat/chatImportMemo'
+    )
+    stashChatImport('cim-banner', {
+      groupId: 'g1',
+      result: {
+        recipe: {
+          title: 'T',
+          description: null,
+          servings: 4,
+          difficulty: 1,
+          prep_minutes: 10,
+          cook_minutes: 10,
+          ingredients: [
+            {
+              name: 'X',
+              quantity: '1',
+              unit: 'g',
+              note: null,
+              confidence: 'high',
+            },
+          ],
+          steps: [{ position: 1, content: 'Mix.', confidence: 'high' }],
+          tags: [],
+          source_url: 'chat://session/banner',
+          thumbnail_url: null,
+        },
+        confidence: { overall: 'medium', notes: [] },
+      },
+    })
+    render(withProviders('/groups/g1/recipes/new?chatImportId=cim-banner'))
+    const banner = await screen.findByRole('region', {
+      name: /ki-import-hinweis/i,
+    })
+    expect(banner).toHaveTextContent(/aus dem Chat/i)
+    expect(banner).not.toHaveTextContent(/chat:\/\//)
+    window.sessionStorage.clear()
+  })
+
+  it('forgets the sessionStorage stash after a successful save', async () => {
+    const user = userEvent.setup()
+    const { stashChatImport, recallChatImport } = await import(
+      '@/features/chat/chatImportMemo'
+    )
+    stashChatImport('cim-save', {
+      groupId: 'g1',
+      result: {
+        recipe: {
+          title: 'Chat-Saved',
+          description: null,
+          servings: 4,
+          difficulty: 1,
+          prep_minutes: 5,
+          cook_minutes: 5,
+          ingredients: [
+            {
+              name: 'Salz',
+              quantity: '1',
+              unit: 'Prise',
+              note: null,
+              confidence: 'high',
+            },
+          ],
+          steps: [{ position: 1, content: 'Würzen.', confidence: 'high' }],
+          tags: [],
+          source_url: 'chat://x',
+          thumbnail_url: null,
+        },
+        confidence: { overall: 'medium', notes: [] },
+      },
+    })
+    server.use(
+      http.post('/api/groups/g1/recipes', () =>
+        HttpResponse.json(
+          { id: 'r-chat', title: 'Chat-Saved' },
+          { status: 201 },
+        ),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/new?chatImportId=cim-save'))
+    await screen.findByDisplayValue('Chat-Saved')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    // After the save resolves the stash is gone.
+    await waitFor(() => expect(recallChatImport('cim-save')).toBeNull())
+  })
+
+  it('forgets the sessionStorage stash when the user cancels via the top-nav X', async () => {
+    const user = userEvent.setup()
+    const { stashChatImport, recallChatImport } = await import(
+      '@/features/chat/chatImportMemo'
+    )
+    stashChatImport('cim-cancel', {
+      groupId: 'g1',
+      result: {
+        recipe: {
+          title: 'To-Discard',
+          description: null,
+          servings: 4,
+          difficulty: 1,
+          prep_minutes: 5,
+          cook_minutes: 5,
+          ingredients: [
+            {
+              name: 'Zwiebel',
+              quantity: '1',
+              unit: 'Stück',
+              note: null,
+              confidence: 'high',
+            },
+          ],
+          steps: [{ position: 1, content: 'Schneiden.', confidence: 'high' }],
+          tags: [],
+          source_url: 'chat://y',
+          thumbnail_url: null,
+        },
+        confidence: { overall: 'medium', notes: [] },
+      },
+    })
+    render(withProviders('/groups/g1/recipes/new?chatImportId=cim-cancel'))
+    await screen.findByDisplayValue('To-Discard')
+    // Multiple "Abbrechen" affordances exist (top-nav X + action bar);
+    // pick the first — both call the same cancel() handler.
+    await user.click(screen.getAllByRole('button', { name: /Abbrechen/i })[0])
+    expect(recallChatImport('cim-cancel')).toBeNull()
+  })
+
+  it('falls through to a blank create form when the chatImportId stash is missing (expired/new tab)', async () => {
+    window.sessionStorage.clear()
+    render(withProviders('/groups/g1/recipes/new?chatImportId=cim-missing'))
+    // No prefill → no AI banner.
+    expect(
+      screen.queryByRole('region', { name: /ki-import-hinweis/i }),
+    ).not.toBeInTheDocument()
+    // Title input empty.
+    expect(screen.getByLabelText(/Titel/i)).toHaveValue('')
+  })
 })
