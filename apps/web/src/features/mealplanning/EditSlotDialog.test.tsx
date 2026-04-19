@@ -233,4 +233,116 @@ describe('<EditSlotDialog />', () => {
       /Rezept oder gib einen Titel/i,
     )
   })
+
+  it('sends `parentSlotId: <uuid>` when the user picks a parent', async () => {
+    const parent = makeSlot({
+      id: 'parent-slot-id',
+      label: 'Gulasch',
+      date: '2026-04-20', // Mo
+      meal: 'Mittag',
+      servings: 4,
+    })
+    const child = makeSlot({ id: SLOT_ID, label: 'Rest', parentSlotId: null })
+    let capturedBody: unknown = null
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
+      ),
+      http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, async ({ request }) => {
+        capturedBody = await request.json()
+        return HttpResponse.json({ ...child, parentSlotId: 'parent-slot-id' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(
+      withProviders(
+        <EditSlotDialog
+          groupId="g1"
+          weekStart="2026-04-20"
+          planId={PLAN_ID}
+          slot={child}
+          existingSlots={[child, parent]}
+          onClose={() => {}}
+        />,
+      ),
+    )
+
+    const parentSelect = screen.getByLabelText(/Ist Rest von/i)
+    await user.selectOptions(parentSelect, 'parent-slot-id')
+    await user.click(screen.getByRole('button', { name: /Speichern/i }))
+
+    await waitFor(() => expect(capturedBody).not.toBeNull())
+    expect(capturedBody).toEqual({ parentSlotId: 'parent-slot-id' })
+  })
+
+  it('sends `parentSlotId: null` when the user clears the parent', async () => {
+    const parent = makeSlot({
+      id: 'parent-slot-id',
+      label: 'Gulasch',
+      date: '2026-04-20',
+      meal: 'Mittag',
+      servings: 4,
+    })
+    const child = makeSlot({
+      id: SLOT_ID,
+      label: 'Rest',
+      parentSlotId: 'parent-slot-id',
+    })
+    let capturedBody: unknown = null
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
+      ),
+      http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, async ({ request }) => {
+        capturedBody = await request.json()
+        return HttpResponse.json({ ...child, parentSlotId: null })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(
+      withProviders(
+        <EditSlotDialog
+          groupId="g1"
+          weekStart="2026-04-20"
+          planId={PLAN_ID}
+          slot={child}
+          existingSlots={[child, parent]}
+          onClose={() => {}}
+        />,
+      ),
+    )
+
+    const parentSelect = screen.getByLabelText(/Ist Rest von/i)
+    // Reset the dropdown to "— kein Parent —" (empty-string value).
+    await user.selectOptions(parentSelect, '')
+    await user.click(screen.getByRole('button', { name: /Speichern/i }))
+
+    await waitFor(() => expect(capturedBody).not.toBeNull())
+    expect(capturedBody).toEqual({ parentSlotId: null })
+  })
+
+  it('hides the parent dropdown when there are no eligible candidates', () => {
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
+      ),
+    )
+    const soleSlot = makeSlot({ id: SLOT_ID })
+    render(
+      withProviders(
+        <EditSlotDialog
+          groupId="g1"
+          weekStart="2026-04-20"
+          planId={PLAN_ID}
+          slot={soleSlot}
+          existingSlots={[soleSlot]}
+          onClose={() => {}}
+        />,
+      ),
+    )
+    // The editing slot is its only candidate → excluded → dropdown hidden.
+    expect(screen.queryByLabelText(/Ist Rest von/i)).not.toBeInTheDocument()
+  })
 })

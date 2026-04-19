@@ -217,4 +217,86 @@ describe('<AddSlotDialog />', () => {
     await user.click(screen.getByRole('button', { name: /Abbrechen/i }))
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('hides the "Ist Rest von" dropdown when there are no candidate parents', () => {
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
+      ),
+    )
+    renderDialog()
+    expect(screen.queryByLabelText(/Ist Rest von/i)).not.toBeInTheDocument()
+  })
+
+  it('renders parent candidates when `existingSlots` is non-empty and POSTs parentSlotId when picked', async () => {
+    const parentSlot: MealPlanSlotDto = {
+      id: 'parent-slot-id',
+      mealPlanId: PLAN_ID,
+      recipeId: null,
+      label: 'Gulasch',
+      date: '2026-04-20',
+      meal: 'Mittag',
+      servings: 4,
+      sortOrder: 0,
+      isCooked: false,
+      parentSlotId: null,
+      createdAt: '2026-04-20T10:00:00Z',
+      updatedAt: '2026-04-20T10:00:00Z',
+    }
+    let captured: AddSlotRequest | null = null
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
+      ),
+      http.post(`/api/mealplans/${PLAN_ID}/slots`, async ({ request }) => {
+        captured = (await request.json()) as AddSlotRequest
+        return HttpResponse.json(
+          {
+            id: 'slot-new',
+            mealPlanId: PLAN_ID,
+            recipeId: null,
+            label: captured.label ?? null,
+            date: captured.date,
+            meal: captured.meal,
+            servings: captured.servings,
+            sortOrder: 0,
+            isCooked: false,
+            parentSlotId: captured.parentSlotId ?? null,
+            createdAt: '2026-04-21T00:00:00Z',
+            updatedAt: '2026-04-21T00:00:00Z',
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(
+      withProviders(
+        <AddSlotDialog
+          groupId="g1"
+          weekStart="2026-04-20"
+          planId={PLAN_ID}
+          initialDate="2026-04-21"
+          initialMeal="Abend"
+          existingSlots={[parentSlot]}
+          onClose={() => {}}
+        />,
+      ),
+    )
+
+    const parentSelect = screen.getByLabelText(/Ist Rest von/i)
+    expect(parentSelect).toBeInTheDocument()
+    // Candidate option carries the formatted "Wd Meal: Title (N Portionen)" label.
+    expect(
+      screen.getByRole('option', { name: /Mo Mittag: Gulasch \(4 Portionen\)/i }),
+    ).toBeInTheDocument()
+
+    await user.selectOptions(parentSelect, 'parent-slot-id')
+    await user.type(screen.getByLabelText(/Freier Titel/i), 'Rest')
+    await user.click(screen.getByRole('button', { name: /Hinzufügen/i }))
+
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured?.parentSlotId).toBe('parent-slot-id')
+  })
 })

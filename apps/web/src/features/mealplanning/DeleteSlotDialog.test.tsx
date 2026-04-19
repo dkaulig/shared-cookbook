@@ -125,4 +125,40 @@ describe('<DeleteSlotDialog />', () => {
       /Slot wurde nicht gefunden/,
     )
   })
+
+  it('does not render the parent-deletion warning when childCount is 0', () => {
+    render(
+      withProviders(
+        <DeleteSlotDialog
+          groupId="g1"
+          weekStart="2026-04-20"
+          planId={PLAN_ID}
+          slot={makeSlot()}
+          childCount={0}
+          onClose={() => {}}
+        />,
+      ),
+    )
+    expect(
+      screen.queryByTestId('delete-slot-parent-warning'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the parent-deletion warning with the child count when > 0', () => {
+    render(
+      withProviders(
+        <DeleteSlotDialog
+          groupId="g1"
+          weekStart="2026-04-20"
+          planId={PLAN_ID}
+          slot={makeSlot()}
+          childCount={3}
+          onClose={() => {}}
+        />,
+      ),
+    )
+    const warning = screen.getByTestId('delete-slot-parent-warning')
+    expect(warning).toHaveTextContent(/Meal-Prep-Parent für 3 weitere Slots/i)
+    expect(warning).toHaveTextContent(/nicht automatisch gelöscht/i)
+  })
 })

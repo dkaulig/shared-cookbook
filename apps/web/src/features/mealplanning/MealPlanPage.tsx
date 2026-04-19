@@ -19,6 +19,10 @@ import { SortableMealRow } from './SortableMealRow'
 import { SORT_ORDER_STEP } from './constants'
 import { patchSlot as patchSlotApi } from './mealPlanApi'
 import {
+  buildParentLabel,
+  childrenOf,
+} from './parentSlotHelpers'
+import {
   mealPlanQueryKeys,
   useCreateMealPlan,
   useMealPlan,
@@ -100,6 +104,30 @@ export function MealPlanPage() {
     () => (planSlots && weekStart ? slotsByDayMeal(planSlots, weekStart) : null),
     [planSlots, weekStart],
   )
+
+  // Look-up from slot.id → the parent slot it references. Used to
+  // hand SortableMealRow a short-label resolver for the P3-4 "Rest
+  // von X" badge. Recomputes only when the plan's slot list changes.
+  const slotById = useMemo(() => {
+    if (!planSlots) return new Map<string, MealPlanSlotDto>()
+    return new Map(planSlots.map((s) => [s.id, s]))
+  }, [planSlots])
+  const getParentLabel = useCallback(
+    (slot: MealPlanSlotDto): string | null => {
+      if (!slot.parentSlotId) return null
+      const parent = slotById.get(slot.parentSlotId)
+      if (!parent) return null
+      return buildParentLabel(parent, { short: true })
+    },
+    [slotById],
+  )
+
+  // Direct-child count for the slot the user is about to delete — feeds
+  // the DeleteSlotDialog's parent-deletion warning copy.
+  const deleteChildCount = useMemo(() => {
+    if (!deleteSlotState || !planSlots) return 0
+    return childrenOf(deleteSlotState.id, planSlots).length
+  }, [deleteSlotState, planSlots])
 
   // Reorder handler — receives the final ordered slot IDs for one
   // (date, meal) bucket and ships one PATCH per slot whose position
@@ -334,6 +362,7 @@ export function MealPlanPage() {
                   onDelete={setDeleteSlotState}
                   onReorder={handleReorder}
                   onToggleCooked={handleToggleCooked}
+                  getParentLabel={getParentLabel}
                 />
               )
             })}
@@ -348,6 +377,7 @@ export function MealPlanPage() {
           planId={plan.id}
           initialDate={openCell.date}
           initialMeal={openCell.meal}
+          existingSlots={plan.slots}
           onClose={() => setOpenCell(null)}
         />
       )}
@@ -358,6 +388,7 @@ export function MealPlanPage() {
           weekStart={weekStart}
           planId={plan.id}
           slot={editSlot}
+          existingSlots={plan.slots}
           onClose={() => setEditSlot(null)}
         />
       )}
@@ -368,6 +399,7 @@ export function MealPlanPage() {
           weekStart={weekStart}
           planId={plan.id}
           slot={deleteSlotState}
+          childCount={deleteChildCount}
           onClose={() => setDeleteSlotState(null)}
         />
       )}
@@ -384,6 +416,7 @@ function DayColumn({
   onDelete,
   onReorder,
   onToggleCooked,
+  getParentLabel,
 }: {
   date: string
   weekdayLabel: string
@@ -393,6 +426,7 @@ function DayColumn({
   onDelete: (slot: MealPlanSlotDto) => void
   onReorder: (orderedIds: readonly string[]) => void
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
+  getParentLabel: (slot: MealPlanSlotDto) => string | null
 }) {
   return (
     <section
@@ -419,6 +453,7 @@ function DayColumn({
             onDelete={onDelete}
             onReorder={onReorder}
             onToggleCooked={onToggleCooked}
+            getParentLabel={getParentLabel}
           />
         ))}
       </div>
@@ -435,6 +470,7 @@ function MealCell({
   onDelete,
   onReorder,
   onToggleCooked,
+  getParentLabel,
 }: {
   date: string
   meal: MealSlot
@@ -444,6 +480,7 @@ function MealCell({
   onDelete: (slot: MealPlanSlotDto) => void
   onReorder: (orderedIds: readonly string[]) => void
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
+  getParentLabel: (slot: MealPlanSlotDto) => string | null
 }) {
   return (
     <div>
@@ -475,6 +512,7 @@ function MealCell({
           onDelete={onDelete}
           onReorder={onReorder}
           onToggleCooked={onToggleCooked}
+          getParentLabel={getParentLabel}
         />
       )}
     </div>

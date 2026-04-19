@@ -169,4 +169,41 @@ describe('<SortableMealRow />', () => {
     // and break the "drop between" optimisation P3-10 will rely on.
     expect(SORT_ORDER_STEP).toBe(10)
   })
+
+  it('renders the "Rest von …" badge when getParentLabel returns a label', () => {
+    const slot = makeSlot('s1', {
+      label: 'Rest vom Sonntag',
+      parentSlotId: 'parent-slot',
+    })
+    render(
+      <SortableMealRow
+        slots={[slot]}
+        onReorder={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onToggleCooked={noop}
+        getParentLabel={(s) =>
+          s.parentSlotId === 'parent-slot' ? 'So Mittag' : null
+        }
+      />,
+    )
+    const badge = screen.getByTestId('mealplan-slot-parent-badge-s1')
+    expect(badge).toHaveTextContent(/Rest von So Mittag/i)
+  })
+
+  it('omits the parent badge when the slot has no parent reference', () => {
+    render(
+      <SortableMealRow
+        slots={[makeSlot('s1', { parentSlotId: null })]}
+        onReorder={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onToggleCooked={noop}
+        getParentLabel={() => null}
+      />,
+    )
+    expect(
+      screen.queryByTestId('mealplan-slot-parent-badge-s1'),
+    ).not.toBeInTheDocument()
+  })
 })
