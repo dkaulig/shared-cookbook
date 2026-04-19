@@ -68,6 +68,12 @@ services:
       EXTRACTOR_SHARED_SECRET: "${EXTRACTOR_SHARED_SECRET:-dev-only-shared-secret}"
       # Base URL of the internal Python service (docker hostname).
       PythonExtractor__BaseUrl: "${PYTHON_EXTRACTOR_BASE_URL:-http://python-extractor:8000}"
+      # PV2 hotfix — URL that Python should POST progress callbacks
+      # back to. This is *how Python sees the api container*, i.e. the
+      # docker-internal hostname. The .NET runner reads this env var
+      # and bakes it into the callback_url it hands to Python on every
+      # /extract/url and /extract/photos dispatch.
+      API_INTERNAL_BASE_URL: "${API_INTERNAL_BASE_URL:-http://api:5000}"
       # ── Orchestrator bot (OPS1) ─────────────────────────────────
       ORCHESTRATOR_PASSWORD: ${ORCHESTRATOR_PASSWORD:-}
       ORCHESTRATOR_PASSWORD_ROTATE: ${ORCHESTRATOR_PASSWORD_ROTATE:-}
