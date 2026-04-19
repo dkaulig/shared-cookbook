@@ -84,3 +84,9 @@ export type {
   StagedPhotoResponse,
   StepConfidenceLevel,
 } from './imports.ts'
+export type {
+  ChatMessage,
+  ChatRole,
+  ChatTurnRequest,
+  ChatTurnResponse,
+} from './chat.ts'
