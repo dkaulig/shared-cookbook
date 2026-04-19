@@ -202,7 +202,11 @@ Kern-Feature, sehr verwirrend nach Deploy)
 
 ## BUG-008 · Bottom-Bar "Neu"-Button öffnet nur Gruppen-Ansicht statt Create-Picker
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `BottomNav` "+ Neu"-FAB öffnet jetzt
+`<CreateActionSheet>` mit 5 Aktionen: Rezept manuell, URL-Import,
+Foto-Import, Chat, neue Gruppe. 0 Gruppen → nur "Neue Gruppe", 1 Gruppe
+→ Direkt-Link zu `/groups/{id}/recipes/new`, mehrere → Routing über
+`/groups`. Regression-Tests in `BottomNav.test.tsx`)
 **Where:** Bottom-Navigation-Bar "Neu"-Button
 **Symptom:** Tap auf "Neu" navigiert einfach zur Gruppen-Ansicht. User
 erwartet stattdessen ein Action-Sheet / Dialog / Overlay mit Auswahl
@@ -441,7 +445,11 @@ zuende.
 
 ## BUG-014 · Bottom-Nav schiebt sich beim Scrollen unter die Browser-Bottom-Bar
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `BottomNav` jetzt mit
+`bottom-[env(safe-area-inset-bottom,0px)]` *und* `pb-[env(safe-area-
+inset-bottom,0px)]` — Anker UND Padding respektieren beide die iOS/
+Android Safe-Area. `viewport-fit=cover` war bereits in `index.html`.
+Regression-Test asserted beide Tailwind-Klassen am Nav-Element)
 **Where:** Mobile PWA (iOS Safari + Chrome Android), alle Seiten mit
 `BottomNav` (bottom navigation bar).
 **Symptom:** Beim Hochscrollen schiebt sich unsere App-Bottom-Nav
