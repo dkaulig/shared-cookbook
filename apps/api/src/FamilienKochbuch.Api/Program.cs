@@ -342,6 +342,30 @@ builder.Services.AddRateLimiter(options =>
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             });
     });
+
+    // P3-8 security — SignalR hub negotiate/connect endpoints.
+    // Partitioned per-IP: the hub is [Authorize]d but the negotiate POST
+    // still burns CPU on JWT validation before auth rejects, so an
+    // anonymous flood would pin a core. 30/min is generous enough for
+    // reconnect-storms after a network blip but shuts down trivial
+    // DoS from a single source. Fixed window — bursts are expected and
+    // we don't want the sliding smoothing to deny legitimate reconnects.
+    options.AddPolicy(RateLimitPolicies.Hub, httpContext =>
+    {
+        if (ShouldBypassForTests(httpContext))
+            return RateLimitPartition.GetNoLimiter<string>("test-disabled");
+
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ip,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
+    });
 });
 
 var app = builder.Build();
@@ -393,7 +417,7 @@ app.MapShoppingListEndpoints();
 // (the hub itself is [Authorize]d); tokens can arrive via the standard
 // Authorization header or — for the WebSocket upgrade only — via the
 // access_token query parameter (see JwtBearerEvents.OnMessageReceived).
-app.MapHub<LiveSyncHub>("/api/hubs/live");
+app.MapHub<LiveSyncHub>("/api/hubs/live").RequireRateLimiting(RateLimitPolicies.Hub);
 
 // ── P2-5: Hangfire dashboard (admin-only, skipped in Testing env) ─
 if (!app.Environment.IsEnvironment("Testing"))
@@ -456,6 +480,7 @@ internal static class RateLimitPolicies
 {
     public const string Login = "login";
     public const string Generate = "generate";
+    public const string Hub = "hub";
 }
 
 /// <summary>Strongly-typed options for non-auth app config.</summary>

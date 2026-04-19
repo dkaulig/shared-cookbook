@@ -87,7 +87,15 @@ public class LiveSyncHubTests
                 // + long-polling — the WebSocket upgrade isn't wired
                 // inside the default TestServer plumbing, so we force
                 // LongPolling which just rides HTTP.
-                opts.HttpMessageHandlerFactory = _ => server.CreateHandler();
+                // Also inject the per-test rate-limit-bypass header so
+                // the Hub rate limiter (30/min per IP) doesn't collapse
+                // every test in this class into a single partition and
+                // start returning 429 mid-suite. Tests that exercise
+                // the Hub limiter explicitly (see
+                // LiveSyncHubRateLimitTests) use a raw HttpClient
+                // without this header.
+                opts.HttpMessageHandlerFactory = inner =>
+                    new BypassRateLimitHandler(server.CreateHandler());
                 opts.AccessTokenProvider = () => Task.FromResult<string?>(token);
                 opts.Transports =
                     Microsoft.AspNetCore.Http.Connections.HttpTransportType.LongPolling;
@@ -95,16 +103,45 @@ public class LiveSyncHubTests
             .Build();
     }
 
+    /// <summary>
+    /// DelegatingHandler that tacks the per-test rate-limit-bypass
+    /// header onto every request the SignalR client issues (negotiate
+    /// + long-poll cycles). Kept inside the test file so the shared
+    /// factory plumbing isn't touched.
+    /// </summary>
+    private sealed class BypassRateLimitHandler : DelegatingHandler
+    {
+        public BypassRateLimitHandler(HttpMessageHandler inner) : base(inner) { }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (!request.Headers.Contains("X-Test-Disable-RateLimit"))
+                request.Headers.Add("X-Test-Disable-RateLimit", "true");
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+
     // ── Tests ────────────────────────────────────────────────────────
 
     [Fact]
     public async Task Connect_Without_Token_Is_Rejected()
     {
-        await using var connection = BuildConnection(token: null);
+        // Direct HTTP assertion on the negotiate endpoint — bypasses
+        // the SignalR client so we can pin the exact status code
+        // (401) rather than accepting "any exception". The [Authorize]
+        // attribute + JwtBearer challenge must reject anonymous
+        // negotiate POSTs at the auth middleware.
+        using var rawClient = _factory.CreateRateLimitBypassingClient();
+        var negotiate = await rawClient.PostAsync("/api/hubs/live/negotiate?negotiateVersion=1", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, negotiate.StatusCode);
 
-        // Anonymous connect should never succeed — covered by the
-        // [Authorize] attribute + JwtBearer challenge. Expecting a
-        // throw covers the anti-shortcut anti-leak reminder.
+        // SignalR client-level cross-check — the negotiate 401 must
+        // surface as a failed StartAsync. ThrowsAnyAsync keeps this
+        // resilient to SignalR wrapping the exception in different
+        // shapes across versions, but the HTTP assertion above is the
+        // tight one.
+        await using var connection = BuildConnection(token: null);
         var caught = await Assert.ThrowsAnyAsync<Exception>(() =>
             connection.StartAsync());
         Assert.NotNull(caught);
@@ -113,8 +150,14 @@ public class LiveSyncHubTests
     [Fact]
     public async Task Connect_With_Invalid_Token_Is_Rejected()
     {
-        await using var connection = BuildConnection(token: "definitely.not.a.jwt");
+        using var rawClient = _factory.CreateRateLimitBypassingClient();
+        using var req = new HttpRequestMessage(
+            HttpMethod.Post, "/api/hubs/live/negotiate?negotiateVersion=1");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "definitely.not.a.jwt");
+        var negotiate = await rawClient.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Unauthorized, negotiate.StatusCode);
 
+        await using var connection = BuildConnection(token: "definitely.not.a.jwt");
         var caught = await Assert.ThrowsAnyAsync<Exception>(() =>
             connection.StartAsync());
         Assert.NotNull(caught);

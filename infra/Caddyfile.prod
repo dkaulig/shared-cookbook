@@ -6,6 +6,19 @@
 {$CADDY_DOMAIN} {
     encode zstd gzip
 
+    # P3-8 security — SignalR negotiate/WebSocket upgrades carry the
+    # JWT in the ?access_token=... query string (browsers can't set
+    # Authorization headers on WS upgrades). Caddy's default access log
+    # includes full query strings, so that token would land in plain
+    # text on every reconnect. Suppress per-request logs for the hub
+    # path entirely — the hub's low-signal churn isn't useful in
+    # access logs anyway, and errors still surface via stderr.
+    log {
+        output stderr
+        format console
+    }
+    log_skip /api/hubs/live*
+
     handle /api/* {
         reverse_proxy api:5000
     }

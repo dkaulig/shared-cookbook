@@ -73,12 +73,17 @@ public class LiveSyncHub : Hub
     }
 
     /// <summary>
-    /// Client-invokable ping used by tests and the frontend to confirm
-    /// the hub connection is live (and, incidentally, that
-    /// <see cref="OnConnectedAsync"/> has completed its group joins —
+    /// Internal helper — kept for test sync, see
+    /// <c>LiveSyncHubTests.Connect_With_Valid_Token_Succeeds_And_Joins_Member_Groups</c>
+    /// and <c>User_Only_Receives_Events_For_Groups_They_Belong_To</c>.
     /// SignalR serialises client invocations behind the hub lifecycle,
-    /// so a <c>Ping</c> reply guarantees the user is in every group
-    /// they belong to). Pure no-op server-side.
+    /// so awaiting a <c>Ping</c> reply guarantees
+    /// <see cref="OnConnectedAsync"/> (and the group joins it performs)
+    /// has completed before the test publishes the event under test —
+    /// without this there's a race where the publisher fan-out fires
+    /// before the connection is actually in <c>group:{groupId}</c>.
+    /// Pure no-op server-side; safe to expose on the production hub
+    /// surface.
     /// </summary>
     public Task<string> Ping() => Task.FromResult("pong");
 

@@ -178,3 +178,35 @@ Fehler deuten:
    jede Startup den Rotate-Pfad)
 5. Lokal in `~/.config/familien-kochbuch/.env.prod.tmp` (falls noch
    vorhanden) den neuen Wert eintragen oder neu scpen
+
+---
+
+## 7. SignalR / Live-Sync Hub
+
+Der `/api/hubs/live` Hub pusht Meal-Plan- und Einkaufslisten-Änderungen
+in Echtzeit an alle Gruppen-Mitglieder (P3-8). Auth läuft über JWT —
+der Browser kann beim WebSocket-Upgrade keinen `Authorization`-Header
+setzen, daher reicht der Client das Token als `?access_token=...`
+Query-Param nach. Drei Ops-Konsequenzen:
+
+1. **Caddy-Access-Logs maskieren den Hub-Pfad** — `log_skip /api/hubs/live*`
+   in `infra/Caddyfile.prod` unterdrückt die per-Request-Logs für den
+   Hub, damit der JWT nicht auf Platte landet. Fehler gehen weiterhin
+   über stderr an Docker-Logs. Wenn der Hub-Traffic später mal
+   analysiert werden soll, stattdessen auf eine `query_string`-Transform
+   umstellen, die den `access_token`-Wert durch `REDACTED` ersetzt —
+   NICHT einfach `log_skip` entfernen.
+
+2. **Token-Expiry mitten in einer Verbindung** — bekannte SignalR-
+   Limitation: ein JWT, das zur Verbindungszeit gültig war, wird nicht
+   revalidiert solange die Verbindung steht. Mitigation: JWT-TTL auf
+   15 min lassen (aktueller `Jwt:AccessTokenLifetimeMinutes`); beim
+   nächsten Reconnect wird das abgelaufene Token abgewiesen und der
+   Frontend-Retry (`reconnectBackoff.ts`) stoppt bei `401` nach
+   3 Versuchen — der Nutzer muss sich dann neu einloggen. Code-Pfad
+   unter `apps/web/src/features/live/`.
+
+3. **Rate-Limit** — `POST /api/hubs/live/negotiate` ist per-IP auf
+   30/min gekappt (`RateLimitPolicies.Hub` in `Program.cs`) — schützt
+   den JWT-Validierungs-Pfad vor Anonymous-Floods, ist aber großzügig
+   genug für Reconnect-Bursts nach einem Netzwerk-Blip.
