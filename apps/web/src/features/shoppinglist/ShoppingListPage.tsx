@@ -502,27 +502,36 @@ function ItemRow({
         aria-checked={item.isChecked}
         aria-label={`${item.name} ${item.isChecked ? 'abhaken rückgängig' : 'abhaken'}`}
         onClick={() => onToggle(item)}
-        className={cn(
-          'grid h-5 w-5 shrink-0 place-items-center rounded border transition-colors',
-          item.isChecked
-            ? 'border-primary bg-primary text-primary-foreground'
-            : 'border-input bg-background hover:border-primary/60',
-        )}
+        // P3-10: 44×44 px tap target around a 20×20 px visual checkbox.
+        // The outer button is the hit-area; the inner `<span>` carries
+        // the styled-box look so finger users don't have to aim at a
+        // 20-px square.
+        className="grid min-h-[44px] min-w-[44px] shrink-0 place-items-center rounded transition-colors"
       >
-        {item.isChecked && (
-          <svg
-            viewBox="0 0 24 24"
-            className="h-3.5 w-3.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        )}
+        <span
+          aria-hidden="true"
+          className={cn(
+            'grid h-5 w-5 place-items-center rounded border transition-colors',
+            item.isChecked
+              ? 'border-primary bg-primary text-primary-foreground'
+              : 'border-input bg-background hover:border-primary/60',
+          )}
+        >
+          {item.isChecked && (
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          )}
+        </span>
       </button>
 
       <div className="min-w-0 flex-1">
@@ -560,7 +569,8 @@ function ItemRow({
         type="button"
         onClick={() => onDelete(item)}
         aria-label={`${item.name} entfernen`}
-        className="grid h-8 w-8 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-700"
+        // P3-10: ≥44×44 mobile tap target.
+        className="grid min-h-[44px] min-w-[44px] shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-700"
       >
         <Trash2 className="h-4 w-4" aria-hidden="true" />
       </button>

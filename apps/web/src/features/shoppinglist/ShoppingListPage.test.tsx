@@ -434,4 +434,37 @@ describe('<ShoppingListPage />', () => {
       await screen.findByText(/Noch keine Einträge/i),
     ).toBeInTheDocument()
   })
+
+  // ── P3-10 mobile polish ────────────────────────────────────────
+
+  it('renders the per-row delete button with a ≥44-px tap target', async () => {
+    server.use(
+      respondWithPlan(),
+      respondWithList([
+        makeItem({ id: '1', name: 'Milch', category: 'Molkerei' }),
+      ]),
+    )
+    render(withProviders())
+
+    const deleteButton = await screen.findByLabelText('Milch entfernen')
+    // WCAG 2.1 §2.5.5 / Apple HIG: minimum 44×44 CSS-pixel tap target.
+    // Asserting the Tailwind utility classes keeps the contract visible
+    // — a layout refactor that drops them will fail this test.
+    expect(deleteButton.className).toMatch(/min-h-\[44px\]/)
+    expect(deleteButton.className).toMatch(/min-w-\[44px\]/)
+  })
+
+  it('renders the check-off control with a ≥44-px tap target', async () => {
+    server.use(
+      respondWithPlan(),
+      respondWithList([
+        makeItem({ id: '1', name: 'Milch', category: 'Molkerei' }),
+      ]),
+    )
+    render(withProviders())
+
+    const checkbox = await screen.findByRole('checkbox', { name: /Milch/i })
+    expect(checkbox.className).toMatch(/min-h-\[44px\]/)
+    expect(checkbox.className).toMatch(/min-w-\[44px\]/)
+  })
 })

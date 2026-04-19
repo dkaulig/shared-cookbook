@@ -21,6 +21,28 @@ import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
 import { cn } from '@/lib/utils'
 
 /**
+ * @dnd-kit `PointerSensor` activation constraint for the Wochenplan grid.
+ *
+ * - `distance: 5` — the pointer has to travel 5 px before drag starts.
+ *   On mobile, fingers wobble during a tap; without a movement
+ *   threshold, every list-tap turns into an accidental drag.
+ * - `delay: 200` — adds a 200 ms hold-window so a quick tap on a card
+ *   keeps reaching its onClick handler (edit dialog) instead of being
+ *   intercepted by the sortable layer.
+ * - `tolerance: 5` — pointer is allowed to drift 5 px during the delay
+ *   window without cancelling the activation; matches `distance` so
+ *   the user-feel is symmetric on touch + mouse.
+ *
+ * Exported so tests + future feature code can reference the same constant
+ * — see `SortableMealRow.test.tsx` for the lock-in assertion.
+ */
+export const MEALPLAN_POINTER_ACTIVATION = {
+  distance: 5,
+  delay: 200,
+  tolerance: 5,
+} as const
+
+/**
  * Drag-reorder wrapper for all slots within a single (date, meal)
  * cell. Keeps the @dnd-kit wiring in one place so `MealPlanPage`
  * can stay focused on data fetching + top-level layout.
@@ -68,11 +90,11 @@ export function SortableMealRow({
    */
   getParentLabel?: (slot: MealPlanSlotDto) => string | null
 }) {
-  // Mirror the RecipeFormPage sensor config so drag feels consistent
-  // across the app + keyboard reorder (Space → ArrowUp/Down) keeps
-  // working for non-mouse users.
+  // PointerSensor activation tuned for mobile (see MEALPLAN_POINTER_ACTIVATION
+  // for rationale). The KeyboardSensor keeps reorder accessible for
+  // non-mouse users (Space → ArrowUp/Down).
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: MEALPLAN_POINTER_ACTIVATION }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
@@ -272,7 +294,10 @@ function SortableSlotCard({
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             data-testid={`mealplan-slot-menu-${slot.id}`}
-            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+            // ≥44×44 hit target per WCAG 2.5.5 / Apple HIG — visual
+            // chrome stays compact via the `h-7 w-7` icon size while the
+            // tap surface uses `min-h-[44px] min-w-[44px]` for finger UX.
+            className="grid h-7 w-7 min-h-[44px] min-w-[44px] place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
           >
             <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
           </button>

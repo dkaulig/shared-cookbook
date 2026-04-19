@@ -726,6 +726,87 @@ describe('<MealPlanPage />', () => {
     await waitFor(() => expect(getCount).toBeGreaterThanOrEqual(2))
   })
 
+  // ── P3-10 mobile polish ──────────────────────────────────────────
+
+  it('renders the desktop grid (and not the mobile stack) at desktop widths', async () => {
+    // jsdom's default `matchMedia` reports `matches: false`, which the
+    // `useIsMobile` hook treats as "desktop". This test locks that
+    // expectation: the desktop grid renders and the mobile-only stack
+    // does not, so the existing data-testid assertions across the
+    // suite stay unique.
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [],
+        }),
+      ),
+    )
+
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    expect(
+      await screen.findByTestId('mealplan-desktop-grid'),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('mealplan-mobile-stack')).not.toBeInTheDocument()
+  })
+
+  it('renders the mobile day-stack (and not the desktop grid) when matchMedia reports mobile', async () => {
+    // Mock `matchMedia` to flip `useIsMobile` → true. We restore it in
+    // the test cleanup so subsequent tests still see the desktop layout.
+    const originalMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (_query: string) => ({
+        matches: true,
+        media: _query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => true,
+      }),
+    })
+
+    try {
+      server.use(
+        http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+          HttpResponse.json<MealPlanDto>({
+            id: PLAN_ID,
+            groupId: GROUP_ID,
+            weekStart: WEEK_START,
+            version: 1,
+            createdAt: '2026-04-20T00:00:00Z',
+            updatedAt: '2026-04-20T00:00:00Z',
+            slots: [],
+          }),
+        ),
+      )
+
+      render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+      expect(
+        await screen.findByTestId('mealplan-mobile-stack'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('mealplan-desktop-grid'),
+      ).not.toBeInTheDocument()
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      })
+    }
+  })
+
   it('opens the AddSlotDialog when an empty cell button is clicked', async () => {
     server.use(
       http.get('/api/groups/g1/mealplans/2026-04-20', () =>
