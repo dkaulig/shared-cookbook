@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Mail, Pencil, UserPlus } from 'lucide-react'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
@@ -81,6 +81,22 @@ export function ProfilStub() {
           </Button>
         </CardContent>
       </Card>
+
+      {user?.role === 'Admin' && (
+        <Card className="mt-5">
+          <CardHeader>
+            <CardTitle>Administration</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Sieh, wieviel die KI-Funktionen bisher gekostet haben.
+            </p>
+            <Button asChild variant="outline">
+              <Link to="/admin/ai-usage">KI-Verbrauch einsehen</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mt-5">
         <CardHeader>

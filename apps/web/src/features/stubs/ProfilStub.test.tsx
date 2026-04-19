@@ -62,6 +62,25 @@ describe('<ProfilStub />', () => {
     expect(screen.queryByText(/kommen in Phase 3/i)).not.toBeInTheDocument()
   })
 
+  it('does not show the admin KI-Verbrauch link for regular users', () => {
+    renderPage()
+    expect(
+      screen.queryByRole('link', { name: /KI-Verbrauch einsehen/i }),
+    ).toBeNull()
+  })
+
+  it('shows the admin KI-Verbrauch link for admins pointing at /admin/ai-usage', () => {
+    useAuthStore.getState().setSession('tok', {
+      id: 'u1',
+      email: 'admin@ex.com',
+      displayName: 'Admin',
+      role: 'Admin',
+    })
+    renderPage()
+    const link = screen.getByRole('link', { name: /KI-Verbrauch einsehen/i })
+    expect(link).toHaveAttribute('href', '/admin/ai-usage')
+  })
+
   it('shows the Abmelden button and clears auth state when clicked', async () => {
     server.use(http.post('/api/auth/logout', () => new HttpResponse(null, { status: 204 })))
     renderPage()
