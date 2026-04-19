@@ -1,73 +1,16 @@
-import type { RecipeImportPhase } from '@familien-kochbuch/shared'
+import type { ImportStatus, RecipeImportDto, RecipeImportPhase } from '@familien-kochbuch/shared'
+import { progressLabel } from './progressLabel'
 
 /**
- * Client-side mirror of the backend phase-weighted progress formula
- * (see `apps/api/src/FamilienKochbuch.Domain/Entities/RecipeImport.cs`
- * + design doc §Phase-Weighted Progress Formula). Used as a sanity
- * check + tooltip calculation only — the authoritative value still
- * comes from the SignalR payload / GET response. If they disagree,
- * trust the server.
- *
- * Weighting:
- *   Queued          → 0– 5%   (5%)
- *   Downloading     → 5–15%   (10%)
- *   Transcribing    → 15–85%  (70%)
- *   Structuring     → 85–95%  (10%)
- *   PostProcessing  → 95–100% (5%)
- *
- * Photo-path:
- *   Queued          → 0–5%
- *   VisionAnalysis  → 5–95%   (90%)
- *   PostProcessing  → 95–100%
- *
- * Terminal states (`done`, `error`) snap to 100 / the last known
- * value — callers of this helper generally branch on status before
- * reaching for a progress number.
+ * Phase helpers shared between `ImportProgressPage`, `PhaseStepper` and
+ * friends. The phase-weighted formula itself lives on the server (see
+ * `apps/api/src/FamilienKochbuch.Domain/Entities/RecipeImport.cs` +
+ * design doc §Phase-Weighted Progress Formula). We deliberately keep
+ * the client free of a parallel implementation — every SignalR payload
+ * and GET response carries the authoritative `progress` field, and
+ * duplicating the table on the frontend would just create a drift risk
+ * without any visible UX win.
  */
-
-interface PhaseWeight {
-  start: number
-  range: number
-}
-
-/**
- * Per-phase weight table. Kept module-private + exposed via
- * {@link computeGlobalProgress} so downstream code doesn't end up with
- * divergent copies of the same numbers — every tweak to the weighting
- * must happen in exactly one place on the frontend, matching the .NET
- * `PhaseWeightedFormula`.
- */
-const PHASE_WEIGHTS: Record<RecipeImportPhase, PhaseWeight> = {
-  queued: { start: 0, range: 5 },
-  downloading: { start: 5, range: 10 },
-  // Transcribing + VisionAnalysis are the longest phases; they share the
-  // "middle" slot depending on pipeline type but both should represent
-  // the bulk of the progress bar so the user sees meaningful motion.
-  transcribing: { start: 15, range: 70 },
-  vision_analysis: { start: 5, range: 90 },
-  structuring: { start: 85, range: 10 },
-  post_processing: { start: 95, range: 5 },
-  done: { start: 100, range: 0 },
-  error: { start: 0, range: 0 },
-}
-
-/**
- * Projects a within-phase percentage (0–100) onto the global progress
- * bar for the given phase. Out-of-range values are clamped; fractional
- * results are rounded to the nearest integer to match the on-wire
- * contract (both .NET and Python serialise integer percentages).
- */
-export function computeGlobalProgress(
-  phase: RecipeImportPhase,
-  phaseProgress: number,
-): number {
-  if (phase === 'done') return 100
-  if (phase === 'error') return 0
-  const weight = PHASE_WEIGHTS[phase]
-  const clampedPhaseProgress = Math.max(0, Math.min(100, phaseProgress))
-  const global = weight.start + (clampedPhaseProgress / 100) * weight.range
-  return Math.round(Math.max(0, Math.min(100, global)))
-}
 
 /**
  * German-locale byte formatter. Returns "3,4 MB" / "540 KB" / "0 KB"
@@ -166,8 +109,14 @@ export function phaseLabel(phase: RecipeImportPhase): string {
  * shows Queued → Downloading/VisionAnalysis → Transcribing/Vision →
  * Structuring → PostProcessing; the photo path folds VisionAnalysis
  * into the "middle" slot so users of either flow see the same bar
- * layout. Terminal states (done/error) stay at the last index so the
- * UI can highlight the final step while status flips.
+ * layout.
+ *
+ * Terminal states map OUTSIDE the in-progress range so the stepper can
+ * distinguish "post-processing is currently running" from "all five
+ * steps are completed":
+ *   - `done`  → 5 (past-final, every step renders as completed)
+ *   - `error` → -1 (outside stepper; UI draws an error marker on the
+ *     last-active phase via a separate `attemptedPhase` lookup)
  */
 export function phaseOrder(phase: RecipeImportPhase): number {
   switch (phase) {
@@ -184,10 +133,13 @@ export function phaseOrder(phase: RecipeImportPhase): number {
       return 3
     case 'post_processing':
       return 4
+    // Past-final — all in-stepper slots (0..4) render as completed.
     case 'done':
-      return 4
+      return 5
+    // Outside the stepper; caller branches on this to render an error
+    // marker rather than positioning a "current" dot on slot 4.
     case 'error':
-      return 4
+      return -1
   }
 }
 
@@ -200,4 +152,44 @@ export function phaseOrder(phase: RecipeImportPhase): number {
 export function stepperPhases(source: 'url' | 'photos'): RecipeImportPhase[] {
   const middle: RecipeImportPhase = source === 'photos' ? 'vision_analysis' : 'transcribing'
   return ['queued', 'downloading', middle, 'structuring', 'post_processing']
+}
+
+/**
+ * Picks the best phase to render the UI with. Prefers the explicit
+ * server-supplied `phase` field (populated by SignalR or, once backend
+ * exposes it, the GET response); falls back to deriving a coarse phase
+ * from `status` so the page stays coherent before the first phase-aware
+ * payload lands.
+ *
+ * Co-located with the other phase helpers so the `ImportProgressPage`
+ * render path has a single import instead of two inline functions.
+ */
+export function derivePhase(data: RecipeImportDto | undefined): RecipeImportPhase {
+  if (!data) return 'queued'
+  if (data.phase) return data.phase
+  if (data.status === 'done') return 'done'
+  if (data.status === 'error') return 'error'
+  if (data.status === 'queued') return 'queued'
+  // Running with no phase info — assume the longest phase so the user
+  // sees meaningful copy instead of a stuck "Queued".
+  return 'transcribing'
+}
+
+/**
+ * Resolves the label shown next to the global-progress percent. Prefers
+ * the server-computed `progressLabel` (PV1 added this field on every
+ * SignalR payload); falls back to the legacy `progressLabel()` helper
+ * for a loading/first-render state where the server copy isn't
+ * available yet.
+ */
+export function resolveLabel(
+  data: RecipeImportDto | undefined,
+  effectiveStatus: ImportStatus | 'loading',
+): string {
+  if (data?.progressLabel) return data.progressLabel
+  if (!data) return progressLabel('queued', 0)
+  return progressLabel(
+    effectiveStatus === 'loading' ? 'queued' : effectiveStatus,
+    data.progress ?? 0,
+  )
 }

@@ -147,6 +147,15 @@ export function wireEventHandlers(
  *
  * We NEVER invalidate the query here — the payload is authoritative.
  * A server-side re-fetch would race the merge and cost bandwidth.
+ *
+ * SECURITY (PV3 review): we only merge when `prev` exists — i.e. the
+ * REST GET has already landed. Synthesising a phantom DTO from the
+ * SignalR payload alone would let a same-group event for ANY importId
+ * overwrite our cache with attacker-controlled defaults (e.g.
+ * `source: 'url'` for what is actually a photo import, causing the
+ * PhaseStepper to pick the wrong source-path until the GET settles).
+ * The polling fallback (3s cadence) picks up state within one tick if
+ * the event races the GET.
  */
 export function applyImportProgressEvent(
   queryClient: QueryClient,
@@ -154,24 +163,13 @@ export function applyImportProgressEvent(
 ): void {
   const key = importQueryKeys.status(payload.importId)
   queryClient.setQueryData<RecipeImportDto | undefined>(key, (prev) => {
-    // Before the first poll returns there is no cached DTO — but the
-    // progress page still wants to render the stepper + phase label.
-    // We synthesise a minimal running DTO from the payload so the UI
-    // lights up on the first event, and deeper fields (source, urls)
-    // fill in once the GET settles.
-    const base: RecipeImportDto = prev ?? {
-      id: payload.importId,
-      source: 'url',
-      status: 'running',
-      progress: payload.progress,
-      sourceUrl: null,
-      result: null,
-      errorMessage: null,
-      createdAt: new Date().toISOString(),
-      completedAt: null,
-    }
+    // No phantom-DTO synthesis — skip silently until the REST GET has
+    // seeded the cache. The recordImportLiveEvent side-channel still
+    // updates below, so the freshness-based poll back-off stays
+    // accurate even on the dropped event.
+    if (!prev) return prev
     return {
-      ...base,
+      ...prev,
       // Terminal phases imply terminal status — keep both in lockstep
       // so the progress page's auto-redirect trigger doesn't drift from
       // the visible label.
@@ -180,7 +178,7 @@ export function applyImportProgressEvent(
           ? 'done'
           : payload.phase === 'error'
             ? 'error'
-            : base.status,
+            : prev.status,
       phase: payload.phase,
       progress: payload.progress,
       phaseProgress: payload.phaseProgress,
