@@ -45,6 +45,7 @@ from extractor.pipeline.video import (
     Transcriber,
     VideoDownloader,
 )
+from extractor.security import HmacVerificationMiddleware
 
 _PACKAGE_NAME: Final[str] = "extractor"
 
@@ -300,6 +301,24 @@ def create_app() -> FastAPI:
         ),
         version=_resolve_version(),
     )
+
+    # HMAC verification middleware — skips ``/health`` so the Docker
+    # HEALTHCHECK can keep polling without signing. Wires the shared
+    # secret from Settings once at app construction. Tests that don't
+    # want HMAC can either leave ``extractor_shared_secret`` blank
+    # (middleware fails closed) or override the main app's middleware
+    # stack via ``app.user_middleware``.
+    settings = _get_settings()
+    if settings.extractor_shared_secret:
+        application.add_middleware(
+            HmacVerificationMiddleware,
+            shared_secret=settings.extractor_shared_secret,
+        )
+    else:
+        logger.warning(
+            "EXTRACTOR_SHARED_SECRET is empty; HMAC verification disabled. "
+            "Safe for local dev / tests, NEVER for production.",
+        )
 
     @application.get("/health", response_model=HealthResponse, tags=["health"])
     def health() -> HealthResponse:
