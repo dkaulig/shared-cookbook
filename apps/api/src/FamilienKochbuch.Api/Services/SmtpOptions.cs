@@ -1,3 +1,6 @@
+using FamilienKochbuch.Infrastructure.Services;
+using Microsoft.Extensions.Options;
+
 namespace FamilienKochbuch.Api.Services;
 
 /// <summary>
@@ -32,4 +35,23 @@ public sealed class SmtpOptions
     /// <summary>Upgrade the connection with STARTTLS (default: true — matches
     /// Posteo / Migadu / most EU providers on port 587).</summary>
     public bool UseStartTls { get; set; } = true;
+}
+
+/// <summary>
+/// Adapter that projects the Api-layer <see cref="SmtpOptions"/> into the
+/// infrastructure-layer <see cref="SmtpOptionsSnapshot"/> consumed by
+/// <see cref="SmtpEmailSender"/>. Keeps the Infrastructure project free
+/// of an Api-project dependency.
+/// </summary>
+internal sealed class SmtpOptionsAccessor(IOptions<SmtpOptions> options) : ISmtpOptionsAccessor
+{
+    public SmtpOptionsSnapshot Current
+    {
+        get
+        {
+            var o = options.Value;
+            return new SmtpOptionsSnapshot(
+                o.Host, o.Port, o.User, o.Password, o.FromAddress, o.FromName, o.UseStartTls);
+        }
+    }
 }
