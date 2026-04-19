@@ -85,6 +85,7 @@ RECIPE_SCHEMA: Final[dict[str, Any]] = {
         "tags",
         "source_url",
         "thumbnail_url",
+        "nutrition_estimate",
     ],
     "properties": {
         "title": {"type": "string", "minLength": 1, "maxLength": 200},
@@ -113,9 +114,11 @@ RECIPE_SCHEMA: Final[dict[str, Any]] = {
         },
         "source_url": {"type": "string", "minLength": 1, "maxLength": 2048},
         "thumbnail_url": {"type": ["string", "null"], "maxLength": 2048},
-        # P2-10: optional, nullable nutrition estimate per portion. Not
-        # listed in ``required`` so legacy callers (no key at all) keep
-        # validating; present callers may pass ``null`` explicitly.
+        # P2-10: nullable nutrition estimate per portion. Azure Responses
+        # API strict mode (2025-04) requires every ``properties`` key to
+        # appear in ``required``; callers MUST pass the key and may set
+        # it to ``null`` (matches the ``["object", "null"]`` schema type)
+        # when the LLM could not estimate per-portion nutrition.
         "nutrition_estimate": _NUTRITION_ESTIMATE_SCHEMA,
     },
 }
