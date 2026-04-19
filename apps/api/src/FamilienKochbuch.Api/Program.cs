@@ -88,7 +88,10 @@ if (!builder.Environment.IsEnvironment("Testing"))
             }));
     builder.Services.AddHangfireServer(opts =>
     {
-        opts.WorkerCount = Math.Min(4, Environment.ProcessorCount);
+        // Hard cap at 2: each extraction job calls python-extractor which
+        // is budgeted at 8 GB / 8 CPU. Whisper large-v3 alone is ~3 GB
+        // resident, so >2 concurrent extractions would OOM the VPS.
+        opts.WorkerCount = 2;
     });
 }
 

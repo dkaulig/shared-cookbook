@@ -185,6 +185,37 @@ jobs:
           source: "docker-compose.prod.yml,infra/Caddyfile.prod"
           target: /srv/familien-kochbuch/
           overwrite: true
+      - name: Backup current .env before overwrite
+        # Insurance against a fat-finger PROD_ENV secret update wiping
+        # Azure OpenAI keys, SMTP creds, DB password, JWT signing key.
+        # Keep the newest 20 backups; older ones get pruned. First-deploy
+        # case (no prior .env) is a clean no-op.
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          DEPLOY_REF: ${{ github.ref_name || github.sha }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: deploy
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_REF
+          script: |
+            set -euo pipefail
+            cd /srv/familien-kochbuch
+            if [ ! -f .env ]; then
+              echo "No existing .env — skipping backup (first deploy)."
+              exit 0
+            fi
+            mkdir -p .env-backups
+            chmod 700 .env-backups
+            TS=$(date -u +%Y%m%d-%H%M%S)
+            SAFE_REF=$(printf '%s' "$DEPLOY_REF" | tr -c 'A-Za-z0-9._-' '_')
+            BACKUP=".env-backups/env-${TS}-pre-${SAFE_REF}.bak"
+            cp .env "$BACKUP"
+            chmod 600 "$BACKUP"
+            echo "Backed up .env → $BACKUP"
+            # Rotate: keep only the newest 20 backups.
+            cd .env-backups
+            ls -1t | tail -n +21 | xargs -r rm --
       - name: Write env file
         uses: appleboy/ssh-action@v1.2.5
         env:
