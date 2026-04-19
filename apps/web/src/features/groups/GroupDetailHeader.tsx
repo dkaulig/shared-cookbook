@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { BookOpen, Pencil, Users } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { BookOpen, CalendarDays, Pencil, Users } from 'lucide-react'
 import type { GroupDetail } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -76,17 +77,25 @@ export function GroupDetailHeader({
           <h1 className="m-0 mb-1 font-serif text-[clamp(24px,5.5vw,32px)] font-semibold leading-[1.1] tracking-[-0.015em]">
             {group.name}
           </h1>
-          {isAdmin && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowEditDialog(true)}
-            >
-              <Pencil className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              Gruppe bearbeiten
+          <div className="flex items-center gap-2">
+            <Button asChild type="button" variant="outline" size="sm">
+              <Link to={`/groups/${group.id}/mealplan`} aria-label="Wochenplan öffnen">
+                <CalendarDays className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                Wochenplan
+              </Link>
             </Button>
-          )}
+            {isAdmin && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowEditDialog(true)}
+              >
+                <Pencil className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                Gruppe bearbeiten
+              </Button>
+            )}
+          </div>
         </div>
         {group.description && (
           <p className="text-[13px] leading-[1.4] text-[hsl(var(--muted-foreground))]">
