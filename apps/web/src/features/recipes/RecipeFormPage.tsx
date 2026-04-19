@@ -42,6 +42,7 @@ import {
   forgetChatImport,
   recallChatImport,
 } from '@/features/chat/chatImportMemo'
+import { recallImportStagedPhotoIds } from '@/features/imports/importGroupMemo'
 import {
   useCreateRecipe,
   useGroupTags,
@@ -249,12 +250,23 @@ export function RecipeFormPage({ mode }: Props) {
     // deliberately session-scoped feature.
   }
 
+  // PF1 — when the user is coming back from the photo-import flow we
+  // stash the stagedPhotoIds the upload step produced, so the
+  // create-recipe payload can adopt them onto the new recipe. Read
+  // here at the wrapper level so the inner form can seed its initial
+  // state without the setState-in-effect dance.
+  const stagedPhotoIds: string[] =
+    mode === 'create' && importId && prefill?.isPhotoImport
+      ? recallImportStagedPhotoIds(importId) ?? []
+      : []
+
   return (
     <RecipeFormInner
       mode={mode}
       initial={mode === 'edit' ? recipeQuery.data! : undefined}
       prefill={prefill}
       chatImportId={chatImportSource ? chatImportId : null}
+      stagedPhotoIds={stagedPhotoIds}
     />
   )
 }
@@ -264,6 +276,7 @@ function RecipeFormInner({
   initial,
   prefill,
   chatImportId,
+  stagedPhotoIds,
 }: {
   mode: 'create' | 'edit'
   initial?: RecipeDetailDto
@@ -275,6 +288,14 @@ function RecipeFormInner({
    * successfully or the user explicitly cancels.
    */
   chatImportId?: string | null
+  /**
+   * PF1 — staged-photo ids stashed by `ImportPhotosPage`. Empty unless
+   * the user came in via the photo-import flow. Forwarded into the
+   * create-recipe payload so the saved recipe automatically adopts
+   * the originals. The "{N} Fotos werden beim Speichern angehängt."
+   * info badge keys off `stagedPhotoIds.length > 0`.
+   */
+  stagedPhotoIds?: string[]
 }) {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
@@ -497,6 +518,14 @@ function RecipeFormInner({
       // carry a prefill, so this is naturally omitted there — nutrition
       // edits post-save go through PATCH /nutrition instead.
       nutritionEstimate: prefillNutrition,
+      // PF1: forward the photo-import stagedPhotoIds (if any) so the
+      // server promotes them onto the new recipe. Edit mode + non-photo
+      // imports leave this undefined, so the server treats it as a
+      // standard manual create.
+      stagedPhotoIds:
+        mode === 'create' && stagedPhotoIds && stagedPhotoIds.length > 0
+          ? stagedPhotoIds
+          : undefined,
     }
 
     try {
@@ -505,6 +534,13 @@ function RecipeFormInner({
         mode === 'create'
           ? await createMutation.mutateAsync(payload)
           : await updateMutation.mutateAsync(payload)
+
+      // PF1 — surface server-side promote failures (from
+      // stagedPhotoIds) BEFORE we kick off the client-side
+      // PhotoUploadGrid uploads. The user sees a single banner with
+      // both classes of failure folded together if both apply.
+      const promoteFailures = result.partialPhotoFailures ?? []
+      const promoteAttempted = stagedPhotoIds?.length ?? 0
 
       // UX1-PU: if there are photos staged from create mode, upload them
       // sequentially now that we have a real recipe id. We intentionally
@@ -537,6 +573,18 @@ function RecipeFormInner({
           setSubmitPhase('idle')
           return
         }
+      }
+
+      // PF1 — server-side promote failures land us back on the form
+      // with the German banner the plan specifies. The recipe row is
+      // saved + the surviving photos are attached, so the user can
+      // re-upload the missing ones from the detail page.
+      if (promoteFailures.length > 0) {
+        setError(
+          `Rezept gespeichert, aber ${promoteFailures.length} von ${promoteAttempted} Fotos konnten nicht angehängt werden — bitte manuell hochladen.`,
+        )
+        setSubmitPhase('idle')
+        return
       }
 
       setSubmitPhase('idle')
@@ -633,6 +681,25 @@ function RecipeFormInner({
               title="Fotos"
               description="Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP. Werden beim Speichern hochgeladen."
             >
+              {/* PF1 — info badge for photo-imports: the user uploaded
+                  N photos in the previous step and they'll attach
+                  automatically once the recipe saves. Renders ONLY in
+                  create mode when the photo-import flow stashed
+                  staged-photo ids into sessionStorage. */}
+              {mode === 'create' &&
+                stagedPhotoIds &&
+                stagedPhotoIds.length > 0 && (
+                  <p
+                    role="status"
+                    data-testid="staged-photos-info"
+                    className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--primary)/0.08)] px-3 py-1 text-[12.5px] font-medium text-[hsl(var(--primary-hover,var(--primary)))] ring-1 ring-[hsl(var(--primary)/0.25)]"
+                  >
+                    <Sparkles className="h-3 w-3" aria-hidden="true" />
+                    {stagedPhotoIds.length} Foto
+                    {stagedPhotoIds.length === 1 ? '' : 's'} werden beim
+                    Speichern angehängt.
+                  </p>
+                )}
               <PhotoUploadGrid
                 mode="staged"
                 files={stagedPhotos}

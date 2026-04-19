@@ -19,7 +19,7 @@ beforeEach(() => {
  * inline without generic "Upload fehlgeschlagen" messaging.
  */
 describe('stagedPhotoApi.uploadStagedPhoto', () => {
-  it('POSTs multipart/form-data to /api/recipes/photos/staged and returns { photoId, signedUrl }', async () => {
+  it('POSTs multipart/form-data to /api/recipes/photos/staged and returns { photoId, signedUrl, stagedPhotoId }', async () => {
     let hitMethod = ''
     let hitUrl = ''
     let sawMultipart = false
@@ -33,6 +33,7 @@ describe('stagedPhotoApi.uploadStagedPhoto', () => {
           {
             photoId: 'recipes/abc123.jpg',
             signedUrl: '/api/photos/recipes/abc123.jpg?sig=X&exp=9999999999',
+            stagedPhotoId: '11111111-2222-3333-4444-555555555555',
           },
           { status: 200 },
         )
@@ -48,6 +49,9 @@ describe('stagedPhotoApi.uploadStagedPhoto', () => {
     expect(result.photoId).toBe('recipes/abc123.jpg')
     expect(result.signedUrl).toContain('/api/photos/recipes/abc123.jpg')
     expect(result.signedUrl).toContain('sig=')
+    // PF1 — staged-photo id flows through unchanged so the importer
+    // can stash it for the create-recipe promote handshake.
+    expect(result.stagedPhotoId).toBe('11111111-2222-3333-4444-555555555555')
   })
 
   it('throws a normalised ApiError when the backend rejects HEIC with unsupported_media_type', async () => {

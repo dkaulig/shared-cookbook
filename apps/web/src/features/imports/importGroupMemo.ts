@@ -3,6 +3,12 @@
  * enqueued against, so the progress page + the RecipeFormPage prefill
  * know where to route the user once extraction completes.
  *
+ * PF1 — the photo-import flow now ALSO stashes the
+ * `stagedPhotoIds` here, so the create-recipe payload assembled in
+ * `RecipeFormPage` can attach the originals once the user saves.
+ * Stored as a JSON-encoded string under a sibling key so the legacy
+ * groupId-only consumer keeps working unchanged.
+ *
  * Why this exists: the P2-6 `GET /api/imports/{id}` response does not
  * include the groupId (its shape was fixed before the P2-7 UI dispatch
  * and changing it is out of scope for P2-7 — the plan explicitly bans
@@ -16,15 +22,21 @@
  *
  * Contract:
  * - Writes happen on enqueue success (the ImportUrlPage stashes the
- *   groupId it just POSTed with).
+ *   groupId it just POSTed with; the ImportPhotosPage additionally
+ *   stashes the stagedPhotoIds it just uploaded).
  * - Reads happen on the progress page + the recipe-form prefill;
  *   consumers fall back gracefully when the memo is missing (e.g. the
  *   user shared the progress URL to another tab).
  */
 const STORAGE_PREFIX = 'fk.importGroup.'
+const STAGED_PHOTOS_PREFIX = 'fk.importStagedPhotos.'
 
 function key(importId: string): string {
   return `${STORAGE_PREFIX}${importId}`
+}
+
+function stagedKey(importId: string): string {
+  return `${STAGED_PHOTOS_PREFIX}${importId}`
 }
 
 function storageOrNull(): Storage | null {
@@ -63,7 +75,43 @@ export function forgetImportGroup(importId: string): void {
   if (!s) return
   try {
     s.removeItem(key(importId))
+    s.removeItem(stagedKey(importId))
   } catch {
     /* ignore */
+  }
+}
+
+/**
+ * PF1 — stash the staged-photo ids that the photo import just
+ * uploaded. The create-recipe handler reads them so the originals
+ * land on the saved recipe automatically. JSON-encoded so an empty
+ * list still round-trips as `[]`, distinguishing "user uploaded zero"
+ * from "no memo present" (which the recall function returns as
+ * `null`).
+ */
+export function rememberImportStagedPhotoIds(
+  importId: string,
+  stagedPhotoIds: string[],
+): void {
+  const s = storageOrNull()
+  if (!s) return
+  try {
+    s.setItem(stagedKey(importId), JSON.stringify(stagedPhotoIds))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function recallImportStagedPhotoIds(importId: string): string[] | null {
+  const s = storageOrNull()
+  if (!s) return null
+  try {
+    const raw = s.getItem(stagedKey(importId))
+    if (raw == null) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return null
+    return parsed.filter((x): x is string => typeof x === 'string')
+  } catch {
+    return null
   }
 }
