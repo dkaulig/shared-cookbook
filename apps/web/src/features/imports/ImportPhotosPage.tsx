@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   Camera,
+  Image as ImageIcon,
   Sparkles,
   UploadCloud,
   X,
@@ -76,7 +77,13 @@ export function ImportPhotosPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [dragActive, setDragActive] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  // BUG-015 — split the single hidden input into two so users can pick
+  // EITHER the live camera (`capture="environment"`) OR the existing
+  // photo library (no `capture` attr — iOS/Android then show the
+  // standard photo-picker). A single input with `capture` set forces
+  // mobile browsers straight into the camera and hides the gallery.
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
 
   // Preview blob URL per File, created on add and revoked on remove +
   // unmount. We keep the list parallel to `files` so indexing stays
@@ -300,15 +307,20 @@ export function ImportPhotosPage() {
 
           {!atLimit && (
             <AddSlot
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => galleryInputRef.current?.click()}
               disabled={submitPending}
             />
           )}
         </div>
 
+        {/* BUG-015 — explicit camera vs. gallery split. Both inputs share
+            the same `handleInputChange` so the staging pipeline is
+            identical regardless of source. Only the camera input carries
+            `capture="environment"`; the gallery input intentionally OMITS
+            it so iOS/Android show the system photo-picker. */}
         <input
-          ref={fileInputRef}
-          data-testid="photos-file-input"
+          ref={cameraInputRef}
+          data-testid="photos-camera-input"
           type="file"
           accept={ACCEPT.join(',')}
           capture="environment"
@@ -317,6 +329,37 @@ export function ImportPhotosPage() {
           onChange={handleInputChange}
           disabled={submitPending || atLimit}
         />
+        <input
+          ref={galleryInputRef}
+          data-testid="photos-gallery-input"
+          type="file"
+          accept={ACCEPT.join(',')}
+          multiple
+          className="hidden"
+          onChange={handleInputChange}
+          disabled={submitPending || atLimit}
+        />
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={submitPending || atLimit}
+          >
+            <Camera className="h-4 w-4" aria-hidden="true" />
+            Kamera
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => galleryInputRef.current?.click()}
+            disabled={submitPending || atLimit}
+          >
+            <ImageIcon className="h-4 w-4" aria-hidden="true" />
+            Fotos auswählen
+          </Button>
+        </div>
 
         <p className="mt-3 text-[12.5px] text-[hsl(var(--muted-foreground))]">
           Unterstützt: JPG, PNG, WebP bis 5 MB. HEIC (iPhone-Standard) bitte

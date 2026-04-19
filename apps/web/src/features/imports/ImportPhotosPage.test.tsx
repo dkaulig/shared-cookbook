@@ -103,7 +103,7 @@ describe('<ImportPhotosPage />', () => {
       ),
     )
     renderPage()
-    const input = screen.getByTestId('photos-file-input') as HTMLInputElement
+    const input = screen.getByTestId('photos-gallery-input') as HTMLInputElement
     await user.upload(input, [fakeJpeg('a.jpg'), fakeJpeg('b.jpg')])
 
     // The two Foto 1 / Foto 2 thumbnails render — we check by aria-label.
@@ -145,7 +145,7 @@ describe('<ImportPhotosPage />', () => {
       ),
     )
     renderPage()
-    const input = screen.getByTestId('photos-file-input') as HTMLInputElement
+    const input = screen.getByTestId('photos-gallery-input') as HTMLInputElement
     await user.upload(input, [fakeJpeg('first.jpg'), fakeJpeg('second.jpg')])
 
     // Initially: 1st thumbnail has alt="Foto 1", 2nd "Foto 2". We don't
@@ -216,7 +216,7 @@ describe('<ImportPhotosPage />', () => {
       }),
     )
     renderPage()
-    const input = screen.getByTestId('photos-file-input') as HTMLInputElement
+    const input = screen.getByTestId('photos-gallery-input') as HTMLInputElement
     await user.upload(input, [fakeJpeg('first.jpg'), fakeJpeg('second.jpg')])
     await user.click(screen.getByRole('button', { name: /Rezepte extrahieren/i }))
 
@@ -275,7 +275,7 @@ describe('<ImportPhotosPage />', () => {
       }),
     )
     renderPage()
-    const input = screen.getByTestId('photos-file-input') as HTMLInputElement
+    const input = screen.getByTestId('photos-gallery-input') as HTMLInputElement
     await user.upload(input, [fakeJpeg('only.jpg')])
     await user.click(screen.getByRole('button', { name: /Rezepte extrahieren/i }))
 
@@ -302,7 +302,7 @@ describe('<ImportPhotosPage />', () => {
       }),
     )
     renderPage()
-    const input = screen.getByTestId('photos-file-input') as HTMLInputElement
+    const input = screen.getByTestId('photos-gallery-input') as HTMLInputElement
     await user.upload(input, [fakeJpeg('a.jpg')])
     await user.click(screen.getByRole('button', { name: /Rezepte extrahieren/i }))
     expect(await screen.findByText(/Gruppe erstellen/i)).toBeInTheDocument()
@@ -326,7 +326,7 @@ describe('<ImportPhotosPage />', () => {
       ),
     )
     renderPage()
-    const input = screen.getByTestId('photos-file-input') as HTMLInputElement
+    const input = screen.getByTestId('photos-gallery-input') as HTMLInputElement
     await user.upload(input, [fakeJpeg('a.jpg')])
     await user.click(screen.getByRole('button', { name: /Rezepte extrahieren/i }))
 
@@ -334,5 +334,102 @@ describe('<ImportPhotosPage />', () => {
       /JPEG|WebP/i,
     )
     expect(screen.getByTestId('location')).toHaveTextContent('/rezepte/import/photos')
+  })
+
+  // BUG-015 — `<input capture="environment">` forces iOS/Android into
+  // the live camera and hides the photo library. We split the single
+  // input into two so users can pick existing photos (e.g. a scanned
+  // cookbook page from days ago) without going through the camera.
+  describe('BUG-015 — split camera + gallery inputs', () => {
+    it('renders BOTH inputs with correct capture configuration', async () => {
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'g-solo' })]),
+        ),
+      )
+      renderPage()
+      const camera = screen.getByTestId(
+        'photos-camera-input',
+      ) as HTMLInputElement
+      const gallery = screen.getByTestId(
+        'photos-gallery-input',
+      ) as HTMLInputElement
+      // Camera input MUST carry capture="environment" so the OS opens
+      // the rear camera directly when a user taps the camera button.
+      expect(camera).toBeInTheDocument()
+      expect(camera.getAttribute('capture')).toBe('environment')
+      expect(camera.type).toBe('file')
+      expect(camera.accept).toMatch(/image/i)
+      // Gallery input MUST NOT carry a capture attribute — otherwise
+      // mobile browsers will hide the photo library.
+      expect(gallery).toBeInTheDocument()
+      expect(gallery.hasAttribute('capture')).toBe(false)
+      expect(gallery.type).toBe('file')
+      expect(gallery.accept).toMatch(/image/i)
+    })
+
+    it('clicking the Kamera button triggers the camera input', async () => {
+      const user = userEvent.setup()
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'g-solo' })]),
+        ),
+      )
+      renderPage()
+      const camera = screen.getByTestId(
+        'photos-camera-input',
+      ) as HTMLInputElement
+      const gallery = screen.getByTestId(
+        'photos-gallery-input',
+      ) as HTMLInputElement
+      let cameraClicks = 0
+      let galleryClicks = 0
+      camera.addEventListener('click', () => {
+        cameraClicks += 1
+      })
+      gallery.addEventListener('click', () => {
+        galleryClicks += 1
+      })
+      await user.click(screen.getByRole('button', { name: /^Kamera$/i }))
+      expect(cameraClicks).toBe(1)
+      expect(galleryClicks).toBe(0)
+    })
+
+    it('clicking the Fotos auswählen button triggers the gallery input AND a file landed there flows into the staged grid', async () => {
+      const user = userEvent.setup()
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'g-solo' })]),
+        ),
+      )
+      renderPage()
+      const camera = screen.getByTestId(
+        'photos-camera-input',
+      ) as HTMLInputElement
+      const gallery = screen.getByTestId(
+        'photos-gallery-input',
+      ) as HTMLInputElement
+      let cameraClicks = 0
+      let galleryClicks = 0
+      camera.addEventListener('click', () => {
+        cameraClicks += 1
+      })
+      gallery.addEventListener('click', () => {
+        galleryClicks += 1
+      })
+      await user.click(
+        screen.getByRole('button', { name: /Fotos auswählen/i }),
+      )
+      expect(galleryClicks).toBe(1)
+      expect(cameraClicks).toBe(0)
+
+      // File-selection from the gallery input must land in shared
+      // staged-grid state — same handler as the camera input.
+      await user.upload(gallery, [fakeJpeg('library-pick.jpg')])
+      expect(await screen.findByAltText('Foto 1')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Rezepte extrahieren/i }),
+      ).not.toBeDisabled()
+    })
   })
 })
