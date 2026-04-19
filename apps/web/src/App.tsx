@@ -20,6 +20,7 @@ import { ChatPage } from '@/features/chat/ChatPage'
 import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
 import { WochenplanStub } from '@/features/stubs/WochenplanStub'
 import { ProfilStub } from '@/features/stubs/ProfilStub'
+import { AiUsagePage } from '@/features/admin/AiUsagePage'
 
 /**
  * Route table.
@@ -76,6 +77,21 @@ export default function App() {
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/wochenplan" element={<WochenplanStub />} />
             <Route path="/profil" element={<ProfilStub />} />
+          </Route>
+
+          {/*
+            PF2: admin-only KI-Verbrauch dashboard. Non-admin
+            authenticated visitors redirect to `/` via ProtectedRoute
+            requireAdmin; anonymous visitors still bounce to /login.
+          */}
+          <Route
+            element={
+              <ProtectedRoute requireAdmin>
+                <AppLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/admin/ai-usage" element={<AiUsagePage />} />
           </Route>
 
           {/*
