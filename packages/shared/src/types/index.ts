@@ -113,3 +113,11 @@ export type {
   ShoppingListItemDto,
   ShoppingListItemSource,
 } from './shoppingList.ts'
+export type {
+  LiveSyncAction,
+  LiveSyncEventName,
+  MealPlanChangedPayload,
+  MealPlanSlotChangedPayload,
+  ShoppingListItemChangedPayload,
+} from './liveSync.ts'
+export { LiveSyncEventNames } from './liveSync.ts'

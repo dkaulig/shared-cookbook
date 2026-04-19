@@ -2,6 +2,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using FamilienKochbuch.Api.Endpoints;
 using FamilienKochbuch.Api.Endpoints.MealPlanning;
+using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
@@ -232,8 +233,38 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
             ClockSkew = TimeSpan.FromSeconds(30),
         };
+
+        // P3-8 — SignalR WebSocket upgrade cannot set Authorization
+        // headers from a browser, so the client supplies the bearer via
+        // the access_token query param on the initial GET /hubs/live.
+        // Only trust that shortcut when the request is actually hitting
+        // the hub path; the rest of the API must still require the
+        // standard header so a leaked query-string token can't widen
+        // blast radius beyond the WS upgrade.
+        jwtBearer.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken)
+                    && path.StartsWithSegments("/api/hubs/live",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            },
+        };
     });
 builder.Services.AddAuthorization();
+
+// ── P3-8: SignalR + live-sync publisher ───────────────────────────────
+// Camel-case JSON names on the wire so the shared TypeScript DTOs in
+// packages/shared/src/types/liveSync.ts map 1:1 without
+// [JsonPropertyName] on every property.
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<ILiveSyncPublisher, LiveSyncPublisher>();
 
 // ── CORS (dev): open to local Vite + Caddy ────────────────────────────
 const string CorsPolicy = "FamilienKochbuchDev";
@@ -357,6 +388,12 @@ app.MapChatEndpoints();
 app.MapAdminAiUsageEndpoints();
 app.MapMealPlanEndpoints();
 app.MapShoppingListEndpoints();
+
+// P3-8 — SignalR live-sync hub. Requires an authenticated principal
+// (the hub itself is [Authorize]d); tokens can arrive via the standard
+// Authorization header or — for the WebSocket upgrade only — via the
+// access_token query parameter (see JwtBearerEvents.OnMessageReceived).
+app.MapHub<LiveSyncHub>("/api/hubs/live");
 
 // ── P2-5: Hangfire dashboard (admin-only, skipped in Testing env) ─
 if (!app.Environment.IsEnvironment("Testing"))
