@@ -108,7 +108,24 @@ builder.Services.AddIdentityCore<User>(opts =>
 builder.Services.AddScoped<IPasswordHasher<User>, Argon2idPasswordHasher>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<SeedDataService>();
-builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
+
+// ── PF3: SMTP email sender (conditional registration) ────────────────
+// docker-compose.prod.yml already forwards SMTP_* env vars onto the
+// Smtp__* keys. When Host + FromAddress are both populated we wire the
+// real SmtpEmailSender; otherwise we fall back to the logger-only
+// NoOpEmailSender and emit a startup INFO so operators notice.
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+var smtpConfig = builder.Configuration.GetSection(SmtpOptions.SectionName).Get<SmtpOptions>()
+                 ?? new SmtpOptions();
+if (!string.IsNullOrWhiteSpace(smtpConfig.Host) && !string.IsNullOrWhiteSpace(smtpConfig.FromAddress))
+{
+    builder.Services.AddSingleton<ISmtpOptionsAccessor, SmtpOptionsAccessor>();
+    builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+}
+else
+{
+    builder.Services.AddScoped<IEmailSender, NoOpEmailSender>();
+}
 builder.Services.AddScoped<IPrivateCollectionService, PrivateCollectionService>();
 builder.Services.AddScoped<IRecipeSearchService, PostgresRecipeSearchService>();
 builder.Services.AddScoped<IRecipeRevisionService, RecipeRevisionService>();
@@ -258,6 +275,21 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+// PF3 — announce the chosen email sender at boot so operators can spot
+// a missing SMTP config in the container logs without digging for it.
+if (!string.IsNullOrWhiteSpace(smtpConfig.Host) && !string.IsNullOrWhiteSpace(smtpConfig.FromAddress))
+{
+    app.Logger.LogInformation(
+        "SMTP configured: host={SmtpHost}, port={SmtpPort}, from={SmtpFrom}, startTls={StartTls}",
+        smtpConfig.Host, smtpConfig.Port, smtpConfig.FromAddress, smtpConfig.UseStartTls);
+}
+else
+{
+    app.Logger.LogInformation(
+        "SMTP not configured — using NoOpEmailSender (dev fallback). "
+        + "Reset + invite links will appear in the API logs only.");
+}
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {

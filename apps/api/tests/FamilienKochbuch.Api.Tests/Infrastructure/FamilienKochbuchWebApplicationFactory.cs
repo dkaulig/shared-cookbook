@@ -32,6 +32,16 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
 
     public FakePhotoStorage Photos { get; } = new();
 
+    /// <summary>PF3 — when <c>true</c>, skip the default
+    /// FakeEmailSender override so the production conditional
+    /// registration (NoOpEmailSender vs SmtpEmailSender) is exercised.</summary>
+    private bool _skipFakeEmailSender;
+
+    /// <summary>PF3 — overrides for the Smtp config section, letting
+    /// registration tests flip between populated / empty values.</summary>
+    private string? _smtpHost;
+    private string? _smtpFromAddress;
+
     /// <summary>
     /// Captures every HTTP request sent through the named
     /// <see cref="ExtractRecipeFromUrlJob.HttpClientName"/> client so the
@@ -63,6 +73,11 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
         // the legacy "Admin" role-label default.
         builder.UseSetting("ADMIN_DISPLAY_NAME", "Test Familie");
 
+        if (_smtpHost is not null)
+            builder.UseSetting("Smtp:Host", _smtpHost);
+        if (_smtpFromAddress is not null)
+            builder.UseSetting("Smtp:FromAddress", _smtpFromAddress);
+
         builder.ConfigureServices(services =>
         {
             // Program.cs skips its Postgres DbContext registration when the
@@ -78,8 +93,13 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
             services.AddSingleton<TimeProvider>(Clock);
 
             // Spy email sender so password-reset tests can capture the outgoing URL.
-            services.RemoveAll<IEmailSender>();
-            services.AddSingleton<IEmailSender>(Email);
+            // Skipped when the test explicitly wants to exercise the production
+            // conditional registration branch (PF3 registration tests).
+            if (!_skipFakeEmailSender)
+            {
+                services.RemoveAll<IEmailSender>();
+                services.AddSingleton<IEmailSender>(Email);
+            }
 
             // Hermetic photo storage — no SeaweedFS required.
             services.RemoveAll<IPhotoStorage>();
@@ -144,6 +164,24 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
             _connection = null;
         }
         await base.DisposeAsync();
+    }
+
+    /// <summary>PF3 — fluent helper for the registration tests. Sets the
+    /// <c>Smtp:Host</c> and <c>Smtp:FromAddress</c> configuration values
+    /// that the conditional registration in Program.cs reads.</summary>
+    public FamilienKochbuchWebApplicationFactory WithSmtpConfig(string host, string fromAddress)
+    {
+        _smtpHost = host;
+        _smtpFromAddress = fromAddress;
+        return this;
+    }
+
+    /// <summary>PF3 — skip the FakeEmailSender override so the
+    /// production registration (NoOp vs Smtp) is resolved as-is.</summary>
+    public FamilienKochbuchWebApplicationFactory WithoutFakeEmailSender()
+    {
+        _skipFakeEmailSender = true;
+        return this;
     }
 }
 
