@@ -107,8 +107,8 @@ public sealed class PythonExtractorRunner
                 // Headers absent (e.g. mock provider, older Python
                 // build) → skip silently; a null-usage row is
                 // acceptable and just hides from the admin dashboard.
-                if (ExtractRecipeFromUrlJob.TryReadUsageHeaders(response, out var prompt,
-                        out var completion, out var cached, out var model))
+                if (UsageHeaders.TryRead(response, out var prompt, out var completion,
+                        out var cached, out var model))
                 {
                     import.RecordUsage(prompt, completion, cached, model);
                 }

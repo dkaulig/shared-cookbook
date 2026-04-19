@@ -269,7 +269,7 @@ public static class ChatEndpoints
             // X-Extractor-* headers. Missing headers (mock provider /
             // older build) → no row, no failure; the admin dashboard
             // treats it as "no data, hide".
-            if (ExtractRecipeFromUrlJob.TryReadUsageHeaders(
+            if (UsageHeaders.TryRead(
                     response, out var prompt, out var completion,
                     out var cached, out var model))
             {
