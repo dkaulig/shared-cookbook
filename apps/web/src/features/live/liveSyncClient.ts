@@ -5,7 +5,7 @@ import {
   HttpTransportType,
   type IRetryPolicy,
 } from '@microsoft/signalr'
-import { nextReconnectDelayMs } from './reconnectBackoff'
+import { nextReconnectDelayForContext } from './reconnectBackoff'
 
 /**
  * Minimal shape of the live-sync client the hook uses. A dedicated
@@ -67,10 +67,20 @@ class SignalRLiveSyncClient implements LiveSyncClient {
  * (500ms → 1s → 2s → 5s → 10s → 30s cap). Clean separation from the
  * math in <see cref="reconnectBackoff.ts"/> keeps the schedule unit-
  * testable and the retry policy trivially wrapping it.
+ *
+ * Surrenders (returns <c>null</c>) when the JWT is rejected for the
+ * 4th time in a row (after 3 retries the token is definitively stale)
+ * or when total elapsed retry time crosses 10 min — whichever comes
+ * first. Both thresholds live in <c>reconnectBackoff.ts</c> so they
+ * stay unit-testable without a SignalR transport.
  */
 const liveSyncRetryPolicy: IRetryPolicy = {
   nextRetryDelayInMilliseconds(retryContext) {
-    return nextReconnectDelayMs(retryContext.previousRetryCount)
+    return nextReconnectDelayForContext({
+      previousRetryCount: retryContext.previousRetryCount,
+      elapsedMilliseconds: retryContext.elapsedMilliseconds,
+      retryReason: retryContext.retryReason,
+    })
   },
 }
 
