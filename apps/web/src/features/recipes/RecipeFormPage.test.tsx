@@ -1222,6 +1222,188 @@ describe('RecipeFormPage (create)', () => {
     expect(captured!.sourceUrl).toBe('https://example.com/recipe-x')
   })
 
+  // ── P2-10 — Nutrition estimate prefill + save ─────────────────────
+
+  it('renders a read-only Nährwerte card when the prefill carries a nutrition estimate', async () => {
+    server.use(
+      http.get('/api/imports/imp-nutri', () =>
+        HttpResponse.json({
+          id: 'imp-nutri',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com/nutri',
+          result: JSON.stringify({
+            recipe: {
+              title: 'Mit Nährwerten',
+              description: null,
+              servings: 4,
+              difficulty: 1,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [],
+              steps: [],
+              tags: [],
+              source_url: 'https://example.com/nutri',
+              thumbnail_url: null,
+              nutrition_estimate: {
+                kcal: 420,
+                protein_g: 24,
+                carbs_g: 38,
+                fat_g: 9,
+              },
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+    )
+    render(
+      withProvidersAndImport('/groups/g1/recipes/new?importId=imp-nutri', ''),
+    )
+    await screen.findByDisplayValue('Mit Nährwerten')
+    expect(
+      screen.getByRole('heading', { name: /Nährwerte \(geschätzt\)/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('420 kcal')).toBeInTheDocument()
+    expect(screen.getByText(/24 g/)).toBeInTheDocument()
+    expect(screen.getByText(/38 g/)).toBeInTheDocument()
+    expect(screen.getByText(/9 g/)).toBeInTheDocument()
+  })
+
+  it('does not render the Nährwerte card when the prefill has no estimate', async () => {
+    server.use(
+      http.get('/api/imports/imp-no-nutri', () =>
+        HttpResponse.json({
+          id: 'imp-no-nutri',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com/plain',
+          result: JSON.stringify({
+            recipe: {
+              title: 'Ohne Nährwerte',
+              description: null,
+              servings: 4,
+              difficulty: 1,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [],
+              steps: [],
+              tags: [],
+              source_url: 'https://example.com/plain',
+              thumbnail_url: null,
+              nutrition_estimate: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+    )
+    render(
+      withProvidersAndImport('/groups/g1/recipes/new?importId=imp-no-nutri', ''),
+    )
+    await screen.findByDisplayValue('Ohne Nährwerte')
+    expect(
+      screen.queryByRole('heading', { name: /Nährwerte/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('includes the prefill nutrition estimate in the CreateRecipeRequest payload on save', async () => {
+    const user = userEvent.setup()
+    let captured: CreateRecipeRequest | null = null
+    server.use(
+      http.get('/api/imports/imp-nutri-save', () =>
+        HttpResponse.json({
+          id: 'imp-nutri-save',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com/s',
+          result: JSON.stringify({
+            recipe: {
+              title: 'Save with Nutrition',
+              description: null,
+              servings: 2,
+              difficulty: 1,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [
+                {
+                  name: 'Mehl',
+                  quantity: '200',
+                  unit: 'g',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [
+                { position: 1, content: 'Backen.', confidence: 'high' },
+              ],
+              tags: [],
+              source_url: 'https://example.com/s',
+              thumbnail_url: null,
+              nutrition_estimate: {
+                kcal: 300,
+                protein_g: 10,
+                carbs_g: 30,
+                fat_g: 8,
+              },
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        captured = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-ns',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Save with Nutrition',
+            defaultServings: 2,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-18T00:00:00Z',
+            updatedAt: '2026-04-18T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+            nutritionEstimate: null,
+          },
+          { status: 201 },
+        )
+      }),
+    )
+    render(
+      withProvidersAndImport(
+        '/groups/g1/recipes/new?importId=imp-nutri-save',
+        '',
+      ),
+    )
+    await screen.findByDisplayValue('Save with Nutrition')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+    await waitFor(() => expect(captured).not.toBeNull())
+    expect(captured!.nutritionEstimate).toEqual({
+      kcal: 300,
+      proteinG: 10,
+      carbsG: 30,
+      fatG: 8,
+    })
+  })
+
   // BF1 #1 — the German "Menge" placeholder was being clipped because the
   // amount column was only 70px wide. The grid template that lays out the
   // ingredient row's three primary inputs (qty | unit | name) must reserve

@@ -1,6 +1,7 @@
 import type {
   ExtractedRecipe,
   IngredientConfidenceLevel,
+  NutritionEstimate,
   StepConfidenceLevel,
 } from '@familien-kochbuch/shared'
 
@@ -49,6 +50,12 @@ export interface ImportPrefill {
    * the saved recipe doesn't carry the junk sentinel into the DB.
    */
   isPhotoImport: boolean
+  /**
+   * P2-10: optional per-portion nutrition estimate. `null` when the
+   * LLM couldn't infer quantities. Flows through to the create-recipe
+   * payload so the saved recipe carries the estimate from day one.
+   */
+  nutritionEstimate: NutritionEstimate | null
 }
 
 /** Form default when the source is silent on servings. */
@@ -161,6 +168,20 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
   const isPhotoImport = isPhotoImportSource(r.source_url)
   const sourceUrl = isPhotoImport ? '' : r.source_url
 
+  // P2-10: map the Python snake_case nutrition estimate onto the
+  // camelCase domain DTO. When the LLM returned `null` / omitted the
+  // field, stays `null` — the form hides the preview section entirely.
+  const ne = r.nutrition_estimate
+  const nutritionEstimate: NutritionEstimate | null =
+    ne == null
+      ? null
+      : {
+          kcal: ne.kcal,
+          proteinG: ne.protein_g,
+          carbsG: ne.carbs_g,
+          fatG: ne.fat_g,
+        }
+
   return {
     title: r.title,
     description: r.description ?? '',
@@ -171,5 +192,6 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
     ingredients,
     steps,
     isPhotoImport,
+    nutritionEstimate,
   }
 }
