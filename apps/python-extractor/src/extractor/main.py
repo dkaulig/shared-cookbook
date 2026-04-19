@@ -26,11 +26,11 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from typing import Annotated, Final, Literal
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field, HttpUrl
 
 from extractor.config import Settings
-from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, build_provider
+from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, TokenUsage, build_provider
 from extractor.pipeline.chat import (
     EmptyMessagesError,
     MessagesTooLongError,
@@ -38,7 +38,7 @@ from extractor.pipeline.chat import (
     chat_turn,
 )
 from extractor.pipeline.photo import extract_from_photos
-from extractor.pipeline.types import ExtractionResult
+from extractor.pipeline.types import ExtractionResult, ExtractionUsage
 from extractor.pipeline.url import extract_from_url
 from extractor.pipeline.video import (
     ExtractionError,
@@ -48,6 +48,16 @@ from extractor.pipeline.video import (
 from extractor.security import HmacVerificationMiddleware
 
 _PACKAGE_NAME: Final[str] = "extractor"
+
+# PF2 response-header names for token-usage propagation. The .NET side
+# reads these off the Python response and persists them on
+# ``RecipeImport`` + ``ChatUsageLog`` rows so admins can see spend by
+# user / model. Keep the names stable — changing them is a breaking
+# contract change across both services.
+_HEADER_PROMPT_TOKENS: Final[str] = "X-Extractor-Prompt-Tokens"
+_HEADER_COMPLETION_TOKENS: Final[str] = "X-Extractor-Completion-Tokens"
+_HEADER_CACHED_TOKENS: Final[str] = "X-Extractor-Cached-Tokens"
+_HEADER_MODEL: Final[str] = "X-Extractor-Model"
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +270,19 @@ def _as_chat_messages(messages: list[ChatMessageModel]) -> list[ChatMessage]:
     return [{"role": m.role, "content": m.content} for m in messages]
 
 
+def _apply_usage_headers(response: Response, usage: TokenUsage | ExtractionUsage) -> None:
+    """Stamp the four ``X-Extractor-*`` PF2 headers onto ``response``.
+
+    Accepts either :class:`TokenUsage` (raw provider output) or
+    :class:`ExtractionUsage` (pipeline-aggregated shape — same keys
+    today) so the chat + extract endpoints can share one code path.
+    """
+    response.headers[_HEADER_PROMPT_TOKENS] = str(usage["prompt_tokens"])
+    response.headers[_HEADER_COMPLETION_TOKENS] = str(usage["completion_tokens"])
+    response.headers[_HEADER_CACHED_TOKENS] = str(usage["cached_prompt_tokens"])
+    response.headers[_HEADER_MODEL] = usage["model"]
+
+
 # ─────────────────────────────────────────────────────────────────────
 # App factory
 # ─────────────────────────────────────────────────────────────────────
@@ -332,6 +355,7 @@ def create_app() -> FastAPI:
     @application.post("/extract/url", tags=["extract"])
     async def extract_url(
         request: ExtractUrlRequest,
+        response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
         video_stack: Annotated[VideoStack | None, Depends(get_video_stack)],
     ) -> ExtractionResult:
@@ -342,6 +366,9 @@ def create_app() -> FastAPI:
           ``rate_limited``), 500 otherwise.
         - :class:`ExtractionError` ``source_unavailable`` → 422,
           ``transcription_failed`` → 500.
+
+        On success the four ``X-Extractor-*`` headers carry the
+        token-usage numbers for the .NET side to persist (PF2).
         """
         logger.info(
             "extract_url request group_id=%s user_id=%s",
@@ -351,7 +378,7 @@ def create_app() -> FastAPI:
         downloader = video_stack.downloader if video_stack is not None else None
         transcriber = video_stack.transcriber if video_stack is not None else None
         try:
-            return await extract_from_url(
+            result = await extract_from_url(
                 str(request.url),
                 provider=provider,
                 downloader=downloader,
@@ -361,10 +388,15 @@ def create_app() -> FastAPI:
             raise _http_from_llm_error(exc) from exc
         except ExtractionError as exc:
             raise _http_from_extraction_error(exc) from exc
+        usage = result.get("usage")
+        if usage is not None:
+            _apply_usage_headers(response, usage)
+        return result
 
     @application.post("/extract/photos", tags=["extract"])
     async def extract_photos(
         request: ExtractPhotosRequest,
+        response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
     ) -> ExtractionResult:
         """Run the photos → structured-recipe pipeline (P2-3).
@@ -378,6 +410,9 @@ def create_app() -> FastAPI:
         - :class:`ExtractionError` ``invalid_input`` → 422.
         - :class:`LLMProviderError` ``provider_unavailable`` /
           ``rate_limited`` → 503. Other codes → 500.
+
+        On success the four ``X-Extractor-*`` headers carry the
+        token-usage numbers for the .NET side to persist (PF2).
         """
         logger.info(
             "extract_photos request group_id=%s user_id=%s count=%d",
@@ -389,15 +424,20 @@ def create_app() -> FastAPI:
         # str URLs; pydantic's HttpUrl is just the validation hop.
         urls: list[str] = [str(u) for u in request.photo_urls]
         try:
-            return await extract_from_photos(urls, provider=provider)
+            result = await extract_from_photos(urls, provider=provider)
         except ExtractionError as exc:
             raise _http_from_extraction_error(exc) from exc
         except LLMProviderError as exc:
             raise _http_from_llm_error(exc) from exc
+        usage = result.get("usage")
+        if usage is not None:
+            _apply_usage_headers(response, usage)
+        return result
 
     @application.post("/chat", response_model=ChatResponse, tags=["chat"])
     async def chat_endpoint(
         request: ChatRequest,
+        response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
     ) -> ChatResponse:
         """Run one conversational turn.
@@ -410,6 +450,9 @@ def create_app() -> FastAPI:
         Note: user content is *not* logged at INFO — only the turn
         count + session_id is, so the server logs don't become an
         accidental transcript archive.
+
+        On success the four ``X-Extractor-*`` headers carry the
+        token-usage numbers for the .NET side to persist (PF2).
         """
         logger.info(
             "chat request session_id=%s turns=%d",
@@ -418,19 +461,21 @@ def create_app() -> FastAPI:
         )
         messages = _as_chat_messages(request.messages)
         try:
-            reply, _usage = await chat_turn(messages, provider)
+            reply, usage = await chat_turn(messages, provider)
         except EmptyMessagesError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except MessagesTooLongError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
         except LLMProviderError as exc:
             raise _http_from_llm_error(exc) from exc
+        _apply_usage_headers(response, usage)
         return ChatResponse(assistant_message=reply)
 
     @application.post("/chat/{session_id}/to-recipe", tags=["chat"])
     async def chat_to_recipe_endpoint(
         session_id: str,
         request: ChatToRecipeRequest,
+        response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
     ) -> ExtractionResult:
         """Verdichte den Dialog zu einem strukturierten Rezept.
@@ -439,6 +484,9 @@ def create_app() -> FastAPI:
         ("chat:<session_id>") on the returned recipe so the downstream
         UI has a stable reference even though the service itself is
         stateless.
+
+        On success the four ``X-Extractor-*`` headers carry the
+        token-usage numbers for the .NET side to persist (PF2).
         """
         logger.info(
             "chat_to_recipe request session_id=%s turns=%d",
@@ -447,13 +495,17 @@ def create_app() -> FastAPI:
         )
         messages = _as_chat_messages(request.messages)
         try:
-            return await chat_to_recipe(messages, provider, session_id=session_id)
+            result = await chat_to_recipe(messages, provider, session_id=session_id)
         except EmptyMessagesError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except MessagesTooLongError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
         except LLMProviderError as exc:
             raise _http_from_llm_error(exc) from exc
+        usage = result.get("usage")
+        if usage is not None:
+            _apply_usage_headers(response, usage)
+        return result
 
     return application
 
