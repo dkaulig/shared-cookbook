@@ -684,4 +684,225 @@ public class ImportEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var response = await _client.SendAsync(req);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    // ── GET /api/imports?mine=true (BUG-010 list) ────────────────────────
+
+    /// <summary>
+    /// Seeds a <see cref="RecipeImport"/> row owned by <paramref name="userId"/>
+    /// inside <paramref name="groupId"/> at a specific creation timestamp.
+    /// Lets the list-endpoint tests control ordering by time rather than
+    /// depending on insertion order (EF doesn't guarantee that without
+    /// an explicit sort).
+    /// </summary>
+    private async Task<Guid> SeedImportAtAsync(
+        Guid userId,
+        Guid groupId,
+        DateTimeOffset createdAt,
+        ImportSource source = ImportSource.Url,
+        string? sourceUrl = "https://example.com/rezept")
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = new RecipeImport(
+            userId: userId,
+            groupId: groupId,
+            source: source,
+            sourceUrl: sourceUrl,
+            createdAt: createdAt);
+        db.RecipeImports.Add(import);
+        await db.SaveChangesAsync();
+        return import.Id;
+    }
+
+    [Fact]
+    public async Task List_Mine_Anonymous_Gets_401()
+    {
+        var response = await _client.GetAsync("/api/imports?mine=true");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task List_Mine_Returns_Callers_Imports_Newest_First()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        var now = DateTimeOffset.UtcNow;
+        var oldId = await SeedImportAtAsync(userId, groupId, now.AddMinutes(-30));
+        var midId = await SeedImportAtAsync(userId, groupId, now.AddMinutes(-10));
+        var newId = await SeedImportAtAsync(userId, groupId, now);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/imports?mine=true");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<List<ImportEndpoints.ImportSummary>>();
+        Assert.NotNull(body);
+        Assert.Equal(3, body!.Count);
+        Assert.Equal(newId, body[0].Id);
+        Assert.Equal(midId, body[1].Id);
+        Assert.Equal(oldId, body[2].Id);
+    }
+
+    [Fact]
+    public async Task List_Mine_Excludes_Other_Users_Imports()
+    {
+        var (ownerId, _) = await SignupAsync("alice@ex.com", "Alice");
+        var (callerId, callerToken) = await SignupAsync("bob@ex.com", "Bob");
+        var ownerGroup = await CreateOwnedGroupAsync(ownerId, "OwnerGroup");
+        var callerGroup = await CreateOwnedGroupAsync(callerId, "CallerGroup");
+
+        var now = DateTimeOffset.UtcNow;
+        await SeedImportAtAsync(ownerId, ownerGroup, now);
+        var myImportId = await SeedImportAtAsync(callerId, callerGroup, now);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/imports?mine=true");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", callerToken);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<List<ImportEndpoints.ImportSummary>>())!;
+        var single = Assert.Single(body);
+        Assert.Equal(myImportId, single.Id);
+    }
+
+    [Fact]
+    public async Task List_Mine_Skips_Imports_In_Groups_The_Caller_Left()
+    {
+        // Edge case: user enqueues an import, admin removes them from the
+        // group. The import row stays in the database but should not
+        // surface in the user's "my imports" list any more.
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        var stillInGroup = await CreateOwnedGroupAsync(userId, "StillMember");
+        await SeedImportAtAsync(userId, stillInGroup, DateTimeOffset.UtcNow);
+        await SeedImportAtAsync(userId, groupId, DateTimeOffset.UtcNow);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var membership = await db.GroupMemberships
+                .SingleAsync(m => m.GroupId == groupId && m.UserId == userId);
+            db.GroupMemberships.Remove(membership);
+            await db.SaveChangesAsync();
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/imports?mine=true");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        var body = (await response.Content.ReadFromJsonAsync<List<ImportEndpoints.ImportSummary>>())!;
+        var single = Assert.Single(body);
+        Assert.Equal(stillInGroup, single.GroupId);
+    }
+
+    [Fact]
+    public async Task List_Mine_Respects_Custom_Limit()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        var now = DateTimeOffset.UtcNow;
+        for (var i = 0; i < 5; i++)
+        {
+            await SeedImportAtAsync(userId, groupId, now.AddMinutes(-i));
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/imports?mine=true&limit=2");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        var body = (await response.Content.ReadFromJsonAsync<List<ImportEndpoints.ImportSummary>>())!;
+        Assert.Equal(2, body.Count);
+    }
+
+    [Fact]
+    public async Task List_Mine_Clamps_Limit_Above_Hundred()
+    {
+        // Hostile limit values can't drain the table. The server silently
+        // clamps above MaxMineImportsLimit rather than 400ing — the
+        // frontend will never hit this branch but the guard must hold.
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        var now = DateTimeOffset.UtcNow;
+        for (var i = 0; i < 3; i++)
+        {
+            await SeedImportAtAsync(userId, groupId, now.AddMinutes(-i));
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/imports?mine=true&limit=10000");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<List<ImportEndpoints.ImportSummary>>())!;
+        // All three rows surface — fewer than the cap, but the point is
+        // the cap didn't error out.
+        Assert.Equal(3, body.Count);
+    }
+
+    [Fact]
+    public async Task List_Mine_Item_Exposes_Status_Phase_And_Progress_Label()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        // Create an import and put it into a Running/Transcribing state
+        // so the summary row covers every enum-mapped field.
+        Guid importId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var import = new RecipeImport(
+                userId: userId,
+                groupId: groupId,
+                source: ImportSource.Url,
+                sourceUrl: "https://example.com/rezept",
+                createdAt: DateTimeOffset.UtcNow);
+            import.UpdateProgress(
+                phase: RecipeImportPhase.Transcribing,
+                phaseProgress: 50,
+                bytesDownloaded: null,
+                bytesTotal: null,
+                segmentsDone: 5,
+                segmentsTotal: 10,
+                attempt: 1,
+                now: DateTimeOffset.UtcNow);
+            db.RecipeImports.Add(import);
+            await db.SaveChangesAsync();
+            importId = import.Id;
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/imports?mine=true");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        var body = (await response.Content.ReadFromJsonAsync<List<ImportEndpoints.ImportSummary>>())!;
+        var row = body.Single(r => r.Id == importId);
+        Assert.Equal("Running", row.Status);
+        Assert.Equal("Url", row.Source);
+        Assert.Equal("transcribing", row.Phase);
+        Assert.Equal("https://example.com/rezept", row.SourceUrl);
+        Assert.NotNull(row.ProgressLabel);
+        Assert.Null(row.CompletedAt);
+        Assert.Null(row.Error);
+    }
+
+    [Fact]
+    public async Task List_Mine_Mine_False_Gets_400()
+    {
+        // `mine=false` is a deliberate reject — admin list paths live
+        // elsewhere; the public endpoint refuses to leak other users'
+        // imports even to a hostile caller spamming the parameter.
+        var (_, token) = await SignupAsync("alice@ex.com", "Alice");
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/imports?mine=false");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }

@@ -306,6 +306,122 @@ describe('<ImportUrlPage />', () => {
     expect(alert.className).toMatch(/break-all/)
   })
 
+  // BUG-013 — URL-import cache-hit UX. On `cached: true` we stop the
+  // auto-redirect, render a blue banner with two CTAs, and support both
+  // "Zum bestehenden Rezept" (navigate to the cached import's progress
+  // page) and "Neu extrahieren" (re-POST with `force: true`, skip cache).
+
+  it('BUG-013 cache-hit: renders banner with both CTAs and does NOT auto-navigate', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'only' })]),
+      ),
+      http.post('/api/recipes/import/url', () =>
+        HttpResponse.json(
+          { importId: 'imp-cached-1', cached: true },
+          { status: 202 },
+        ),
+      ),
+    )
+    renderPage()
+    await user.type(
+      screen.getByLabelText(/Video- oder Blog-URL/i),
+      'https://example.com/r',
+    )
+    await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
+
+    // Banner with both CTAs.
+    expect(
+      await screen.findByTestId('import-url-cache-banner'),
+    ).toHaveTextContent(/bereits importiert/i)
+    expect(
+      screen.getByRole('button', { name: /Zum bestehenden Rezept/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Neu extrahieren/i }),
+    ).toBeInTheDocument()
+
+    // No auto-navigate — we stay on the URL-import page so the user
+    // actively picks a branch.
+    expect(screen.getByTestId('location')).toHaveTextContent('/rezepte/import/url')
+  })
+
+  it('BUG-013 cache-hit: "Zum bestehenden Rezept" navigates to the cached progress page', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'only' })]),
+      ),
+      http.post('/api/recipes/import/url', () =>
+        HttpResponse.json(
+          { importId: 'imp-cached-2', cached: true },
+          { status: 202 },
+        ),
+      ),
+    )
+    renderPage()
+    await user.type(
+      screen.getByLabelText(/Video- oder Blog-URL/i),
+      'https://example.com/r',
+    )
+    await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
+
+    await screen.findByTestId('import-url-cache-banner')
+    await user.click(screen.getByRole('button', { name: /Zum bestehenden Rezept/i }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/rezepte/import/imp-cached-2',
+      ),
+    )
+  })
+
+  it('BUG-013 cache-hit: "Neu extrahieren" re-POSTs with force=true and navigates fresh', async () => {
+    const user = userEvent.setup()
+    const posts: Array<{ url: string; groupId: string; force?: boolean }> = []
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'only' })]),
+      ),
+      http.post('/api/recipes/import/url', async ({ request }) => {
+        const body = (await request.json()) as {
+          url: string
+          groupId: string
+          force?: boolean
+        }
+        posts.push(body)
+        if (body.force === true) {
+          // Fresh enqueue — no `cached` flag.
+          return HttpResponse.json({ importId: 'imp-fresh' }, { status: 202 })
+        }
+        return HttpResponse.json(
+          { importId: 'imp-cached-3', cached: true },
+          { status: 202 },
+        )
+      }),
+    )
+    renderPage()
+    await user.type(
+      screen.getByLabelText(/Video- oder Blog-URL/i),
+      'https://example.com/r',
+    )
+    await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
+
+    await screen.findByTestId('import-url-cache-banner')
+    await user.click(screen.getByRole('button', { name: /Neu extrahieren/i }))
+
+    await waitFor(() => expect(posts.length).toBe(2))
+    expect(posts[0]!.force ?? false).toBe(false)
+    expect(posts[1]!.force).toBe(true)
+    // After the force-refresh lands we navigate to the fresh import id.
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/rezepte/import/imp-fresh',
+      ),
+    )
+  })
+
   it('surfaces a server 400 error inline (no navigation)', async () => {
     const user = userEvent.setup()
     server.use(

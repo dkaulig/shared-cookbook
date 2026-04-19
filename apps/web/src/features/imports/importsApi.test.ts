@@ -6,9 +6,14 @@ import {
   enqueuePhotoImport,
   enqueueUrlImport,
   fetchImport,
+  fetchMyImports,
+  mapImportSummary,
   mapStatusResponse,
 } from './importsApi'
-import type { ImportStatusResponseWire } from './importsApi'
+import type {
+  ImportStatusResponseWire,
+  ImportSummaryWire,
+} from './importsApi'
 import type { ExtractionResult } from '@familien-kochbuch/shared'
 
 beforeEach(() => {
@@ -334,5 +339,104 @@ describe('importsApi — GET /api/imports/:id', () => {
   it('defaults thumbnailStagedPhotoId to null when the wire omits it', () => {
     const dto = mapStatusResponse(baseWire({ id: 'imp-no-thumb' }))
     expect(dto.thumbnailStagedPhotoId).toBeNull()
+  })
+})
+
+// BUG-010 — `GET /api/imports?mine=true&limit=N` list endpoint.
+//
+// The wire→DTO mapping lowers the TitleCase status/source enums at the
+// edge (same pattern as the per-id GET) and renames the wire `error`
+// field to `errorMessage` so the list DTO aligns with the rest of the
+// imports surface.
+function baseSummaryWire(
+  overrides: Partial<ImportSummaryWire> = {},
+): ImportSummaryWire {
+  return {
+    id: 'imp-list-1',
+    groupId: 'g-list-1',
+    source: 'Url',
+    status: 'Running',
+    progress: 20,
+    phase: 'downloading',
+    progressLabel: null,
+    sourceUrl: 'https://example.com/rezept',
+    createdAt: '2026-04-18T00:00:00Z',
+    completedAt: null,
+    error: null,
+    ...overrides,
+  }
+}
+
+describe('importsApi — GET /api/imports?mine=true (BUG-010)', () => {
+  it('fetchMyImports sends mine=true and the limit query', async () => {
+    let capturedUrl: URL | null = null
+    server.use(
+      http.get('/api/imports', ({ request }) => {
+        capturedUrl = new URL(request.url)
+        return HttpResponse.json([])
+      }),
+    )
+    const rows = await fetchMyImports(15)
+    expect(rows).toEqual([])
+    expect(capturedUrl).not.toBeNull()
+    expect(capturedUrl!.searchParams.get('mine')).toBe('true')
+    expect(capturedUrl!.searchParams.get('limit')).toBe('15')
+  })
+
+  it('maps TitleCase status + source + snake-case phase through the mapper', () => {
+    const dto = mapImportSummary(
+      baseSummaryWire({
+        id: 'imp-listed',
+        source: 'Photos',
+        status: 'Done',
+        progress: 100,
+        phase: 'done',
+        completedAt: '2026-04-18T00:01:00Z',
+      }),
+    )
+    expect(dto.id).toBe('imp-listed')
+    expect(dto.source).toBe('photos')
+    expect(dto.status).toBe('done')
+    expect(dto.phase).toBe('done')
+    expect(dto.completedAt).toBe('2026-04-18T00:01:00Z')
+  })
+
+  it('renames the wire `error` field to `errorMessage` on the DTO', () => {
+    const dto = mapImportSummary(
+      baseSummaryWire({
+        status: 'Error',
+        phase: 'error',
+        error: 'Video ist privat',
+      }),
+    )
+    expect(dto.errorMessage).toBe('Video ist privat')
+    expect(dto.status).toBe('error')
+  })
+
+  it('fetchMyImports returns a list of mapped DTOs preserving server order', async () => {
+    server.use(
+      http.get('/api/imports', () =>
+        HttpResponse.json([
+          baseSummaryWire({
+            id: 'imp-new',
+            status: 'Running',
+            phase: 'downloading',
+          }),
+          baseSummaryWire({
+            id: 'imp-old',
+            status: 'Done',
+            progress: 100,
+            phase: 'done',
+            completedAt: '2026-04-17T23:00:00Z',
+          }),
+        ]),
+      ),
+    )
+    const rows = await fetchMyImports()
+    expect(rows).toHaveLength(2)
+    expect(rows[0].id).toBe('imp-new')
+    expect(rows[0].status).toBe('running')
+    expect(rows[1].id).toBe('imp-old')
+    expect(rows[1].status).toBe('done')
   })
 })

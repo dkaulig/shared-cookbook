@@ -302,7 +302,24 @@ zu groß wird.
 
 ## BUG-010 · Fehlt: Übersicht aller laufenden/geplanten Imports
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — neuer Backend-Endpoint
+`GET /api/imports?mine=true&limit=N` (capped bei 100) liefert eine
+leichte `ImportSummary`-Liste (Id, GroupId, Status, Phase, Progress,
+ProgressLabel, SourceUrl, CreatedAt, CompletedAt, Error) scoped auf
+die Imports des Aufrufers in Gruppen, in denen er noch Mitglied ist,
+newest-first sortiert. Neue Route `/rezepte/import` (vor
+`/rezepte/import/:importId` registriert) zeigt eine `ImportListPage`
+mit drei Create-CTAs (URL / Fotos / Chat) + Liste inkl. Source-Icon
+(Video/Image/MessageSquare), Status-Chip, Progress-Bar (nur Queued/
+Running), verkürzter Source-URL + relativer Zeit via
+`Intl.RelativeTimeFormat` (kein neues Paket). Click-Verhalten: Done →
+`/groups/{groupId}/recipes/new?importId=…` (Form-Prefill, mirrored
+aus `ImportProgressPage`); sonst → `/rezepte/import/{importId}`
+(shared Progress-Page). `CreateActionSheet` bekommt einen zusätzlichen
+"Imports ansehen"-Eintrag. Regression-Tests: 8 Backend-Tests
+(`ListMineImports…`) + 9 Frontend-Tests (`ImportListPage.test.tsx` +
+`formatRelativeTime`) + 4 Wire-Mapper-Tests in `importsApi.test.ts`
++ 1 Shared-DTO-Typ-Test.)
 **Where:** Video-Import-Seite — User möchte eine Übersicht sehen
 **Symptom/Anforderung:** Aktuell navigiert der User nach Klick auf
 "Importieren" zur ImportProgressPage eines einzelnen Imports. Wenn er
@@ -453,7 +470,28 @@ beibehalten oder entfernt werden — ersteres als reines Fallback.
 
 ## BUG-013 · URL-Import: kein Cache bei wiederholter gleicher URL (Feature-Request)
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — `EnqueueUrlImportAsync` macht vor
+`jobs.Enqueue` einen Pre-Lookup: gleicher Caller + gleiche canonical-URL +
+`Status=Done` + `CreatedAt > now - 7 Tage` → 202 mit `{ importId, cached:
+true }` zurück; keine neue Hangfire-Job-Enqueue, kein Whisper/Azure-
+Aufruf. `Force: true` im Request-Body (`UrlImportRequest`) umgeht den
+Cache und erzeugt immer eine frische Extraktion. URL-Kanonisierung via
+neuem `UrlNormaliser.Normalise` (lowercase scheme+host, strip tracking
+params `fbclid`, `gclid`, `mibextid`, `_ga`, `ref_src`, `ref_url`,
+`igshid`, `si`, `feature` + alle `utm_*`, default-Port-Drop, Fragment
+erhalten, Query-Order stabil) — dadurch hits gleiche FB-Reel-URL auch
+nach verschiedenen Share-Sources. Persistierte `SourceUrl` ist jetzt
+die kanonische Form. Frontend `ImportUrlPage` rendert bei `cached: true`
+ein blaues Banner mit 2 CTAs: "Zum bestehenden Rezept" (navigate zur
+Progress-Page → done-branch redirect zum Recipe-Form prefilled) +
+"Neu extrahieren" (POST mit `force: true`). Scope ist per-User (privacy),
+TTL 7 Tage. 16 .NET-Regressions-Tests (11 `UrlNormaliserTests` +
+5 `BUG013_*` Endpoint-Tests: cache-hit, per-User-Scope, force-flag,
+7-day-expiry, tracking-param-normalisation) + 3 neue Frontend-Tests
+in `ImportUrlPage.test.tsx` (Banner-Render + beide CTAs). Keine neuen
+NuGet-/NPM-Packages. SQLite-Test-Fallback loaded-then-filter analog zu
+`SweepAbandonedStagedPhotosJob` weil EF-Core-SQLite-Provider weder
+DateTimeOffset-Comparisons noch ORDER BY DateTimeOffset unterstützt.)
 **Severity:** medium (UX + cost — nicht broken, nur suboptimal)
 **Symptom:** User gibt zwei mal die gleiche URL ein → beide Male läuft
 die komplette Pipeline (yt-dlp ~1s + Whisper ~30-90s + Azure ~3s +
@@ -630,7 +668,10 @@ mit "Wenn Prod post-deploy rot ist: ssh + `compose down && up -d`".
 
 ## BUG-017 · Recipe-Form nach Auto-Redirect leer (Race Condition)
 **Reported:** 2026-04-19 (user tested post-v0.4.0)
-**Status:** `[ ] open` (fix in progress)
+**Status:** `[x] fixed` (2026-04-19 — commit 97e8fd8: wrapper blockiert
+`RecipeFormInner` mit `<LoadingSpinner />` solange `status === 'done'`
+aber `result == null`, ebenso bei `status === 'error'`. Component-
+Regressions-Test deckt beide Race-States ab.)
 **Severity:** HIGH — blockiert primary video-import UX
 **Symptom:** Nach Video-Import Done → Auto-Redirect zu
 `/groups/{g}/recipes/new?importId=X` → **Form komplett leer**.

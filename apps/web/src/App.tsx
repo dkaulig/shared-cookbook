@@ -14,6 +14,7 @@ import { GroupDetailPage } from '@/features/groups/GroupDetailPage'
 import { GroupSettingsPage } from '@/features/groups/GroupSettingsPage'
 import { RecipeDetailPage } from '@/features/recipes/RecipeDetailPage'
 import { RecipeFormPage } from '@/features/recipes/RecipeFormPage'
+import { ImportListPage } from '@/features/imports/ImportListPage'
 import { ImportUrlPage } from '@/features/imports/ImportUrlPage'
 import { ImportPhotosPage } from '@/features/imports/ImportPhotosPage'
 import { ImportProgressPage } from '@/features/imports/ImportProgressPage'
@@ -81,6 +82,11 @@ export default function App() {
               path="/groups/:groupId/recipes/:recipeId/edit"
               element={<RecipeFormPage mode="edit" />}
             />
+            {/* BUG-010 — dashboard of the caller's recent imports. Must be
+                registered BEFORE `/rezepte/import/:importId` so the static
+                "" / "url" / "photos" paths do not get captured as the
+                dynamic `:importId` route. */}
+            <Route path="/rezepte/import" element={<ImportListPage />} />
             <Route path="/rezepte/import/url" element={<ImportUrlPage />} />
             <Route path="/rezepte/import/photos" element={<ImportPhotosPage />} />
             <Route

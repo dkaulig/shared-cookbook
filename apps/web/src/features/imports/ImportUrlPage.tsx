@@ -11,6 +11,18 @@ import { useEnqueueUrlImport } from './hooks'
 import { rememberImportGroup } from './importGroupMemo'
 
 /**
+ * BUG-013 — local state for the cache-hit banner. When the server
+ * short-circuits a duplicate URL import, we stash the returned
+ * `importId` + the `groupId` we would have used so the "Zum Rezept"
+ * button can route exactly where the auto-redirect normally lands, and
+ * "Neu extrahieren" can re-submit with `force: true`.
+ */
+interface CacheHit {
+  importId: string
+  groupId: string
+}
+
+/**
  * URL-import entry form — routed at `/rezepte/import/url`.
  *
  * Flow:
@@ -43,6 +55,10 @@ export function ImportUrlPage() {
   const [error, setError] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  // BUG-013 — when the server reports a cache-hit we render a banner
+  // with "Zum bestehenden Rezept" + "Neu extrahieren" CTAs instead of
+  // auto-navigating. Cleared on the next submit + after either CTA.
+  const [cacheHit, setCacheHit] = useState<CacheHit | null>(null)
   const urlRef = useRef<HTMLInputElement | null>(null)
 
   // SECURITY (PV3 review): autofocus the URL input ONLY when the field
@@ -70,23 +86,34 @@ export function ImportUrlPage() {
     return null
   }
 
-  async function importWithGroup(groupId: string) {
+  async function importWithGroup(groupId: string, options?: { force?: boolean }) {
     const trimmed = url.trim()
     setError(null)
+    setCacheHit(null)
     try {
-      const { importId } = await enqueue.mutateAsync({
+      const response = await enqueue.mutateAsync({
         url: trimmed,
         groupId,
+        ...(options?.force ? { force: true } : {}),
       })
       // Stash groupId keyed by importId so the progress page + the
-      // RecipeFormPage prefill know which group to route to. The
-      // server's GET /api/imports/{id} does NOT include groupId (P2-6
-      // response shape), and we must not block on a backend change for
-      // P2-7. sessionStorage survives soft reloads within the tab;
-      // closing the tab drops the mapping, which is fine — the user
-      // can reopen /rezepte/import/url if they want to retry.
-      rememberImportGroup(importId, groupId)
-      navigate(`/rezepte/import/${importId}`, { state: { groupId } })
+      // RecipeFormPage prefill know which group to route to, across
+      // both fresh and cached import responses. sessionStorage survives
+      // soft reloads within the tab; closing the tab drops the mapping,
+      // which is fine — the user can reopen /rezepte/import/url.
+      rememberImportGroup(response.importId, groupId)
+
+      // BUG-013 — cache-hit path: stop and surface the banner so the
+      // user can choose whether to go to the existing recipe or force
+      // a fresh extraction. No auto-navigate so the cache behaviour is
+      // transparent (the alternative silent redirect would make
+      // "I clicked but nothing changed" debuggable only via logs).
+      if (response.cached === true) {
+        setCacheHit({ importId: response.importId, groupId })
+        return
+      }
+
+      navigate(`/rezepte/import/${response.importId}`, { state: { groupId } })
     } catch (err) {
       const apiErr = err as ApiError
       setError(apiErr.message || 'Der Import konnte nicht gestartet werden.')
@@ -121,6 +148,26 @@ export function ImportUrlPage() {
     void importWithGroup(group.id)
   }
 
+  // BUG-013 — "Zum bestehenden Rezept": navigate to the cached import's
+  // progress page. The progress page's done-branch immediately redirects
+  // to the recipe form prefilled from `result`, matching the UX the user
+  // would have gotten if the pipeline had just finished.
+  function handleGotoCachedImport() {
+    if (!cacheHit) return
+    const { importId, groupId } = cacheHit
+    setCacheHit(null)
+    navigate(`/rezepte/import/${importId}`, { state: { groupId } })
+  }
+
+  // BUG-013 — "Neu extrahieren": re-submit the same URL with force=true
+  // so the server bypasses the cache and runs the full extraction
+  // pipeline. We reuse the existing group (the cache-hit was per-user,
+  // and the user had already committed to that group on the first POST).
+  async function handleForceRefresh() {
+    if (!cacheHit) return
+    await importWithGroup(cacheHit.groupId, { force: true })
+  }
+
   const submitPending = enqueue.isPending
 
   return (
@@ -145,6 +192,34 @@ export function ImportUrlPage() {
         >
           <strong>Diese URL stammt aus einem Link.</strong> Bitte prüfe sie,
           bevor du den Import startest.
+        </div>
+      )}
+
+      {cacheHit && (
+        <div
+          role="status"
+          data-testid="import-url-cache-banner"
+          className="mt-6 rounded-[12px] border border-sky-300 bg-sky-50 p-4 text-sm text-sky-900"
+        >
+          <p className="font-semibold">Diese URL wurde bereits importiert.</p>
+          <p className="mt-1 text-sky-800">
+            Wir haben ein Rezept aus derselben URL in den letzten 7 Tagen
+            gefunden. Du kannst es direkt öffnen — oder die Extraktion
+            erneut durchlaufen lassen, falls sich das Video geändert hat.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={handleGotoCachedImport}>
+              Zum bestehenden Rezept
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => void handleForceRefresh()}
+              disabled={submitPending}
+            >
+              {submitPending ? 'Importiere …' : 'Neu extrahieren'}
+            </Button>
+          </div>
         </div>
       )}
 
