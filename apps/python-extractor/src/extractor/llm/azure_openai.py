@@ -9,8 +9,12 @@ different surface from the older Chat Completions API:
   system prompt as a plain string), ``input`` (a list of message
   objects with a ``content`` array of parts — ``input_text`` for text,
   ``input_image`` for vision).
-- Structured-output enforcement via ``response_format =
-  {type: "json_schema", json_schema: {schema: ..., name: ...}}``.
+- Structured-output enforcement via ``text = {format: {type:
+  "json_schema", name: ..., schema: ..., strict: true}}``. Azure
+  deprecated the older top-level ``response_format`` parameter for
+  the Responses API in the 2025-04 rollout and now returns
+  ``invalid_request`` for it; the field moved to nested ``text.format``
+  with the ``json_schema`` wrapper flattened away.
 - Auth via the ``api-key`` request header (not ``Authorization`` —
   Azure-specific).
 
@@ -307,15 +311,19 @@ class AzureOpenAIProvider(LLMProvider):
             "input": input_messages,
         }
         if json_schema is not None:
-            body["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    # Azure requires a schema name; keep it stable so log
-                    # diffs don't churn across calls.
+            # Responses API: structured output lives under ``text.format``.
+            # Azure deprecated the old top-level ``response_format`` (and
+            # its nested ``json_schema`` wrapper) in the 2025-04 rollout —
+            # the new shape flattens ``name``/``schema``/``strict`` onto
+            # ``format`` directly. Keep the schema name stable so log
+            # diffs don't churn across calls.
+            body["text"] = {
+                "format": {
+                    "type": "json_schema",
                     "name": "extractor_response",
                     "schema": json_schema,
                     "strict": True,
-                },
+                }
             }
         return body
 
