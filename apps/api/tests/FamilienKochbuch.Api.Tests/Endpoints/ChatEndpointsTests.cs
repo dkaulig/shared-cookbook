@@ -216,6 +216,53 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
     }
 
     [Fact]
+    public async Task Chat_Python_422_Maps_To_400()
+    {
+        // Python uses 422 for validation errors (invalid schema / shape).
+        // .NET prefers 400 for the same semantic — the error mapper
+        // collapses the two. Test pins the translation so a future
+        // refactor can't silently change the caller-visible status.
+        var (_, token) = await SignupAsync("chatter@ex.com", "Chat");
+
+        _factory.ExtractorHandler.QueueResponse(
+            HttpStatusCode.UnprocessableEntity,
+            "{\"detail\":\"session_id darf nicht leer sein.\"}");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/chat");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new ChatTurnRequest(
+            "s1", new[] { new ChatMessageDto("user", "Hi") }));
+
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Chat_Transport_Failure_Maps_To_502()
+    {
+        // The Python service unreachable (connection refused, timeout,
+        // DNS failure, etc.) must surface as 502 Bad Gateway to the
+        // caller — distinct from a provider outage (503) since the
+        // failure is between .NET and the extractor, not between the
+        // extractor and Azure. Pins the PythonProxyErrorMapper transport
+        // branch.
+        var (_, token) = await SignupAsync("chatter@ex.com", "Chat");
+
+        _factory.ExtractorHandler.QueueResponder(_ =>
+            throw new HttpRequestException("connection refused"));
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/chat");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new ChatTurnRequest(
+            "s1", new[] { new ChatMessageDto("user", "Hi") }));
+
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Chat_Python_401_Is_Masked_As_500()
     {
         // HMAC mismatch on the wire must not leak to the caller — it

@@ -436,6 +436,25 @@ public class ImportEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
     }
 
     [Fact]
+    public async Task Photos_Import_Missing_Group_Gets_404()
+    {
+        var (_, token) = await SignupAsync("alice@ex.com", "Alice");
+        var missingGroupId = Guid.NewGuid();
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/photos");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new PhotoImportRequest(
+            new[] { SignPhotoUrl("recipes/alice/1.jpg") }, missingGroupId));
+
+        var response = await _client.SendAsync(req);
+
+        // Parity with the URL-import 404 path (/api/recipes/import/url).
+        // The photos endpoint must surface missing group the same way so
+        // clients get a consistent error taxonomy.
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Photos_Import_Zero_Photos_Gets_400()
     {
         var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
