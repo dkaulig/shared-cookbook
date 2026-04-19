@@ -115,8 +115,9 @@ services:
     restart: unless-stopped
     # Whisper large-v3 resident ~3 GB; 8 GB leaves room for 2 parallel
     # transcriptions + yt-dlp buffers. Hetzner CPX41 has 16 GB total.
+    # CPU cap: 6 cores, leaves 2 for api/postgres/caddy during transcription bursts.
     mem_limit: 8g
-    cpus: "8.0"
+    cpus: "6.0"
 
   caddy:
     image: caddy:2-alpine

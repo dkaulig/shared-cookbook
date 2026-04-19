@@ -42,15 +42,24 @@ Wenn `.env` auf dem VPS per Hand erweitert wurde (z. B. neues
 Azure-Deployment) und der Stand in GitHub Secrets veraltet ist:
 
 ```bash
-# VPS → lokal (Temp-Datei)
-scp deploy@EXAMPLE_HOST:/srv/familien-kochbuch/.env /tmp/.env.prod
+# Schreibe in ~/.config mit restriktiver umask statt /tmp
+# (/tmp ist world-readable; Home-Verzeichnis nicht).
+mkdir -p ~/.config/familien-kochbuch
+umask 077
+scp deploy@EXAMPLE_HOST:/srv/familien-kochbuch/.env \
+    ~/.config/familien-kochbuch/.env.prod.tmp
 
-# Inhalt sichten, dann ins GH-Secret schieben
-gh secret set PROD_ENV --body "$(cat /tmp/.env.prod)"
+# Inhalt sichten, dann ins GH-Secret schieben — via stdin, NICHT --body,
+# sonst landet der Klartext-Inhalt in der zsh/bash-History (argv).
+gh secret set PROD_ENV < ~/.config/familien-kochbuch/.env.prod.tmp
 
-# Aufräumen — /tmp/.env.prod darf nicht liegen bleiben
-shred -u /tmp/.env.prod
+# Aufräumen — Datei sofort löschen.
+rm ~/.config/familien-kochbuch/.env.prod.tmp
 ```
+
+Hinweis: `shred` ist auf APFS/SSDs weitgehend wirkungslos (Copy-on-Write,
+Wear-Levelling). Der Schutz kommt hier aus dem restriktiven `umask 077`
+während des Schreibens und der sofortigen Löschung danach.
 
 ---
 
@@ -58,7 +67,8 @@ shred -u /tmp/.env.prod
 
 - URL: <https://EXAMPLE_HOST/api/hangfire>
 - Auth: Admin-only (Bearer-JWT mit Rolle `Admin` → `AdminOnlyAuthorizationFilter`)
-- Worker-Count: **2** (hart in `Program.cs` konfiguriert — s. Task-50-Infra-Fix)
+- Worker-Count: Default **2**, via `HANGFIRE_WORKERS` env var überschreibbar
+  (siehe `Program.cs` → `AddHangfireServer`).
 
 Nützliche Ansichten: Jobs → Failed (stuck extractions), Recurring Jobs
 (`SweepAbandonedStagedPhotos` sollte stündlich laufen).
