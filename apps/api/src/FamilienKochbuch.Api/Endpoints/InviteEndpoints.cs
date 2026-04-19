@@ -3,8 +3,10 @@ using System.Security.Cryptography;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Persistence;
+using FamilienKochbuch.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace FamilienKochbuch.Api.Endpoints;
@@ -38,6 +40,8 @@ public static class InviteEndpoints
         AppDbContext db,
         TimeProvider clock,
         IOptions<AppOptions> appOptions,
+        IEmailSender emailSender,
+        ILogger<AppInvite> logger,
         CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId))
@@ -56,6 +60,32 @@ public static class InviteEndpoints
         await db.SaveChangesAsync(ct);
 
         var url = $"{appOptions.Value.FrontendBaseUrl.TrimEnd('/')}/signup?token={token}";
+
+        // PF3 — best-effort mail delivery. The invite row is authoritative;
+        // a mail failure must not 5xx the endpoint so the inviter can still
+        // copy the returned URL manually.
+        if (!string.IsNullOrWhiteSpace(invite.Email))
+        {
+            try
+            {
+                var inviterDisplayName = principal.FindFirstValue("displayName")
+                                          ?? principal.FindFirstValue(ClaimTypes.Name)
+                                          ?? "Jemand";
+                await emailSender.SendAppInviteAsync(
+                    toEmail: invite.Email,
+                    inviterDisplayName: inviterDisplayName,
+                    acceptUrl: url,
+                    personalNote: null,
+                    ct: ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "App-invite mail delivery failed for inviteId={InviteId}; inviter can still share the link manually.",
+                    invite.Id);
+            }
+        }
+
         return Results.Ok(new CreateInviteResponse(invite.Id, token, url, invite.ExpiresAt));
     }
 
