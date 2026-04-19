@@ -12,8 +12,9 @@ namespace FamilienKochbuch.Infrastructure.Persistence.Configurations;
 /// the week-grid query the read endpoint fires (P3-1 / P3-2).
 /// FK behaviours: MealPlan cascade (slots die with their plan), Recipe
 /// SetNull (deleted recipe leaves the slot as a free-text Label — P3-4),
-/// ParentSlot restrict (can't delete a parent while children reference it,
-/// forces P3-1's DELETE handler to re-parent children first).
+/// ParentSlot SetNull (self-referencing FKs inside a cascade tx must not
+/// Restrict — Postgres raises 23001 restrict_violation when children and
+/// parents are deleted in the same cascade).
 /// </summary>
 internal sealed class MealPlanSlotConfiguration : IEntityTypeConfiguration<MealPlanSlot>
 {
@@ -47,8 +48,11 @@ internal sealed class MealPlanSlotConfiguration : IEntityTypeConfiguration<MealP
         e.HasOne(s => s.ParentSlot)
             .WithMany(s => s.Children)
             .HasForeignKey(s => s.ParentSlotId)
-            // Restrict so the DELETE endpoint in P3-1 has to explicitly
-            // re-parent or detach children before dropping the parent.
-            .OnDelete(DeleteBehavior.Restrict);
+            // Cascade-deleting a MealPlan cleans up slots in one tx. SetNull
+            // lets child ParentSlotIds be nulled during cascade; the
+            // slot-level DELETE endpoint in P3-1 manually nulls children
+            // first for partial deletes so user work is preserved
+            // (plan §P3-1).
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

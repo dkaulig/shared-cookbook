@@ -17,21 +17,26 @@ public class MealPlanSlotTests
     private static readonly DateOnly PreviousSunday = new(2026, 4, 19);
     private static readonly DateOnly NextMonday = new(2026, 4, 27);
 
+    // Overload with explicit recipeId-unset sentinel: `recipeIdProvided:false`
+    // lets callers pass null for RecipeId without being shadowed by the
+    // "auto-generate a Guid" default used by the common happy-path helper.
     private static MealPlanSlot NewSlot(
-        Guid mealPlanId,
+        Guid? mealPlanId = null,
         DateOnly? date = null,
+        MealSlot meal = MealSlot.Mittag,
         int servings = 2,
         Guid? recipeId = null,
+        bool recipeIdProvided = false,
         string? label = null,
         int sortOrder = 0)
     {
         return new MealPlanSlot(
-            mealPlanId: mealPlanId,
+            mealPlanId: mealPlanId ?? Guid.NewGuid(),
             weekStart: Monday,
             date: date ?? Monday,
-            meal: MealSlot.Mittag,
+            meal: meal,
             servings: servings,
-            recipeId: recipeId ?? Guid.NewGuid(),
+            recipeId: recipeIdProvided ? recipeId : (recipeId ?? Guid.NewGuid()),
             label: label,
             sortOrder: sortOrder,
             createdAt: DateTimeOffset.UtcNow);
@@ -131,16 +136,8 @@ public class MealPlanSlotTests
     [Fact]
     public void Constructor_Rejects_Both_RecipeId_And_Label_Null()
     {
-        Assert.Throws<ArgumentException>(() => new MealPlanSlot(
-            mealPlanId: Guid.NewGuid(),
-            weekStart: Monday,
-            date: Monday,
-            meal: MealSlot.Mittag,
-            servings: 2,
-            recipeId: null,
-            label: null,
-            sortOrder: 0,
-            createdAt: DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() =>
+            NewSlot(recipeId: null, recipeIdProvided: true, label: null));
     }
 
     [Fact]
@@ -148,16 +145,8 @@ public class MealPlanSlotTests
     {
         var tooLong = new string('x', 121);
 
-        Assert.Throws<ArgumentException>(() => new MealPlanSlot(
-            mealPlanId: Guid.NewGuid(),
-            weekStart: Monday,
-            date: Monday,
-            meal: MealSlot.Mittag,
-            servings: 2,
-            recipeId: null,
-            label: tooLong,
-            sortOrder: 0,
-            createdAt: DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() =>
+            NewSlot(recipeId: null, recipeIdProvided: true, label: tooLong));
     }
 
     [Fact]
@@ -293,16 +282,7 @@ public class MealPlanSlotTests
     {
         // Recipe + optional label is a legal combination — e.g. "Spätzle"
         // with personal-note label "Meal Prep".
-        var slot = new MealPlanSlot(
-            mealPlanId: Guid.NewGuid(),
-            weekStart: Monday,
-            date: Monday,
-            meal: MealSlot.Mittag,
-            servings: 4,
-            recipeId: Guid.NewGuid(),
-            label: "Meal Prep",
-            sortOrder: 0,
-            createdAt: DateTimeOffset.UtcNow);
+        var slot = NewSlot(servings: 4, label: "Meal Prep");
 
         Assert.NotNull(slot.RecipeId);
         Assert.Equal("Meal Prep", slot.Label);
@@ -311,15 +291,6 @@ public class MealPlanSlotTests
     [Fact]
     public void Constructor_Rejects_Empty_MealPlanId()
     {
-        Assert.Throws<ArgumentException>(() => new MealPlanSlot(
-            mealPlanId: Guid.Empty,
-            weekStart: Monday,
-            date: Monday,
-            meal: MealSlot.Mittag,
-            servings: 2,
-            recipeId: Guid.NewGuid(),
-            label: null,
-            sortOrder: 0,
-            createdAt: DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => NewSlot(mealPlanId: Guid.Empty));
     }
 }
