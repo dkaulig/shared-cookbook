@@ -222,4 +222,46 @@ public class RecipeImportTests
 
         Assert.Throws<InvalidOperationException>(() => import.MarkRunning(50));
     }
+
+    // ── StageTransitPayload (P2-6) ──────────────────────────────────
+
+    [Fact]
+    public void StageTransitPayload_Seeds_ResultJson_While_Queued()
+    {
+        var import = NewImport(source: ImportSource.Photos, sourceUrl: null);
+
+        import.StageTransitPayload("[\"https://cdn/x.jpg\"]");
+
+        Assert.Equal("[\"https://cdn/x.jpg\"]", import.ResultJson);
+        Assert.Equal(ImportStatus.Queued, import.Status);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void StageTransitPayload_Rejects_Blank(string payload)
+    {
+        var import = NewImport(source: ImportSource.Photos, sourceUrl: null);
+        Assert.Throws<ArgumentException>(() => import.StageTransitPayload(payload));
+    }
+
+    [Fact]
+    public void StageTransitPayload_Rejected_Once_Running()
+    {
+        var import = NewImport();
+        import.MarkRunning(10);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            import.StageTransitPayload("[\"x\"]"));
+    }
+
+    [Fact]
+    public void StageTransitPayload_Rejected_Once_Done()
+    {
+        var import = NewImport();
+        import.MarkDone("{\"title\":\"x\"}", DateTimeOffset.UtcNow);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            import.StageTransitPayload("[\"x\"]"));
+    }
 }

@@ -82,6 +82,29 @@ public sealed class RecipeImport
     // ── State transitions ───────────────────────────────────────────
 
     /// <summary>
+    /// Seeds <see cref="ResultJson"/> with transit data the background
+    /// job needs before calling Python (e.g. the ordered photo URL
+    /// list for the Photos source). Only legal while the import is
+    /// still <see cref="ImportStatus.Queued"/> — once a job is
+    /// running the field is owned by the job's progress + MarkDone
+    /// contract.
+    ///
+    /// This is the P2-6 enqueue-side counterpart to
+    /// <see cref="ExtractRecipeFromPhotosJob"/>'s transit contract.
+    /// Keeping it as a named domain method rather than a direct
+    /// setter lets the invariant be enforced at one place.
+    /// </summary>
+    public void StageTransitPayload(string payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+            throw new ArgumentException("Transit payload must not be blank.", nameof(payloadJson));
+        if (Status != ImportStatus.Queued)
+            throw new InvalidOperationException(
+                $"Transit payload can only be staged while Queued; current state is {Status}.");
+        ResultJson = payloadJson;
+    }
+
+    /// <summary>
     /// Transitions the import to <see cref="ImportStatus.Running"/> (if
     /// still queued) and records the latest progress hint. Safe to call
     /// multiple times from the running job.
