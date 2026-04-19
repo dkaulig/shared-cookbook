@@ -257,6 +257,69 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // ── P2-10 — Nutrition on create ─────────────────────────────────
+
+    [Fact]
+    public async Task CreateRecipe_Persists_NutritionEstimate_When_Supplied()
+    {
+        var (_, token) = await SignupAndLoginAsync("nutri@ex.com", "N");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var request = BuildCreateRequest("Mit Nährwerten") with
+        {
+            NutritionEstimate = new RecipeEndpoints.NutritionEstimateRequest(420, 24, 38, 9),
+        };
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", request);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.NotNull(body.NutritionEstimate);
+        Assert.Equal(420, body.NutritionEstimate!.Kcal);
+        Assert.Equal(24, body.NutritionEstimate.ProteinG);
+        Assert.Equal(38, body.NutritionEstimate.CarbsG);
+        Assert.Equal(9, body.NutritionEstimate.FatG);
+    }
+
+    [Fact]
+    public async Task CreateRecipe_Returns_Null_NutritionEstimate_When_Omitted()
+    {
+        var (_, token) = await SignupAndLoginAsync("nutri-null@ex.com", "NN");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // BuildCreateRequest omits the nutrition field — the response
+        // must still carry the key (as ``null``) so the frontend isn't
+        // surprised by a missing property.
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Ohne Nährwerte"));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Null(body.NutritionEstimate);
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_On_OutOfRange_NutritionEstimate()
+    {
+        var (_, token) = await SignupAndLoginAsync("nutri-bad@ex.com", "NB");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // kcal > 5000 is out of the domain bounds. The Python side
+        // clamps before this ever reaches .NET, but a drift in the AI
+        // pipeline / a direct-API caller must surface as a 400.
+        var request = BuildCreateRequest("Hallu") with
+        {
+            NutritionEstimate = new RecipeEndpoints.NutritionEstimateRequest(99999, 10, 10, 10),
+        };
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     // ── GET /api/recipes/{id} ───────────────────────────────────────
 
     [Fact]

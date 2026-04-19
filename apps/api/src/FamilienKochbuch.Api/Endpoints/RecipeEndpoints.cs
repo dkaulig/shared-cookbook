@@ -43,6 +43,18 @@ public static class RecipeEndpoints
 
     public record StepRequest(int Position, string Content);
 
+    /// <summary>
+    /// Per-portion nutrition estimate (P2-10). Mirrors the
+    /// <see cref="Domain.Entities.NutritionEstimate"/> shape so the
+    /// endpoint can hand the four fields straight to the domain record.
+    /// All four fields are integer kcal / macro-grams.
+    /// </summary>
+    public record NutritionEstimateRequest(
+        int Kcal,
+        int ProteinG,
+        int CarbsG,
+        int FatG);
+
     public record CreateRecipeRequest(
         string Title,
         string? Description,
@@ -52,7 +64,10 @@ public static class RecipeEndpoints
         string? SourceUrl,
         IngredientRequest[] Ingredients,
         StepRequest[] Steps,
-        Guid[] TagIds);
+        Guid[] TagIds,
+        // P2-10: optional per-portion nutrition estimate. ``null`` when
+        // the caller can't supply one (manual recipe, legacy client).
+        NutritionEstimateRequest? NutritionEstimate = null);
 
     public record UpdateRecipeRequest(
         string Title,
@@ -64,6 +79,12 @@ public static class RecipeEndpoints
         IngredientRequest[] Ingredients,
         StepRequest[] Steps,
         Guid[] TagIds);
+
+    public record NutritionEstimateDto(
+        int Kcal,
+        int ProteinG,
+        int CarbsG,
+        int FatG);
 
     public record IngredientDto(
         Guid Id,
@@ -124,7 +145,11 @@ public static class RecipeEndpoints
         DateTimeOffset UpdatedAt,
         IngredientDto[] Ingredients,
         StepDto[] Steps,
-        TagDto[] Tags);
+        TagDto[] Tags,
+        // P2-10: nullable per-portion nutrition estimate — always
+        // present on the response (null when unset) so the frontend
+        // never has to probe for a missing key.
+        NutritionEstimateDto? NutritionEstimate);
 
     public record UploadPhotoResponse(string Url);
 
@@ -250,6 +275,14 @@ public static class RecipeEndpoints
             .Select(photoStorage.GetPublicUrl)
             .ToArray();
 
+        var nutritionDto = recipe.NutritionEstimate is null
+            ? null
+            : new NutritionEstimateDto(
+                recipe.NutritionEstimate.Kcal,
+                recipe.NutritionEstimate.ProteinG,
+                recipe.NutritionEstimate.CarbsG,
+                recipe.NutritionEstimate.FatG);
+
         return new RecipeDetailDto(
             recipe.Id,
             recipe.GroupId,
@@ -269,7 +302,8 @@ public static class RecipeEndpoints
             recipe.UpdatedAt,
             ingredients,
             steps,
-            tags);
+            tags,
+            nutritionDto);
     }
 
     // ── POST /api/groups/{groupId}/recipes ──────────────────────────
@@ -331,6 +365,17 @@ public static class RecipeEndpoints
             foreach (var tagId in body.TagIds.Distinct())
             {
                 recipe.RecipeTags.Add(new RecipeTag(recipe.Id, tagId));
+            }
+
+            // P2-10: persist the optional nutrition estimate. The domain
+            // record validates the four bounds so out-of-range numbers
+            // from a drifting AI import bubble out as an invalid_input
+            // 400 — matching the rest of the endpoint's error taxonomy.
+            if (body.NutritionEstimate is { } n)
+            {
+                recipe.SetNutritionEstimate(
+                    new Domain.Entities.NutritionEstimate(n.Kcal, n.ProteinG, n.CarbsG, n.FatG),
+                    now);
             }
 
             db.Recipes.Add(recipe);
