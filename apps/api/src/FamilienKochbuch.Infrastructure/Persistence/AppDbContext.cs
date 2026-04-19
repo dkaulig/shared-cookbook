@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
+using FamilienKochbuch.Domain.MealPlanning;
 using FamilienKochbuch.Infrastructure.Persistence.Configurations;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -33,6 +34,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RecipeImport> RecipeImports => Set<RecipeImport>();
     public DbSet<StagedPhoto> StagedPhotos => Set<StagedPhoto>();
     public DbSet<ChatUsageLog> ChatUsageLogs => Set<ChatUsageLog>();
+    public DbSet<MealPlan> MealPlans => Set<MealPlan>();
+    public DbSet<MealPlanSlot> MealPlanSlots => Set<MealPlanSlot>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -44,6 +47,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.ApplyConfiguration(new RecipeImportConfiguration());
         builder.ApplyConfiguration(new StagedPhotoConfiguration());
         builder.ApplyConfiguration(new ChatUsageLogConfiguration());
+        builder.ApplyConfiguration(new MealPlanConfiguration());
+        builder.ApplyConfiguration(new MealPlanSlotConfiguration());
 
         builder.Entity<User>(e =>
         {
