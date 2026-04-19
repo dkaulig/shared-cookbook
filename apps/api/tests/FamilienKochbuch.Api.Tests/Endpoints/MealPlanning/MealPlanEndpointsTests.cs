@@ -963,7 +963,110 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
         Assert.All(body.Slots, s => Assert.False(s.IsCooked));
     }
 
+    // ── Version bump (P3-9 light-history) ───────────────────────────
+    //
+    // Every slot-level mutation must call MealPlan.BumpVersion() so the
+    // plan's `Version` counter reflects exactly how many edits have
+    // been applied since creation. Plan §P3-9 uses this counter for
+    // optimistic concurrency + the light-history badge.
+
+    [Fact]
+    public async Task Create_Plan_Starts_Version_At_Zero()
+    {
+        var (_, token) = await SignupAndLoginAsync("v0@ex.com", "V");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+
+        Assert.Equal(0, plan.Version);
+    }
+
+    [Fact]
+    public async Task AddSlot_Increments_Plan_Version()
+    {
+        var (userId, token) = await SignupAndLoginAsync("vadd@ex.com", "V");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+
+        await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+
+        var fetched = await FetchPlanAsync(_client, groupId, CurrentMonday);
+        Assert.Equal(1, fetched.Version);
+    }
+
+    [Fact]
+    public async Task PatchSlot_Increments_Plan_Version()
+    {
+        var (userId, token) = await SignupAndLoginAsync("vpatch@ex.com", "V");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var slot = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+        var afterAdd = await FetchPlanAsync(_client, groupId, CurrentMonday);
+        Assert.Equal(1, afterAdd.Version);
+
+        var res = await _client.PatchAsync(
+            $"/api/mealplans/{plan.Id}/slots/{slot.Id}",
+            new StringContent("""{"servings": 4}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var afterPatch = await FetchPlanAsync(_client, groupId, CurrentMonday);
+        Assert.Equal(2, afterPatch.Version);
+    }
+
+    [Fact]
+    public async Task DeleteSlot_Increments_Plan_Version()
+    {
+        var (userId, token) = await SignupAndLoginAsync("vdel@ex.com", "V");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var slot = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+
+        var del = await _client.DeleteAsync($"/api/mealplans/{plan.Id}/slots/{slot.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, del.StatusCode);
+
+        // Version: +1 for AddSlot, +1 for DeleteSlot = 2.
+        var afterDelete = await FetchPlanAsync(_client, groupId, CurrentMonday);
+        Assert.Equal(2, afterDelete.Version);
+    }
+
+    [Fact]
+    public async Task CopyFrom_Increments_Target_Plan_Version()
+    {
+        var (userId, token) = await SignupAndLoginAsync("vcopy@ex.com", "V");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var source = await CreatePlanAsync(_client, groupId, PreviousMonday);
+        await AddHappySlotAsync(source.Id, recipeId, PreviousMonday, MealSlot.Mittag, 2, null);
+        var target = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var targetBefore = await FetchPlanAsync(_client, groupId, CurrentMonday);
+        Assert.Equal(0, targetBefore.Version);
+
+        var res = await _client.PostAsync(
+            $"/api/mealplans/{target.Id}/copy-from/{PreviousMonday:yyyy-MM-dd}", null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var targetAfter = await FetchPlanAsync(_client, groupId, CurrentMonday);
+        Assert.Equal(1, targetAfter.Version);
+    }
+
     // ── helpers ─────────────────────────────────────────────────────
+
+    private async Task<MealPlanEndpoints.MealPlanDto> FetchPlanAsync(
+        HttpClient client, Guid groupId, DateOnly weekStart)
+    {
+        var res = await client.GetAsync(
+            $"/api/groups/{groupId}/mealplans/{weekStart:yyyy-MM-dd}");
+        res.EnsureSuccessStatusCode();
+        return (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+    }
 
     private async Task<MealPlanEndpoints.MealPlanSlotDto> AddHappySlotAsync(
         Guid planId, Guid? recipeId, DateOnly date, MealSlot meal, int servings, string? label,

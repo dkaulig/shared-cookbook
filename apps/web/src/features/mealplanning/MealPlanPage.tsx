@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  CopyPlus,
   Plus,
   ShoppingBasket,
 } from 'lucide-react'
@@ -18,13 +19,14 @@ import { DeleteSlotDialog } from './DeleteSlotDialog'
 import { EditSlotDialog } from './EditSlotDialog'
 import { SortableMealRow } from './SortableMealRow'
 import { SORT_ORDER_STEP } from './constants'
-import { patchSlot as patchSlotApi } from './mealPlanApi'
+import { MealPlanApiError, patchSlot as patchSlotApi } from './mealPlanApi'
 import {
   buildParentLabel,
   childrenOf,
 } from './parentSlotHelpers'
 import {
   mealPlanQueryKeys,
+  useCopyFromWeek,
   useCreateMealPlan,
   useMealPlan,
   usePatchSlot,
@@ -69,6 +71,9 @@ export function MealPlanPage() {
   const [editSlot, setEditSlot] = useState<MealPlanSlotDto | null>(null)
   const [deleteSlotState, setDeleteSlotState] = useState<MealPlanSlotDto | null>(null)
   const [reorderError, setReorderError] = useState<string | null>(null)
+  const [copyBanner, setCopyBanner] = useState<
+    { kind: 'success'; message: string } | { kind: 'error'; message: string } | null
+  >(null)
   const queryClient = useQueryClient()
 
   const weekStart = useMemo(() => {
@@ -94,6 +99,7 @@ export function MealPlanPage() {
   // never reaches the network.
   const planId = plan?.id ?? ''
   const patchMutation = usePatchSlot(groupId, weekStart || '', planId)
+  const copyMutation = useCopyFromWeek(groupId, weekStart || '', planId)
 
   // `slotsByDayMeal` walks every slot + builds a 7×4 map; recomputing on
   // every render will start to matter once P3-3 drag adds re-render
@@ -207,6 +213,48 @@ export function MealPlanPage() {
     [patchMutation],
   )
 
+  // P3-9 "Plan der letzten Woche kopieren".
+  //
+  // Disabled whenever the target already has any slot — accidental
+  // mass-duplication is the biggest foot-gun of a one-click copy. The
+  // belt-and-suspenders confirm() below fires only on the unlikely
+  // path where a race (another tab, SignalR invalidation) re-populates
+  // the plan between render + click.
+  const handleCopyLastWeek = useCallback(() => {
+    if (!plan || !weekStart) return
+    if (plan.slots.length > 0) {
+      const ok = window.confirm(
+        'Der Plan enthält bereits Slots. Möchtest du trotzdem Slots aus der Vorwoche hinzufügen?',
+      )
+      if (!ok) return
+    }
+    const prev = prevMonday(weekStart)
+    const prevWeekNumber = isoWeekNumber(prev)
+    setCopyBanner(null)
+    copyMutation.mutate(
+      { sourceWeekStart: prev },
+      {
+        onSuccess: (copied) => {
+          setCopyBanner({
+            kind: 'success',
+            message: `Plan kopiert: ${copied.slots.length} Slots aus KW ${prevWeekNumber} übernommen.`,
+          })
+        },
+        onError: (caught) => {
+          let message = 'Kopieren fehlgeschlagen.'
+          if (caught instanceof MealPlanApiError) {
+            if (caught.status === 404 || caught.code === 'source.not_found') {
+              message = `Kein Plan in KW ${prevWeekNumber} gefunden.`
+            } else if (caught.status === 403) {
+              message = 'Keine Berechtigung.'
+            }
+          }
+          setCopyBanner({ kind: 'error', message })
+        },
+      },
+    )
+  }, [plan, weekStart, copyMutation])
+
   if (!groupId) return <Navigate to="/groups" replace />
 
   if (!weekStart) {
@@ -290,6 +338,17 @@ export function MealPlanPage() {
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCopyLastWeek}
+            disabled={!plan || plan.slots.length > 0 || copyMutation.isPending}
+            aria-label="Plan der letzten Woche kopieren"
+          >
+            <CopyPlus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            {copyMutation.isPending ? 'Wird kopiert …' : 'Letzte Woche kopieren'}
+          </Button>
           <Button asChild type="button" variant="outline" size="sm">
             <Link
               to={`/groups/${groupId}/mealplan/${weekStart}/shopping-list`}
@@ -332,6 +391,35 @@ export function MealPlanPage() {
               onClick={() => setReorderError(null)}
               aria-label="Fehlermeldung schließen"
               className="text-red-800/70 underline-offset-2 hover:text-red-900 hover:underline"
+            >
+              Schließen
+            </button>
+          </div>
+        )}
+
+        {copyBanner && (
+          <div
+            role={copyBanner.kind === 'success' ? 'status' : 'alert'}
+            aria-live="polite"
+            data-testid="mealplan-copy-banner"
+            className={cn(
+              'mb-3 flex items-start justify-between gap-2 rounded-md px-3 py-2 text-sm ring-1',
+              copyBanner.kind === 'success'
+                ? 'bg-emerald-50 text-emerald-900 ring-emerald-200'
+                : 'bg-red-50 text-red-800 ring-red-200',
+            )}
+          >
+            <span>{copyBanner.message}</span>
+            <button
+              type="button"
+              onClick={() => setCopyBanner(null)}
+              aria-label="Meldung schließen"
+              className={cn(
+                'underline-offset-2 hover:underline',
+                copyBanner.kind === 'success'
+                  ? 'text-emerald-900/70 hover:text-emerald-900'
+                  : 'text-red-800/70 hover:text-red-900',
+              )}
             >
               Schließen
             </button>

@@ -9,6 +9,7 @@ import type {
 import {
   MealPlanApiError,
   addSlot,
+  copyFromWeek,
   createMealPlan,
   deleteSlot,
   fetchMealPlan,
@@ -178,6 +179,33 @@ export function usePatchSlot(groupId: string, weekStart: string, planId: string)
  * Optimistic: the row disappears from the grid before the network
  * call; rollback on error restores it.
  */
+/**
+ * P3-9 "Plan der letzten Woche kopieren" mutation.
+ *
+ * Calls `POST /api/mealplans/{planId}/copy-from/{sourceWeekStart}` and
+ * primes the TanStack cache with the server's freshly-copied plan so
+ * the grid flips to the new slots without a round-trip. We also
+ * invalidate the week-scoped query key so any in-flight refetch stays
+ * authoritative (and SignalR fan-out from P3-8 keeps other tabs in
+ * sync).
+ *
+ * Deliberate scope: no optimistic update — the copy touches many rows
+ * including a server-side ParentSlotId remap, so mirroring that in the
+ * client would duplicate the backend logic with no real UX win (the
+ * call is fast enough that the mutation-pending state carries us).
+ */
+export function useCopyFromWeek(groupId: string, weekStart: string, planId: string) {
+  const client = useQueryClient()
+  const queryKey = mealPlanQueryKeys.forWeek(groupId, weekStart)
+  return useMutation<MealPlanDto, Error, { sourceWeekStart: string }>({
+    mutationFn: ({ sourceWeekStart }) => copyFromWeek(planId, sourceWeekStart),
+    onSuccess: (copied) => {
+      client.setQueryData(queryKey, copied)
+      void client.invalidateQueries({ queryKey })
+    },
+  })
+}
+
 export function useDeleteSlot(groupId: string, weekStart: string, planId: string) {
   const client = useQueryClient()
   const queryKey = mealPlanQueryKeys.forWeek(groupId, weekStart)
