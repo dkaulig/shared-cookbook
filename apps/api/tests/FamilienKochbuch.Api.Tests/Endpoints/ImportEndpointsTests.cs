@@ -350,4 +350,137 @@ public class ImportEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.False(await db.RecipeImports.AnyAsync());
     }
+
+    // ── POST /api/recipes/import/photos (P2-6 step 2) ───────────────────
+
+    public sealed record PhotoImportRequest(string[] PhotoUrls, Guid GroupId);
+
+    /// <summary>
+    /// Produces a well-formed signed photo URL the endpoint will accept
+    /// as "owned" by the caller (signature check re-uses the existing
+    /// <see cref="FamilienKochbuch.Api.Services.ImageSigningService"/>).
+    /// </summary>
+    private string SignPhotoUrl(string path)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var signer = scope.ServiceProvider
+            .GetRequiredService<FamilienKochbuch.Api.Services.ImageSigningService>();
+        return signer.SignUrl($"/api/photos/{path}", path);
+    }
+
+    [Fact]
+    public async Task Photos_Import_Anonymous_Gets_401()
+    {
+        var response = await _client.PostAsJsonAsync(
+            "/api/recipes/import/photos",
+            new PhotoImportRequest(new[] { "/api/photos/a.png?sig=x&exp=1" }, Guid.NewGuid()));
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Photos_Import_Happy_Path_Creates_Row_And_Enqueues_Job()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        _factory.Jobs.Reset();
+        var photo1 = SignPhotoUrl("recipes/alice/1.jpg");
+        var photo2 = SignPhotoUrl("recipes/alice/2.jpg");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/photos");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new PhotoImportRequest(
+            new[] { photo1, photo2 }, groupId));
+
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ImportEnqueueResponse>())!;
+        Assert.NotEqual(Guid.Empty, body.ImportId);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = await db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == body.ImportId);
+        Assert.Equal(userId, import.UserId);
+        Assert.Equal(groupId, import.GroupId);
+        Assert.Equal(ImportSource.Photos, import.Source);
+        Assert.Equal(ImportStatus.Queued, import.Status);
+        // ResultJson is used as transit for the ordered photo URL list
+        // (the Photos job reads it out before calling Python).
+        Assert.NotNull(import.ResultJson);
+        Assert.Contains("1.jpg", import.ResultJson);
+        Assert.Contains("2.jpg", import.ResultJson);
+
+        var captured = Assert.Single(_factory.Jobs.Created);
+        Assert.Equal(typeof(ExtractRecipeFromPhotosJob), captured.Job.Type);
+        Assert.Equal(nameof(ExtractRecipeFromPhotosJob.ExecuteAsync), captured.Job.Method.Name);
+        Assert.Equal(body.ImportId, Assert.IsType<Guid>(captured.Job.Args[0]));
+    }
+
+    [Fact]
+    public async Task Photos_Import_Non_Member_Gets_403()
+    {
+        var (ownerId, _) = await SignupAsync("alice@ex.com", "Alice");
+        var (_, intruderToken) = await SignupAsync("bob@ex.com", "Bob");
+        var groupId = await CreateOwnedGroupAsync(ownerId);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/photos");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", intruderToken);
+        req.Content = JsonContent.Create(new PhotoImportRequest(
+            new[] { SignPhotoUrl("recipes/bob/1.jpg") }, groupId));
+
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Photos_Import_Zero_Photos_Gets_400()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/photos");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new PhotoImportRequest(Array.Empty<string>(), groupId));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Photos_Import_Eleven_Photos_Gets_400()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        var urls = Enumerable.Range(1, 11)
+            .Select(i => SignPhotoUrl($"recipes/alice/{i}.jpg"))
+            .ToArray();
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/photos");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new PhotoImportRequest(urls, groupId));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Photos_Import_Unsigned_Or_Tampered_Url_Gets_400()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        // Unsigned: no sig/exp query.
+        var bad = "/api/photos/recipes/alice/x.jpg";
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/photos");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new PhotoImportRequest(new[] { bad }, groupId));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }
