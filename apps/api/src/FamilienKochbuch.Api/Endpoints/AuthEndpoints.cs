@@ -188,16 +188,11 @@ public static class AuthEndpoints
                 // Best-effort mail delivery — must NOT 5xx: a 500 here would
                 // leak account existence to attackers (200 = no account, 500 =
                 // account exists + SMTP broken). Endpoint stays uniformly 204.
-                try
-                {
-                    await emailSender.SendPasswordResetAsync(user.Email, user.DisplayName, resetUrl, ct);
-                }
-                catch (EmailSendException ex)
-                {
-                    logger.LogWarning(ex,
-                        "Password-reset mail delivery failed for userId={UserId}; endpoint still returns 204 to avoid leaking account existence.",
-                        user.Id);
-                }
+                await EmailDeliveryHelper.TrySendAsync(
+                    token => emailSender.SendPasswordResetAsync(user.Email, user.DisplayName, resetUrl, token),
+                    logger,
+                    $"password-reset:{user.Id}",
+                    ct);
             }
         }
         // Always 204 — don't leak user existence.

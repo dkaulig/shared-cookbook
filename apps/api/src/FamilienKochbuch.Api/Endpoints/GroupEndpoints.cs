@@ -313,25 +313,20 @@ public static class GroupEndpoints
         // and the invitee will see the pending invite in-app on next login.
         if (!string.IsNullOrWhiteSpace(invitedUser.Email))
         {
-            try
-            {
-                var inviterDisplayName = principal.FindFirstValue("displayName")
-                                          ?? principal.FindFirstValue(ClaimTypes.Name)
-                                          ?? "Jemand";
-                var acceptUrl = $"{appOptions.Value.FrontendBaseUrl.TrimEnd('/')}/groups?invite={invite.Id}";
-                await emailSender.SendGroupInviteAsync(
+            var inviterDisplayName = principal.FindFirstValue("displayName")
+                                      ?? principal.FindFirstValue(ClaimTypes.Name)
+                                      ?? "Jemand";
+            var acceptUrl = $"{appOptions.Value.FrontendBaseUrl.TrimEnd('/')}/groups?invite={invite.Id}";
+            await EmailDeliveryHelper.TrySendAsync(
+                token => emailSender.SendGroupInviteAsync(
                     toEmail: invitedUser.Email,
                     inviterDisplayName: inviterDisplayName,
                     groupName: group.Name,
                     acceptUrl: acceptUrl,
-                    ct: ct);
-            }
-            catch (EmailSendException ex)
-            {
-                logger.LogWarning(ex,
-                    "Group-invite mail delivery failed for inviteId={InviteId}; invitee will still see the invite in-app.",
-                    invite.Id);
-            }
+                    ct: token),
+                logger,
+                $"group-invite:{invite.Id}",
+                ct);
         }
 
         return Results.Created($"/api/groups/invites/{invite.Id}",
