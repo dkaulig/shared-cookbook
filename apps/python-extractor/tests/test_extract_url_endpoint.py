@@ -161,6 +161,12 @@ def test_post_extract_url_returns_200_for_video(app_client: TestClient) -> None:
     assert body["recipe"]["title"] == "Lachsfilet"
     assert body["recipe"]["source_url"] == "https://youtu.be/abc"
     assert body["confidence"]["overall"] == "high"
+    # PF2 — the .NET job reads these headers off the response to
+    # record usage on the RecipeImport row.
+    assert response.headers["x-extractor-prompt-tokens"] == "400"
+    assert response.headers["x-extractor-completion-tokens"] == "120"
+    assert response.headers["x-extractor-cached-tokens"] == "0"
+    assert response.headers["x-extractor-model"] == "gpt-4.1-mini"
 
 
 def test_post_extract_url_rejects_missing_url() -> None:

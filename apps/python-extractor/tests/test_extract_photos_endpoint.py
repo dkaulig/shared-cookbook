@@ -162,6 +162,12 @@ def test_post_extract_photos_returns_200_for_single_photo() -> None:
     confidences = {i["confidence"] for i in body["recipe"]["ingredients"]}
     assert "handwritten_uncertain" in confidences
     assert provider.calls == 1
+    # PF2 — the .NET job reads these headers off the response to
+    # record usage on the RecipeImport row.
+    assert response.headers["x-extractor-prompt-tokens"] == "800"
+    assert response.headers["x-extractor-completion-tokens"] == "150"
+    assert response.headers["x-extractor-cached-tokens"] == "0"
+    assert response.headers["x-extractor-model"] == "gpt-4.1-mini"
 
 
 def test_post_extract_photos_multi_photo() -> None:

@@ -143,6 +143,11 @@ def test_post_chat_returns_200_for_single_user_turn() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"assistant_message": "Klar, welche Ernährung?"}
+    # PF2 response headers carry the token counts for the .NET side.
+    assert response.headers["x-extractor-prompt-tokens"] == "250"
+    assert response.headers["x-extractor-completion-tokens"] == "80"
+    assert response.headers["x-extractor-cached-tokens"] == "30"
+    assert response.headers["x-extractor-model"] == "gpt-5.1-chat"
     assert len(provider.chat_calls) == 1
     (_, forwarded) = provider.chat_calls[0]
     assert forwarded == [{"role": "user", "content": "Ich hab Kartoffeln, Quark, Lauch"}]
@@ -291,6 +296,18 @@ def test_post_to_recipe_returns_structured_result() -> None:
     assert body["recipe"]["source_url"] == "chat:sess-abc"
     assert body["recipe"]["thumbnail_url"] is None
     assert body["confidence"]["overall"] in ("high", "medium", "low")
+    # PF2 headers + body.usage both ship so the .NET side can pick
+    # whichever is easier to read off.
+    assert response.headers["x-extractor-prompt-tokens"] == "250"
+    assert response.headers["x-extractor-completion-tokens"] == "80"
+    assert response.headers["x-extractor-cached-tokens"] == "30"
+    assert response.headers["x-extractor-model"] == "gpt-5.1-chat"
+    assert body["usage"] == {
+        "prompt_tokens": 250,
+        "completion_tokens": 80,
+        "cached_prompt_tokens": 30,
+        "model": "gpt-5.1-chat",
+    }
 
 
 def test_post_to_recipe_rejects_empty_messages_with_400() -> None:
