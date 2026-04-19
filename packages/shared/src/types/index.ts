@@ -121,3 +121,8 @@ export type {
   ShoppingListItemChangedPayload,
 } from './liveSync.ts'
 export { LiveSyncEventNames } from './liveSync.ts'
+export type {
+  RecipeImportPhase,
+  RecipeImportProgressEventPayload,
+} from './recipeImport.ts'
+export { RECIPE_IMPORT_PHASES } from './recipeImport.ts'

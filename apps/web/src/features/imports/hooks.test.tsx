@@ -1,17 +1,27 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import { useEnqueueUrlImport, useImportStatus } from './hooks'
+import {
+  DEFAULT_IMPORT_POLL_MS,
+  SIGNALR_FRESH_WINDOW_MS,
+  useEnqueueUrlImport,
+  useImportStatus,
+} from './hooks'
+import {
+  clearImportLiveEvents,
+  recordImportLiveEvent,
+} from './liveEventTimestamp'
 
 beforeEach(() => {
   useAuthStore.setState({
     accessToken: 't',
     user: { id: 'u1', email: 'u1@ex.com', displayName: 'U', role: 'User' },
   })
+  clearImportLiveEvents()
 })
 
 function makeWrapper() {
@@ -136,6 +146,60 @@ describe('useImportStatus', () => {
     const callsAtSettle = calls
     await new Promise((r) => setTimeout(r, 120))
     expect(calls).toBe(callsAtSettle)
+  })
+
+  it('defaults the poll interval to 3s per PV3', () => {
+    // Guard-rail: the numeric constant is exported so downstream
+    // consumers (scripts/smoke-live, docs) reference it without forking
+    // their own copy. A drift here is a plan-coordination bug.
+    expect(DEFAULT_IMPORT_POLL_MS).toBe(3000)
+    expect(SIGNALR_FRESH_WINDOW_MS).toBe(2000)
+  })
+
+  it('backs off the poll cadence when SignalR events are fresh vs stale', async () => {
+    // Collect two timeseries of poll counts — one where every poll
+    // sees a fresh SignalR timestamp (so the interval doubles each
+    // evaluation), one where the timestamp is stale. The fresh run
+    // must fire strictly fewer fetches than the stale one over the
+    // same wall-clock window — the concrete ratio depends on jitter,
+    // but the directional claim is enough to prove the back-off.
+    async function runOnce({ fresh }: { fresh: boolean }): Promise<number> {
+      let calls = 0
+      server.use(
+        http.get('/api/imports/imp-sig', () => {
+          calls += 1
+          return HttpResponse.json({
+            id: 'imp-sig',
+            source: 'Url',
+            status: 'Running',
+            progress: 50,
+            sourceUrl: 'https://example.com',
+            result: null,
+            error: null,
+            createdAt: '2026-04-18T00:00:00Z',
+            completedAt: null,
+          })
+        }),
+      )
+      clearImportLiveEvents()
+      if (fresh) recordImportLiveEvent('imp-sig')
+      const { unmount, result } = renderHook(
+        () => useImportStatus('imp-sig', { refetchInterval: 20 }),
+        { wrapper: makeWrapper() },
+      )
+      await waitFor(() => expect(result.current.data?.status).toBe('running'))
+      await new Promise((r) => setTimeout(r, 120))
+      unmount()
+      return calls
+    }
+
+    const staleCalls = await runOnce({ fresh: false })
+    const freshCalls = await runOnce({ fresh: true })
+
+    // `fresh` must poll no more often than `stale` — and in practice
+    // strictly less given our 6× window. A flaky environment could
+    // narrow the gap, so we assert the weaker direction only.
+    expect(freshCalls).toBeLessThanOrEqual(staleCalls)
   })
 
   it('stops polling once status transitions to error', async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { ApiError, GroupSummary } from '@familien-kochbuch/shared'
 import { Sparkles, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,8 +30,15 @@ export function ImportUrlPage() {
   const navigate = useNavigate()
   const groups = useMyGroups()
   const enqueue = useEnqueueUrlImport()
+  const [searchParams] = useSearchParams()
 
-  const [url, setUrl] = useState('')
+  // PV3 — when the progress page sends the user back via the "Neu starten"
+  // CTA it appends `?url=<sourceUrl>` so the input is pre-filled. The
+  // initialiser only runs once per mount, so typing afterwards still
+  // fully owns the input state (a later `?url` change would not clobber
+  // what the user typed).
+  const prefillUrl = searchParams.get('url') ?? ''
+  const [url, setUrl] = useState<string>(prefillUrl)
   const [error, setError] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)

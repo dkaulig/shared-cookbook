@@ -20,6 +20,8 @@
  * the DTO surface facing React components is always lowercase.
  */
 
+import type { RecipeImportPhase } from './recipeImport.ts'
+
 export type ImportStatus = 'queued' | 'running' | 'done' | 'error'
 
 export type ImportSourceKind = 'url' | 'photos' | 'chat'
@@ -175,7 +177,7 @@ export interface RecipeImportDto {
   id: string
   source: ImportSourceKind
   status: ImportStatus
-  /** Integer 0–100. */
+  /** Integer 0–100 (weighted across all phases). */
   progress: number
   sourceUrl: string | null
   /** Populated only when `status === 'done'`. */
@@ -183,4 +185,24 @@ export interface RecipeImportDto {
   errorMessage: string | null
   createdAt: string
   completedAt: string | null
+  /**
+   * PV3 — phase-aware progress fields. Populated from the SignalR
+   * `RecipeImportProgressChanged` event (see {@link ./recipeImport.ts}).
+   * The REST `GET /api/imports/:id` endpoint currently does NOT expose
+   * these fields, so they're optional on the normalised client DTO and
+   * filled in only as SignalR events arrive. Defaults chosen to render
+   * a sensible "queued" UI before the first event lands.
+   */
+  phase?: RecipeImportPhase
+  /** 0–100 progress within the current phase. */
+  phaseProgress?: number
+  /** Server-computed German copy; null when backend hasn't provided one yet. */
+  progressLabel?: string | null
+  attemptNumber?: number
+  /** ISO-8601 timestamp of the most recent progress update. */
+  lastProgressAt?: string
+  bytesDownloaded?: number | null
+  bytesTotal?: number | null
+  segmentsDone?: number | null
+  segmentsTotal?: number | null
 }
