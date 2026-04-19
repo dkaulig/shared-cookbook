@@ -2,7 +2,6 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
-using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -91,13 +90,11 @@ public static class InviteEndpoints
         if (!TryGetUserId(principal, out var userId))
             return Results.Unauthorized();
 
-        var role = principal.FindFirstValue("role");
         var invite = await db.AppInvites.SingleOrDefaultAsync(i => i.Id == id, ct);
         if (invite is null)
             return Results.NotFound();
 
-        var isAdmin = string.Equals(role, UserRole.Admin.ToString(), StringComparison.Ordinal);
-        if (invite.CreatedByUserId != userId && !isAdmin)
+        if (invite.CreatedByUserId != userId && !principal.IsAdmin())
             return Results.Forbid();
 
         // Soft-revoke by marking it used-by-self so IsValid becomes false.

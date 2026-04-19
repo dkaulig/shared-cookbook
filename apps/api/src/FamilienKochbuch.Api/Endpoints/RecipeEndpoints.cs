@@ -1193,9 +1193,7 @@ public static class RecipeEndpoints
 
         // Author or admin. Group membership alone isn't enough — matches
         // the plan's "admin OR author" language.
-        var isAdmin = string.Equals(
-            principal.FindFirstValue("role"), UserRole.Admin.ToString(), StringComparison.Ordinal);
-        if (recipe.CreatedByUserId != userId && !isAdmin)
+        if (recipe.CreatedByUserId != userId && !principal.IsAdmin())
             return Results.Forbid();
 
         try
