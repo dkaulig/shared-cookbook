@@ -104,7 +104,20 @@ where both name + photo + members live together.
 
 ## BUG-004 · Native `window.confirm` used for destructive actions — should be modal
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19 — neue geteilte `ConfirmDialog`-
+Primitive unter `apps/web/src/features/_shared/ConfirmDialog.tsx` im
+shadcn-Stil (fixed-overlay, `role="dialog" aria-modal="true"`, ESC +
+outside-click-dismiss, `destructive`-Default für Sicherheit,
+`isLoading`-Spinner). Zusätzlich `useConfirmDialog()`-Hook für
+deklarative `await confirm({ ... })`-Flows. 5 Call-Sites migriert:
+TagManagementPage (Custom-Tag-Delete), RecipeDetailPage (Rezept-Delete),
+GroupMembersAndInvitesPanel (Member-Remove + Invite-Revoke via Hook),
+ShoppingListPage (Item-Delete), MealPlanPage (Copy-Last-Week-Override-
+Guard, jetzt `default`-Variante). DeleteSlotDialog / DeleteItemDialog
+blieben unverändert, da sie bereits proper-modals sind. 12 Primitive-
+Tests + 8 Sweep-Site-Regression-Tests neu; 4 tests umgebaut von
+`vi.spyOn(window, 'confirm')` auf Dialog-Flow. Vollständige Suite:
+1030 Tests grün.)
 **Where:** Group delete (confirmed) — check for pattern across all
 destructive actions.
 **Symptom:** Deleting a group triggers the browser's native

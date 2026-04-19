@@ -26,6 +26,7 @@ import {
   toMondayIso,
 } from '@/features/mealplanning/weekGrid'
 import { safeGetItem, safeSetItem } from '@/features/_shared/safeStorage'
+import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { AddItemDialog } from './AddItemDialog'
 import { CATEGORY_LABELS } from './categoryLabels'
 import { ShoppingListApiError } from './shoppingListApi'
@@ -52,9 +53,9 @@ type SortMode = 'category' | 'name'
  *     per-week in sessionStorage so reloads keep the user's view.
  *   - Check-off is optimistic via `usePatchShoppingListItem`.
  *   - Manual add via `AddItemDialog`; delete via the per-row trash
- *     button with a confirm() for non-manual rows (plan-generated /
- *     carryover items re-appear on next regenerate, so the user should
- *     know before deleting).
+ *     button with a shared shadcn-style ConfirmDialog guard (plan-
+ *     generated / carryover items re-appear on next regenerate, so the
+ *     user should know before deleting — BUG-004).
  *   - Regenerate runs `POST …/shopping-list/generate` and prime the
  *     cache from the response.
  */
@@ -127,6 +128,12 @@ function ShoppingListView({
     readSortMode(groupId, weekStart),
   )
   const [showAdd, setShowAdd] = useState(false)
+  // BUG-004 — the shopping-list row deletion used to fire `window.confirm`.
+  // We now hold the pending row here so the shared ConfirmDialog can
+  // present the same guardrail in-theme.
+  const [pendingDelete, setPendingDelete] = useState<ShoppingListItemDto | null>(
+    null,
+  )
 
   const handleSortChange = useCallback(
     (next: SortMode) => {
@@ -150,15 +157,24 @@ function ShoppingListView({
   const handleDelete = useCallback(
     (item: ShoppingListItemDto) => {
       if (!listId) return
-      // Always confirm — manual entries are user-typed and *more*
-      // precious than plan-derived rows (which reappear on the next
-      // Neu-Erzeugen), so the guardrail has to fire for every delete.
-      const ok = window.confirm('Zutat wirklich löschen?')
-      if (!ok) return
-      deleteItem.mutate({ itemId: item.id })
+      // BUG-004 — always confirm through the shared shadcn-style dialog.
+      // Manual entries are user-typed and *more* precious than
+      // plan-derived rows (which reappear on the next Neu-Erzeugen), so
+      // the guardrail has to fire for every delete regardless of source.
+      setPendingDelete(item)
     },
-    [deleteItem, listId],
+    [listId],
   )
+
+  const handleConfirmDelete = useCallback(() => {
+    if (!pendingDelete) return
+    deleteItem.mutate(
+      { itemId: pendingDelete.id },
+      {
+        onSettled: () => setPendingDelete(null),
+      },
+    )
+  }, [deleteItem, pendingDelete])
 
   const handleGenerate = useCallback(() => {
     if (!planId) return
@@ -330,6 +346,22 @@ function ShoppingListView({
           onClose={() => setShowAdd(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingDelete(null)
+        }}
+        title="Zutat wirklich löschen?"
+        description={
+          pendingDelete
+            ? `"${pendingDelete.name}" wird aus der Liste entfernt. Plan-basierte Einträge tauchen erst beim nächsten "Neu erzeugen" wieder auf.`
+            : ''
+        }
+        confirmLabel="Löschen"
+        onConfirm={handleConfirmDelete}
+        isLoading={deleteItem.isPending}
+      />
     </div>
   )
 }

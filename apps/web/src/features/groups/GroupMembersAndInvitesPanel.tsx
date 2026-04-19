@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { useConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { InviteMemberDialog } from './InviteMemberDialog'
 import {
   useChangeMemberRole,
@@ -28,16 +29,17 @@ import {
  * `useRemoveMember`) and the orphaned `InviteMemberDialog` rather than
  * reimplementing them — that was the main finding in the GM1 plan.
  *
- * Confirmation pattern: we use `window.confirm()` to match
- * `TagManagementPage`, which is the only other destructive surface in
- * the app today. A full shadcn modal would add friction without
- * material benefit for a two-line prompt.
+ * Confirmation pattern: BUG-004 moved this panel's two destructive
+ * actions (member-remove + invite-revoke) from `window.confirm()` to
+ * the shared `useConfirmDialog()` hook so they match the app-wide
+ * shadcn modal aesthetic.
  */
 export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
   const isAdmin = group.myRole === 'Admin'
   const groupId = group.id
   const [showInviteDialog, setShowInviteDialog] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const invitesQuery = useGroupInvites(isAdmin ? groupId : undefined)
   const changeRole = useChangeMemberRole(groupId)
@@ -64,9 +66,13 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
 
   async function handleRemove(member: GroupMember) {
     setActionError(null)
-    // window.confirm matches the pattern used in TagManagementPage; no custom
-    // modal framework in the app yet.
-    if (!window.confirm(`${member.displayName} aus ${group.name} entfernen?`)) return
+    // BUG-004 — async-confirm through the shared shadcn-style dialog.
+    const ok = await confirm({
+      title: 'Mitglied entfernen?',
+      description: `${member.displayName} verliert sofort den Zugriff auf ${group.name}. Eine erneute Einladung ist jederzeit möglich.`,
+      confirmLabel: 'Entfernen',
+    })
+    if (!ok) return
     try {
       await removeMember.mutateAsync(member.userId)
     } catch (err) {
@@ -77,7 +83,12 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
 
   async function handleRevoke(inviteId: string, displayName: string) {
     setActionError(null)
-    if (!window.confirm(`Einladung für ${displayName} zurückziehen?`)) return
+    const ok = await confirm({
+      title: 'Einladung zurückziehen?',
+      description: `Die offene Einladung für ${displayName} wird ungültig. Eine neue Einladung kann danach wieder ausgestellt werden.`,
+      confirmLabel: 'Zurückziehen',
+    })
+    if (!ok) return
     try {
       await revokeInvite.mutateAsync(inviteId)
     } catch (err) {
@@ -254,6 +265,8 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
           onClose={() => setShowInviteDialog(false)}
         />
       )}
+
+      {ConfirmDialogElement}
     </section>
   )
 }

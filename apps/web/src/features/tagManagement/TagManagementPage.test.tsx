@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -62,7 +62,7 @@ describe('TagManagementPage', () => {
     expect(screen.queryByRole('button', { name: /löschen/i })).not.toBeInTheDocument()
   })
 
-  it('admin deletes a custom tag via DELETE', async () => {
+  it('admin deletes a custom tag via DELETE after confirming in the modal', async () => {
     let called = false
     server.use(
       http.delete('/api/groups/g1/tags/t-custom', () => {
@@ -70,13 +70,41 @@ describe('TagManagementPage', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     )
-    // confirm() is a no-op in jsdom — stub it to accept.
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // BUG-004 — delete now flows through <ConfirmDialog /> instead of
+    // the native `window.confirm`. Clicking the row's Löschen button
+    // opens the dialog; the real DELETE fires only after "Löschen" in
+    // the dialog footer.
     renderPage({ myRole: 'Admin' })
     await waitFor(() => expect(screen.getByText(/Omas Hit/i)).toBeInTheDocument())
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /Omas Hit.*löschen/i }))
+    // Dialog is open, request hasn't fired yet.
+    expect(called).toBe(false)
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', { name: /^Löschen$/i }),
+    )
     await waitFor(() => expect(called).toBe(true))
+  })
+
+  it('admin cancelling the confirm dialog does NOT fire DELETE', async () => {
+    let called = false
+    server.use(
+      http.delete('/api/groups/g1/tags/t-custom', () => {
+        called = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    renderPage({ myRole: 'Admin' })
+    await waitFor(() => expect(screen.getByText(/Omas Hit/i)).toBeInTheDocument())
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /Omas Hit.*löschen/i }))
+    await user.click(screen.getByRole('button', { name: /^Abbrechen$/i }))
+    expect(called).toBe(false)
+    await waitFor(() =>
+      expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument(),
+    )
   })
 })

@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { cn } from '@/lib/utils'
+import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { AddSlotDialog } from './AddSlotDialog'
 import { DeleteSlotDialog } from './DeleteSlotDialog'
 import { EditSlotDialog } from './EditSlotDialog'
@@ -88,6 +89,10 @@ export function MealPlanPage() {
   const [copyBanner, setCopyBanner] = useState<
     { kind: 'success'; message: string } | { kind: 'error'; message: string } | null
   >(null)
+  // BUG-004 — the non-empty-plan override guard used to fire a native
+  // `window.confirm`. We now stage it through the shared ConfirmDialog
+  // so the UX stays in-theme with the rest of the app.
+  const [copyOverrideOpen, setCopyOverrideOpen] = useState(false)
   const queryClient = useQueryClient()
   // P3-10 mobile polish: react to viewport-width crossings of the
   // Tailwind `md:` breakpoint so we render exactly one of the two
@@ -251,17 +256,11 @@ export function MealPlanPage() {
   //
   // Disabled whenever the target already has any slot — accidental
   // mass-duplication is the biggest foot-gun of a one-click copy. The
-  // belt-and-suspenders confirm() below fires only on the unlikely
+  // belt-and-suspenders ConfirmDialog fires only on the unlikely
   // path where a race (another tab, SignalR invalidation) re-populates
   // the plan between render + click.
-  const handleCopyLastWeek = useCallback(() => {
+  const runCopyLastWeek = useCallback(() => {
     if (!plan || !weekStart) return
-    if (plan.slots.length > 0) {
-      const ok = window.confirm(
-        'Der Plan enthält bereits Slots. Möchtest du trotzdem Slots aus der Vorwoche hinzufügen?',
-      )
-      if (!ok) return
-    }
     const prev = prevMonday(weekStart)
     const prevWeekNumber = isoWeekNumber(prev)
     setCopyBanner(null)
@@ -283,6 +282,19 @@ export function MealPlanPage() {
       },
     )
   }, [plan, weekStart, copyMutation])
+
+  const handleCopyLastWeek = useCallback(() => {
+    if (!plan || !weekStart) return
+    if (plan.slots.length > 0) {
+      // Race-window: the button is normally disabled while slots exist,
+      // but SignalR + other-tab edits can re-populate the plan between
+      // render and click. Route that through the shared confirm dialog
+      // instead of the old native `window.confirm`.
+      setCopyOverrideOpen(true)
+      return
+    }
+    runCopyLastWeek()
+  }, [plan, weekStart, runCopyLastWeek])
 
   if (!groupId) return <Navigate to="/groups" replace />
 
@@ -552,6 +564,20 @@ export function MealPlanPage() {
           onClose={() => setDeleteSlotState(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={copyOverrideOpen}
+        onOpenChange={setCopyOverrideOpen}
+        title="Plan enthält bereits Slots"
+        description="Möchtest du trotzdem Slots aus der Vorwoche hinzufügen? Bestehende Einträge bleiben erhalten."
+        confirmLabel="Trotzdem kopieren"
+        confirmVariant="default"
+        onConfirm={() => {
+          setCopyOverrideOpen(false)
+          runCopyLastWeek()
+        }}
+        isLoading={copyMutation.isPending}
+      />
     </div>
   )
 }
