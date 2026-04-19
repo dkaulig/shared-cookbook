@@ -158,7 +158,7 @@ blocked but looks broken)
 
 ## BUG-007 · "Wochenplan"-Navigation zeigt noch Phase-3-Placeholder
 **Reported:** 2026-04-19
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-19)
 **Where:** Zwei Stellen nicht mit der fertigen MealPlanPage verdrahtet:
 1. **`apps/web/src/features/stubs/WochenplanStub.tsx`** — Placeholder-
    Page an der `/wochenplan`-Route mit Headline "Wochenplan kommt in

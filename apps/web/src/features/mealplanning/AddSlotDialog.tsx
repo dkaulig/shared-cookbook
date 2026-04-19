@@ -37,6 +37,7 @@ export function AddSlotDialog({
   planId,
   initialDate,
   initialMeal,
+  initialRecipeId,
   existingSlots,
   onClose,
 }: {
@@ -45,6 +46,13 @@ export function AddSlotDialog({
   planId: string
   initialDate: string
   initialMeal: MealSlot
+  /**
+   * Optional pre-selected recipe id. Used by the BUG-007 hand-off from
+   * RecipeActionBar where the user clicked "In Wochenplan" on a recipe
+   * detail page — MealPlanPage parses `?addRecipeId=…` and forwards
+   * it here so the form is one click away from submitting.
+   */
+  initialRecipeId?: string | null
   /**
    * All slots currently on the plan — used to populate the "Ist Rest
    * von …" dropdown so the user can link the new slot to an existing
@@ -59,7 +67,7 @@ export function AddSlotDialog({
   const [date, setDate] = useState(initialDate)
   const [meal, setMeal] = useState<MealSlot>(initialMeal)
   const [query, setQuery] = useState('')
-  const [recipeId, setRecipeId] = useState<string | null>(null)
+  const [recipeId, setRecipeId] = useState<string | null>(initialRecipeId ?? null)
   const [label, setLabel] = useState('')
   const [servings, setServings] = useState(2)
   const [parentSlotId, setParentSlotId] = useState<string | null>(null)

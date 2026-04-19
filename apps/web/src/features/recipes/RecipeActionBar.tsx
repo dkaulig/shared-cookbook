@@ -1,9 +1,19 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Calendar, Check } from 'lucide-react'
 import type { ApiError } from '@familien-kochbuch/shared'
+import { toMondayIso } from '@/features/mealplanning/weekGrid'
 import { cn } from '@/lib/utils'
 
 export interface RecipeActionBarProps {
+  /**
+   * Group the recipe belongs to. Used by the "In Wochenplan" button to
+   * navigate the user to that group's Wochenplan for the current week
+   * with `?addRecipeId=…` so AddSlotDialog can preselect the recipe.
+   */
+  groupId: string
+  /** Recipe id handed back to the AddSlotDialog via query string. */
+  recipeId: string
   /**
    * Fired when the user taps the primary "Jetzt gekocht" button. Should
    * return a Promise so the component can drive its own success /
@@ -19,8 +29,11 @@ export interface RecipeActionBarProps {
  * DS5 sticky action bar for the recipe detail page. Mirrors
  * `.actionbar` in `docs/mockups/warme-kueche-recipe-detail.html`:
  *
- *  - Ghost "In Wochenplan" button — currently stubbed (Wochenplan UI
- *    lands in Phase 3). Taps surface a role=status placeholder message.
+ *  - Ghost "In Wochenplan" button — navigates to the recipe's group
+ *    Wochenplan (current Monday) and hands the recipe id off via
+ *    `?addRecipeId=…` so MealPlanPage auto-opens AddSlotDialog with
+ *    the recipe preselected. BUG-007 replaced the Phase-3 placeholder
+ *    status message with this real navigation.
  *  - Primary amber "Jetzt gekocht" button — fires the parent-provided
  *    mutation, then shows a success status on resolve or an alert on
  *    reject. Disables while pending.
@@ -29,9 +42,15 @@ export interface RecipeActionBarProps {
  * clears the iOS home indicator. On desktop (`md+`) the BottomNav is
  * hidden, so this bar sits at the viewport bottom directly.
  */
-export function RecipeActionBar({ onMarkCooked, markCookedPending }: RecipeActionBarProps) {
+export function RecipeActionBar({
+  groupId,
+  recipeId,
+  onMarkCooked,
+  markCookedPending,
+}: RecipeActionBarProps) {
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   async function handleCookedClick() {
     setError(null)
@@ -47,7 +66,11 @@ export function RecipeActionBar({ onMarkCooked, markCookedPending }: RecipeActio
 
   function handleWochenplanClick() {
     setError(null)
-    setStatus('Wochenplan kommt in Phase 3.')
+    setStatus(null)
+    const monday = toMondayIso(new Date().toISOString().slice(0, 10))
+    navigate(
+      `/groups/${groupId}/mealplan/${monday}?addRecipeId=${encodeURIComponent(recipeId)}`,
+    )
   }
 
   return (

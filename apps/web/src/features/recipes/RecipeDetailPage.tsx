@@ -208,6 +208,8 @@ export function RecipeDetailPage() {
       </main>
 
       <RecipeActionBar
+        groupId={groupId}
+        recipeId={recipe.id}
         onMarkCooked={() => markCooked.mutateAsync()}
         markCookedPending={markCooked.isPending}
       />
