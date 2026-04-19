@@ -30,19 +30,24 @@ public sealed class InternalOnlyMiddleware
     public const string InternalPathPrefix = "/api/internal";
 
     /// <summary>
-    /// Default CIDR allowlist matching the two Docker bridge networks
-    /// the compose stack spins up (<c>bridge</c> + the per-project
-    /// default network). Both fall under the classic RFC 1918
-    /// <c>172.16.0.0/12</c> block; we deliberately narrow to the two
-    /// subnets Compose actually uses to keep the blast radius tight.
-    /// If a container graduates onto a different subnet (e.g. macvlan,
-    /// user-defined overlay) the operator overrides this list via
-    /// <c>InternalOrigin:AllowedCidrs</c>.
+    /// Default CIDR allowlist matching the pinned compose-network subnet
+    /// (<c>172.28.0.0/16</c>; see <c>networks.default.ipam</c> in both
+    /// <c>docker-compose.yml</c> and <c>docker-compose.prod.yml</c>).
+    /// Pinning the subnet at the compose layer AND narrowing the
+    /// allowlist to a single range means Docker's default-pool pick
+    /// (<c>172.17+</c>) cannot silently land the python-extractor on a
+    /// block this middleware rejects. Changing the compose subnet
+    /// REQUIRES updating this entry in lockstep. Deployments that need
+    /// a different subnet (custom overlay, macvlan, host-networking
+    /// sidecar) override the list via <c>InternalOrigin:AllowedCidrs</c>.
+    /// <c>127.0.0.0/8</c> + <c>::1/128</c> stay in so health probes,
+    /// the test TestServer (when not hitting the reject path), and
+    /// manual <c>docker exec curl</c> from the API container itself
+    /// still reach the route.
     /// </summary>
     public static readonly string[] DefaultAllowedCidrs =
     {
-        "172.17.0.0/16",
-        "172.18.0.0/16",
+        "172.28.0.0/16",
         "127.0.0.0/8",
         "::1/128",
     };

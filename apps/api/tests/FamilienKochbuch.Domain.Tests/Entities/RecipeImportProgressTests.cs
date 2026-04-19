@@ -154,7 +154,7 @@ public class RecipeImportProgressTests
     }
 
     [Fact]
-    public void UpdateProgress_Accepts_Equal_Or_Newer_Attempt()
+    public void UpdateProgress_Accepts_Equal_Attempt()
     {
         var import = NewImport();
         import.StartAttempt(2, At(1));
@@ -166,6 +166,60 @@ public class RecipeImportProgressTests
         Assert.True(ok);
         Assert.Equal(RecipeImportPhase.Downloading, import.Phase);
         Assert.Equal(2, import.AttemptNumber);
+    }
+
+    [Fact]
+    public void UpdateProgress_Rejects_Forged_Future_Attempt_Silently()
+    {
+        // PV1 security — attempt > current is a forged-future callback
+        // (the counter bumps only via StartAttempt from the job runner).
+        // Dropping it silently keeps the endpoint 204-idempotent while
+        // refusing to let a forged attempt wedge the monotonic phase
+        // guard permanently ahead of legitimate updates.
+        var import = NewImport();
+        Assert.Equal(1, import.AttemptNumber);
+
+        var ok = import.UpdateProgress(
+            RecipeImportPhase.Structuring, 95,
+            null, null, null, null, attempt: 2, now: At(2));
+
+        Assert.False(ok);
+        Assert.Equal(RecipeImportPhase.Queued, import.Phase); // unchanged
+        Assert.Equal(0, import.PhaseProgress);
+        Assert.Equal(1, import.AttemptNumber);               // unchanged
+    }
+
+    [Fact]
+    public void UpdateProgress_Rejects_Terminal_Done_Phase_Silently()
+    {
+        // PV1 security — terminal transitions are owned by MarkDone /
+        // MarkError. A callback with phase=done must drop silently so
+        // a compromised Python reporter cannot flip the import to Done
+        // without a ResultJson payload.
+        var import = NewImport();
+
+        var ok = import.UpdateProgress(
+            RecipeImportPhase.Done, 100,
+            null, null, null, null, attempt: 1, now: At(1));
+
+        Assert.False(ok);
+        // Phase stays at whatever the import had before — here, Queued
+        // from the constructor default.
+        Assert.Equal(RecipeImportPhase.Queued, import.Phase);
+    }
+
+    [Fact]
+    public void UpdateProgress_Rejects_Terminal_Error_Phase_Silently()
+    {
+        // Defense-in-depth mirror of the Done guard above.
+        var import = NewImport();
+
+        var ok = import.UpdateProgress(
+            RecipeImportPhase.Error, 100,
+            null, null, null, null, attempt: 1, now: At(1));
+
+        Assert.False(ok);
+        Assert.Equal(RecipeImportPhase.Queued, import.Phase);
     }
 
     [Fact]

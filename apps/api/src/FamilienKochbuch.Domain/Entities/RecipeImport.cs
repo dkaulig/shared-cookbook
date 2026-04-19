@@ -296,9 +296,21 @@ public sealed class RecipeImport
     /// Returns <c>false</c> — silently, no exception — when the update is
     /// discarded by one of the following guards:
     /// <list type="bullet">
-    /// <item>The incoming <paramref name="attempt"/> is older than the
-    /// current <see cref="AttemptNumber"/> (a late callback from a
-    /// superseded retry).</item>
+    /// <item>The incoming <paramref name="phase"/> is a terminal state
+    /// (<see cref="RecipeImportPhase.Done"/> / <see cref="RecipeImportPhase.Error"/>).
+    /// Terminal transitions are owned by <see cref="MarkDone"/> /
+    /// <see cref="MarkError"/>; accepting them via the progress callback
+    /// would let a compromised Python reporter flip the import to Done
+    /// without a persisted recipe. The endpoint layer returns 422 for
+    /// this case; the domain guard is defence-in-depth for any future
+    /// internal caller that wired its way around the endpoint
+    /// validator.</item>
+    /// <item>The incoming <paramref name="attempt"/> does not exactly
+    /// match the current <see cref="AttemptNumber"/> (late callback from
+    /// a superseded retry, OR a forged-future callback trying to claim
+    /// attempt=999). Attempt counter is bumped only by
+    /// <see cref="StartAttempt"/>, not by the callback; mis-numbered
+    /// attempts silently drop so the endpoint stays 204-idempotent.</item>
     /// <item>The incoming (<paramref name="phase"/>, <paramref name="phaseProgress"/>)
     /// is not monotonically >= (current <see cref="Phase"/>, current
     /// <see cref="PhaseProgress"/>) — out-of-order network reordering.</item>
@@ -335,17 +347,29 @@ public sealed class RecipeImport
             throw new ArgumentOutOfRangeException(
                 nameof(attempt), attempt, "Attempt must be >= 1.");
 
+        // Guard 0 (PV1 security): incoming terminal phase is never
+        // allowed via the progress callback path. See XML-doc above —
+        // only MarkDone / MarkError can transition to terminal, because
+        // only they also persist the ResultJson / ErrorMessage the UI
+        // needs to render the final state correctly.
+        if (phase is RecipeImportPhase.Done or RecipeImportPhase.Error)
+            return false;
+
         // Guard 1: terminal state is terminal. Both Done and Error ignore
         // any further callbacks so a late "transcribing 50%" can't un-do
         // a completed import.
         if (Phase is RecipeImportPhase.Done or RecipeImportPhase.Error)
             return false;
 
-        // Guard 2: stale retry. A callback from attempt N-1 arriving after
-        // we bumped to attempt N (because a previous attempt failed and
-        // was retried) must be discarded — its progress numbers belong to
-        // a pipeline run that no longer represents the truth.
-        if (attempt < AttemptNumber)
+        // Guard 2 (PV1 security): stale or forged attempt. The attempt
+        // counter is bumped exclusively by StartAttempt (the job
+        // runner's retry-detection path); a progress callback claiming
+        // a different attempt number is either a late callback from a
+        // superseded retry (attempt < AttemptNumber) or a forged-future
+        // replay (attempt > AttemptNumber). Both paths silently drop so
+        // the monotonic phase guard cannot be wedged ahead of
+        // legitimate updates.
+        if (attempt != AttemptNumber)
             return false;
 
         // Guard 3: out-of-order within-attempt. Phases monotonically
@@ -451,29 +475,20 @@ public sealed class RecipeImport
 /// </code>
 ///
 /// Global = phase_start + (phase_progress / 100) * phase_range, rounded
-/// to the nearest integer. Kept internal so call sites go through
+/// to the nearest integer. Kept <c>public</c> so the job runner can
+/// reuse <see cref="StartOf"/> without duplicating the phase-boundary
+/// table (single source of truth — any future phase-range tweak lives
+/// in one place). Domain write-path call sites still go through
 /// <see cref="RecipeImport.UpdateProgress"/> which enforces the guards.
 /// </summary>
-internal static class PhaseWeightedFormula
+public static class PhaseWeightedFormula
 {
     public static int Compute(RecipeImportPhase phase, int phaseProgress)
     {
         if (phaseProgress < 0) phaseProgress = 0;
         if (phaseProgress > 100) phaseProgress = 100;
 
-        var (start, range) = phase switch
-        {
-            RecipeImportPhase.Queued => (0, 5),
-            RecipeImportPhase.Downloading => (5, 10),
-            RecipeImportPhase.Transcribing => (15, 70),
-            RecipeImportPhase.Structuring => (85, 10),
-            RecipeImportPhase.PostProcessing => (95, 5),
-            RecipeImportPhase.VisionAnalysis => (5, 90),
-            RecipeImportPhase.Done => (100, 0),
-            RecipeImportPhase.Error => (100, 0),
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(phase), phase, "Unknown RecipeImportPhase."),
-        };
+        var (start, range) = RangeOf(phase);
 
         // Round half-up. With range ≤ 100 and phaseProgress ≤ 100 the
         // intermediate stays well within int range, so no long cast.
@@ -482,6 +497,30 @@ internal static class PhaseWeightedFormula
         if (global < 0) global = 0;
         return global;
     }
+
+    /// <summary>
+    /// Returns the global-progress value at the start of
+    /// <paramref name="phase"/>. Used by <c>PythonExtractorRunner</c>
+    /// to drive <see cref="RecipeImport.MarkRunning"/> in lockstep with
+    /// the weighted formula — keeping both call sites on the same
+    /// lookup table means a phase-boundary tweak can't silently drift
+    /// between the domain formula and the job runner.
+    /// </summary>
+    public static int StartOf(RecipeImportPhase phase) => RangeOf(phase).start;
+
+    private static (int start, int range) RangeOf(RecipeImportPhase phase) => phase switch
+    {
+        RecipeImportPhase.Queued => (0, 5),
+        RecipeImportPhase.Downloading => (5, 10),
+        RecipeImportPhase.Transcribing => (15, 70),
+        RecipeImportPhase.Structuring => (85, 10),
+        RecipeImportPhase.PostProcessing => (95, 5),
+        RecipeImportPhase.VisionAnalysis => (5, 90),
+        RecipeImportPhase.Done => (100, 0),
+        RecipeImportPhase.Error => (100, 0),
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(phase), phase, "Unknown RecipeImportPhase."),
+    };
 }
 
 /// <summary>

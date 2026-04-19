@@ -209,6 +209,116 @@ public class InternalImportProgressEndpointTests
     }
 
     [Fact]
+    public async Task Attempt_Above_Max_Returns_422()
+    {
+        // PV1 security — attempt is capped at MaxAttempt (3). A claim
+        // of attempt=4 is either a mis-wired reporter or a forged-future
+        // replay; endpoint fails closed with 422 instead of letting the
+        // monotonic phase guard be wedged ahead.
+        var importId = await SeedImportAsync();
+        var token = SignToken(importId);
+        var res = await _client.SendAsync(BuildRequest(
+            importId, token,
+            new { phase = "downloading", phase_progress = 10, attempt = 4 }));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Terminal_Phase_Done_Returns_422()
+    {
+        // PV1 security — the progress callback MUST NOT drive terminal
+        // transitions. Accepting "done" here would let a compromised
+        // Python container flip the import to Done without a recipe
+        // being persisted. Explicit 422 tells a mis-wired reporter
+        // loudly; silent 204 would hide the bug.
+        var importId = await SeedImportAsync();
+        var token = SignToken(importId);
+        var res = await _client.SendAsync(BuildRequest(
+            importId, token,
+            new { phase = "done", phase_progress = 100, attempt = 1 }));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, res.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = await db.RecipeImports.FindAsync(importId);
+        Assert.NotNull(import);
+        // Nothing should have flipped — still queued-phase default.
+        Assert.Equal(RecipeImportPhase.Queued, import!.Phase);
+        Assert.NotEqual(ImportStatus.Done, import.Status);
+    }
+
+    [Fact]
+    public async Task Terminal_Phase_Error_Returns_422()
+    {
+        var importId = await SeedImportAsync();
+        var token = SignToken(importId);
+        var res = await _client.SendAsync(BuildRequest(
+            importId, token,
+            new { phase = "error", phase_progress = 100, attempt = 1 }));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, res.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = await db.RecipeImports.FindAsync(importId);
+        Assert.NotEqual(ImportStatus.Error, import!.Status);
+    }
+
+    [Fact]
+    public async Task Stale_Retry_Attempt_Returns_204_No_State_Change()
+    {
+        // Domain guard: attempt != AttemptNumber silently drops. The
+        // endpoint still returns 204 because the Python reporter is
+        // fire-and-forget; surfacing a 5xx would cause it to spin.
+        var importId = await SeedImportAsync();
+
+        // Bump to attempt 2 via the retry-detection path.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var import = await db.RecipeImports.FindAsync(importId);
+            import!.StartAttempt(2, _factory.Clock.GetUtcNow());
+            await db.SaveChangesAsync();
+        }
+
+        var token = SignToken(importId);
+        var res = await _client.SendAsync(BuildRequest(importId, token,
+            new { phase = "downloading", phase_progress = 50, attempt = 1 }));
+
+        Assert.Equal(HttpStatusCode.NoContent, res.StatusCode);
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDb = assertScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var after = await assertDb.RecipeImports.FindAsync(importId);
+        // Still pinned at the StartAttempt(2) reset — the stale attempt
+        // 1 callback was dropped.
+        Assert.Equal(RecipeImportPhase.Queued, after!.Phase);
+        Assert.Equal(0, after.PhaseProgress);
+        Assert.Equal(2, after.AttemptNumber);
+    }
+
+    [Fact]
+    public async Task Forged_Future_Attempt_Returns_204_No_State_Change()
+    {
+        // Domain guard: attempt > AttemptNumber silently drops so a
+        // forged-future callback can't wedge the monotonic phase guard
+        // past legitimate updates. Endpoint still 204 (fire-and-forget
+        // reporter stays happy).
+        var importId = await SeedImportAsync();
+        var token = SignToken(importId);
+
+        var res = await _client.SendAsync(BuildRequest(importId, token,
+            new { phase = "structuring", phase_progress = 95, attempt = 2 }));
+
+        Assert.Equal(HttpStatusCode.NoContent, res.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var after = await db.RecipeImports.FindAsync(importId);
+        Assert.Equal(RecipeImportPhase.Queued, after!.Phase);
+        Assert.Equal(1, after.AttemptNumber);
+    }
+
+    [Fact]
     public async Task Out_Of_Order_Update_Still_Returns_204_Idempotent()
     {
         // First accept transcribing 50%...
@@ -274,6 +384,67 @@ public class InternalImportProgressEndpointTests
         Assert.Equal(importId, published.Id);
         Assert.Equal(RecipeImportPhase.Transcribing, published.Phase);
         Assert.Equal(25, published.PhaseProgress);
+    }
+
+    [Fact]
+    public async Task Global_Rate_Limit_Caps_Cross_Import_Traffic()
+    {
+        // PV1 security — GUID-spray memory DoS: an attacker with a
+        // valid HMAC token POSTs with fresh fake importIds. The
+        // per-importId limiter would allocate a brand-new bucket per
+        // GUID forever; the global 10_000/min ceiling caps total
+        // traffic regardless of how many partition keys the attacker
+        // invents. Verifies the global limiter hooked in Program.cs
+        // actually fires.
+        //
+        // Uses 25 distinct importIds × ~450 reqs each = ~11 k requests —
+        // exceeds the global 10_000/min but stays BELOW the 500/min
+        // per-importId ceiling, so only the global layer can be the
+        // cause of the 429.
+        //
+        // We seed real imports + tokens so the endpoint validates all
+        // the way through to the domain layer — the 429 has to come
+        // from the rate limiter, not from a 401 / 404 short-circuit.
+        const int importCount = 25;
+        const int perImportRequests = 450;
+
+        var ids = new List<(Guid id, string token)>(importCount);
+        for (var i = 0; i < importCount; i++)
+        {
+            var id = await SeedImportAsync();
+            ids.Add((id, SignToken(id)));
+        }
+
+        using var burstClient = _factory.CreateClient(); // no bypass header
+        burstClient.DefaultRequestHeaders.Add(InternalOnlyMiddleware.TestBypassHeader, "true");
+
+        var got429 = false;
+        var total = 0;
+        for (var r = 0; r < perImportRequests && !got429; r++)
+        {
+            foreach (var (id, token) in ids)
+            {
+                var req = new HttpRequestMessage(
+                    HttpMethod.Post, $"/api/internal/imports/{id}/progress");
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                req.Content = JsonContent.Create(new
+                {
+                    phase = "transcribing",
+                    phase_progress = 20,
+                    attempt = 1,
+                });
+                var res = await burstClient.SendAsync(req);
+                total++;
+                if (res.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    got429 = true;
+                    break;
+                }
+            }
+        }
+
+        Assert.True(got429,
+            $"Expected a 429 within {importCount * perImportRequests} cross-import requests; sent {total} without one.");
     }
 
     [Fact]

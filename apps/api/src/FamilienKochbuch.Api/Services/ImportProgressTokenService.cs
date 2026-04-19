@@ -57,10 +57,13 @@ public enum ImportTokenValidationFailure
 /// </summary>
 public sealed class ImportProgressTokenService
 {
-    /// <summary>Maximum token lifetime. The caller (job runner)
-    /// typically mints with exactly this TTL; the verifier
-    /// independently rejects anything past the baked-in
-    /// <c>expiresAt</c>.</summary>
+    /// <summary>Maximum token lifetime. The caller (job runner) mints
+    /// with exactly this TTL; the verifier independently rejects BOTH
+    /// (a) anything past the baked-in <c>expiresAt</c> (normal expiry)
+    /// AND (b) tokens whose remaining lifetime exceeds this cap — so a
+    /// mis-wired signer baking a 24 h <c>expiresAt</c> still fails
+    /// validation after ten minutes instead of being silently
+    /// accepted.</summary>
     public static readonly TimeSpan MaxTokenLifetime = TimeSpan.FromMinutes(10);
 
     private readonly byte[] _sharedSecretBytes;
@@ -78,9 +81,9 @@ public sealed class ImportProgressTokenService
     /// <summary>
     /// Signs a token scoped to <paramref name="importId"/> that expires
     /// at <paramref name="expiresAt"/>. Callers pass an expiry computed
-    /// as <c>now + <see cref="MaxTokenLifetime"/></c>; the verifier
-    /// independently enforces the cap so a mis-wired caller passing a
-    /// longer TTL still gets bounced.
+    /// as <c>now + <see cref="MaxTokenLifetime"/></c>; if a caller mis-
+    /// wires a longer TTL the verifier rejects the token on first use
+    /// past the 10-minute cap — see <see cref="TryVerify"/>.
     /// </summary>
     public string Sign(Guid importId, DateTimeOffset expiresAt)
     {
@@ -192,6 +195,21 @@ public sealed class ImportProgressTokenService
 
         var expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiresSeconds);
         if (now >= expiresAt)
+        {
+            failure = ImportTokenValidationFailure.Expired;
+            return false;
+        }
+
+        // PV1 security — independently enforce MaxTokenLifetime at verify
+        // time. The signer is supposed to mint with TTL ≤ 10 min, but a
+        // mis-wired caller (or an older build sitting in a queue) might
+        // bake a 24 h expiry. Checking (expiresAt - now) > MaxTokenLifetime
+        // means such a token fails validation after the 10-minute mark
+        // regardless of what the baked-in expiresAt claims. A token minted
+        // exactly on the cap (expiresAt - now == MaxTokenLifetime) stays
+        // valid; the strict `>` comparison leaves a tiny clock-skew
+        // margin on the boundary.
+        if (expiresAt - now > MaxTokenLifetime)
         {
             failure = ImportTokenValidationFailure.Expired;
             return false;

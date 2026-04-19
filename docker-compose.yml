@@ -141,6 +141,20 @@ services:
       - web
     restart: unless-stopped
 
+# PV1 security — pin the default compose network to an explicit /16 so
+# the .NET InternalOnlyMiddleware's CIDR allowlist (172.28.0.0/16) stays
+# reliable. Docker's default pool would otherwise pick any 172.19+ block,
+# silently causing the middleware to reject legitimate python-extractor
+# callbacks with a 404 in production. Changing this subnet REQUIRES
+# updating InternalOnlyMiddleware.DefaultAllowedCidrs in lockstep (or
+# overriding via the InternalOrigin:AllowedCidrs config key).
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
 volumes:
   postgres-data:
   seaweedfs-data:
