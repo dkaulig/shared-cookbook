@@ -351,6 +351,11 @@ function RecipeFormInner({
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     () => initial?.tags.map((t) => t.id) ?? [],
   )
+  // P2-10: prefill-only read-only state. The form doesn't allow editing
+  // nutrition at create-time (the PRD says "user can edit on
+  // DetailPage after save"); this state is just a pass-through to the
+  // save payload + a value for the preview section below.
+  const [prefillNutrition] = useState(prefill?.nutritionEstimate ?? null)
   const [createTagOpen, setCreateTagOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /**
@@ -487,6 +492,11 @@ function RecipeFormInner({
       ingredients: ingredientsPayload,
       steps: stepsPayload,
       tagIds: selectedTagIds,
+      // P2-10: include the prefill's nutrition estimate in the
+      // create-recipe payload. The edit path (mode === 'edit') doesn't
+      // carry a prefill, so this is naturally omitted there — nutrition
+      // edits post-save go through PATCH /nutrition instead.
+      nutritionEstimate: prefillNutrition,
     }
 
     try {
@@ -811,6 +821,55 @@ function RecipeFormInner({
               </div>
             )}
           </FormCard>
+
+          {/* P2-10 — read-only preview of the LLM-estimated per-portion
+              nutrition. Only rendered in create mode when the import
+              prefill carried an estimate; users can tweak the numbers
+              on the DetailPage after the recipe is saved. */}
+          {mode === 'create' && prefillNutrition && (
+            <FormCard
+              title="Nährwerte (geschätzt)"
+              description="KI-Schätzung pro Portion. Nach dem Speichern kannst du die Werte auf der Rezept-Seite bearbeiten."
+            >
+              <dl
+                className="grid grid-cols-2 gap-3 text-[14px]"
+                aria-label="Geschätzte Nährwerte pro Portion"
+              >
+                <div>
+                  <dt className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
+                    Energie
+                  </dt>
+                  <dd className="mt-0.5 font-medium text-foreground">
+                    {prefillNutrition.kcal} kcal
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
+                    Eiweiß
+                  </dt>
+                  <dd className="mt-0.5 font-medium text-foreground">
+                    {prefillNutrition.proteinG} g
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
+                    Kohlenhydrate
+                  </dt>
+                  <dd className="mt-0.5 font-medium text-foreground">
+                    {prefillNutrition.carbsG} g
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
+                    Fett
+                  </dt>
+                  <dd className="mt-0.5 font-medium text-foreground">
+                    {prefillNutrition.fatG} g
+                  </dd>
+                </div>
+              </dl>
+            </FormCard>
+          )}
 
           {error && (
             <p

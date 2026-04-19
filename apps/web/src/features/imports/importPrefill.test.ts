@@ -178,4 +178,32 @@ describe('extractedRecipeToPrefill', () => {
     expect(out.isPhotoImport).toBe(true)
     expect(out.sourceUrl).toBe('')
   })
+
+  // ── P2-10 — Nutrition estimate ─────────────────────────────────
+
+  it('defaults nutritionEstimate to null when the extractor omitted the field', () => {
+    const out = extractedRecipeToPrefill(recipe())
+    expect(out.nutritionEstimate).toBeNull()
+  })
+
+  it('defaults nutritionEstimate to null when the extractor emitted explicit null', () => {
+    const out = extractedRecipeToPrefill(
+      recipe({ nutrition_estimate: null }),
+    )
+    expect(out.nutritionEstimate).toBeNull()
+  })
+
+  it('maps the Python snake_case nutrition estimate onto camelCase for the form', () => {
+    const out = extractedRecipeToPrefill(
+      recipe({
+        nutrition_estimate: { kcal: 420, protein_g: 24, carbs_g: 38, fat_g: 9 },
+      }),
+    )
+    expect(out.nutritionEstimate).toEqual({
+      kcal: 420,
+      proteinG: 24,
+      carbsG: 38,
+      fatG: 9,
+    })
+  })
 })
