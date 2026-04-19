@@ -13,6 +13,8 @@ import { GroupsPage } from '@/features/groups/GroupsPage'
 import { GroupDetailPage } from '@/features/groups/GroupDetailPage'
 import { RecipeDetailPage } from '@/features/recipes/RecipeDetailPage'
 import { RecipeFormPage } from '@/features/recipes/RecipeFormPage'
+import { ImportUrlPage } from '@/features/imports/ImportUrlPage'
+import { ImportProgressPage } from '@/features/imports/ImportProgressPage'
 import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
 import { WochenplanStub } from '@/features/stubs/WochenplanStub'
 import { ProfilStub } from '@/features/stubs/ProfilStub'
@@ -62,6 +64,11 @@ export default function App() {
             <Route
               path="/groups/:groupId/recipes/:recipeId/edit"
               element={<RecipeFormPage mode="edit" />}
+            />
+            <Route path="/rezepte/import/url" element={<ImportUrlPage />} />
+            <Route
+              path="/rezepte/import/:importId"
+              element={<ImportProgressPage />}
             />
             <Route path="/wochenplan" element={<WochenplanStub />} />
             <Route path="/profil" element={<ProfilStub />} />
