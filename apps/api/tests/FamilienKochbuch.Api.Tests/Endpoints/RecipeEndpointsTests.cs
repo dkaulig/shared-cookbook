@@ -579,6 +579,91 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    // ── POST /api/recipes/photos/staged (P2-8) ──────────────────────
+
+    [Fact]
+    public async Task UploadStagedPhoto_Returns_200_With_PhotoId_And_Signed_Url()
+    {
+        var (_, token) = await SignupAndLoginAsync("staged1@ex.com", "S");
+        AuthorizeClient(_client, token);
+
+        using var content = BuildPhoto(ValidPngBytes(), "photo.png", "image/png");
+        var response = await _client.PostAsync("/api/recipes/photos/staged", content);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.StagedPhotoResponse>())!;
+
+        // photoId is a bare storage path — no scheme, no query.
+        Assert.StartsWith("recipes/", body.PhotoId);
+        Assert.DoesNotContain("?", body.PhotoId);
+        Assert.DoesNotContain("http", body.PhotoId);
+
+        // signedUrl is the same path routed through the /api/photos
+        // proxy with a valid signature that the import-endpoint will
+        // accept.
+        Assert.StartsWith("/api/photos/recipes/", body.SignedUrl);
+        Assert.Contains("?sig=", body.SignedUrl);
+        Assert.Contains("&exp=", body.SignedUrl);
+
+        // Bytes actually landed in the storage fake.
+        Assert.True(_factory.Photos.Uploads.ContainsKey(body.PhotoId));
+    }
+
+    [Fact]
+    public async Task UploadStagedPhoto_Rejects_Non_Image_With_400()
+    {
+        var (_, token) = await SignupAndLoginAsync("staged2@ex.com", "S");
+        AuthorizeClient(_client, token);
+
+        using var content = BuildPhoto(Encoding.UTF8.GetBytes("not an image"), "a.txt", "text/plain");
+        var response = await _client.PostAsync("/api/recipes/photos/staged", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UploadStagedPhoto_Rejects_Heic_With_400_And_German_Message()
+    {
+        var (_, token) = await SignupAndLoginAsync("staged-heic@ex.com", "S");
+        AuthorizeClient(_client, token);
+
+        // HEIC is the iOS default — the plan explicitly rejects it in
+        // v1 with a clear German message nudging the user to re-export.
+        using var content = BuildPhoto(ValidPngBytes(), "photo.heic", "image/heic");
+        var response = await _client.PostAsync("/api/recipes/photos/staged", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("JPG", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UploadStagedPhoto_401_When_Unauthorized()
+    {
+        using var content = BuildPhoto(ValidPngBytes(), "photo.png", "image/png");
+        var response = await _client.PostAsync("/api/recipes/photos/staged", content);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UploadStagedPhoto_Rejects_Oversize()
+    {
+        var (_, token) = await SignupAndLoginAsync("staged-big@ex.com", "S");
+        AuthorizeClient(_client, token);
+
+        // 6 MB is above the 5 MB cap — ASP.NET's form-multipart limit
+        // kicks in before the handler does for this size so the status
+        // can be 400 or 413 depending on the middleware path. We accept
+        // both, consistent with the live UploadPhoto path.
+        var big = new byte[6 * 1024 * 1024];
+        using var content = BuildPhoto(big, "big.png", "image/png");
+        var response = await _client.PostAsync("/api/recipes/photos/staged", content);
+        Assert.True(
+            response.StatusCode == HttpStatusCode.BadRequest ||
+            response.StatusCode == HttpStatusCode.RequestEntityTooLarge,
+            $"Expected 400 or 413, got {response.StatusCode}");
+    }
+
     // ── DELETE /api/recipes/{id}/photos ─────────────────────────────
 
     [Fact]
