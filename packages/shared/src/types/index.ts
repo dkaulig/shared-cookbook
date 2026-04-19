@@ -80,6 +80,7 @@ export type {
   ImportPhotosRequest,
   ImportSourceKind,
   ImportStatus,
+  ImportSummaryDto,
   ImportUrlRequest,
   IngredientConfidenceLevel,
   RecipeImportDto,

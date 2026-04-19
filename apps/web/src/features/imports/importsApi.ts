@@ -5,6 +5,7 @@ import type {
   ImportPhotosRequest,
   ImportSourceKind,
   ImportStatus,
+  ImportSummaryDto,
   ImportUrlRequest,
   RecipeImportDto,
   RecipeImportPhase,
@@ -203,4 +204,65 @@ export async function fetchImport(importId: string): Promise<RecipeImportDto> {
     `/api/imports/${encodeURIComponent(importId)}`,
   )
   return mapStatusResponse(wire)
+}
+
+/**
+ * BUG-010 — wire shape of `GET /api/imports?mine=true&limit=N`.
+ * Matches the .NET `ImportSummary` record field-for-field. Enum fields
+ * arrive TitleCase and get lowered at the mapper edge, consistent with
+ * {@link ImportStatusResponseWire}.
+ */
+export interface ImportSummaryWire {
+  id: string
+  groupId: string
+  source: string
+  status: string
+  progress: number
+  phase: string
+  progressLabel: string | null
+  sourceUrl: string | null
+  createdAt: string
+  completedAt: string | null
+  error: string | null
+}
+
+/**
+ * Normalises one wire row into the {@link ImportSummaryDto} surface the
+ * list UI consumes. The wire→DTO mapping is identical in spirit to
+ * {@link mapStatusResponse}: TitleCase → lowercase for status / source,
+ * snake-case → union for phase, and the shorter `error` wire key is
+ * renamed to `errorMessage` so it aligns with the rest of the imports
+ * DTO surface.
+ */
+export function mapImportSummary(wire: ImportSummaryWire): ImportSummaryDto {
+  return {
+    id: wire.id,
+    groupId: wire.groupId,
+    source: normaliseSource(wire.source),
+    status: normaliseStatus(wire.status),
+    progress: wire.progress,
+    phase: normalisePhase(wire.phase),
+    progressLabel: wire.progressLabel,
+    sourceUrl: wire.sourceUrl,
+    createdAt: wire.createdAt,
+    completedAt: wire.completedAt,
+    errorMessage: wire.error,
+  }
+}
+
+/**
+ * BUG-010 — fetch the caller's most-recent imports (newest first).
+ *
+ * The endpoint serialises `Status` / `Source` as TitleCase enum names
+ * and `Phase` as the snake-case wire form; this wrapper normalises both
+ * at the edge so the consuming React layer stays on the lowercase /
+ * union surface the rest of the app uses.
+ */
+export async function fetchMyImports(
+  limit = 20,
+): Promise<ImportSummaryDto[]> {
+  const wire = await request<ImportSummaryWire[]>(
+    `/api/imports?mine=true&limit=${encodeURIComponent(String(limit))}`,
+  )
+  return wire.map(mapImportSummary)
 }

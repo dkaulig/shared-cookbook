@@ -9,6 +9,7 @@ import type {
   ImportEnqueueResponse,
   ImportSourceKind,
   ImportStatus,
+  ImportSummaryDto,
   ImportUrlRequest,
   IngredientConfidenceLevel,
   RecipeImportDto,
@@ -163,5 +164,27 @@ describe('imports.ts DTOs', () => {
       completedAt: '2026-04-18T00:00:05Z',
     }
     expect(dto.groupId).toBe('22222222-3333-4444-5555-666666666666')
+  })
+
+  // BUG-010 — compile-time regression guard on the list-DTO surface.
+  // A rename on the .NET ImportSummary record fails here if the shared
+  // type drifts away.
+  it('ImportSummaryDto carries the list-item fields the UI consumes', () => {
+    const summary: ImportSummaryDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      source: 'url',
+      status: 'running',
+      progress: 42,
+      phase: 'transcribing',
+      progressLabel: 'Audio wird transkribiert',
+      sourceUrl: 'https://example.com',
+      createdAt: '2026-04-18T00:00:00Z',
+      completedAt: null,
+      errorMessage: null,
+    }
+    expect(summary.phase).toBe('transcribing')
+    expect(summary.status).toBe('running')
+    expect(summary.completedAt).toBeNull()
   })
 })

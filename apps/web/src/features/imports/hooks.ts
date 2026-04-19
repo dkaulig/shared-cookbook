@@ -2,10 +2,16 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   ImportEnqueueResponse,
   ImportPhotosRequest,
+  ImportSummaryDto,
   ImportUrlRequest,
   RecipeImportDto,
 } from '@familien-kochbuch/shared'
-import { enqueuePhotoImport, enqueueUrlImport, fetchImport } from './importsApi'
+import {
+  enqueuePhotoImport,
+  enqueueUrlImport,
+  fetchImport,
+  fetchMyImports,
+} from './importsApi'
 import { readImportLiveEventAt } from './liveEventTimestamp'
 
 /**
@@ -18,6 +24,12 @@ import { readImportLiveEventAt } from './liveEventTimestamp'
 export const importQueryKeys = {
   all: ['imports'] as const,
   status: (importId: string) => ['imports', 'status', importId] as const,
+  /**
+   * BUG-010 — key for the caller's own list of recent imports. Separate
+   * from {@link status} so mutating one status cache entry doesn't
+   * accidentally invalidate the list view.
+   */
+  mine: (limit: number) => ['imports', 'mine', limit] as const,
 }
 
 /**
@@ -126,5 +138,29 @@ export function useImportStatus(
     // Keep polling even when the tab backgrounds — the user may come
     // back after 30 s and expect the progress bar to reflect reality.
     refetchIntervalInBackground: true,
+  })
+}
+
+/**
+ * BUG-010 — caller-facing list of the user's most-recent imports.
+ *
+ * Polls at the default import cadence while any row is still in a
+ * non-terminal state so the list reflects progress as jobs advance.
+ * When every row is Done/Error we stop polling — the user explicitly
+ * has to refresh (or navigate back into the page) to re-check.
+ */
+export function useMyImports(limit = 20) {
+  return useQuery<ImportSummaryDto[]>({
+    queryKey: importQueryKeys.mine(limit),
+    queryFn: () => fetchMyImports(limit),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (!data || data.length === 0) return false
+      const anyActive = data.some(
+        (row) => row.status === 'queued' || row.status === 'running',
+      )
+      return anyActive ? DEFAULT_IMPORT_POLL_MS : false
+    },
+    refetchIntervalInBackground: false,
   })
 }

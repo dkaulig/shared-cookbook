@@ -112,10 +112,17 @@ export interface ExtractionResult {
  *
  * `groupId` must belong to a group the caller is a member of; the .NET
  * endpoint rejects mismatches with 403 `not_a_member`.
+ *
+ * BUG-013 — `force` (default `false`) is the opt-out for the
+ * per-user 7-day import-cache on the server. When the user hits the
+ * "Neu extrahieren"-button on the cache-hit banner, the web layer
+ * re-submits the same body with `force: true` so the pipeline reruns
+ * and a fresh import is queued.
  */
 export interface ImportUrlRequest {
   url: string
   groupId: string
+  force?: boolean
 }
 
 /**
@@ -151,9 +158,52 @@ export interface StagedPhotoResponse {
 /**
  * Response for the enqueue endpoints — matches
  * `ImportEndpoints.ImportEnqueueResponse` on the .NET side.
+ *
+ * BUG-013 — `cached` is `true` when the URL-import endpoint
+ * short-circuited to an existing successful import for the same caller
+ * + same canonical URL within the 7-day TTL. The referenced
+ * `importId` is the cached row's id (already `status === 'done'` with
+ * populated `result`); no new Hangfire job was enqueued. Absent / false
+ * on fresh imports.
  */
 export interface ImportEnqueueResponse {
   importId: string
+  cached?: boolean
+}
+
+/**
+ * BUG-010 — wire shape of `GET /api/imports?mine=true&limit=N`.
+ *
+ * Lighter than {@link RecipeImportDto}: no `result` field (the list
+ * view never surfaces the extracted recipe payload) and no bytes /
+ * segments transit fields (those live on the per-id detail view).
+ *
+ * Field naming mirrors the .NET `ImportEndpoints.ImportSummary` record:
+ *   - `status` / `source` arrive TitleCase on the wire and get
+ *     normalised to the lowercase unions at the API-client edge, same
+ *     pattern as {@link RecipeImportDto}.
+ *   - `phase` arrives as the snake-case wire string and gets validated
+ *     against {@link RecipeImportPhase}.
+ *   - `progressLabel` is the server-derived German copy — already
+ *     localised, ready to render.
+ *
+ * The UI consumes this surface directly; we do not fall back to the
+ * per-id DTO for list items so the listing stays zero-extra-requests.
+ */
+export interface ImportSummaryDto {
+  id: string
+  groupId: string
+  source: ImportSourceKind
+  status: ImportStatus
+  /** Integer 0–100 (weighted across all phases). */
+  progress: number
+  phase: RecipeImportPhase
+  /** Server-computed German copy; null until the first callback lands. */
+  progressLabel: string | null
+  sourceUrl: string | null
+  createdAt: string
+  completedAt: string | null
+  errorMessage: string | null
 }
 
 /**

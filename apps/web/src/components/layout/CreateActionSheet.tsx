@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Camera,
   ChefHat,
+  ListChecks,
   MessageSquare,
   Users,
   Video,
@@ -143,6 +144,20 @@ export function CreateActionSheet({
       icon: MessageSquare,
       onClick: () => {
         navigate('/chat')
+        onClose()
+      },
+    })
+    // BUG-010 — dashboard shortcut. Listed last in the import block so
+    // the primary "create" actions stay visually first; entry point
+    // exists here because the BottomNav FAB is the obvious place the
+    // user reaches for "what's happening with my imports right now?".
+    actions.push({
+      key: 'imports-list',
+      label: 'Imports ansehen',
+      description: 'Laufende und abgeschlossene Imports',
+      icon: ListChecks,
+      onClick: () => {
+        navigate('/rezepte/import')
         onClose()
       },
     })
