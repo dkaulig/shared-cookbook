@@ -8,6 +8,7 @@ import { useMyGroups } from '@/features/groups/useMyGroups'
 import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
 import { useEnqueueUrlImport } from './hooks'
+import { rememberImportGroup } from './importGroupMemo'
 
 /**
  * URL-import entry form — routed at `/rezepte/import/url`.
@@ -63,7 +64,15 @@ export function ImportUrlPage() {
         url: trimmed,
         groupId,
       })
-      navigate(`/rezepte/import/${importId}`)
+      // Stash groupId keyed by importId so the progress page + the
+      // RecipeFormPage prefill know which group to route to. The
+      // server's GET /api/imports/{id} does NOT include groupId (P2-6
+      // response shape), and we must not block on a backend change for
+      // P2-7. sessionStorage survives soft reloads within the tab;
+      // closing the tab drops the mapping, which is fine — the user
+      // can reopen /rezepte/import/url if they want to retry.
+      rememberImportGroup(importId, groupId)
+      navigate(`/rezepte/import/${importId}`, { state: { groupId } })
     } catch (err) {
       const apiErr = err as ApiError
       setError(apiErr.message || 'Der Import konnte nicht gestartet werden.')

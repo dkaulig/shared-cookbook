@@ -9,6 +9,7 @@ import type { GroupSummary } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { ImportUrlPage } from './ImportUrlPage'
+import { recallImportGroup, forgetImportGroup } from './importGroupMemo'
 
 function groupSummary(over: Partial<GroupSummary>): GroupSummary {
   return {
@@ -194,6 +195,26 @@ describe('<ImportUrlPage />', () => {
     await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
     expect(await screen.findByText(/Gruppe erstellen/i)).toBeInTheDocument()
     expect(posted).toBe(false)
+  })
+
+  it('remembers the groupId in sessionStorage keyed by importId so reload still routes on done', async () => {
+    const user = userEvent.setup()
+    forgetImportGroup('imp-memo')
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'g-memo' })]),
+      ),
+      http.post('/api/recipes/import/url', () =>
+        HttpResponse.json({ importId: 'imp-memo' }, { status: 202 }),
+      ),
+    )
+    renderPage()
+    await user.type(
+      screen.getByLabelText(/Video- oder Blog-URL/i),
+      'https://example.com/r',
+    )
+    await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
+    await waitFor(() => expect(recallImportGroup('imp-memo')).toBe('g-memo'))
   })
 
   it('surfaces a server 400 error inline (no navigation)', async () => {
