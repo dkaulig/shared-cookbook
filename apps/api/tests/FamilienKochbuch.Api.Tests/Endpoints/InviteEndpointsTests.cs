@@ -198,7 +198,7 @@ public class InviteEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
     public async Task Create_Invite_Still_Returns_200_When_Mail_Delivery_Fails()
     {
         var (client, _) = await CreateAuthenticatedClient("resilient@example.com");
-        _factory.Email.ThrowOnSend = new InvalidOperationException("simulated SMTP failure");
+        _factory.Email.ThrowOnSend = new EmailSendException("simulated SMTP failure");
 
         var response = await client.PostAsJsonAsync("/api/invites/app/",
             new InviteEndpoints.CreateInviteRequest("recipient@example.com"));

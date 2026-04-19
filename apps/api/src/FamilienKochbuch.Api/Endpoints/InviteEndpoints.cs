@@ -78,7 +78,7 @@ public static class InviteEndpoints
                     personalNote: null,
                     ct: ct);
             }
-            catch (Exception ex)
+            catch (EmailSendException ex)
             {
                 logger.LogWarning(ex,
                     "App-invite mail delivery failed for inviteId={InviteId}; inviter can still share the link manually.",
