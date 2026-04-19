@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { ApiError, AuthResponse } from '@familien-kochbuch/shared'
 import { useAuthStore } from './authStore'
 
@@ -9,6 +10,7 @@ import { useAuthStore } from './authStore'
  */
 export function useAuth() {
   const { accessToken, user, isAuthenticated, setSession, clear } = useAuthStore()
+  const queryClient = useQueryClient()
 
   const login = useCallback(
     async (email: string, password: string): Promise<void> => {
@@ -40,7 +42,13 @@ export function useAuth() {
       // Swallow — local UX intent wins.
     }
     clear()
-  }, [accessToken, clear])
+    // Shared-device hygiene: every cached query is user-scoped (groups,
+    // mealplan, recipes…), so when user A logs out we must drop the
+    // whole cache before user B can sign in. Otherwise user A's data
+    // would flash for up to `staleTime` (30s) before the first refetch.
+    // `clear()` removes both queries + mutations.
+    queryClient.clear()
+  }, [accessToken, clear, queryClient])
 
   return { accessToken, user, isAuthenticated, login, logout }
 }

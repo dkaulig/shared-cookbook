@@ -11,10 +11,32 @@ import { apiClient } from '@/features/auth/apiClient'
  * Typed access layer for the P3-1 meal-planning endpoints. Mirrors the
  * ratingsApi / recipesApi convention: every call goes through `apiClient`
  * (so Bearer-token injection + silent refresh on 401 work), and every
- * failure surfaces a throwable `ApiError`-shaped object so the UI can
+ * failure surfaces a throwable `MealPlanApiError` so the UI can
  * distinguish "plan does not exist yet" (404 → `code: "mealplan.not_found"`)
- * from a genuine load error.
+ * from a genuine load error — without having to double-cast the caught
+ * value at every call site.
  */
+
+/**
+ * Named Error subclass with typed `code` / `message` / `status`. Using a
+ * real class (instead of an ad-hoc `Error & ApiError & { status }`
+ * intersection) lets consumers narrow via `instanceof` and drops the
+ * `as unknown as` double-cast previously needed in useMealPlan.
+ */
+export class MealPlanApiError extends Error implements ApiError {
+  readonly code: string
+  readonly status: number
+
+  constructor(code: string, message: string, status: number) {
+    super(`${code}: ${message}`)
+    this.name = 'MealPlanApiError'
+    this.code = code
+    this.status = status
+    // `Error` constructor ignores our explicit `message` assignment on
+    // some engines when subclassed — pin it for predictable UI copy.
+    this.message = message
+  }
+}
 
 async function request<T>(
   input: RequestInfo | URL,
@@ -40,11 +62,7 @@ async function throwApiError(response: Response): Promise<never> {
   }
   const code = payload?.code ?? `http_${response.status}`
   const message = payload?.message ?? response.statusText
-  const err = new Error(`${code}: ${message}`) as Error & ApiError & { status: number }
-  err.code = code
-  err.message = message
-  err.status = response.status
-  throw err
+  throw new MealPlanApiError(code, message, response.status)
 }
 
 export async function fetchMealPlan(
