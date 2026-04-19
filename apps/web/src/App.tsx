@@ -11,6 +11,7 @@ import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { HomePage } from '@/features/home/HomePage'
 import { GroupsPage } from '@/features/groups/GroupsPage'
 import { GroupDetailPage } from '@/features/groups/GroupDetailPage'
+import { GroupSettingsPage } from '@/features/groups/GroupSettingsPage'
 import { RecipeDetailPage } from '@/features/recipes/RecipeDetailPage'
 import { RecipeFormPage } from '@/features/recipes/RecipeFormPage'
 import { ImportUrlPage } from '@/features/imports/ImportUrlPage'
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/groups" element={<GroupsPage />} />
             <Route path="/groups/:id" element={<GroupDetailPage />} />
+            <Route path="/groups/:groupId/settings" element={<GroupSettingsPage />} />
             <Route path="/groups/:groupId/tags" element={<TagManagementPage />} />
             <Route
               path="/groups/:groupId/mealplan/:weekStart/shopping-list"

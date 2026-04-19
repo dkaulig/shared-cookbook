@@ -1,10 +1,8 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BookOpen, CalendarDays, Pencil, Users } from 'lucide-react'
+import { BookOpen, CalendarDays, Settings, Users } from 'lucide-react'
 import type { GroupDetail } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { EditGroupDialog } from './EditGroupDialog'
 import { getGroupAvatarGradient } from './groupAvatarGradient'
 
 /**
@@ -20,6 +18,11 @@ import { getGroupAvatarGradient } from './groupAvatarGradient'
  *
  * The avatar uses `getGroupAvatarGradient(id)` so the 3 tints rotate
  * deterministically across the user's groups for visual variety.
+ *
+ * BUG-002 — the admin-only "Gruppe bearbeiten" button used to open an
+ * `EditGroupDialog` modal. It now navigates to the dedicated
+ * `/groups/:groupId/settings` page where name + photo + members + invites
+ * are managed together.
  */
 export function GroupDetailHeader({
   group,
@@ -33,7 +36,6 @@ export function GroupDetailHeader({
   const portionsLabel = group.defaultServings === 1 ? 'Portion' : 'Portionen'
   const recipesLabel = recipeCount === 1 ? 'Rezept' : 'Rezepte'
   const isAdmin = group.myRole === 'Admin'
-  const [showEditDialog, setShowEditDialog] = useState(false)
 
   // Avatar stack: first three members inline, remainder collapsed into a
   // "+N" chip so a 10-person group doesn't push the row off the page.
@@ -50,12 +52,20 @@ export function GroupDetailHeader({
           'relative h-[120px] rounded-[24px] border border-[#c3d4ca] md:h-[180px]',
         )}
         style={{
-          backgroundImage: [
-            'linear-gradient(135deg, rgba(79,121,97,0.18), rgba(141,174,160,0.12) 50%, rgba(195,212,202,0.24))',
-            'radial-gradient(circle at 20% 40%, #c3d4ca 0%, transparent 55%)',
-            'radial-gradient(circle at 85% 75%, #f0c9b6 0%, transparent 55%)',
-          ].join(', '),
-          backgroundColor: '#e6ede8',
+          ...(group.coverImageUrl
+            ? {
+                backgroundImage: `url(${group.coverImageUrl})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }
+            : {
+                backgroundImage: [
+                  'linear-gradient(135deg, rgba(79,121,97,0.18), rgba(141,174,160,0.12) 50%, rgba(195,212,202,0.24))',
+                  'radial-gradient(circle at 20% 40%, #c3d4ca 0%, transparent 55%)',
+                  'radial-gradient(circle at 85% 75%, #f0c9b6 0%, transparent 55%)',
+                ].join(', '),
+                backgroundColor: '#e6ede8',
+              }),
         }}
       />
 
@@ -85,14 +95,14 @@ export function GroupDetailHeader({
               </Link>
             </Button>
             {isAdmin && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowEditDialog(true)}
-              >
-                <Pencil className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                Gruppe bearbeiten
+              <Button asChild type="button" variant="outline" size="sm">
+                <Link
+                  to={`/groups/${group.id}/settings`}
+                  aria-label="Einstellungen öffnen"
+                >
+                  <Settings className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  Einstellungen
+                </Link>
               </Button>
             )}
           </div>
@@ -142,17 +152,6 @@ export function GroupDetailHeader({
           </strong>
         </span>
       </div>
-
-      {showEditDialog && (
-        <EditGroupDialog
-          groupId={group.id}
-          initialName={group.name}
-          initialDescription={group.description ?? ''}
-          initialDefaultServings={group.defaultServings}
-          initialCoverImageUrl={group.coverImageUrl ?? ''}
-          onClose={() => setShowEditDialog(false)}
-        />
-      )}
     </section>
   )
 }
