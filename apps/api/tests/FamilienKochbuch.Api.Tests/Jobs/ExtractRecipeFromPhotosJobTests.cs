@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
+using FamilienKochbuch.Api.Tests.Infrastructure;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
@@ -56,7 +57,8 @@ public class ExtractRecipeFromPhotosJobTests : IAsyncLifetime
             Options.Create(new ExtractorOptions { SharedSecret = "test-secret" }),
             _clock);
         var runner = new PythonExtractorRunner(
-            _db, factory, signer, _clock, NullLogger<PythonExtractorRunner>.Instance);
+            _db, factory, signer, new NullLiveSyncPublisher(), _clock,
+            NullLogger<PythonExtractorRunner>.Instance);
         _job = new ExtractRecipeFromPhotosJob(_db, runner);
     }
 

@@ -1,3 +1,5 @@
+using FamilienKochbuch.Domain.Enums;
+
 namespace FamilienKochbuch.Domain.Entities;
 
 /// <summary>
@@ -48,6 +50,18 @@ public sealed class RecipeImport
     /// storage exploit.</summary>
     public const int ModelDeploymentMaxLength = 200;
 
+    /// <summary>Maximum length of the stored server-derived German
+    /// progress label. All auto-derived labels fit comfortably under
+    /// 200 chars; the cap exists as defence-in-depth in case a future
+    /// format string misbehaves.</summary>
+    public const int ProgressLabelMaxLength = 200;
+
+    /// <summary>Initial overall progress for a row that has just entered
+    /// the Queued phase. Matches the top of the Queued phase-range
+    /// (0-5%) in the weighted formula — the user sees "5%" immediately
+    /// rather than a jarring "0%".</summary>
+    public const int QueuedStartProgress = 5;
+
     // EF needs a parameterless ctor for materialization. Kept private so
     // domain construction always goes through the validating ctor below.
     private RecipeImport() { }
@@ -72,6 +86,15 @@ public sealed class RecipeImport
         Status = ImportStatus.Queued;
         Progress = 0;
         CreatedAt = createdAt;
+
+        // PV1 — phase-aware progress fields. Start in Queued at 0% within-phase;
+        // AttemptNumber = 1 on creation, LastProgressAt tracks heartbeat for the
+        // stale-progress UI banner.
+        Phase = RecipeImportPhase.Queued;
+        PhaseProgress = 0;
+        AttemptNumber = 1;
+        LastProgressAt = createdAt;
+        ProgressLabel = null;
     }
 
     public Guid Id { get; private set; }
@@ -97,6 +120,29 @@ public sealed class RecipeImport
     public int? CompletionTokens { get; private set; }
     public int? CachedPromptTokens { get; private set; }
     public string? ModelDeployment { get; private set; }
+
+    // ── PV1: Phase-aware progress (see video-import-progress-design.md) ──
+    //
+    // Phase / PhaseProgress are the authoritative within-phase coordinates
+    // the Python extractor callbacks populate. `Progress` stays the global
+    // 0-100 number the existing UI binds to; it is computed from the
+    // phase-weighted formula any time UpdateProgress accepts a change, so
+    // the invariant `Progress = global(Phase, PhaseProgress)` always holds.
+    //
+    // ProgressLabel is a server-derived German string replacing the old
+    // client-side `progressLabel.ts` helper — keeping derivation on the
+    // server keeps the three surfaces (polled GET, SignalR event, stored
+    // row) consistent without re-implementing the mapping twice.
+
+    public RecipeImportPhase Phase { get; private set; } = RecipeImportPhase.Queued;
+    public int PhaseProgress { get; private set; }
+    public string? ProgressLabel { get; private set; }
+    public long? BytesDownloaded { get; private set; }
+    public long? BytesTotal { get; private set; }
+    public int? SegmentsDone { get; private set; }
+    public int? SegmentsTotal { get; private set; }
+    public int AttemptNumber { get; private set; } = 1;
+    public DateTimeOffset LastProgressAt { get; private set; }
 
     // ── State transitions ───────────────────────────────────────────
 
@@ -161,6 +207,14 @@ public sealed class RecipeImport
         ResultJson = resultJson;
         ErrorMessage = null;
         CompletedAt = completedAt;
+
+        // Keep phase-aware fields aligned: the import is in terminal Done.
+        Phase = RecipeImportPhase.Done;
+        PhaseProgress = 100;
+        ProgressLabel = ProgressLabelBuilder.Build(
+            RecipeImportPhase.Done, bytesDownloaded: null, bytesTotal: null,
+            segmentsDone: null, segmentsTotal: null);
+        LastProgressAt = completedAt;
     }
 
     /// <summary>
@@ -180,6 +234,15 @@ public sealed class RecipeImport
         ResultJson = null;
         ErrorMessage = Truncate(errorMessage.Trim(), ErrorMessageMaxLength);
         CompletedAt = completedAt;
+
+        // Phase tracking: pin to Error terminal; the actual detail message
+        // lives in ErrorMessage. Progress stays at whatever value the last
+        // accepted update computed — the UI freezes the bar at that point.
+        Phase = RecipeImportPhase.Error;
+        ProgressLabel = ProgressLabelBuilder.Build(
+            RecipeImportPhase.Error, bytesDownloaded: null, bytesTotal: null,
+            segmentsDone: null, segmentsTotal: null);
+        LastProgressAt = completedAt;
     }
 
     /// <summary>
@@ -225,6 +288,134 @@ public sealed class RecipeImport
         ModelDeployment = Truncate(modelDeployment.Trim(), ModelDeploymentMaxLength);
     }
 
+    // ── PV1: Phase-aware progress state machine ─────────────────────
+
+    /// <summary>
+    /// Applies an incoming phase-progress update from the Python extractor
+    /// callback (<c>POST /api/internal/imports/{id}/progress</c>).
+    /// Returns <c>false</c> — silently, no exception — when the update is
+    /// discarded by one of the following guards:
+    /// <list type="bullet">
+    /// <item>The incoming <paramref name="attempt"/> is older than the
+    /// current <see cref="AttemptNumber"/> (a late callback from a
+    /// superseded retry).</item>
+    /// <item>The incoming (<paramref name="phase"/>, <paramref name="phaseProgress"/>)
+    /// is not monotonically >= (current <see cref="Phase"/>, current
+    /// <see cref="PhaseProgress"/>) — out-of-order network reordering.</item>
+    /// <item>The current <see cref="Phase"/> is already terminal
+    /// (<see cref="RecipeImportPhase.Done"/> or
+    /// <see cref="RecipeImportPhase.Error"/>).</item>
+    /// </list>
+    ///
+    /// Silent rejection (rather than throw) keeps the endpoint idempotent:
+    /// the Python reporter is fire-and-forget, so out-of-order arrivals
+    /// are normal under load and shouldn't surface as 5xx.
+    ///
+    /// On accept: stores all provided fields, recomputes the global
+    /// <see cref="Progress"/> via the phase-weighted formula, auto-derives
+    /// the German <see cref="ProgressLabel"/>, and stamps
+    /// <see cref="LastProgressAt"/> with <paramref name="now"/>.
+    /// </summary>
+    public bool UpdateProgress(
+        RecipeImportPhase phase,
+        int phaseProgress,
+        long? bytesDownloaded,
+        long? bytesTotal,
+        int? segmentsDone,
+        int? segmentsTotal,
+        int attempt,
+        DateTimeOffset now)
+    {
+        if (phaseProgress is < 0 or > 100)
+            throw new ArgumentOutOfRangeException(
+                nameof(phaseProgress),
+                phaseProgress,
+                "Phase progress must be between 0 and 100.");
+        if (attempt < 1)
+            throw new ArgumentOutOfRangeException(
+                nameof(attempt), attempt, "Attempt must be >= 1.");
+
+        // Guard 1: terminal state is terminal. Both Done and Error ignore
+        // any further callbacks so a late "transcribing 50%" can't un-do
+        // a completed import.
+        if (Phase is RecipeImportPhase.Done or RecipeImportPhase.Error)
+            return false;
+
+        // Guard 2: stale retry. A callback from attempt N-1 arriving after
+        // we bumped to attempt N (because a previous attempt failed and
+        // was retried) must be discarded — its progress numbers belong to
+        // a pipeline run that no longer represents the truth.
+        if (attempt < AttemptNumber)
+            return false;
+
+        // Guard 3: out-of-order within-attempt. Phases monotonically
+        // increase (by the int value of the enum); within a phase the
+        // progress number does too.
+        if ((int)phase < (int)Phase)
+            return false;
+        if ((int)phase == (int)Phase && phaseProgress < PhaseProgress)
+            return false;
+
+        Phase = phase;
+        PhaseProgress = phaseProgress;
+        BytesDownloaded = bytesDownloaded;
+        BytesTotal = bytesTotal;
+        SegmentsDone = segmentsDone;
+        SegmentsTotal = segmentsTotal;
+        Progress = PhaseWeightedFormula.Compute(phase, phaseProgress);
+        ProgressLabel = ProgressLabelBuilder.Build(
+            phase, bytesDownloaded, bytesTotal, segmentsDone, segmentsTotal);
+        LastProgressAt = now;
+
+        // If a progress callback arrived while the row was still in
+        // Queued ImportStatus (no MarkRunning was called), lift it into
+        // Running so the existing status endpoint matches the phase
+        // truth. Queued→Running is legal for every non-terminal phase.
+        if (Status == ImportStatus.Queued && phase != RecipeImportPhase.Queued)
+        {
+            Status = ImportStatus.Running;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Marks the beginning of a fresh Hangfire attempt. Used when the
+    /// <c>[AutomaticRetry]</c> supervisor re-runs a failed extraction:
+    /// the attempt counter is bumped, phase resets to <c>Queued</c>,
+    /// within-phase progress resets to 0, and the global <see cref="Progress"/>
+    /// jumps back to <see cref="QueuedStartProgress"/> so the user sees
+    /// the new attempt visibly restart rather than appear stuck on the
+    /// previous value. Only legal while the import is not terminal.
+    /// </summary>
+    public void StartAttempt(int attemptNumber, DateTimeOffset now)
+    {
+        if (attemptNumber < 1)
+            throw new ArgumentOutOfRangeException(
+                nameof(attemptNumber), attemptNumber, "Attempt must be >= 1.");
+        if (attemptNumber < AttemptNumber)
+            throw new ArgumentOutOfRangeException(
+                nameof(attemptNumber), attemptNumber,
+                $"Attempt must not regress below current AttemptNumber {AttemptNumber}.");
+        if (Status is ImportStatus.Done or ImportStatus.Error
+            || Phase is RecipeImportPhase.Done or RecipeImportPhase.Error)
+            throw new InvalidOperationException(
+                $"Cannot start a new attempt on a terminal import (Status={Status}, Phase={Phase}).");
+
+        AttemptNumber = attemptNumber;
+        Phase = RecipeImportPhase.Queued;
+        PhaseProgress = 0;
+        Progress = QueuedStartProgress;
+        BytesDownloaded = null;
+        BytesTotal = null;
+        SegmentsDone = null;
+        SegmentsTotal = null;
+        ProgressLabel = ProgressLabelBuilder.Build(
+            RecipeImportPhase.Queued, bytesDownloaded: null, bytesTotal: null,
+            segmentsDone: null, segmentsTotal: null);
+        LastProgressAt = now;
+    }
+
     // Public setter used by the overload with only (message) — kept around
     // for EF proxy friendliness; call sites use the DateTimeOffset overload.
     private static string Truncate(string value, int max) =>
@@ -239,5 +430,118 @@ public sealed class RecipeImport
                 $"Source URL must be at most {SourceUrlMaxLength} characters.",
                 nameof(sourceUrl));
         return trimmed;
+    }
+}
+
+/// <summary>
+/// Phase-weighted formula mapping a (<see cref="RecipeImportPhase"/>,
+/// within-phase percentage) pair to a global 0-100 <c>Progress</c>.
+///
+/// Ranges (match design §Phase-Weighted Formula):
+/// <code>
+/// Queued          → 0-5%    (5%)   — URL + Photo paths
+/// Downloading     → 5-15%   (10%)  — URL path only
+/// Transcribing    → 15-85%  (70%)  — URL path only (longest phase)
+/// Structuring     → 85-95%  (10%)  — URL path only
+/// PostProcessing  → 95-100% (5%)   — both paths
+/// VisionAnalysis  → 5-95%   (90%)  — Photo path; swallows the URL-only
+///                                    Downloading/Transcribing/Structuring
+///                                    slots because photos is single-shot.
+/// Done / Error    → 100%           — terminal
+/// </code>
+///
+/// Global = phase_start + (phase_progress / 100) * phase_range, rounded
+/// to the nearest integer. Kept internal so call sites go through
+/// <see cref="RecipeImport.UpdateProgress"/> which enforces the guards.
+/// </summary>
+internal static class PhaseWeightedFormula
+{
+    public static int Compute(RecipeImportPhase phase, int phaseProgress)
+    {
+        if (phaseProgress < 0) phaseProgress = 0;
+        if (phaseProgress > 100) phaseProgress = 100;
+
+        var (start, range) = phase switch
+        {
+            RecipeImportPhase.Queued => (0, 5),
+            RecipeImportPhase.Downloading => (5, 10),
+            RecipeImportPhase.Transcribing => (15, 70),
+            RecipeImportPhase.Structuring => (85, 10),
+            RecipeImportPhase.PostProcessing => (95, 5),
+            RecipeImportPhase.VisionAnalysis => (5, 90),
+            RecipeImportPhase.Done => (100, 0),
+            RecipeImportPhase.Error => (100, 0),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(phase), phase, "Unknown RecipeImportPhase."),
+        };
+
+        // Round half-up. With range ≤ 100 and phaseProgress ≤ 100 the
+        // intermediate stays well within int range, so no long cast.
+        var global = start + (range * phaseProgress + 50) / 100;
+        if (global > 100) global = 100;
+        if (global < 0) global = 0;
+        return global;
+    }
+}
+
+/// <summary>
+/// Server-side German copy builder for the progress label. Centralising
+/// the mapping here means the label is identical on the persisted row,
+/// the polled status endpoint, and the SignalR event — no risk of the
+/// frontend and backend drifting on wording. Labels stay short (≤ 200
+/// chars, enforced by <see cref="RecipeImport.ProgressLabelMaxLength"/>)
+/// so they fit the mobile progress card without wrapping awkwardly.
+/// </summary>
+internal static class ProgressLabelBuilder
+{
+    public static string Build(
+        RecipeImportPhase phase,
+        long? bytesDownloaded,
+        long? bytesTotal,
+        int? segmentsDone,
+        int? segmentsTotal)
+    {
+        var raw = phase switch
+        {
+            RecipeImportPhase.Queued => "Warteschlange...",
+            RecipeImportPhase.Downloading => BuildDownloading(bytesDownloaded, bytesTotal),
+            RecipeImportPhase.Transcribing => BuildTranscribing(segmentsDone, segmentsTotal),
+            RecipeImportPhase.Structuring => "Rezept wird strukturiert (Azure OpenAI)",
+            RecipeImportPhase.PostProcessing => "Nachverarbeitung...",
+            RecipeImportPhase.VisionAnalysis => "Fotos werden analysiert (Azure Vision)",
+            RecipeImportPhase.Done => "Fertig",
+            RecipeImportPhase.Error => "Fehler",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(phase), phase, "Unknown RecipeImportPhase."),
+        };
+
+        return raw.Length <= RecipeImport.ProgressLabelMaxLength
+            ? raw
+            : raw[..RecipeImport.ProgressLabelMaxLength];
+    }
+
+    private static string BuildDownloading(long? bytesDownloaded, long? bytesTotal)
+    {
+        if (bytesDownloaded is long done && bytesTotal is long total && total > 0)
+        {
+            var percent = (int)((done * 100L) / total);
+            if (percent < 0) percent = 0;
+            if (percent > 100) percent = 100;
+            var totalMb = total / 1024.0 / 1024.0;
+            var mbStr = totalMb.ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("de-DE"));
+            return $"Video wird heruntergeladen ({percent}% von {mbStr} MB)";
+        }
+        return "Video wird heruntergeladen";
+    }
+
+    private static string BuildTranscribing(int? segmentsDone, int? segmentsTotal)
+    {
+        if (segmentsDone is int done && segmentsTotal is int total && total > 0)
+        {
+            if (done < 0) done = 0;
+            if (done > total) done = total;
+            return $"Audio wird transkribiert (Segment {done}/{total})";
+        }
+        return "Audio wird transkribiert";
     }
 }

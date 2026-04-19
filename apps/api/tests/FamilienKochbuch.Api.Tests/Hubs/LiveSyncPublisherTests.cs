@@ -1,4 +1,6 @@
 using FamilienKochbuch.Api.Hubs;
+using FamilienKochbuch.Domain.Entities;
+using FamilienKochbuch.Domain.Enums;
 using Microsoft.AspNetCore.SignalR;
 using Xunit;
 
@@ -107,6 +109,74 @@ public class LiveSyncPublisherTests
         var captured = Assert.Single(hub.Invocations);
         var payload = Assert.IsType<ShoppingListItemChangedPayload>(captured.Argument);
         Assert.Equal(Guid.Empty, payload.ItemId);
+    }
+
+    [Fact]
+    public async Task RecipeImportProgressChangedAsync_Publishes_Full_Snapshot_To_Group()
+    {
+        var hub = new FakeHubContext();
+        var publisher = new LiveSyncPublisher(hub);
+
+        var import = new RecipeImport(
+            userId: Guid.NewGuid(),
+            groupId: Guid.NewGuid(),
+            source: ImportSource.Url,
+            sourceUrl: "https://x",
+            createdAt: DateTimeOffset.UtcNow);
+        import.UpdateProgress(
+            RecipeImportPhase.Transcribing, 40,
+            bytesDownloaded: null, bytesTotal: null,
+            segmentsDone: 8, segmentsTotal: 20,
+            attempt: 1, now: DateTimeOffset.UtcNow);
+
+        await publisher.RecipeImportProgressChangedAsync(import);
+
+        var captured = Assert.Single(hub.Invocations);
+        Assert.Equal($"group:{import.GroupId}", captured.GroupName);
+        Assert.Equal("RecipeImportProgressChanged", captured.Method);
+        var payload = Assert.IsType<RecipeImportProgressPayload>(captured.Argument);
+        Assert.Equal(import.Id, payload.ImportId);
+        Assert.Equal(import.GroupId, payload.GroupId);
+        Assert.Equal("transcribing", payload.Phase);
+        Assert.Equal(40, payload.PhaseProgress);
+        Assert.Equal(import.Progress, payload.Progress);
+        Assert.Equal(8, payload.SegmentsDone);
+        Assert.Equal(20, payload.SegmentsTotal);
+        Assert.Equal(1, payload.AttemptNumber);
+    }
+
+    [Theory]
+    [InlineData(RecipeImportPhase.Queued, "queued")]
+    [InlineData(RecipeImportPhase.Downloading, "downloading")]
+    [InlineData(RecipeImportPhase.Transcribing, "transcribing")]
+    [InlineData(RecipeImportPhase.Structuring, "structuring")]
+    [InlineData(RecipeImportPhase.PostProcessing, "post_processing")]
+    [InlineData(RecipeImportPhase.VisionAnalysis, "vision_analysis")]
+    [InlineData(RecipeImportPhase.Done, "done")]
+    [InlineData(RecipeImportPhase.Error, "error")]
+    public void RecipeImportPhaseWire_ToWire_Matches_Python_Contract(
+        RecipeImportPhase phase, string expected)
+    {
+        Assert.Equal(expected, RecipeImportPhaseWire.ToWire(phase));
+    }
+
+    [Fact]
+    public void RecipeImportPhaseWire_TryParse_Round_Trips()
+    {
+        foreach (RecipeImportPhase value in Enum.GetValues(typeof(RecipeImportPhase)))
+        {
+            var wire = RecipeImportPhaseWire.ToWire(value);
+            Assert.True(RecipeImportPhaseWire.TryParse(wire, out var roundTripped));
+            Assert.Equal(value, roundTripped);
+        }
+    }
+
+    [Fact]
+    public void RecipeImportPhaseWire_TryParse_Rejects_Unknown()
+    {
+        Assert.False(RecipeImportPhaseWire.TryParse("not-a-phase", out _));
+        Assert.False(RecipeImportPhaseWire.TryParse(null, out _));
+        Assert.False(RecipeImportPhaseWire.TryParse("", out _));
     }
 
     [Fact]

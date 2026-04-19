@@ -19,6 +19,17 @@
     }
     log_skip /api/hubs/live*
 
+    # PV1 — /api/internal/* is reserved for intra-container callbacks
+    # (e.g. the Python extractor posting progress updates on the docker
+    # bridge). External callers must not even learn the route exists;
+    # respond 404 before the reverse_proxy block so the request never
+    # hits Kestrel. The app-level InternalOnlyMiddleware layers a second
+    # defence for direct-to-container access.
+    @internal path /api/internal/*
+    handle @internal {
+        respond 404
+    }
+
     handle /api/* {
         reverse_proxy api:5000
     }
