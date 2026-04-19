@@ -68,6 +68,11 @@ services:
       EXTRACTOR_SHARED_SECRET: "${EXTRACTOR_SHARED_SECRET:-dev-only-shared-secret}"
       # Base URL of the internal Python service (docker hostname).
       PythonExtractor__BaseUrl: "${PYTHON_EXTRACTOR_BASE_URL:-http://python-extractor:8000}"
+      # ── Orchestrator bot (OPS1) ─────────────────────────────────
+      ORCHESTRATOR_PASSWORD: ${ORCHESTRATOR_PASSWORD:-}
+      ORCHESTRATOR_PASSWORD_ROTATE: ${ORCHESTRATOR_PASSWORD_ROTATE:-}
+      # ── Hangfire worker cap (IF1) ───────────────────────────────
+      HANGFIRE_WORKERS: ${HANGFIRE_WORKERS:-}
       # ── PF3: SMTP for password-reset + invite emails ─────────────
       # Leave empty in dev to fall back to NoOpEmailSender (links appear
       # in the api container logs). Mirror of the prod compose block so
