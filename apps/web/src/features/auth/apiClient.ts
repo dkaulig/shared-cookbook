@@ -48,6 +48,9 @@ async function fetchWithAuth(
   const { accessToken } = useAuthStore.getState()
   const headers = new Headers(init?.headers)
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+  // TODO: CSRF hardening needed if cookie-based auth is added (today we
+  // rely on Bearer tokens + SameSite=strict refresh cookie, so the
+  // classic browser CSRF vector doesn't apply — revisit if that changes).
   return fetch(input, { ...init, headers, credentials: 'include' })
 }
 

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
 import { SortableMealRow } from './SortableMealRow'
-import { SORT_ORDER_STEP, computeReorder } from './sortableMealRow.helpers'
+import { SORT_ORDER_STEP } from './constants'
 
 const PLAN_ID = '11111111-1111-1111-1111-111111111111'
 
@@ -168,32 +168,5 @@ describe('<SortableMealRow />', () => {
     // Locked so future refactors don't silently shrink the gap to 1
     // and break the "drop between" optimisation P3-10 will rely on.
     expect(SORT_ORDER_STEP).toBe(10)
-  })
-})
-
-describe('computeReorder', () => {
-  it('moves an item down to the target index', () => {
-    expect(computeReorder(['a', 'b', 'c'], 'a', 'c')).toEqual(['b', 'c', 'a'])
-  })
-
-  it('moves an item up to the target index', () => {
-    expect(computeReorder(['a', 'b', 'c'], 'c', 'a')).toEqual(['c', 'a', 'b'])
-  })
-
-  it('returns the input unchanged when active === over', () => {
-    const input = ['a', 'b', 'c']
-    expect(computeReorder(input, 'a', 'a')).toBe(input)
-  })
-
-  it('returns the input unchanged when ids are not in the list', () => {
-    const input = ['a', 'b', 'c']
-    expect(computeReorder(input, 'x', 'a')).toBe(input)
-    expect(computeReorder(input, 'a', 'x')).toBe(input)
-  })
-
-  it('keeps all ids present after reorder', () => {
-    const input = ['a', 'b', 'c', 'd']
-    const out = computeReorder(input, 'b', 'd')
-    expect([...out].sort()).toEqual(['a', 'b', 'c', 'd'])
   })
 })

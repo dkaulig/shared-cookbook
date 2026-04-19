@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   CalendarDays,
@@ -7,7 +8,7 @@ import {
   ChevronRight,
   Plus,
 } from 'lucide-react'
-import type { MealPlanSlotDto, MealSlot } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto, MealSlot, PatchSlotRequest } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -15,8 +16,14 @@ import { AddSlotDialog } from './AddSlotDialog'
 import { DeleteSlotDialog } from './DeleteSlotDialog'
 import { EditSlotDialog } from './EditSlotDialog'
 import { SortableMealRow } from './SortableMealRow'
-import { SORT_ORDER_STEP } from './sortableMealRow.helpers'
-import { useCreateMealPlan, useMealPlan, usePatchSlot } from './useMealPlan'
+import { SORT_ORDER_STEP } from './constants'
+import { patchSlot as patchSlotApi } from './mealPlanApi'
+import {
+  mealPlanQueryKeys,
+  useCreateMealPlan,
+  useMealPlan,
+  usePatchSlot,
+} from './useMealPlan'
 import {
   MEAL_SLOTS,
   MEAL_SLOT_LABELS,
@@ -56,6 +63,8 @@ export function MealPlanPage() {
   const [openCell, setOpenCell] = useState<{ date: string; meal: MealSlot } | null>(null)
   const [editSlot, setEditSlot] = useState<MealPlanSlotDto | null>(null)
   const [deleteSlotState, setDeleteSlotState] = useState<MealPlanSlotDto | null>(null)
+  const [reorderError, setReorderError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   const weekStart = useMemo(() => {
     if (!rawWeek) return ''
@@ -78,7 +87,8 @@ export function MealPlanPage() {
   // rules-of-hooks). The mutations are only triggered from UI that
   // only renders when `plan` is truthy, so the empty-string branch
   // never reaches the network.
-  const patchMutation = usePatchSlot(groupId, weekStart || '', plan?.id ?? '')
+  const planId = plan?.id ?? ''
+  const patchMutation = usePatchSlot(groupId, weekStart || '', planId)
 
   // `slotsByDayMeal` walks every slot + builds a 7×4 map; recomputing on
   // every render will start to matter once P3-3 drag adds re-render
@@ -97,24 +107,65 @@ export function MealPlanPage() {
   // future "drop between existing neighbours" insertions without a
   // full reindex — see P3-10 mobile polish in the master plan. Kept
   // above the early returns so the hook-order stays stable.
+  //
+  // Resilience: we apply ONE optimistic cache update for the whole
+  // bucket (so the UI flips atomically), then ship PATCH calls in
+  // parallel via `Promise.allSettled` — any rejection surfaces a
+  // German-language banner + refetches server truth so the user isn't
+  // left looking at a half-saved order.
   const handleReorder = useCallback(
     (orderedIds: readonly string[]) => {
-      if (!plan) return
-      // Build { id -> current slot } map so we can compare + avoid
-      // round-tripping rows whose position didn't actually move.
+      if (!plan || !planId || !weekStart) return
       const byId = new Map(plan.slots.map((s) => [s.id, s]))
+      const updates: Array<{ slotId: string; sortOrder: number }> = []
       orderedIds.forEach((id, index) => {
         const slot = byId.get(id)
         if (!slot) return
         const nextSortOrder = index * SORT_ORDER_STEP
         if (slot.sortOrder === nextSortOrder) return
-        patchMutation.mutate({
-          slotId: id,
-          patch: { sortOrder: nextSortOrder },
-        })
+        updates.push({ slotId: id, sortOrder: nextSortOrder })
+      })
+      if (updates.length === 0) return
+
+      const queryKey = mealPlanQueryKeys.forWeek(groupId, weekStart)
+      // Single optimistic splice for the whole bucket — avoids a cascade
+      // of per-slot re-renders and keeps the rollback path trivial.
+      const previous = queryClient.getQueryData(queryKey)
+      const updateMap = new Map(updates.map((u) => [u.slotId, u.sortOrder]))
+      queryClient.setQueryData<typeof plan | null>(queryKey, (prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          slots: prev.slots.map((s) => {
+            const next = updateMap.get(s.id)
+            return next === undefined ? s : { ...s, sortOrder: next }
+          }),
+        }
+      })
+
+      void Promise.allSettled(
+        updates.map((u) => {
+          const patch: PatchSlotRequest = { sortOrder: u.sortOrder }
+          return patchSlotApi(planId, u.slotId, patch)
+        }),
+      ).then((results) => {
+        const anyRejected = results.some((r) => r.status === 'rejected')
+        if (anyRejected) {
+          // Server truth wins: roll back + refetch so the grid ends up
+          // in a consistent state regardless of partial progress.
+          queryClient.setQueryData(queryKey, previous)
+          setReorderError(
+            'Neu-Reihenfolge konnte nicht vollständig gespeichert werden — wird neu geladen.',
+          )
+          void queryClient.invalidateQueries({ queryKey })
+        } else {
+          // Cheap keep-alive invalidation so other tabs (and P3-8 SignalR
+          // fan-out) see the updated order without polling.
+          void queryClient.invalidateQueries({ queryKey })
+        }
       })
     },
-    [plan, patchMutation],
+    [plan, planId, weekStart, groupId, queryClient],
   )
 
   const handleToggleCooked = useCallback(
@@ -229,6 +280,24 @@ export function MealPlanPage() {
           >
             Der Wochenplan konnte nicht geladen werden.
           </p>
+        )}
+
+        {reorderError && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="mb-3 flex items-start justify-between gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+          >
+            <span>{reorderError}</span>
+            <button
+              type="button"
+              onClick={() => setReorderError(null)}
+              aria-label="Fehlermeldung schließen"
+              className="text-red-800/70 underline-offset-2 hover:text-red-900 hover:underline"
+            >
+              Schließen
+            </button>
+          </div>
         )}
 
         {notFound && (
