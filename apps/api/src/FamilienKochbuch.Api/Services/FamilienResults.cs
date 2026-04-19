@@ -36,7 +36,9 @@ public static class FamilienResults
 {
     // Shared serializer options — camelCase property names + drop nulls
     // so "details" only shows when a dictionary is supplied.
-    internal static readonly JsonSerializerOptions JsonOptions = new()
+    // Public so sibling helpers (e.g. PythonProxyErrorMapper) can
+    // emit ErrorResponse envelopes with identical serialisation rules.
+    public static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
