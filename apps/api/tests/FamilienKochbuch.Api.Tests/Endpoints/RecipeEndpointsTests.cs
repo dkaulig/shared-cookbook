@@ -923,6 +923,173 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             $"Expected 400 or 413, got {response.StatusCode}");
     }
 
+    // ── PF1 — create-recipe with stagedPhotoIds (promote flow) ──────
+
+    private async Task<Guid> UploadStagedPhotoAndGetIdAsync(HttpClient client)
+    {
+        using var content = BuildPhoto(ValidPngBytes(), "photo.png", "image/png");
+        var response = await client.PostAsync("/api/recipes/photos/staged", content);
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.StagedPhotoResponse>())!;
+        return body.StagedPhotoId;
+    }
+
+    [Fact]
+    public async Task CreateRecipe_With_StagedPhotos_Attaches_Them_And_Marks_Promoted()
+    {
+        var (userId, token) = await SignupAndLoginAsync("promote@ex.com", "P");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client, "Promote-Family");
+
+        // Stage 2 photos.
+        var staged1 = await UploadStagedPhotoAndGetIdAsync(_client);
+        var staged2 = await UploadStagedPhotoAndGetIdAsync(_client);
+
+        // Create the recipe carrying both ids.
+        var request = BuildCreateRequest("Promote-Test") with
+        {
+            StagedPhotoIds = new[] { staged1, staged2 },
+        };
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Equal(2, body.Photos.Length);
+        Assert.True(body.PartialPhotoFailures is null || body.PartialPhotoFailures.Length == 0);
+
+        // The photo URLs are signed proxies pointing at recipes/* paths.
+        Assert.All(body.Photos, p => Assert.Contains("/api/photos/recipes/", p));
+
+        // Verify StagedPhoto rows were marked as promoted with the
+        // recipe id, and the source blobs were cleaned up.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var promoted = await db.StagedPhotos
+            .Where(s => s.Id == staged1 || s.Id == staged2)
+            .ToListAsync();
+        Assert.Equal(2, promoted.Count);
+        Assert.All(promoted, p =>
+        {
+            Assert.NotNull(p.PromotedAt);
+            Assert.Equal(body.Id, p.PromotedToRecipeId);
+        });
+
+        // Source staged blobs got deleted (best-effort — visible in
+        // the Deleted bag of the fake).
+        Assert.Contains(
+            _factory.Photos.Deleted,
+            d => promoted.Any(p => p.PhotoId == d));
+        // userId silenced — not used in this assertion path; only the
+        // ownership filter test exercises it.
+        _ = userId;
+    }
+
+    [Fact]
+    public async Task CreateRecipe_With_StagedPhotos_Wrong_Owner_Filtered_Into_PartialFailures()
+    {
+        // Another user uploads a staged photo; the creator should NOT
+        // be able to attach it. The recipe creation succeeds with the
+        // bad id moved into partialPhotoFailures.
+        var (_, otherToken) = await SignupAndLoginAsync("other@ex.com", "O");
+        using var otherClient = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(otherClient, otherToken);
+        var foreignStagedId = await UploadStagedPhotoAndGetIdAsync(otherClient);
+
+        var (_, callerToken) = await SignupAndLoginAsync("caller@ex.com", "C");
+        AuthorizeClient(_client, callerToken);
+        var groupId = await CreateGroupAsync(_client, "Caller-Family");
+
+        var request = BuildCreateRequest("Forbidden-Foto") with
+        {
+            StagedPhotoIds = new[] { foreignStagedId },
+        };
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Empty(body.Photos);
+        Assert.NotNull(body.PartialPhotoFailures);
+        var failure = Assert.Single(body.PartialPhotoFailures!);
+        Assert.Equal(foreignStagedId, failure.StagedPhotoId);
+        Assert.Contains("gehört nicht dir", failure.Reason);
+
+        // The foreign staged photo row stays untouched (still owned by
+        // the other user, still un-promoted).
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var staged = await db.StagedPhotos.SingleAsync(s => s.Id == foreignStagedId);
+        Assert.Null(staged.PromotedAt);
+    }
+
+    [Fact]
+    public async Task CreateRecipe_With_StagedPhotos_Already_Promoted_Lands_In_PartialFailures()
+    {
+        var (_, token) = await SignupAndLoginAsync("twice@ex.com", "T");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var stagedId = await UploadStagedPhotoAndGetIdAsync(_client);
+
+        // First create succeeds — photo attached.
+        var first = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes",
+            BuildCreateRequest("First") with { StagedPhotoIds = new[] { stagedId } });
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+
+        // Second create with the SAME stagedPhotoId — must skip
+        // gracefully and surface a partial-failure entry.
+        var second = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes",
+            BuildCreateRequest("Second") with { StagedPhotoIds = new[] { stagedId } });
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        var body = (await second.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Empty(body.Photos);
+        Assert.NotNull(body.PartialPhotoFailures);
+        var failure = Assert.Single(body.PartialPhotoFailures!);
+        Assert.Equal(stagedId, failure.StagedPhotoId);
+        Assert.Contains("bereits", failure.Reason);
+    }
+
+    [Fact]
+    public async Task CreateRecipe_With_Unknown_StagedPhotoId_Lands_In_PartialFailures()
+    {
+        var (_, token) = await SignupAndLoginAsync("ghost@ex.com", "G");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var unknown = Guid.NewGuid();
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes",
+            BuildCreateRequest("Ghost") with { StagedPhotoIds = new[] { unknown } });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Empty(body.Photos);
+        Assert.NotNull(body.PartialPhotoFailures);
+        var failure = Assert.Single(body.PartialPhotoFailures!);
+        Assert.Equal(unknown, failure.StagedPhotoId);
+        Assert.Contains("nicht gefunden", failure.Reason);
+    }
+
+    [Fact]
+    public async Task CreateRecipe_With_No_StagedPhotos_Returns_Null_PartialFailures()
+    {
+        // Backward-compat path: a manual create without stagedPhotoIds
+        // must NOT carry a partialPhotoFailures payload — the
+        // existing frontend doesn't expect one.
+        var (_, token) = await SignupAndLoginAsync("plain@ex.com", "PL");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Plain"));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Null(body.PartialPhotoFailures);
+    }
+
     // ── DELETE /api/recipes/{id}/photos ─────────────────────────────
 
     [Fact]

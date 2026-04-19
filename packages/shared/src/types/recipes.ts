@@ -105,6 +105,25 @@ export interface RecipeDetailDto {
   tags: TagDto[]
   /** P2-10: optional per-portion nutrition estimate. `null` = no estimate. */
   nutritionEstimate: NutritionEstimate | null
+  /**
+   * PF1: per-photo failures from the create-recipe promote flow.
+   * Always omitted/`null` for read paths (Get/Update/Fork/...) — the
+   * field is only populated on the response of the create endpoint
+   * when one or more `stagedPhotoIds` failed to attach.
+   */
+  partialPhotoFailures?: PartialPhotoFailureDto[] | null
+}
+
+/**
+ * PF1 — per-photo failure surfaced by the create-recipe response when
+ * `stagedPhotoIds` were supplied and at least one couldn't be attached
+ * (unknown id, ownership mismatch, already promoted, copy failure).
+ * The frontend renders a banner naming N of M failures so the user
+ * can re-upload them manually from the detail page.
+ */
+export interface PartialPhotoFailureDto {
+  stagedPhotoId: string
+  reason: string
 }
 
 export interface CreateRecipeRequest {
@@ -123,6 +142,13 @@ export interface CreateRecipeRequest {
    * when the LLM couldn't estimate — the server stores `null`.
    */
   nutritionEstimate?: NutritionEstimate | null
+  /**
+   * PF1: optional list of `StagedPhoto.Id` values to promote onto the
+   * new recipe. The server verifies ownership + adoption status; per-id
+   * failures land in `RecipeDetailDto.partialPhotoFailures` rather
+   * than blocking the recipe creation itself.
+   */
+  stagedPhotoIds?: string[]
 }
 
 export interface UpdateRecipeRequest extends CreateRecipeRequest {}

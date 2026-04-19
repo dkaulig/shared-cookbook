@@ -32,4 +32,22 @@ public interface IPhotoStorage
     /// Signed URLs are never persisted — they are recomputed on every
     /// response so the expiry window is always relative to "now".</summary>
     string GetPublicUrl(string path);
+
+    /// <summary>
+    /// PF1 — copy a blob from one storage path to another. Used by the
+    /// create-recipe promote flow to migrate a staged photo into the
+    /// recipe's namespace without round-tripping through the
+    /// disk-to-disk path on the API host. Returns the destination path
+    /// (canonicalised in the same way as <see cref="UploadAsync"/>).
+    ///
+    /// The naive default implementation is download + upload; SeaweedFS
+    /// can do better via a server-side hint (TODO: native move when the
+    /// filer exposes one — for now, download + upload is acceptable
+    /// because the staged blobs are bounded at 5 MB).
+    /// </summary>
+    Task<string> CopyAsync(
+        string sourcePath,
+        string destinationPath,
+        string contentType,
+        CancellationToken ct = default);
 }

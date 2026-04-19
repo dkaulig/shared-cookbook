@@ -56,6 +56,28 @@ public class FakePhotoStorage : IPhotoStorage
         return $"/api/photos/{normalized}?sig=fake-sig&exp=9999999999";
     }
 
+    /// <summary>
+    /// PF1 — in-memory copy. Mirrors the production round-trip
+    /// (download then upload) so tests asserting the destination
+    /// payload + content-type round-trip see the same shape they would
+    /// against SeaweedFS. Throws if the source is missing — same
+    /// failure mode as the real filer's 404.
+    /// </summary>
+    public Task<string> CopyAsync(
+        string sourcePath,
+        string destinationPath,
+        string contentType,
+        CancellationToken ct = default)
+    {
+        var src = SeaweedFsPhotoStorage.NormalizeToPath(sourcePath);
+        var dst = SeaweedFsPhotoStorage.NormalizeToPath(destinationPath);
+        if (!Uploads.TryGetValue(src, out var existing))
+            throw new InvalidOperationException(
+                $"FakePhotoStorage.CopyAsync: source path {src} not found.");
+        Uploads[dst] = (existing.Content, contentType);
+        return Task.FromResult(dst);
+    }
+
     public void Clear()
     {
         Uploads.Clear();
