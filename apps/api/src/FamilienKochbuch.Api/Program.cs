@@ -177,6 +177,7 @@ builder.Services.AddHttpClient(ExtractRecipeFromUrlJob.HttpClientName, (sp, clie
     client.Timeout = TimeSpan.FromSeconds(150);
 });
 builder.Services.AddSingleton<ExtractorHmacSigner>();
+builder.Services.AddScoped<PythonExtractorRunner>();
 builder.Services.AddScoped<ExtractRecipeFromUrlJob>();
 builder.Services.AddScoped<ExtractRecipeFromPhotosJob>();
 // PF1 — hourly sweep job that reaps abandoned staged photos (>24h old,

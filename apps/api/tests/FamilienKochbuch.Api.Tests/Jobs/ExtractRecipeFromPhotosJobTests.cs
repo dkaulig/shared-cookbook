@@ -7,6 +7,7 @@ using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
@@ -54,7 +55,9 @@ public class ExtractRecipeFromPhotosJobTests : IAsyncLifetime
         var signer = new ExtractorHmacSigner(
             Options.Create(new ExtractorOptions { SharedSecret = "test-secret" }),
             _clock);
-        _job = new ExtractRecipeFromPhotosJob(_db, factory, signer, _clock);
+        var runner = new PythonExtractorRunner(
+            _db, factory, signer, _clock, NullLogger<PythonExtractorRunner>.Instance);
+        _job = new ExtractRecipeFromPhotosJob(_db, runner);
     }
 
     public async Task DisposeAsync()
