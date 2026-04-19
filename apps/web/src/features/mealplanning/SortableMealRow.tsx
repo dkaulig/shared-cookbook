@@ -294,12 +294,19 @@ function SortableSlotCard({
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             data-testid={`mealplan-slot-menu-${slot.id}`}
-            // ≥44×44 hit target per WCAG 2.5.5 / Apple HIG — visual
-            // chrome stays compact via the `h-7 w-7` icon size while the
-            // tap surface uses `min-h-[44px] min-w-[44px]` for finger UX.
-            className="grid h-7 w-7 min-h-[44px] min-w-[44px] place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+            // ≥44×44 hit target per WCAG 2.5.5 / Apple HIG — the button
+            // is the 44px tap surface; the inner `<span>` carries the
+            // compact 28px visual chrome so finger users don't have to
+            // aim at the icon-sized square (mirrors the pattern used in
+            // `ShoppingListPage.tsx` checkbox rows).
+            className="grid min-h-[44px] min-w-[44px] place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
           >
-            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+            <span
+              aria-hidden="true"
+              className="grid h-7 w-7 place-items-center"
+            >
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+            </span>
           </button>
           {menuOpen && (
             <div

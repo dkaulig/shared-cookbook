@@ -140,4 +140,34 @@ describe('useAuth.logout', () => {
     expect(client.getQueryData(['mealplan', 'group-1', '2026-04-13'])).toBeUndefined()
     expect(client.getQueryCache().getAll()).toHaveLength(0)
   })
+
+  // Shared-device hygiene follow-up: sessionStorage keys seeded by app
+  // features outlive `queryClient.clear()`, so on the same tab user B
+  // would otherwise inherit user A's sort prefs / import memos. Sweep
+  // known app prefixes on logout; leave foreign keys intact.
+  it('purges app-prefixed sessionStorage keys on logout', async () => {
+    server.use(
+      http.post('/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
+    )
+
+    sessionStorage.setItem('shopping-sort-group-1-2026-04-13', 'by-category')
+    sessionStorage.setItem('chat-import-sess-abc', JSON.stringify({ stub: 1 }))
+    sessionStorage.setItem('import-group-xyz', 'group-1')
+    // Foreign key must survive — we're surgical, not nuclear.
+    sessionStorage.setItem('unrelated-foreign-key', 'keep-me')
+
+    const { Wrapper } = makeWrapper()
+    const { result } = renderHook(() => useAuth(), { wrapper: Wrapper })
+    await act(async () => {
+      await result.current.logout()
+    })
+
+    expect(sessionStorage.getItem('shopping-sort-group-1-2026-04-13')).toBeNull()
+    expect(sessionStorage.getItem('chat-import-sess-abc')).toBeNull()
+    expect(sessionStorage.getItem('import-group-xyz')).toBeNull()
+    expect(sessionStorage.getItem('unrelated-foreign-key')).toBe('keep-me')
+
+    // Clean up the foreign key so other tests don't see it.
+    sessionStorage.removeItem('unrelated-foreign-key')
+  })
 })

@@ -1,9 +1,15 @@
 /**
- * Pure helpers for the slot-card swipe-to-delete gesture (plan §P3-10).
+ * @internal — STAGED MODULE, no production import site yet.
  *
- * The component layer is responsible for wiring touch events; this
- * module only owns the maths so the threshold logic is unit-testable
- * without touching jsdom's flaky `TouchEvent` simulation.
+ * Pure helpers for the slot-card swipe-to-delete gesture (plan §P3-10).
+ * The maths here is unit-tested (11 tests) so when the touch-event
+ * wiring lands on `SortableSlotCard` the threshold logic is already
+ * proven — avoids re-deriving the clamp/reveal maths under time
+ * pressure + jsdom's flaky `TouchEvent` simulation.
+ *
+ * **Staged for future swipe-to-delete integration on SortableSlotCard.**
+ * See the P3-10 commit body + `docs/design-implementation-progress.md`
+ * under "Planned follow-ups" for the production-wiring follow-up.
  *
  * Convention:
  *   - Negative offset = card slid to the left (revealing the action button on the right).

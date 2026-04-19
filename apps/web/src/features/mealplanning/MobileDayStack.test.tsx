@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { MealPlanSlotDto, MealSlot } from '@familien-kochbuch/shared'
 import { MobileDayStack } from './MobileDayStack'
+import { defaultOpenDays } from './mobileDayStackHelpers'
 
 const PLAN_ID = '11111111-1111-1111-1111-111111111111'
 const WEEK_START = '2026-04-20' // Monday
@@ -62,6 +63,9 @@ describe('<MobileDayStack />', () => {
   })
 
   it('starts with the first day expanded by default for fast access', () => {
+    // Real "today" is 2026-04-19 (Sunday) — outside this week range
+    // [2026-04-20..2026-04-26]. `defaultOpenDays` falls back to Monday,
+    // so Monday's slot is visible and Tuesday stays collapsed.
     const slots = [makeSlot('s1', { label: 'Spaghetti' })]
     render(
       <MobileDayStack
@@ -177,5 +181,27 @@ describe('<MobileDayStack />', () => {
 
     const monday = screen.getByTestId('mobile-day-toggle-2026-04-20')
     expect(monday).toHaveTextContent(/2 Gerichte/)
+  })
+})
+
+describe('defaultOpenDays', () => {
+  const WEEK = '2026-04-20' // Monday
+
+  it('opens today + the next day when today is inside the week', () => {
+    // Wednesday 2026-04-22 → open Wed + Thu.
+    const open = defaultOpenDays(WEEK, '2026-04-22')
+    expect(Array.from(open).sort()).toEqual(['2026-04-22', '2026-04-23'])
+  })
+
+  it('falls back to Monday when today is outside the week', () => {
+    // Historical week: today is much later than week-end.
+    const open = defaultOpenDays(WEEK, '2026-05-15')
+    expect(Array.from(open)).toEqual(['2026-04-20'])
+  })
+
+  it('opens only Sunday when today is the last day of the week (no wrap into next week)', () => {
+    // Sunday 2026-04-26 is index 6; there's no day[7] to open.
+    const open = defaultOpenDays(WEEK, '2026-04-26')
+    expect(Array.from(open)).toEqual(['2026-04-26'])
   })
 })
