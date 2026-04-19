@@ -4,7 +4,7 @@ namespace FamilienKochbuch.Api.Services;
 
 /// <summary>
 /// Parser for the four <c>X-Extractor-*</c> response headers the Python
-/// extractor emits on every successful LLM call (PF2 telemetry).
+/// extractor emits on every successful LLM call.
 ///
 /// Header names must match the constants on the Python side
 /// (<c>extractor/main.py</c>). Changing either without the other is a

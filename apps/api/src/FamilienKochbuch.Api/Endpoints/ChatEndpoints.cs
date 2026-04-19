@@ -202,9 +202,9 @@ public static class ChatEndpoints
     }
 
     /// <summary>Data the proxy needs to insert a <see cref="ChatUsageLog"/>
-    /// row after the Python call succeeds (PF2). Bundled into one
-    /// record so <see cref="ForwardAsync{TBody}"/> has a single extra
-    /// parameter instead of four.</summary>
+    /// row after the Python call succeeds. Bundled into one record so
+    /// <see cref="ForwardAsync{TBody}"/> has a single extra parameter
+    /// instead of four.</summary>
     private sealed record UsageLogContext(
         AppDbContext Db,
         TimeProvider Clock,
@@ -265,7 +265,7 @@ public static class ChatEndpoints
             if (!response.IsSuccessStatusCode)
                 return PythonProxyErrorMapper.MapErrorResponse(response, bodyText);
 
-            // PF2: persist a ChatUsageLog row if Python supplied the
+            // Persist a ChatUsageLog row if Python supplied the
             // X-Extractor-* headers. Missing headers (mock provider /
             // older build) → no row, no failure; the admin dashboard
             // treats it as "no data, hide".

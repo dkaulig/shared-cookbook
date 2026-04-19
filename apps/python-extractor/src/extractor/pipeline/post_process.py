@@ -70,8 +70,8 @@ def post_process(
         Optional extra strings to merge into ``confidence.notes``
         (e.g. ``"Website nicht erreichbar"``).
     usage
-        PF2 :class:`TokenUsage` for the whole extraction. When
-        provided it's attached to the returned
+        :class:`TokenUsage` for the whole extraction. When provided
+        it's attached to the returned
         :class:`ExtractionResult` so the HTTP layer can emit
         ``X-Extractor-*`` headers without a second round-trip
         through the pipeline.

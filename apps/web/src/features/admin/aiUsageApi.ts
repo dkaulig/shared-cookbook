@@ -2,10 +2,10 @@ import type { AiUsageGroupBy, AiUsageSummary, ApiError } from '@familien-kochbuc
 import { apiClient } from '@/features/auth/apiClient'
 
 /**
- * Thin HTTP layer for PF2 `GET /api/admin/ai-usage`. Mirrors the
- * pattern used by `importsApi` — API errors are re-raised as Error
- * objects carrying a `code` + `message` so the React layer has a
- * stable shape to `catch` on.
+ * Thin HTTP layer for `GET /api/admin/ai-usage`. Mirrors the pattern
+ * used by `importsApi` — API errors are re-raised as Error objects
+ * carrying a `code` + `message` so the React layer has a stable
+ * shape to `catch` on.
  */
 
 export interface FetchAiUsageParams {

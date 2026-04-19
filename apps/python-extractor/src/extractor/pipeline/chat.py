@@ -72,9 +72,9 @@ async def chat_turn(
 ) -> tuple[str, TokenUsage]:
     """Run one conversational turn.
 
-    Returns ``(reply_text, usage)``. PF2 added the usage return so the
-    HTTP layer can emit ``X-Extractor-*`` headers — upstream callers
-    previously received a bare string.
+    Returns ``(reply_text, usage)``. The HTTP layer emits the usage
+    counts as ``X-Extractor-*`` headers so the .NET side can persist
+    them against the chat session.
 
     Parameters
     ----------
