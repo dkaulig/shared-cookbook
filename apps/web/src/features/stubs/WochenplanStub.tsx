@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { CalendarDays } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -24,7 +24,9 @@ import { toMondayIso } from '@/features/mealplanning/weekGrid'
 export function WochenplanStub() {
   const groupsQuery = useMyGroups()
   const navigate = useNavigate()
-  const groups = groupsQuery.data ?? []
+  // Memoise the default (empty) array so the effect's `groups` dep isn't
+  // reference-unstable on every render when data is still undefined.
+  const groups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data])
   const monday = toMondayIso(new Date().toISOString().slice(0, 10))
 
   // When the user is in exactly one group we don't render anything —

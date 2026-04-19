@@ -229,12 +229,13 @@ export function MealPlanPage() {
 
   // BUG-007 hand-off: once the plan resolves, open AddSlotDialog with
   // the prefilled recipe and clear the query string so a refresh / back
-  // doesn't re-trigger the dialog. We default the day to the Monday of
-  // the displayed week + meal "Mittag" — the user can change both in
-  // the dialog. Skipping when `notFound` so the empty-plan CTA can run
-  // first; the dialog needs a planId to mutate.
+  // doesn't re-trigger the dialog. One-shot: we delete addRecipeId from
+  // searchParams in the same pass, so the guard above short-circuits on
+  // the next render. The seeded state is only the bootstrap value —
+  // the dialog's subsequent onClose resets both to null.
   useEffect(() => {
     if (!addRecipeId || !plan || !weekStart) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot URL→state handoff with same-pass URL cleanup
     setPrefilledRecipeId(addRecipeId)
     setOpenCell({ date: weekStart, meal: 'Mittag' })
     const next = new URLSearchParams(searchParams)
