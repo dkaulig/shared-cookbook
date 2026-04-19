@@ -244,29 +244,39 @@ builder.Services.AddCors(opts =>
         .AllowAnyMethod()
         .AllowCredentials()));
 
-// ── Rate limiting: login = 5/min per IP ───────────────────────────────
-// Partition key is the client IP. The per-user brute-force counterpart
-// lives in the endpoint handler via Identity's AccessFailedCount / lockout
-// (wired in later). Reading the email out of the request body for a more
-// granular IP+email partition would require buffering the body inside the
-// partition-key factory, which the sync RateLimitPartition<string> factory
-// cannot await safely — so we stay with IP and rely on account lockout
-// for the per-user limit.
+// ── Rate limiting: login = 5/min per IP, generate = 10/min per user ──
+// "Login" partitions on client IP because the caller is anonymous — the
+// per-user brute-force counterpart lives in the endpoint handler via
+// Identity's AccessFailedCount / lockout. Reading the email out of the
+// request body for a more granular IP+email partition would require
+// buffering the body inside the partition-key factory, which the sync
+// RateLimitPartition<string> factory cannot await safely — so we stay
+// with IP and rely on account lockout for the per-user limit.
+//
+// "Generate" partitions on the authenticated user id (sub / NameIdentifier
+// claim) because /shopping-list/generate sits behind RequireAuthorization
+// → every request has a user. An IP partition would throttle everyone on
+// a shared household NAT; a user partition keeps per-human accounting.
+// Falls back to IP (then "anonymous") only as a defensive safety net —
+// the endpoint itself refuses anonymous traffic.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Shared test-env bypass: the TestServer always reports
+    // RemoteIpAddress=null + synthetic auth, so rate-limiting would
+    // collapse every integration test into one bucket. Tests that
+    // specifically want to exercise the limiter (e.g. the dedicated
+    // RateLimit tests) simply omit this header.
+    static bool ShouldBypassForTests(HttpContext httpContext) =>
+        httpContext.RequestServices.GetRequiredService<IHostEnvironment>()
+            .IsEnvironment("Testing") &&
+        httpContext.Request.Headers["X-Test-Disable-RateLimit"] == "true";
+
     options.AddPolicy(RateLimitPolicies.Login, httpContext =>
     {
-        // In the Testing env the TestServer always reports RemoteIpAddress=null,
-        // so rate-limiting would collapse every test into one bucket. Skip
-        // rate-limiting in tests and trust the dedicated RateLimit test
-        // (LoginRateLimit_After_5_Attempts_Returns_429) to exercise the path.
-        if (httpContext.RequestServices.GetRequiredService<IHostEnvironment>()
-                .IsEnvironment("Testing") &&
-            httpContext.Request.Headers["X-Test-Disable-RateLimit"] == "true")
-        {
+        if (ShouldBypassForTests(httpContext))
             return RateLimitPartition.GetNoLimiter<string>("test-disabled");
-        }
 
         var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         return RateLimitPartition.GetSlidingWindowLimiter(
@@ -274,6 +284,27 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new SlidingWindowRateLimiterOptions
             {
                 PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
+    });
+
+    options.AddPolicy(RateLimitPolicies.Generate, httpContext =>
+    {
+        if (ShouldBypassForTests(httpContext))
+            return RateLimitPartition.GetNoLimiter<string>("test-disabled");
+
+        var userId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                     ?? httpContext.User.FindFirst("sub")?.Value
+                     ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                     ?? "anonymous";
+        return RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
                 Window = TimeSpan.FromMinutes(1),
                 SegmentsPerWindow = 6,
                 QueueLimit = 0,
@@ -382,10 +413,12 @@ app.Run();
 // Required for WebApplicationFactory<T> in tests.
 public partial class Program;
 
-/// <summary>Named rate-limit policies used across auth endpoints.</summary>
+/// <summary>Named rate-limit policies used across auth + meal-plan
+/// endpoints.</summary>
 internal static class RateLimitPolicies
 {
     public const string Login = "login";
+    public const string Generate = "generate";
 }
 
 /// <summary>Strongly-typed options for non-auth app config.</summary>

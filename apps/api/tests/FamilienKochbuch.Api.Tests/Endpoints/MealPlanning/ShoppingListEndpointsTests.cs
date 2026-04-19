@@ -652,6 +652,34 @@ public class ShoppingListEndpointsTests : IClassFixture<FamilienKochbuchWebAppli
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
     }
 
+    [Fact]
+    public async Task AddItem_Rejects_Out_Of_Range_Category_Enum()
+    {
+        // Defense-in-depth: System.Text.Json will cast any int into an
+        // enum without complaining, so a malicious / buggy client
+        // could POST { "category": 9999 } and persist a bucket nothing
+        // in the UI knows how to render. Endpoint must 400 with
+        // "category.invalid" before touching the DB.
+        var (userId, token) = await SignupAndLoginAsync("add.catx@ex.com", "X");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId, "R", 2, (1m, "g", "Salz"));
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        await AddSlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2);
+        var list = await GenerateAsync(plan.Id);
+
+        var res = await _client.PostAsync(
+            $"/api/shopping-lists/{list.Id}/items",
+            new StringContent(
+                """{"name":"Haribo","category":9999}""",
+                Encoding.UTF8,
+                "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var body = await res.Content.ReadAsStringAsync();
+        Assert.Contains("category.invalid", body);
+    }
+
     // ── DELETE /shopping-lists/{id}/items/{itemId} ─────────────────
 
     [Fact]
