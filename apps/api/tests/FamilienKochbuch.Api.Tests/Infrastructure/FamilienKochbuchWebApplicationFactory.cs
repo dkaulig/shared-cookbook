@@ -1,5 +1,7 @@
+using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -29,6 +31,21 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
     public FakeEmailSender Email { get; } = new();
 
     public FakePhotoStorage Photos { get; } = new();
+
+    /// <summary>
+    /// Captures every HTTP request sent through the named
+    /// <see cref="ExtractRecipeFromUrlJob.HttpClientName"/> client so the
+    /// P2-6 bridge endpoint tests can assert HMAC headers / body shape
+    /// and replay scripted Python responses without a live service.
+    /// </summary>
+    public TestExtractorHandler ExtractorHandler { get; } = new();
+
+    /// <summary>
+    /// Captures every job enqueue so the P2-6 URL + Photos import
+    /// endpoint tests can assert the right job type + importId without
+    /// spinning up a real Hangfire server.
+    /// </summary>
+    public CapturingBackgroundJobClient Jobs { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -67,6 +84,33 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
             // Hermetic photo storage — no SeaweedFS required.
             services.RemoveAll<IPhotoStorage>();
             services.AddSingleton<IPhotoStorage>(Photos);
+
+            // ── P2-6 bridge plumbing ──
+            // Named HttpClient used by the chat proxy + extraction jobs.
+            // Route it through an in-memory handler the per-test code can
+            // script with responses + assert captured requests against.
+            services.AddHttpClient(ExtractRecipeFromUrlJob.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => ExtractorHandler)
+                .ConfigureHttpClient(client =>
+                {
+                    client.BaseAddress = new Uri("http://python-extractor.test/");
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                });
+
+            // Shared HMAC secret so the signer's PostConfigure check passes
+            // on the test host's ExtractorOptions instance (env var is
+            // absent in the test process).
+            services.PostConfigure<FamilienKochbuch.Api.Services.ExtractorOptions>(opts =>
+            {
+                if (string.IsNullOrWhiteSpace(opts.SharedSecret))
+                    opts.SharedSecret = "test-secret";
+            });
+
+            // Replace Hangfire's real IBackgroundJobClient with a
+            // capturing double so enqueue-endpoint tests can assert the
+            // job type + arguments without a running Hangfire server.
+            services.RemoveAll<IBackgroundJobClient>();
+            services.AddSingleton<IBackgroundJobClient>(Jobs);
         });
     }
 
