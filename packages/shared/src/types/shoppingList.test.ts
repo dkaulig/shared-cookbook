@@ -49,12 +49,28 @@ describe('shoppingList.ts DTOs (P3-5)', () => {
     expect(list.mealPlanId).toBe('plan-1')
   })
 
-  it('IngredientCategory starts minimal (Sonstiges only) for P3-5', () => {
-    // P3-6 will expand this union; for now the sole legal literal is
-    // "Sonstiges". Kept narrow so a typo in the API reply is caught
-    // by TypeScript rather than passed through silently.
-    const c: IngredientCategory = 'Sonstiges'
-    expect(c).toBe('Sonstiges')
+  it('IngredientCategory covers the full P3-6 supermarket-aisle union', () => {
+    // P3-6 expanded the union from Sonstiges-only to the ten-category
+    // supermarket layout. Pinning every literal here fails the test
+    // at type-check time if the server renames one without updating
+    // the shared package.
+    const categories: IngredientCategory[] = [
+      'Sonstiges',
+      'ObstGemuese',
+      'Trockenwaren',
+      'Gewuerze',
+      'Molkerei',
+      'FleischFisch',
+      'BackenSuess',
+      'KonservenFertig',
+      'GetraenkeOele',
+      'TiefkuehlBrot',
+      'Haushalt',
+    ]
+    expect(categories).toHaveLength(11)
+    expect(categories).toContain('Sonstiges')
+    expect(categories).toContain('ObstGemuese')
+    expect(categories).toContain('Haushalt')
   })
 
   it('ShoppingListItemSource covers all three provenance values', () => {

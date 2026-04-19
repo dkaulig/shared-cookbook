@@ -11,13 +11,26 @@
  */
 
 /**
- * Supermarket aisle bucket. P3-5 ships with just `Sonstiges` as the
- * fallback default; P3-6 will expand this union with Obst/Gemüse,
- * Milchprodukte, Fleisch/Fisch, Trockenware, Gewürze, Backwaren.
- * Clients should accept any string to stay forward-compatible with
- * P3-6 without a shared-package bump.
+ * Supermarket aisle bucket. Mirrors the .NET
+ * `FamilienKochbuch.Domain.Enums.IngredientCategory` enum — string
+ * literals because the API serialises enums by name. P3-6 expanded the
+ * union from the initial `Sonstiges`-only fallback to the full ten-
+ * category supermarket layout (Obst/Gemüse, Trockenwaren, Gewürze,
+ * Molkerei, Fleisch/Fisch, Backen/Süßes, Konserven/Fertig, Getränke/
+ * Öle, Tiefkühl/Brot, Haushalt).
  */
-export type IngredientCategory = 'Sonstiges'
+export type IngredientCategory =
+  | 'Sonstiges'
+  | 'ObstGemuese'
+  | 'Trockenwaren'
+  | 'Gewuerze'
+  | 'Molkerei'
+  | 'FleischFisch'
+  | 'BackenSuess'
+  | 'KonservenFertig'
+  | 'GetraenkeOele'
+  | 'TiefkuehlBrot'
+  | 'Haushalt'
 
 /**
  * Where a shopping-list item originated:

@@ -186,7 +186,12 @@ public static class ShoppingListGenerator
             NumericQuantity = ing.Quantity.HasValue ? ing.Quantity.Value * scale : null,
             FreeformQuantity = null,
             Note = string.IsNullOrWhiteSpace(ing.Note) ? null : ing.Note.Trim(),
-            Category = IngredientCategory.Sonstiges,
+            // P3-6: run the static categorizer on the raw ingredient
+            // name so FromPlan rows land in the right supermarket
+            // aisle instead of defaulting to Sonstiges. Unknown names
+            // still fall through to Sonstiges; the UI can later ask
+            // the user to trigger an LLM recategorize.
+            Category = IngredientCategorizer.Categorize(trimmedName),
             Source = ShoppingListItemSource.FromPlan,
             CarriedOver = false,
         };

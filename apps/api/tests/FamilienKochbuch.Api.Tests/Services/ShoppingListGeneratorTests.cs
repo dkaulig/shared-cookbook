@@ -489,4 +489,96 @@ public class ShoppingListGeneratorTests
         Assert.Throws<ArgumentNullException>(() =>
             ShoppingListGenerator.Generate(BuildPlan(), null!));
     }
+
+    // ── P3-6: Categorizer wiring ───────────────────────────────────
+
+    [Fact]
+    public void Generator_Assigns_ObstGemuese_Category_For_Known_Vegetable()
+    {
+        // P3-6 replaced the hardcoded Sonstiges default with a call
+        // to the static IngredientCategorizer. "Tomate" is a staple
+        // in the map → must come back as ObstGemuese.
+        var recipe = BuildRecipe("Salat", 2, (2m, "Stück", "Tomate"));
+        var plan = BuildPlan();
+        AddSlot(plan, recipe.Id, servings: 2);
+
+        var result = ShoppingListGenerator.Generate(plan, RecipeMap(recipe));
+
+        var tomate = Assert.Single(result);
+        Assert.Equal(IngredientCategory.ObstGemuese, tomate.Category);
+    }
+
+    [Fact]
+    public void Generator_Assigns_FleischFisch_Category_For_Hackfleisch()
+    {
+        var recipe = BuildRecipe("Bolognese", 2, (500m, "g", "Hackfleisch"));
+        var plan = BuildPlan();
+        AddSlot(plan, recipe.Id, servings: 2);
+
+        var result = ShoppingListGenerator.Generate(plan, RecipeMap(recipe));
+
+        var hack = Assert.Single(result);
+        Assert.Equal(IngredientCategory.FleischFisch, hack.Category);
+    }
+
+    [Fact]
+    public void Generator_Assigns_Sonstiges_For_Unknown_Ingredient()
+    {
+        var recipe = BuildRecipe("Exotisch", 2, (1m, "Stück", "Zzxxqq-Fantasiezutat"));
+        var plan = BuildPlan();
+        AddSlot(plan, recipe.Id, servings: 2);
+
+        var result = ShoppingListGenerator.Generate(plan, RecipeMap(recipe));
+
+        var unknown = Assert.Single(result);
+        Assert.Equal(IngredientCategory.Sonstiges, unknown.Category);
+    }
+
+    [Fact]
+    public void Generator_Groups_Items_By_Real_Category_On_Sort()
+    {
+        // Two ingredients from different categories should land in
+        // different groups with their own SortOrder spacing.
+        var recipe = BuildRecipe("Mix", 2,
+            (500m, "g", "Hackfleisch"),   // FleischFisch
+            (2m, "Stück", "Tomate"));     // ObstGemuese
+        var plan = BuildPlan();
+        AddSlot(plan, recipe.Id, servings: 2);
+
+        var result = ShoppingListGenerator.Generate(plan, RecipeMap(recipe));
+
+        Assert.Equal(2, result.Count);
+        Assert.Contains(result, r => r.Category == IngredientCategory.FleischFisch);
+        Assert.Contains(result, r => r.Category == IngredientCategory.ObstGemuese);
+        // Each bucket starts at SortOrder 0 (spacing is within bucket).
+        Assert.All(result, r => Assert.Equal(0, r.SortOrder));
+    }
+
+    [Fact]
+    public void Carryover_Preserves_Persisted_Category()
+    {
+        // Carryover rows keep their stored Category even when the
+        // static categorizer would now place them elsewhere — avoids
+        // silent reshuffles across week boundaries.
+        var plan = BuildPlan();
+        var carryover = new[]
+        {
+            new ShoppingListGenerator.CarryoverCandidate(
+                Name: "Avocado",
+                Quantity: "2",
+                Unit: "Stück",
+                // Pretend a previous version stored it as Sonstiges —
+                // the generator must NOT upgrade it to ObstGemuese.
+                Category: IngredientCategory.Sonstiges,
+                Note: null,
+                Source: ShoppingListItemSource.FromPlan,
+                IsChecked: false),
+        };
+
+        var result = ShoppingListGenerator.Generate(
+            plan, new Dictionary<Guid, Recipe>(), carryover);
+
+        var avo = Assert.Single(result);
+        Assert.Equal(IngredientCategory.Sonstiges, avo.Category);
+    }
 }
