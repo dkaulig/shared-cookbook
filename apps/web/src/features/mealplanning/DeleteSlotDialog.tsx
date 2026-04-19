@@ -18,12 +18,21 @@ export function DeleteSlotDialog({
   weekStart,
   planId,
   slot,
+  childCount = 0,
   onClose,
 }: {
   groupId: string
   weekStart: string
   planId: string
   slot: MealPlanSlotDto
+  /**
+   * Number of slots that reference this slot via `parentSlotId` — i.e.
+   * direct leftover children. When > 0 we surface an extra German
+   * warning so the user understands the backend behaviour: the kids
+   * don't cascade-delete, they just have their parent link nulled (see
+   * plan section P3-1).
+   */
+  childCount?: number
   onClose: () => void
 }) {
   const [error, setError] = useState<string | null>(null)
@@ -65,6 +74,19 @@ export function DeleteSlotDialog({
           Diese Aktion kann nicht rückgängig gemacht werden. Untergeordnete
           Meal-Prep-Slots bleiben erhalten und werden freigestellt.
         </p>
+
+        {childCount > 0 && (
+          <p
+            role="alert"
+            data-testid="delete-slot-parent-warning"
+            className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200"
+          >
+            Dieser Slot ist Meal-Prep-Parent für {childCount}{' '}
+            {childCount === 1 ? 'weiteren Slot' : 'weitere Slots'}. Die
+            Kinder-Slots werden danach freie Slots (nicht automatisch
+            gelöscht).
+          </p>
+        )}
 
         {error && (
           <p

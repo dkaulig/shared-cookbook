@@ -424,6 +424,83 @@ describe('<MealPlanPage />', () => {
     ).toBeInTheDocument()
   })
 
+  it('renders the "Rest von …" badge on a slot linked to a parent in the same plan', async () => {
+    const mondayParent = makeSlot('parent-1', {
+      label: 'Gulasch',
+      date: WEEK_START, // Monday
+      meal: 'Mittag',
+      servings: 4,
+    })
+    const tuesdayChild = makeSlot('child-1', {
+      label: 'Rest',
+      date: '2026-04-21',
+      meal: 'Mittag',
+      servings: 1,
+      parentSlotId: 'parent-1',
+    })
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [mondayParent, tuesdayChild],
+        }),
+      ),
+    )
+
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    const badge = await screen.findByTestId('mealplan-slot-parent-badge-child-1')
+    expect(badge).toHaveTextContent(/Rest von Mo Mittag/i)
+    // The parent slot must NOT carry its own "Rest von" badge.
+    expect(
+      screen.queryByTestId('mealplan-slot-parent-badge-parent-1'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('surfaces the parent-deletion warning on the DeleteSlotDialog when the slot has children', async () => {
+    const parent = makeSlot('parent-1', {
+      label: 'Meal Prep',
+      date: WEEK_START,
+      meal: 'Mittag',
+      servings: 5,
+    })
+    const child = makeSlot('child-1', {
+      label: 'Rest',
+      date: '2026-04-21',
+      meal: 'Mittag',
+      servings: 1,
+      parentSlotId: 'parent-1',
+    })
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [parent, child],
+        }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    await user.click(await screen.findByTestId('mealplan-slot-menu-parent-1'))
+    const deleteItem = await screen.findByRole('menuitem', { name: /Löschen/i })
+    await user.click(deleteItem)
+
+    const warning = await screen.findByTestId('delete-slot-parent-warning')
+    expect(warning).toHaveTextContent(/Meal-Prep-Parent für 1 weiteren Slot/i)
+  })
+
   it('opens the AddSlotDialog when an empty cell button is clicked', async () => {
     server.use(
       http.get('/api/groups/g1/mealplans/2026-04-20', () =>

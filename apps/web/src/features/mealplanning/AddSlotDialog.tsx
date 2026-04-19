@@ -1,11 +1,17 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { AddSlotRequest, ApiError, MealSlot } from '@familien-kochbuch/shared'
+import type {
+  AddSlotRequest,
+  ApiError,
+  MealPlanSlotDto,
+  MealSlot,
+} from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { useRecipeSearch } from '@/features/search/hooks'
+import { buildParentLabel, eligibleParents } from './parentSlotHelpers'
 import { useAddSlot } from './useMealPlan'
 import { MEAL_SLOTS, MEAL_SLOT_LABELS, formatGermanDate } from './weekGrid'
 
@@ -31,6 +37,7 @@ export function AddSlotDialog({
   planId,
   initialDate,
   initialMeal,
+  existingSlots,
   onClose,
 }: {
   groupId: string
@@ -38,6 +45,13 @@ export function AddSlotDialog({
   planId: string
   initialDate: string
   initialMeal: MealSlot
+  /**
+   * All slots currently on the plan — used to populate the "Ist Rest
+   * von …" dropdown so the user can link the new slot to an existing
+   * meal-prep parent (P3-4). Defaults to an empty list so earlier call
+   * sites that don't have the data handy still compile.
+   */
+  existingSlots?: readonly MealPlanSlotDto[]
   onClose: () => void
 }) {
   const [date, setDate] = useState(initialDate)
@@ -46,10 +60,18 @@ export function AddSlotDialog({
   const [recipeId, setRecipeId] = useState<string | null>(null)
   const [label, setLabel] = useState('')
   const [servings, setServings] = useState(2)
+  const [parentSlotId, setParentSlotId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const search = useRecipeSearch(groupId, { q: query || undefined, pageSize: 8 })
   const addSlot = useAddSlot(groupId, weekStart, planId)
+
+  // Creating a new slot, so there's no "self" to exclude — pass `null`
+  // as the editing-slot-id so every current slot is a valid candidate.
+  const parentCandidates = useMemo(
+    () => eligibleParents(null, existingSlots ?? []),
+    [existingSlots],
+  )
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -69,6 +91,12 @@ export function AddSlotDialog({
       date,
       meal,
       servings,
+    }
+    if (parentSlotId !== null) {
+      // Only ship the parent ref when the user actually picked one; the
+      // backend treats an absent key as "no parent" just like an
+      // explicit `null`, so we save one wire byte + one DB column write.
+      body.parentSlotId = parentSlotId
     }
     try {
       await addSlot.mutateAsync(body)
@@ -209,6 +237,26 @@ export function AddSlotDialog({
               onChange={(e) => setServings(Number(e.target.value))}
             />
           </div>
+
+          {parentCandidates.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="add-slot-parent">Ist Rest von</Label>
+              <Select
+                id="add-slot-parent"
+                value={parentSlotId ?? ''}
+                onChange={(e) =>
+                  setParentSlotId(e.target.value === '' ? null : e.target.value)
+                }
+              >
+                <option value="">— kein Parent —</option>
+                {parentCandidates.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {buildParentLabel(p)}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
 
           {error && (
             <p

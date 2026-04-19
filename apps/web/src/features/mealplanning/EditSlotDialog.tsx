@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type {
   MealPlanSlotDto,
@@ -7,8 +7,10 @@ import type {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
 import { useRecipeSearch } from '@/features/search/hooks'
 import { MealPlanApiError } from './mealPlanApi'
+import { buildParentLabel, eligibleParents } from './parentSlotHelpers'
 import { usePatchSlot } from './useMealPlan'
 import { MEAL_SLOT_LABELS, formatGermanDate } from './weekGrid'
 
@@ -31,19 +33,29 @@ import { MEAL_SLOT_LABELS, formatGermanDate } from './weekGrid'
  * master plan defers cross-cell drag to P3-10. Users can delete +
  * re-add if they need to move a slot to another cell today.
  *
- * `parentSlotId` lives in P3-4's meal-prep UX, not here.
+ * `parentSlotId` is editable via the "Ist Rest von …" dropdown
+ * introduced in P3-4 — the option list excludes the slot itself and
+ * any of its descendants so the user can't create a cycle.
  */
 export function EditSlotDialog({
   groupId,
   weekStart,
   planId,
   slot,
+  existingSlots,
   onClose,
 }: {
   groupId: string
   weekStart: string
   planId: string
   slot: MealPlanSlotDto
+  /**
+   * All slots currently on the plan — needed by the P3-4 parent-slot
+   * dropdown so we can exclude the slot being edited + its descendants
+   * from the candidate list. Optional for backwards-compat with test
+   * harnesses that don't render the parent UX.
+   */
+  existingSlots?: readonly MealPlanSlotDto[]
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -51,10 +63,22 @@ export function EditSlotDialog({
   const [label, setLabel] = useState<string>(slot.label ?? '')
   const [servings, setServings] = useState<number>(slot.servings)
   const [isCooked, setIsCooked] = useState<boolean>(slot.isCooked)
+  const [parentSlotId, setParentSlotId] = useState<string | null>(
+    slot.parentSlotId,
+  )
   const [error, setError] = useState<string | null>(null)
 
   const search = useRecipeSearch(groupId, { q: query || undefined, pageSize: 8 })
   const patch = usePatchSlot(groupId, weekStart, planId)
+
+  // Exclude the slot being edited + its descendants so the picker
+  // cannot construct a cycle. Descendant lookup is O(N² worst-case)
+  // but N is the slot-count for a single week (≤ 28 cells × a few
+  // slots), which is trivial.
+  const parentCandidates = useMemo(
+    () => eligibleParents(slot.id, existingSlots ?? []),
+    [slot.id, existingSlots],
+  )
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -98,6 +122,12 @@ export function EditSlotDialog({
 
     if (isCooked !== slot.isCooked) {
       body.isCooked = isCooked
+    }
+
+    // Only ship parentSlotId when it actually changed — JSON Merge
+    // Patch semantics: `undefined` = leave alone, `null` = clear.
+    if (parentSlotId !== slot.parentSlotId) {
+      body.parentSlotId = parentSlotId
     }
 
     if (Object.keys(body).length === 0) {
@@ -246,6 +276,26 @@ export function EditSlotDialog({
               Gekocht
             </Label>
           </div>
+
+          {parentCandidates.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-slot-parent">Ist Rest von</Label>
+              <Select
+                id="edit-slot-parent"
+                value={parentSlotId ?? ''}
+                onChange={(e) =>
+                  setParentSlotId(e.target.value === '' ? null : e.target.value)
+                }
+              >
+                <option value="">— kein Parent —</option>
+                {parentCandidates.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {buildParentLabel(p)}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
 
           {error && (
             <p

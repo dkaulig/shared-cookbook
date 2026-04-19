@@ -16,7 +16,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { CheckCircle2, GripVertical, MoreHorizontal } from 'lucide-react'
+import { CheckCircle2, GripVertical, MoreHorizontal, Repeat } from 'lucide-react'
 import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
 import { cn } from '@/lib/utils'
 
@@ -43,6 +43,7 @@ export function SortableMealRow({
   onEdit,
   onDelete,
   onToggleCooked,
+  getParentLabel,
 }: {
   slots: readonly MealPlanSlotDto[]
   /**
@@ -55,6 +56,17 @@ export function SortableMealRow({
   onEdit: (slot: MealPlanSlotDto) => void
   onDelete: (slot: MealPlanSlotDto) => void
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
+  /**
+   * Resolves the short badge copy ("Mo Mittag") for a slot's parent.
+   * Called only for slots whose `parentSlotId` is set + the parent
+   * still exists in the plan. Returning `null` suppresses the badge
+   * (happens when the parent has been deleted and the backend nulled
+   * the child's `ParentSlotId` — the DTO lags one refetch).
+   *
+   * Optional so existing tests that render `SortableMealRow` without
+   * the P3-4 wiring keep working; `MealPlanPage` always supplies it.
+   */
+  getParentLabel?: (slot: MealPlanSlotDto) => string | null
 }) {
   // Mirror the RecipeFormPage sensor config so drag feels consistent
   // across the app + keyboard reorder (Space → ArrowUp/Down) keeps
@@ -94,6 +106,7 @@ export function SortableMealRow({
             <li key={slot.id}>
               <SortableSlotCard
                 slot={slot}
+                parentLabel={getParentLabel?.(slot) ?? null}
                 onEdit={() => onEdit(slot)}
                 onDelete={() => onDelete(slot)}
                 onToggleCooked={(next) => onToggleCooked(slot, next)}
@@ -116,11 +129,13 @@ export function SortableMealRow({
  */
 function SortableSlotCard({
   slot,
+  parentLabel,
   onEdit,
   onDelete,
   onToggleCooked,
 }: {
   slot: MealPlanSlotDto
+  parentLabel: string | null
   onEdit: () => void
   onDelete: () => void
   onToggleCooked: (next: boolean) => void
@@ -209,6 +224,15 @@ function SortableSlotCard({
         <p className="text-[11px] text-muted-foreground">
           {slot.servings} {servingsLabel}
         </p>
+        {parentLabel && (
+          <span
+            data-testid={`mealplan-slot-parent-badge-${slot.id}`}
+            className="mt-1 inline-flex items-center gap-1 rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+          >
+            <Repeat className="h-3 w-3" aria-hidden="true" />
+            Rest von {parentLabel}
+          </span>
+        )}
       </button>
 
       <div className="flex flex-none items-center gap-1.5">
