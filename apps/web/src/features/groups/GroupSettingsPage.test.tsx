@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -62,10 +62,32 @@ beforeEach(() => {
     displayName: 'Alice',
     role: 'User',
   })
-  // Default group + invites handlers — individual tests can override.
+  // Default group + invites + tags handlers — individual tests can
+  // override. The tags handler exists so `<GroupTagsPanel />` (mounted
+  // at the bottom of the page since BUG-020) doesn't flail with a 404.
   server.use(
     http.get('/api/groups/g1', () => HttpResponse.json(detail)),
     http.get('/api/groups/g1/invites', () => HttpResponse.json([])),
+    http.get('/api/groups/g1/tags', () =>
+      HttpResponse.json([
+        {
+          id: 't-global',
+          name: 'schnell',
+          category: 'Aufwand',
+          isGlobal: true,
+          groupId: null,
+          createdByUserId: null,
+        },
+        {
+          id: 't-custom',
+          name: 'Omas Hit',
+          category: 'Custom',
+          isGlobal: false,
+          groupId: 'g1',
+          createdByUserId: 'u1',
+        },
+      ]),
+    ),
   )
 })
 
@@ -244,5 +266,43 @@ describe('<GroupSettingsPage />', () => {
     await waitFor(() => {
       expect(screen.getByTestId('group-detail')).toBeInTheDocument()
     })
+  })
+
+  // BUG-020 — tag management is now a section of the settings page,
+  // not a separate route. Assert the heading + the panel content
+  // (custom-tag delete button, which only renders inside GroupTagsPanel
+  // for admins after the tags query resolves).
+  it('renders a "Tags" section with the GroupTagsPanel inside (BUG-020)', async () => {
+    renderAt('/groups/g1/settings')
+    await screen.findByLabelText('Name')
+
+    const tagsHeading = await screen.findByRole('heading', { level: 2, name: 'Tags' })
+    expect(tagsHeading).toHaveAttribute('id', 'tags')
+    // Panel mount sanity-check: the custom-tag list renders the delete
+    // button keyed by tag name, which only exists inside GroupTagsPanel.
+    expect(
+      await screen.findByRole('button', { name: /Omas Hit.*löschen/i }),
+    ).toBeInTheDocument()
+  })
+
+  // BUG-020 — when the user lands here via the `/groups/:id/tags`
+  // redirect (`#tags` hash), we smooth-scroll the heading into view.
+  // jsdom doesn't implement `scrollIntoView`, so we install a spy.
+  it('scrolls the Tags heading into view when navigated with #tags (BUG-020)', async () => {
+    const scrollSpy = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollSpy
+
+    try {
+      renderAt('/groups/g1/settings#tags')
+      // Wait until the page (and the Tags heading) is mounted.
+      await screen.findByRole('heading', { level: 2, name: 'Tags' })
+
+      await waitFor(() => {
+        expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+      })
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
   })
 })

@@ -803,7 +803,7 @@ computed-style assertion laut Regression-Test-Policy.
 
 ## BUG-020 · Zwei identische Cog-Icons im Gruppen-Header (Tags vs. Einstellungen)
 **Reported:** 2026-04-20
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — tag-management extracted to `GroupTagsPanel`, mounted as last section of `GroupSettingsPage` with `id="tags"`, top-bar cog removed from `GroupDetailPage`, `/groups/:id/tags` redirects to `/groups/:id/settings#tags` with smooth scroll)
 **Severity:** medium (UX — navigation-confusion, nicht funktional kaputt)
 **Where:**
 - `apps/web/src/features/groups/GroupDetailPage.tsx:200-206` — kleiner

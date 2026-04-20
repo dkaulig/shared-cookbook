@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ImageIcon, Trash2, UploadCloud } from 'lucide-react'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { uploadStagedPhoto } from '@/features/imports/stagedPhotoApi'
+import { GroupTagsPanel } from '@/features/tagManagement/GroupTagsPanel'
 import { GroupMembersAndInvitesPanel } from './GroupMembersAndInvitesPanel'
 import { useGroup, useUpdateGroup } from './hooks'
 
@@ -38,9 +39,27 @@ const FILE_TOO_LARGE_ERROR = 'Das Foto überschreitet das Limit von 5 MB.'
 export function GroupSettingsPage() {
   const params = useParams<{ groupId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const groupId = params.groupId ?? ''
   const detail = useGroup(groupId)
   const update = useUpdateGroup(groupId)
+
+  // BUG-020 — when navigated with `#tags` (e.g. via the redirect from
+  // `/groups/:id/tags` for old deep-links), smooth-scroll the Tags
+  // heading into view once it's mounted. We depend only on
+  // `location.hash` (not the full location object) for stability — the
+  // effect would otherwise refire on every search-param tweak. The
+  // ref-target is the `<h2 id="tags">` further down. No state set
+  // here, so `react-hooks/set-state-in-effect` stays clean.
+  const tagsHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const hash = location.hash
+  useEffect(() => {
+    if (hash !== '#tags') return
+    if (!detail.isSuccess) return
+    const el = tagsHeadingRef.current
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [hash, detail.isSuccess])
 
   // Form state — initialised from the loaded GroupDetail once available.
   // We use a `set-state-during-render` reconcile (the same pattern
@@ -360,6 +379,26 @@ export function GroupSettingsPage() {
         </section>
 
         <GroupMembersAndInvitesPanel group={group} />
+
+        {/* BUG-020 — tag management used to live behind a separate cog
+            button at `/groups/:id/tags`. Folded in here so the group
+            owner has a single page for "everything about this group".
+            The `id="tags"` is the deep-anchor target for the
+            `/groups/:id/tags` → `/settings#tags` redirect (smooth-scroll
+            wired in the `useEffect` above). */}
+        <section
+          aria-labelledby="tags"
+          className="rounded-[18px] border border-border/60 bg-card/60 px-5 py-5 md:px-6 md:py-6"
+        >
+          <h2
+            ref={tagsHeadingRef}
+            id="tags"
+            className="mb-4 font-serif text-[20px] font-semibold tracking-[-0.005em] text-foreground"
+          >
+            Tags
+          </h2>
+          <GroupTagsPanel groupId={groupId} />
+        </section>
       </main>
     </div>
   )
