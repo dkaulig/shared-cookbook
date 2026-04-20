@@ -166,10 +166,12 @@ _BLOCKED_HOSTNAMES: frozenset[str] = frozenset(
 # graceful-failure handler.
 _URL_IN_CAPTION_RE: re.Pattern[str] = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
 
-# Known URL-shortener hosts. Following a shortener means following a
-# redirect we can't filter (same-host / video-host checks no longer
-# apply after redirect), so we skip them entirely. ``youtu.be`` is
-# already covered via ``_VIDEO_HOSTS``.
+# Known URL-shortener hosts. FB reels commonly hide the real recipe
+# blog behind a ``bit.ly`` / ``linktr.ee`` link; BUG-033 changed the
+# handling from "drop silently" to "HEAD-resolve one or more hops and
+# apply the video-host / same-host filters on the resolved URL". The
+# regex set still needs to match so we know to resolve rather than
+# follow verbatim. ``youtu.be`` is already covered via ``_VIDEO_HOSTS``.
 _SHORTENER_HOSTS: frozenset[str] = frozenset(
     {
         "bit.ly",
@@ -179,8 +181,16 @@ _SHORTENER_HOSTS: frozenset[str] = frozenset(
         "t.co",
         "ow.ly",
         "buff.ly",
+        "goo.gl",
     }
 )
+
+# BUG-033 — shortener-resolution client config. HEAD only (never GET;
+# SSRF + bandwidth risks), short per-hop timeout, and a cap on the
+# number of redirect hops we chase. Shorteners typically resolve in
+# one hop; three allows stacked shorteners (bit.ly → tinyurl → blog).
+_SHORTENER_HEAD_TIMEOUT: float = 5.0
+_SHORTENER_MAX_REDIRECTS: int = 3
 
 
 class SsrfBlockedError(RuntimeError):
@@ -232,10 +242,118 @@ async def _assert_safe_http_target(url: str) -> None:
             raise SsrfBlockedError(f"blocked address: {host} -> {ip}")
 
 
-def _find_first_external_url(
+def _safe_host(url: str) -> str:
+    """Return the URL's lowercased hostname, or ``""`` on parse failure.
+
+    Also IDNA-encodes non-ASCII hostnames (some Location headers in
+    shortener redirect chains carry punycode or raw Unicode). Any
+    encoding failure collapses to the empty string so the caller's
+    filter loop skips the candidate.
+    """
+    try:
+        raw_host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+    if not raw_host:
+        return ""
+    try:
+        # ``idna`` round-trips ASCII hosts unchanged; rejects genuinely
+        # malformed Unicode / zero-width chars.
+        return raw_host.encode("idna").decode("ascii")
+    except (UnicodeError, UnicodeDecodeError):
+        return ""
+
+
+async def _resolve_shortener(
+    url: str,
+    *,
+    client: httpx.AsyncClient,
+    max_redirects: int = _SHORTENER_MAX_REDIRECTS,
+) -> str | None:
+    """HEAD-follow a shortener URL up to ``max_redirects`` hops.
+
+    Returns the final URL (the first hop that is NOT a 3xx with a
+    ``Location``), or ``None`` if any hop fails: timeout, non-3xx error
+    status, missing ``Location``, redirect loop (same host seen twice),
+    SSRF-blocked target, or parse failure. Never raises — all errors
+    collapse to ``None`` + a single WARNING log with just the exception
+    type name (no URL body to keep logs PII-free).
+
+    The request is HEAD-only; shorteners resolve to the Location header
+    without needing the body, and HEAD keeps the SSRF + bandwidth
+    surface minimal. ``follow_redirects=False`` on the client is
+    assumed so we see every hop for the loop-guard.
+    """
+    current_url = url
+    visited_hosts: set[str] = set()
+    try:
+        for _hop in range(max_redirects):
+            # SSRF guard — reject private / metadata targets BEFORE
+            # we dial, on every hop. Shorteners usually point at
+            # public blogs, but a malicious link can 302 us to
+            # 127.0.0.1.
+            try:
+                await _assert_safe_http_target(current_url)
+            except SsrfBlockedError as exc:
+                logger.warning(
+                    "shortener_resolve_blocked host=%s err=%s",
+                    _safe_host(current_url) or "unknown",
+                    type(exc).__name__,
+                )
+                return None
+
+            host = _safe_host(current_url)
+            if not host:
+                logger.warning("shortener_resolve_skipped reason=invalid_host")
+                return None
+            if host in visited_hosts:
+                logger.warning(
+                    "shortener_resolve_loop host=%s",
+                    host,
+                )
+                return None
+            visited_hosts.add(host)
+
+            response = await client.head(current_url)
+            status = response.status_code
+            if 300 <= status < 400 and "location" in response.headers:
+                next_url = urljoin(current_url, response.headers["location"])
+                # Parse-check the next hop; a Location we can't parse
+                # is a dead end.
+                if not _safe_host(next_url):
+                    logger.warning("shortener_resolve_skipped reason=invalid_location")
+                    return None
+                current_url = next_url
+                continue
+            if 200 <= status < 300:
+                # Final resolved URL — return whatever current_url is.
+                return current_url
+            # 4xx / 5xx / unexpected status.
+            logger.warning(
+                "shortener_resolve_http_error host=%s status=%d",
+                host,
+                status,
+            )
+            return None
+        # Hop cap hit without reaching a terminal response.
+        logger.warning(
+            "shortener_resolve_max_hops host=%s",
+            _safe_host(current_url) or "unknown",
+        )
+        return None
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
+        logger.warning(
+            "shortener_resolve_network_error err=%s",
+            type(exc).__name__,
+        )
+        return None
+
+
+async def _extract_caption_blog_url(
     caption: str | None,
     *,
     source_url: str,
+    client: httpx.AsyncClient | None = None,
 ) -> str | None:
     """Return the first external recipe-blog URL from the caption, or ``None``.
 
@@ -245,37 +363,106 @@ def _find_first_external_url(
       the Facebook post we started from).
     - URLs on known video hosts in :data:`_VIDEO_HOSTS` (don't recurse
       into TikTok / Instagram / YouTube from an FB caption).
-    - URLs on known shorteners (we'd just follow a redirect we can't
-      control — see :data:`_SHORTENER_HOSTS`).
+    - URLs on known shorteners (:data:`_SHORTENER_HOSTS`). When a
+      ``client`` is supplied, BUG-033 enables HEAD-resolution to the
+      final URL and re-applies the same-host / video-host / shortener
+      filters on the resolved target. Without a client (legacy sync
+      callers), shorteners are skipped — same behaviour as before.
 
     Trailing prose punctuation (``.,;:!?``) is trimmed before parsing
     so ``"Rezept: https://blog.example/recipe."`` yields the URL
     without the trailing full stop.
 
-    The function is side-effect free and does NO network I/O; the
-    actual fetch happens later via :func:`_run_blog_path`.
+    All decisions log at INFO level (``caption_url_followed`` /
+    ``caption_url_resolved`` / ``caption_url_skipped`` /
+    ``caption_url_not_found``) with hosts only — caption URLs can carry
+    tracking tokens and are never logged in full.
     """
     if not caption:
         return None
-    try:
-        source_host = (urlparse(source_url).hostname or "").lower()
-    except ValueError:
-        source_host = ""
+    source_host = _safe_host(source_url)
+    had_matches = False
     for match in _URL_IN_CAPTION_RE.finditer(caption):
+        had_matches = True
         raw = match.group(0).rstrip(".,;:!?")
-        try:
-            host = (urlparse(raw).hostname or "").lower()
-        except ValueError:
-            continue
+        host = _safe_host(raw)
         if not host:
             continue
         if source_host and host == source_host:
+            logger.info(
+                "caption_url_skipped reason=same_host src_host=%s",
+                source_host,
+            )
             continue
         if host in _VIDEO_HOSTS:
+            logger.info(
+                "caption_url_skipped reason=video_host src_host=%s",
+                host,
+            )
             continue
         if host in _SHORTENER_HOSTS:
-            continue
+            if client is None:
+                # Legacy sync callers — behave exactly as before BUG-033.
+                logger.info(
+                    "caption_url_skipped reason=shortener_no_client src_host=%s",
+                    host,
+                )
+                continue
+            resolved = await _resolve_shortener(raw, client=client)
+            if resolved is None:
+                logger.info(
+                    "caption_url_skipped reason=shortener_unresolved src_host=%s",
+                    host,
+                )
+                continue
+            resolved_host = _safe_host(resolved)
+            if not resolved_host:
+                logger.info(
+                    "caption_url_skipped reason=shortener_invalid_resolved src_host=%s",
+                    host,
+                )
+                continue
+            if source_host and resolved_host == source_host:
+                logger.info(
+                    "caption_url_skipped reason=same_host_after_resolve src_host=%s target_host=%s",
+                    host,
+                    resolved_host,
+                )
+                continue
+            if resolved_host in _VIDEO_HOSTS:
+                logger.info(
+                    "caption_url_skipped reason=video_host_after_resolve"
+                    " src_host=%s target_host=%s",
+                    host,
+                    resolved_host,
+                )
+                continue
+            if resolved_host in _SHORTENER_HOSTS:
+                # Resolution bounced into another shortener we can't
+                # follow further (max-hops cap or the resolver returned
+                # a 200 Location that is itself a shortener host).
+                logger.info(
+                    "caption_url_skipped reason=shortener_after_resolve src_host=%s target_host=%s",
+                    host,
+                    resolved_host,
+                )
+                continue
+            logger.info(
+                "caption_url_resolved src_host=%s target_host=%s",
+                host,
+                resolved_host,
+            )
+            return resolved
+        logger.info(
+            "caption_url_followed src_host=%s target_host=%s",
+            source_host or "unknown",
+            host,
+        )
         return raw
+    if had_matches:
+        # Regex matched something but every candidate was filtered —
+        # useful signal for prod diagnoses.
+        logger.info("caption_url_not_found reason=all_filtered")
     return None
 
 
@@ -356,7 +543,21 @@ async def extract_from_url(
             # fetch it once and attach its flattened text as another source
             # for the LLM. Ingredient quantities often live only on the
             # blog, never in the spoken audio.
-            external_url = _find_first_external_url(caption, source_url=url)
+            #
+            # BUG-033 — scoped httpx client for the shortener HEAD probes.
+            # ``follow_redirects=False`` is load-bearing: ``_resolve_shortener``
+            # inspects every hop explicitly for the loop guard + SSRF check.
+            # Lives only for the duration of this extraction so we don't
+            # hold sockets open longer than needed.
+            async with httpx.AsyncClient(
+                timeout=_SHORTENER_HEAD_TIMEOUT,
+                follow_redirects=False,
+            ) as shortener_client:
+                external_url = await _extract_caption_blog_url(
+                    caption,
+                    source_url=url,
+                    client=shortener_client,
+                )
             if external_url is not None:
                 (blog_text, caption_thumbnail, caption_notes) = await _run_blog_path(
                     external_url, untrusted=True

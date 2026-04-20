@@ -20,7 +20,8 @@ from extractor.pipeline.types import ExtractionResult
 from extractor.pipeline.url import (
     SsrfBlockedError,
     _assert_safe_http_target,
-    _find_first_external_url,
+    _extract_caption_blog_url,
+    _resolve_shortener,
     classify_url,
     extract_from_url,
 )
@@ -352,49 +353,298 @@ async def test_extract_flags_missing_quantities_end_to_end(tmp_path: Path) -> No
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_find_first_external_url_returns_none_for_empty_caption() -> None:
+async def test_find_first_external_url_returns_none_for_empty_caption() -> None:
     """Empty / None captions must not trigger a fetch."""
-    assert _find_first_external_url(None, source_url="https://www.facebook.com/reel/1") is None
-    assert _find_first_external_url("", source_url="https://www.facebook.com/reel/1") is None
+    assert (
+        await _extract_caption_blog_url(None, source_url="https://www.facebook.com/reel/1") is None
+    )
+    assert await _extract_caption_blog_url("", source_url="https://www.facebook.com/reel/1") is None
 
 
-def test_find_first_external_url_skips_same_host() -> None:
+async def test_find_first_external_url_skips_same_host() -> None:
     """URLs to the same host as the source must be ignored (no re-crawl)."""
     caption = "Schaut das Original: https://www.facebook.com/somepage/posts/1 — viel Spaß!"
-    assert _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1") is None
+    assert (
+        await _extract_caption_blog_url(caption, source_url="https://www.facebook.com/reel/1")
+        is None
+    )
 
 
-def test_find_first_external_url_skips_video_hosts() -> None:
+async def test_find_first_external_url_skips_video_hosts() -> None:
     """Known video hosts (TikTok, Insta, YouTube) must not be followed."""
     caption = "Mein TikTok: https://www.tiktok.com/@u/video/12345"
-    assert _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1") is None
+    assert (
+        await _extract_caption_blog_url(caption, source_url="https://www.facebook.com/reel/1")
+        is None
+    )
 
 
-def test_find_first_external_url_skips_shorteners() -> None:
-    """Known shortener hosts must be ignored — we can't filter their redirects."""
+async def test_find_first_external_url_skips_shorteners_without_client() -> None:
+    """Without an httpx client the shortener resolver path is disabled —
+    the function preserves the pre-BUG-033 skip behaviour."""
     caption = "Full recipe: https://bit.ly/abcdef"
-    assert _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1") is None
+    assert (
+        await _extract_caption_blog_url(caption, source_url="https://www.facebook.com/reel/1")
+        is None
+    )
 
 
-def test_find_first_external_url_picks_first_external() -> None:
+async def test_find_first_external_url_picks_first_external() -> None:
     """When a caption contains both skipped and valid URLs, return the first valid one."""
     caption = (
         "Repost: https://www.facebook.com/somepage/posts/1 "
         "Rezept: https://blog.example/gochujang-noodles"
     )
     assert (
-        _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1")
+        await _extract_caption_blog_url(caption, source_url="https://www.facebook.com/reel/1")
         == "https://blog.example/gochujang-noodles"
     )
 
 
-def test_find_first_external_url_trims_trailing_punctuation() -> None:
+async def test_find_first_external_url_trims_trailing_punctuation() -> None:
     """Prose punctuation (., ,, ;, :, !, ?) must not leak into the URL."""
     caption = "Rezept: https://blog.example/recipe."
     assert (
-        _find_first_external_url(caption, source_url="https://www.facebook.com/reel/1")
+        await _extract_caption_blog_url(caption, source_url="https://www.facebook.com/reel/1")
         == "https://blog.example/recipe"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BUG-033 — caption URL shortener resolution
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCaptionShortenerResolve:
+    """HEAD-resolution of shortener URLs in captions."""
+
+    @respx.mock
+    async def test_resolves_bit_ly_to_recipe_blog(
+        self,
+        _fake_public_dns: None,
+    ) -> None:
+        """A bit.ly link in the caption is HEAD-resolved to the real blog URL."""
+        respx.head("https://bit.ly/xyz").mock(
+            return_value=httpx.Response(302, headers={"location": "https://blog.example/rezept"})
+        )
+        respx.head("https://blog.example/rezept").mock(return_value=httpx.Response(200))
+
+        caption = "Full recipe: https://bit.ly/xyz"
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+            result = await _extract_caption_blog_url(
+                caption,
+                source_url="https://www.facebook.com/reel/1",
+                client=client,
+            )
+        assert result == "https://blog.example/rezept"
+
+    @respx.mock
+    async def test_shortener_chain_up_to_max_redirects(
+        self,
+        _fake_public_dns: None,
+    ) -> None:
+        """A 3-hop chain (within the cap) resolves to the final URL."""
+        respx.head("https://bit.ly/a").mock(
+            return_value=httpx.Response(302, headers={"location": "https://tinyurl.com/b"})
+        )
+        respx.head("https://tinyurl.com/b").mock(
+            return_value=httpx.Response(302, headers={"location": "https://blog.example/recipe"})
+        )
+        respx.head("https://blog.example/recipe").mock(return_value=httpx.Response(200))
+
+        caption = "Rezept: https://bit.ly/a"
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+            result = await _extract_caption_blog_url(
+                caption,
+                source_url="https://www.facebook.com/reel/1",
+                client=client,
+            )
+        assert result == "https://blog.example/recipe"
+
+    @respx.mock
+    async def test_shortener_chain_exceeds_max_redirects(
+        self,
+        _fake_public_dns: None,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Four hops (cap is 3) yields None + a WARNING log."""
+        respx.head("https://bit.ly/a").mock(
+            return_value=httpx.Response(302, headers={"location": "https://goo.gl/b"})
+        )
+        respx.head("https://goo.gl/b").mock(
+            return_value=httpx.Response(302, headers={"location": "https://t.co/c"})
+        )
+        respx.head("https://t.co/c").mock(
+            return_value=httpx.Response(302, headers={"location": "https://ow.ly/d"})
+        )
+        respx.head("https://ow.ly/d").mock(
+            return_value=httpx.Response(302, headers={"location": "https://blog.example/r"})
+        )
+
+        caption = "Rezept: https://bit.ly/a"
+        import logging as _logging  # local alias so we can set level precisely
+
+        with caplog.at_level(_logging.WARNING, logger="extractor.pipeline.url"):
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+                result = await _extract_caption_blog_url(
+                    caption,
+                    source_url="https://www.facebook.com/reel/1",
+                    client=client,
+                )
+        assert result is None
+        assert any("shortener_resolve_max_hops" in rec.message for rec in caplog.records)
+
+    @respx.mock
+    async def test_shortener_loop_detected(
+        self,
+        _fake_public_dns: None,
+    ) -> None:
+        """bit.ly → tinyurl → bit.ly is rejected by the loop-guard."""
+        respx.head("https://bit.ly/a").mock(
+            return_value=httpx.Response(302, headers={"location": "https://tinyurl.com/b"})
+        )
+        respx.head("https://tinyurl.com/b").mock(
+            return_value=httpx.Response(302, headers={"location": "https://bit.ly/a"})
+        )
+
+        caption = "Rezept: https://bit.ly/a"
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+            result = await _extract_caption_blog_url(
+                caption,
+                source_url="https://www.facebook.com/reel/1",
+                client=client,
+            )
+        assert result is None
+
+    @respx.mock
+    async def test_shortener_head_timeout_returns_none(
+        self,
+        _fake_public_dns: None,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A HEAD that times out yields None + WARNING (no exception bubbles)."""
+        respx.head("https://bit.ly/a").mock(side_effect=httpx.TimeoutException("timed out"))
+
+        caption = "Rezept: https://bit.ly/a"
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="extractor.pipeline.url"):
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+                result = await _extract_caption_blog_url(
+                    caption,
+                    source_url="https://www.facebook.com/reel/1",
+                    client=client,
+                )
+        assert result is None
+        assert any("shortener_resolve_network_error" in rec.message for rec in caplog.records)
+
+    @respx.mock
+    async def test_shortener_4xx_returns_none(
+        self,
+        _fake_public_dns: None,
+    ) -> None:
+        """A HEAD that responds 404 yields None — the shortener is dead."""
+        respx.head("https://bit.ly/gone").mock(return_value=httpx.Response(404))
+
+        caption = "Rezept: https://bit.ly/gone"
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+            result = await _extract_caption_blog_url(
+                caption,
+                source_url="https://www.facebook.com/reel/1",
+                client=client,
+            )
+        assert result is None
+
+    @respx.mock
+    async def test_resolved_to_video_host_skipped(
+        self,
+        _fake_public_dns: None,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A shortener that redirects to a video host is rejected by the
+        defence-in-depth filter after resolution."""
+        respx.head("https://bit.ly/ig").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "https://www.instagram.com/reel/1"}
+            )
+        )
+        respx.head("https://www.instagram.com/reel/1").mock(return_value=httpx.Response(200))
+
+        caption = "Rezept: https://bit.ly/ig"
+        import logging as _logging
+
+        with caplog.at_level(_logging.INFO, logger="extractor.pipeline.url"):
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+                result = await _extract_caption_blog_url(
+                    caption,
+                    source_url="https://www.facebook.com/reel/1",
+                    client=client,
+                )
+        assert result is None
+        assert any("reason=video_host_after_resolve" in rec.message for rec in caplog.records)
+
+    @respx.mock
+    async def test_resolved_to_same_host_skipped(
+        self,
+        _fake_public_dns: None,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A shortener that redirects back to the source host is rejected."""
+        respx.head("https://bit.ly/fb").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "https://www.facebook.com/another/post"}
+            )
+        )
+        respx.head("https://www.facebook.com/another/post").mock(return_value=httpx.Response(200))
+
+        caption = "Rezept: https://bit.ly/fb"
+        import logging as _logging
+
+        with caplog.at_level(_logging.INFO, logger="extractor.pipeline.url"):
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+                result = await _extract_caption_blog_url(
+                    caption,
+                    source_url="https://www.facebook.com/reel/1",
+                    client=client,
+                )
+        assert result is None
+        assert any("reason=same_host_after_resolve" in rec.message for rec in caplog.records)
+
+    @respx.mock
+    async def test_resolved_to_another_shortener_skipped(
+        self,
+        _fake_public_dns: None,
+    ) -> None:
+        """A shortener that 200s directly at a shortener host (no further
+        redirect) is rejected by the post-resolve shortener filter."""
+        respx.head("https://bit.ly/a").mock(
+            return_value=httpx.Response(302, headers={"location": "https://tinyurl.com/b"})
+        )
+        # tinyurl returns 200 without a Location — the final URL is still
+        # a shortener host, which _extract_caption_blog_url must refuse.
+        respx.head("https://tinyurl.com/b").mock(return_value=httpx.Response(200))
+
+        caption = "Rezept: https://bit.ly/a"
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+            result = await _extract_caption_blog_url(
+                caption,
+                source_url="https://www.facebook.com/reel/1",
+                client=client,
+            )
+        assert result is None
+
+    async def test_resolve_shortener_rejects_private_target(
+        self,
+        _fake_public_dns: None,
+    ) -> None:
+        """A bit.ly that redirects to a loopback address must be rejected by
+        the SSRF guard regardless of httpx mocking — the guard fires before
+        the HEAD is even dialled on the blocked hop."""
+        # We dial _resolve_shortener directly here with a private IP seed
+        # so the SSRF guard fires on the first hop and no HEAD is issued.
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+            result = await _resolve_shortener("http://127.0.0.1/evil", client=client)
+        assert result is None
 
 
 @respx.mock
