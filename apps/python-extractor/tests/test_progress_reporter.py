@@ -563,5 +563,186 @@ async def test_aclose_stops_heartbeat() -> None:
     assert task.cancelled() or task.done()
 
 
+# ─────────────────────────────────────────────────────────────────────
+# BUG-031 — heartbeat elapsed-time ramp
+# ─────────────────────────────────────────────────────────────────────
+#
+# These tests patch ``_HEARTBEAT_INTERVAL_S`` down to a tiny value so
+# the loop iterates in a few tens of ms, and patch ``time.monotonic``
+# inside ``extractor.progress`` to a fake clock so the ramp math is
+# deterministic regardless of real wall-clock jitter. The pattern mixes
+# monkeypatched module constants with real ``asyncio.sleep`` to drive
+# the loop forward — freezegun doesn't play well with ``asyncio.sleep``
+# on the running loop, so we fake only the ramp's clock source.
+
+
+class _FakeClock:
+    """Mutable ``time.monotonic`` substitute for heartbeat ramp tests."""
+
+    def __init__(self, start: float = 0.0) -> None:
+        self.value = start
+
+    def __call__(self) -> float:
+        return self.value
+
+
+async def _wait_for_n_heartbeats(
+    reporter: _PostRecorder,
+    baseline: int,
+    target: int,
+    *,
+    timeout_s: float = 2.0,
+) -> None:
+    """Spin until ``reporter.posted`` has ``target`` ticks past the baseline.
+
+    Uses short real-time sleeps rather than a fixed-length sleep so the
+    test tolerates CI jitter — we only assert on the *content* of the
+    emitted tick, not its wall-clock timing.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout_s
+    while len(reporter.posted) < baseline + target:
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError(
+                f"heartbeat did not reach {target} ticks within {timeout_s}s "
+                f"(saw {len(reporter.posted) - baseline})"
+            )
+        await asyncio.sleep(0.01)
+
+
+async def _wait_for_phase_progress(
+    reporter: _PostRecorder,
+    expected: int,
+    *,
+    timeout_s: float = 2.0,
+) -> ProgressEvent:
+    """Spin until a heartbeat tick with ``phase_progress == expected``
+    shows up in ``reporter.posted``, then return that event.
+
+    Lets ramp tests stabilise past a few transient ticks (e.g. a tick
+    at the old clock value before the test advanced it) without
+    hard-coding tick counts.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout_s
+    while True:
+        for event in reporter.posted:
+            if event.phase_progress == expected:
+                return event
+        if asyncio.get_running_loop().time() > deadline:
+            snapshot = [ev.phase_progress for ev in reporter.posted]
+            raise AssertionError(
+                f"heartbeat never emitted phase_progress={expected} "
+                f"within {timeout_s}s (saw {snapshot})"
+            )
+        await asyncio.sleep(0.01)
+
+
+async def test_heartbeat_ramps_phase_progress_when_yt_dlp_silent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BUG-031: on silent downloads the heartbeat itself must lift the
+    phase_progress via an elapsed-time ramp.
+
+    We don't monkeypatch ``time.monotonic`` because asyncio's event-loop
+    clock uses the same symbol — patching it globally would freeze
+    ``loop.time()``, which is how ``_wait_for_phase_progress``'s deadline
+    works. Instead we accelerate the ramp rate so the test finishes in
+    real wall-clock milliseconds.
+    """
+    monkeypatch.setattr("extractor.progress._HEARTBEAT_INTERVAL_S", 0.02)
+    # 1000 %/s ⇒ caps at 95 % after ~95 ms of real elapsed time.
+    monkeypatch.setattr("extractor.progress._RAMP_RATE_PERCENT_PER_S", 1000.0)
+
+    reporter = _PostRecorder()
+    await reporter.start_heartbeat("downloading")
+    try:
+        # Expect at least one tick with phase_progress > 0 within 1 s.
+        deadline = asyncio.get_running_loop().time() + 1.0
+        while True:
+            nonzero = [ev for ev in reporter.posted if ev.phase_progress > 0]
+            if nonzero:
+                assert nonzero[0].phase == "downloading"
+                break
+            if asyncio.get_running_loop().time() > deadline:
+                snapshot = [ev.phase_progress for ev in reporter.posted]
+                raise AssertionError(f"heartbeat never ramped above 0 within 1 s (saw {snapshot})")
+            await asyncio.sleep(0.005)
+    finally:
+        await reporter.stop_heartbeat()
+
+
+async def test_heartbeat_respects_real_yt_dlp_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When real yt-dlp progress exceeds the ramp, ``max(last, ramped)``
+    keeps the real value authoritative.
+
+    Slow ramp (3 %/s default) means within the ~100 ms test window the
+    ramp stays at 0 ⇒ ``max(50, 0) = 50``. No clock monkeypatch needed.
+    """
+    monkeypatch.setattr("extractor.progress._HEARTBEAT_INTERVAL_S", 0.02)
+
+    reporter = _PostRecorder()
+    await reporter.start_heartbeat("downloading")
+    # Simulate a real yt-dlp tick reporting 50 %.
+    await reporter.report(ProgressEvent(phase="downloading", phase_progress=50))
+    baseline = len(reporter.posted)
+    try:
+        await _wait_for_n_heartbeats(reporter, baseline=baseline, target=2)
+    finally:
+        await reporter.stop_heartbeat()
+
+    heartbeat_ticks = reporter.posted[baseline:]
+    assert len(heartbeat_ticks) >= 2
+    for tick in heartbeat_ticks:
+        assert tick.phase_progress == 50, (
+            f"heartbeat tick phase_progress={tick.phase_progress}, expected 50 "
+            f"(max(last_real=50, ramped=~0) = 50)"
+        )
+
+
+async def test_heartbeat_caps_at_95(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ramp caps at 95 % — the phase only completes via a real
+    transition (``start_heartbeat`` of the next phase), never via the
+    ramp alone."""
+    monkeypatch.setattr("extractor.progress._HEARTBEAT_INTERVAL_S", 0.02)
+    # 100_000 %/s ⇒ caps at 95 within a few real ms, well before the
+    # _wait_for_phase_progress 2 s deadline elapses.
+    monkeypatch.setattr("extractor.progress._RAMP_RATE_PERCENT_PER_S", 100_000.0)
+
+    reporter = _PostRecorder()
+    await reporter.start_heartbeat("downloading")
+    try:
+        event = await _wait_for_phase_progress(reporter, expected=95)
+    finally:
+        await reporter.stop_heartbeat()
+
+    assert event.phase == "downloading"
+
+
+async def test_heartbeat_skips_ramp_for_non_ramp_phases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phases outside ``_RAMP_PHASES`` (e.g. ``post_processing``) must
+    NOT be ramped — they're driven by explicit report() calls and
+    a phantom ramp would stomp the real value."""
+    monkeypatch.setattr("extractor.progress._HEARTBEAT_INTERVAL_S", 0.02)
+    # Absurdly fast ramp rate — would hit 95 in ms — proves the non-ramp
+    # phase really is unaffected even in an adversarial timing window.
+    monkeypatch.setattr("extractor.progress._RAMP_RATE_PERCENT_PER_S", 100_000.0)
+
+    reporter = _PostRecorder()
+    await reporter.start_heartbeat("post_processing")
+    try:
+        await _wait_for_n_heartbeats(reporter, baseline=0, target=2)
+    finally:
+        await reporter.stop_heartbeat()
+
+    for tick in reporter.posted:
+        assert tick.phase == "post_processing"
+        assert tick.phase_progress == 0, (
+            f"non-ramp phase leaked a ramp tick: phase_progress={tick.phase_progress}"
+        )
+
+
 # Silence unused-import lint when this module has no other pytest use.
 _ = pytest

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -323,8 +322,6 @@ class YtDlpDownloader:
 
 def _make_ytdlp_progress_wrapper(
     on_progress: ProgressHook,
-    *,
-    start_time: float | None = None,
 ) -> Callable[[dict[str, Any]], None]:
     """Wrap a simple ``(done, total)`` hook into yt-dlp's dict-shape API.
 
@@ -346,21 +343,16 @@ def _make_ytdlp_progress_wrapper(
        total_bytes`` (classic mp4 path).
     3. Else if ``total_bytes_estimate`` is known, same ratio against
        the estimate.
-    4. Else (total truly unknown): fall back to an elapsed-time ramp:
-       ``min(95, int(elapsed_s * 3))`` so the UI sees ~3 % per
-       second up to a 95 % cap. The cap means the phase never
-       "completes" by itself — only the real download-finished
-       transition flips to ``transcribing``.
-
-    ``start_time`` defaults to ``time.monotonic()`` at factory-call
-    time so the elapsed-ramp is measured from the moment we started
-    waiting, not the first hook tick.
+    4. Else (total truly unknown): forward ``downloaded_bytes`` with
+       ``total=0`` and ``percent_override=None``. The heartbeat layer
+       (see :class:`extractor.progress.ProgressReporter` — BUG-031)
+       supplies the elapsed-time ramp so the UI still sees motion on
+       silent single-blob downloads (short FB reels that never tick).
 
     Even when total is unknown the raw ``downloaded_bytes`` is still
     forwarded as ``done`` so the frontend's ``PhaseDetailCard`` can
     surface the byte counter (it already tolerates a null total).
     """
-    ramp_start = start_time if start_time is not None else time.monotonic()
 
     def _hook(info: dict[str, Any]) -> None:
         if info.get("status") != "downloading":
@@ -391,12 +383,12 @@ def _make_ytdlp_progress_wrapper(
             # show?".
             percent_override = max(0, min(100, int(done / total * 100)))
         else:
-            # Total is genuinely unknown (fragmented stream without
-            # fragment_count). Use an elapsed-time ramp capped at 95 %
-            # so the phase never auto-completes — only the real
-            # transition to transcribing flips it to 100 %.
-            elapsed = max(0.0, time.monotonic() - ramp_start)
-            percent_override = min(95, int(elapsed * 3))
+            # Total is genuinely unknown. Forward the raw byte count and
+            # let the heartbeat's elapsed-time ramp (BUG-031) drive the
+            # UI. Keeping the ramp in the heartbeat layer means it also
+            # fires for short-blob downloads where yt-dlp never calls
+            # this hook at all.
+            percent_override = None
 
         # The pipeline's wrapper is sync + non-raising by construction
         # (it schedules async work onto the event loop, swallowing
