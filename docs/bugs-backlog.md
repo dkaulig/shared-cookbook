@@ -1502,7 +1502,7 @@ ist größer.
 
 ## BUG-029 · Zutaten-Name-Input ist auf Mobile zu schmal (Textabschnitt)
 **Reported:** 2026-04-20 (URL-Beispiel: `facebook.com/share/r/18Ue6Nh8Xp/?mibextid=wwXIfr`)
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — mobile stacked layout (name full-width row, qty+unit sub-row below) via flex-col + md:grid-cols-[92px_96px_1fr]; regression-grep-gate + order-check test)
 **Severity:** HIGH — User sieht Zutaten-Namen nicht; wirkt als wären
 Zutaten leer / nicht extrahiert. Ursprünglich als Whisper/Azure-Bug
 verdächtigt, User hat bei Live-Test erkannt: Daten sind da, das

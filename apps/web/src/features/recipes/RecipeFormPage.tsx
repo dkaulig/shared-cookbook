@@ -1472,44 +1472,56 @@ function SortableIngredientRow({
         <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
 
-      <div className="grid grid-cols-[92px_96px_1fr] items-start gap-1.5">
-        <FormInput
-          type="text"
-          inputMode="decimal"
-          value={row.quantity}
-          onChange={(e) => onUpdate(index, (r) => ({ ...r, quantity: e.target.value }))}
-          placeholder="Menge"
-          aria-label={`Zutat ${index + 1} Menge`}
-          className="py-2 text-right text-base"
-        />
-        <FormSelect
-          value={row.unit}
-          onChange={(e) => onUpdate(index, (r) => ({ ...r, unit: e.target.value }))}
-          aria-label={`Zutat ${index + 1} Einheit`}
-          className="py-2 text-base"
-        >
-          {UNITS.map((u) => (
-            <option key={u} value={u}>
-              {u}
-            </option>
-          ))}
-        </FormSelect>
+      {/*
+        BUG-029 — on screens below Tailwind's md breakpoint (<768px) the
+        old 3-column grid `grid-cols-[92px_96px_1fr]` left the name input
+        with only ~37px on a 375px iPhone SE viewport (qty 92 + unit 96 +
+        gaps + outer chrome ate the row). We now stack on mobile — name
+        takes a full-width row and qty+unit sit in a sub-row below — and
+        restore the original 3-column grid at md+. The `md:contents`
+        wrapper dissolves at md+ so qty and unit drop directly into grid
+        cells 1 and 2 while the name occupies cell 3 via `md:order-3`.
+      */}
+      <div className="flex flex-col gap-1.5 md:grid md:grid-cols-[92px_96px_1fr] md:items-start md:gap-1.5">
         <FormInput
           type="text"
           value={row.name}
           onChange={(e) => onUpdate(index, (r) => ({ ...r, name: e.target.value }))}
           placeholder="Zutat"
           aria-label={`Zutat ${index + 1} Name`}
-          className="py-2 text-base"
+          className="py-2 text-base md:order-3"
         />
+        <div className="flex gap-1.5 md:contents">
+          <FormInput
+            type="text"
+            inputMode="decimal"
+            value={row.quantity}
+            onChange={(e) => onUpdate(index, (r) => ({ ...r, quantity: e.target.value }))}
+            placeholder="Menge"
+            aria-label={`Zutat ${index + 1} Menge`}
+            className="w-[96px] py-2 text-right text-base md:order-1 md:w-auto"
+          />
+          <FormSelect
+            value={row.unit}
+            onChange={(e) => onUpdate(index, (r) => ({ ...r, unit: e.target.value }))}
+            aria-label={`Zutat ${index + 1} Einheit`}
+            className="flex-1 py-2 text-base md:order-2 md:flex-none"
+          >
+            {UNITS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </FormSelect>
+        </div>
         {row.confidence &&
           (row.confidence === 'missing' ||
             row.confidence === 'handwritten_uncertain') && (
-            <div className="col-span-3 mt-1">
+            <div className="md:order-4 md:col-span-3 md:mt-1">
               <ConfidenceBadge confidence={row.confidence} />
             </div>
           )}
-        <div className="col-span-3 mt-1">
+        <div className="md:order-5 md:col-span-3 md:mt-1">
           <FormInput
             type="text"
             value={row.note}

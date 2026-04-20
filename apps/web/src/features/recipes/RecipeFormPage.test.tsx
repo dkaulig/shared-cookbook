@@ -5,6 +5,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { RecipeFormPage } from './RecipeFormPage'
@@ -1417,14 +1420,20 @@ describe('RecipeFormPage (create)', () => {
     render(withProviders('/groups/g1/recipes/new'))
     const mengeInput = screen.getByLabelText(/Zutat 1 Menge/i) as HTMLInputElement
     expect(mengeInput).toHaveAttribute('placeholder', 'Menge')
-    // The amount input lives inside a CSS grid whose first column governs
-    // its width. Walk up to the grid container and check the template.
-    const gridContainer = mengeInput.closest('div.grid') as HTMLElement | null
+    // BUG-029 — on <md viewports the Menge input now sits inside a
+    // flex sub-row (`w-[96px]` explicit width). On md+ the parent
+    // container becomes a grid with `md:grid-cols-[92px_96px_1fr]`
+    // which governs the first column's width. Walk up to find the
+    // container that carries the md-grid template.
+    const gridContainer = mengeInput.closest('div.md\\:grid') as HTMLElement | null
     expect(gridContainer).not.toBeNull()
     // Min ≥ 90px for the amount column so a 5-char German placeholder
     // renders without clipping at the typical 14px input font-size +
     // 13px horizontal padding (90 - 26 = 64px usable, comfortably > "Menge").
-    expect(gridContainer!.className).toMatch(/grid-cols-\[(?:min\(|)9\d|grid-cols-\[1\d\d/)
+    expect(gridContainer!.className).toMatch(/md:grid-cols-\[(?:min\(|)9\d|md:grid-cols-\[1\d\d/)
+    // And the mobile path: the Menge input itself pins a 96px width so
+    // the placeholder renders in full even before md: kicks in.
+    expect(mengeInput.className).toMatch(/\bw-\[96px\]/)
   })
 
   // ── P2-9 — chat-import handoff ────────────────────────────────────
@@ -2440,6 +2449,71 @@ describe('RecipeFormPage (create)', () => {
       // First call's If-Match was the cached version 3; the retry must
       // use the server's current version (11).
       expect(ifMatchHeaders[1]).toMatch(/W\/"[^"]+-11"/)
+    })
+  })
+
+  // ── BUG-029 regression: ingredient-name input width on mobile ─────
+  //
+  // On a 375px iPhone SE viewport the old inner grid
+  // `grid-cols-[92px_96px_1fr]` left the name input with ~37px. We now
+  // stack on <md viewports (name full-width row 1; qty + unit sub-row
+  // below) and restore the 3-column grid at md+. These tests lock that
+  // contract so the layout can't silently regress.
+  describe('BUG-029 regression: ingredient row stacks on mobile', () => {
+    it('grep-gate: inner grid class always carries the `md:` prefix', () => {
+      // Resolve the sibling source file without assuming `import.meta.url`
+      // is a `file:` URL — Vitest can sometimes report it as a plain path.
+      const metaUrl = import.meta.url
+      const thisFile = metaUrl.startsWith('file:')
+        ? fileURLToPath(metaUrl)
+        : metaUrl
+      const sourcePath = resolve(dirname(thisFile), 'RecipeFormPage.tsx')
+      const source = readFileSync(sourcePath, 'utf8')
+      // The responsive fix must be wired — the grid columns only kick in
+      // at md+.
+      expect(source).toContain('md:grid-cols-[92px_96px_1fr]')
+      // And there must be no bare (non-responsive) variant left behind.
+      // Strip `/* … */` and `// …` comments first so references to the
+      // old class name inside explanatory comments don't false-positive.
+      const codeOnly = source
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+      const bareOccurrences = codeOnly.match(/(?<!md:)grid-cols-\[92px_96px_1fr\]/g)
+      expect(bareOccurrences).toBeNull()
+    })
+
+    it('width smoke: ingredient-name input carries a full-width (flex/grid-growing) className', () => {
+      // jsdom reports `.offsetWidth === 0`, so rather than fight layout
+      // we assert the className-level contract: on mobile the name lives
+      // in a `flex flex-col` container and therefore stretches to 100%
+      // of the available row width (the outer `1fr` cell ≈ 285px on
+      // iPhone SE). The parent container must include `flex-col` WITHOUT
+      // a width constraint on the input, while the md+ grid keeps the
+      // 92/96/1fr column template.
+      render(withProviders('/groups/g1/recipes/new'))
+      const nameInput = screen.getByLabelText(/Zutat 1 Name/i)
+      // No explicit width class on the name input — it is allowed to
+      // stretch inside its flex-col parent.
+      expect(nameInput.className).not.toMatch(/\bw-\[\d+px\]\b/)
+      // The closest container must be a flex-col on mobile and a grid
+      // on md+.
+      const container = nameInput.parentElement
+      expect(container).not.toBeNull()
+      expect(container!.className).toMatch(/\bflex-col\b/)
+      expect(container!.className).toMatch(/md:grid-cols-\[92px_96px_1fr\]/)
+    })
+
+    it('DOM order: name input appears before the Menge input so it leads on mobile', () => {
+      // On mobile the stack is rendered in DOM order (name → qty+unit
+      // sub-row). On md+ the `md:order-*` utilities reflow them — but
+      // DOM order still starts with the name. Use compareDocumentPosition
+      // to assert the DOM order regardless of computed CSS.
+      render(withProviders('/groups/g1/recipes/new'))
+      const nameInput = screen.getByLabelText(/Zutat 1 Name/i)
+      const qtyInput = screen.getByLabelText(/Zutat 1 Menge/i)
+      // DOCUMENT_POSITION_FOLLOWING (0x04) — nameInput precedes qtyInput.
+      const position = nameInput.compareDocumentPosition(qtyInput)
+      expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
   })
 })
