@@ -37,9 +37,11 @@ import { CreateTagDialog } from '@/features/tagManagement/CreateTagDialog'
 import { useImportStatus } from '@/features/imports/hooks'
 import {
   extractedRecipeToPrefill,
+  extractedResultToPrefill,
   type ImportPrefill,
   withImportEnvelope,
 } from '@/features/imports/importPrefill'
+import { EmptyExtractionExplainer } from './EmptyExtractionExplainer'
 import {
   forgetChatImport,
   recallChatImport,
@@ -191,7 +193,15 @@ export function RecipeFormPage({ mode }: Props) {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const recipeId = params.recipeId ?? ''
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const importId = mode === 'create' ? searchParams.get('importId') ?? '' : ''
+  // BUG-034 — escape hatch for `EmptyExtractionExplainer`. When the
+  // user clicks "Trotzdem leer anlegen" we flip this flag and let the
+  // normal inner form render with the empty prefill (fallback title
+  // "Unbekanntes Rezept" + any auto-attached thumbnail). The flag
+  // is intentionally component-scoped so re-mounting the page (e.g.
+  // navigating away and back) resets it.
+  const [proceedAnyway, setProceedAnyway] = useState(false)
   // P2-9 — the chat-to-recipe handoff stashes the ExtractionResult in
   // sessionStorage under a transient id the URL carries via
   // `?chatImportId=<uuid>`. Reads happen once on first render (the
@@ -295,7 +305,10 @@ export function RecipeFormPage({ mode }: Props) {
   let prefill: ImportPrefill | undefined
   let chatImportSource: 'chat' | null = null
   if (mode === 'create' && importQuery.data?.result) {
-    prefill = extractedRecipeToPrefill(importQuery.data.result.recipe)
+    // BUG-034 — use `extractedResultToPrefill` so the outer-envelope
+    // `recipe_empty` / `empty_reason` flags land on the prefill and
+    // the wrapper can branch into `EmptyExtractionExplainer` below.
+    prefill = extractedResultToPrefill(importQuery.data.result)
     // BUG-018 — overlay the import-DTO-level fields (only the auto-
     // attached video-thumbnail staged-photo id today) the inner
     // recipe shape can't see.
@@ -305,6 +318,10 @@ export function RecipeFormPage({ mode }: Props) {
   } else if (mode === 'create' && chatImportId) {
     const stashed = recallChatImport(chatImportId)
     if (stashed) {
+      // Chat imports go through the inner-recipe path — chat sessions
+      // produce a recipe by construction (the user authored it), so
+      // the empty-gate doesn't apply here; legacy `extractedRecipeToPrefill`
+      // keeps `recipeEmpty=false`.
       prefill = extractedRecipeToPrefill(stashed.result.recipe)
       chatImportSource = 'chat'
     }
@@ -312,6 +329,29 @@ export function RecipeFormPage({ mode }: Props) {
     // through to a blank create form — the user keeps their URL but
     // loses the chat payload, which is an acceptable outcome for a
     // deliberately session-scoped feature.
+  }
+
+  // BUG-034 — if the extractor returned an empty recipe (no ingredients
+  // AND no steps) and the user hasn't yet clicked "Trotzdem leer
+  // anlegen", render the explainer instead of the silent empty form.
+  // The inner form still renders when `proceedAnyway` flips (escape
+  // hatch) so the user isn't locked out of the manual-entry path.
+  if (mode === 'create' && prefill?.recipeEmpty && !proceedAnyway) {
+    return (
+      <EmptyExtractionExplainer
+        reason={prefill.emptyReason}
+        sourceUrl={
+          // `sourceUrl` on the prefill has the photos:// sentinel
+          // stripped; fall back to the raw import DTO URL so the
+          // chip shows what the user actually submitted.
+          prefill.sourceUrl !== ''
+            ? prefill.sourceUrl
+            : importQuery.data?.sourceUrl ?? null
+        }
+        onProceedEmpty={() => setProceedAnyway(true)}
+        onTryAnother={() => navigate('/rezepte/import')}
+      />
+    )
   }
 
   // Read at the wrapper level so the inner form can seed its

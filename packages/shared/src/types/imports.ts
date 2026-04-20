@@ -102,9 +102,42 @@ export interface ExtractionConfidence {
   notes: string[]
 }
 
+/**
+ * BUG-034 — why the extractor returned an empty recipe.
+ *
+ * - `no_recipe_detected` — Azure analysed the sources and emitted zero
+ *   ingredients AND zero steps. The typical FB-Reel "not actually a
+ *   recipe" case; post-process flags this from `post_process.py`.
+ * - `empty_transcript` — pipeline-layer gate (reserved; BUG-033 will
+ *   wire it): no audio / music-only video so Whisper produced no
+ *   transcript and the LLM had nothing to work with.
+ * - `extractor_error` — extractor degraded to empty-result instead of
+ *   propagating as a 500. Reserved — today's pipeline raises instead,
+ *   but the enum carries this copy-branch for future use.
+ *
+ * Mirrors :data:`extractor.pipeline.types.EmptyReason` on the Python
+ * side. Keep the three literal values in sync — the wire format is
+ * snake_case identical on both sides.
+ */
+export type EmptyReason =
+  | 'no_recipe_detected'
+  | 'empty_transcript'
+  | 'extractor_error'
+
 export interface ExtractionResult {
   recipe: ExtractedRecipe
   confidence: ExtractionConfidence
+  /**
+   * BUG-034 — `true` when post-processing found neither ingredients
+   * nor steps. Always present on the wire (always `false` on healthy
+   * extractions) so the frontend can branch without null-checks.
+   */
+  recipe_empty: boolean
+  /**
+   * BUG-034 — machine-readable classifier the frontend uses to pick
+   * explainer copy. `null` iff `recipe_empty === false`.
+   */
+  empty_reason: EmptyReason | null
 }
 
 /**

@@ -1847,7 +1847,12 @@ bei Short-Form-Video-Apps.
 **Reported:** 2026-04-20 (User: "wenn kein rezept extrahiert werden kann
 sollte das so angezeigt werden mit begründung und nicht ein leeres
 rezept formular")
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20) — post_process quality-gate (`recipe_empty`
++ `empty_reason` auf `ExtractionResult`), shared TS round-trip Mirror,
+`EmptyExtractionExplainer` + `RecipeFormPage`-Wrapper-Branch mit
+`proceedAnyway`-Escape-Hatch. Nur `"no_recipe_detected"` feuert aus
+post_process; `"empty_transcript"` bleibt als Enum-Reserve für den
+BUG-033-Pipeline-Gate. Siehe Progress-Tracker Slice `BUG-034`.
 **Severity:** HIGH — macht Pipeline-Failures wie echte Funktionsbugs
 aussehen; User kann nicht unterscheiden ob's der Extractor oder das
 Video war.

@@ -70,6 +70,7 @@ export type {
 } from './search.ts'
 export type {
   ConfidenceLevel,
+  EmptyReason,
   ExtractedIngredient,
   ExtractedNutritionEstimate,
   ExtractedRecipe,

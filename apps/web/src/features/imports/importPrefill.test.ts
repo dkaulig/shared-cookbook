@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { ExtractedRecipe } from '@familien-kochbuch/shared'
-import { extractedRecipeToPrefill, withImportEnvelope } from './importPrefill'
+import type { ExtractedRecipe, ExtractionResult } from '@familien-kochbuch/shared'
+import {
+  extractedRecipeToPrefill,
+  extractedResultToPrefill,
+  withImportEnvelope,
+} from './importPrefill'
 
 function recipe(over: Partial<ExtractedRecipe> = {}): ExtractedRecipe {
   return {
@@ -239,5 +243,68 @@ describe('extractedRecipeToPrefill', () => {
     const base = extractedRecipeToPrefill(recipe())
     expect(withImportEnvelope(base, {})).toBe(base)
     expect(withImportEnvelope(base, { thumbnailStagedPhotoId: null })).toBe(base)
+  })
+
+  // BUG-034 — `extractedResultToPrefill` is the outer-envelope-aware
+  // sibling that also carries `recipe_empty` / `empty_reason` through.
+  describe('extractedResultToPrefill (BUG-034)', () => {
+    function result(over: Partial<ExtractionResult> = {}): ExtractionResult {
+      return {
+        recipe: recipe(),
+        confidence: { overall: 'high', notes: [] },
+        recipe_empty: false,
+        empty_reason: null,
+        ...over,
+      }
+    }
+
+    it('carries recipe_empty + empty_reason onto the prefill when the gate fired', () => {
+      const out = extractedResultToPrefill(
+        result({
+          recipe_empty: true,
+          empty_reason: 'no_recipe_detected',
+        }),
+      )
+      expect(out.recipeEmpty).toBe(true)
+      expect(out.emptyReason).toBe('no_recipe_detected')
+    })
+
+    it('keeps recipeEmpty=false on a healthy extraction', () => {
+      const out = extractedResultToPrefill(result())
+      expect(out.recipeEmpty).toBe(false)
+      expect(out.emptyReason).toBeNull()
+    })
+
+    it('defaults recipeEmpty to false when the server omitted the fields (legacy payload)', () => {
+      // Cast: the legacy wire shape had no empty_gate fields; we want
+      // to guarantee the frontend doesn't crash and picks the sensible
+      // "not empty" default so the explainer stays dormant.
+      const legacy = { recipe: recipe(), confidence: { overall: 'high', notes: [] } }
+      const out = extractedResultToPrefill(legacy as unknown as ExtractionResult)
+      expect(out.recipeEmpty).toBe(false)
+      expect(out.emptyReason).toBeNull()
+    })
+
+    it('still forwards the inner-recipe fields (title, ingredients, …)', () => {
+      const out = extractedResultToPrefill(
+        result({
+          recipe: recipe({
+            title: 'Apfelkuchen',
+            ingredients: [
+              {
+                name: 'Mehl',
+                quantity: '500',
+                unit: 'g',
+                note: null,
+                confidence: 'high',
+              },
+            ],
+          }),
+        }),
+      )
+      expect(out.title).toBe('Apfelkuchen')
+      expect(out.ingredients).toHaveLength(1)
+      expect(out.ingredients[0]?.name).toBe('Mehl')
+    })
   })
 })
