@@ -1559,7 +1559,14 @@ Mobile wo 90% der User das Formular öffnen.
 
 ## BUG-030 · Imperial- und Englisch-Einheiten in Import-Ergebnissen
 **Reported:** 2026-04-20
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — SYSTEM_PROMPT_DE in beiden
+Prompt-Dateien mit metric-only-Direktive + Umrechnungs-Tabelle;
+`_translate_unit` helper im `post_process.py` mit 14+ unit mappings
+(oz/lb/cup/tbsp/tsp/fl oz/clove/stick/pinch/slice/bunch/piece),
+integriert in `_normalise_ingredient`; ~20 neue Python-Tests (theory-
+sweep für `_translate_unit`, End-to-End-Integration durch
+`_normalise_ingredient` + `post_process`, Prompt-Regression-Gates in
+`test_recipe_prompts.py` und `test_photo_prompts.py`).)
 **Severity:** medium (Daten-Hygiene — User muss bei amerikanischen
 Quellen manuell umrechnen; Rezept passt sonst nicht in unsere
 metrische UI)

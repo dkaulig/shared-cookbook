@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, Final
 
 from extractor.llm.provider import TokenUsage
 from extractor.pipeline.types import (
@@ -39,6 +39,106 @@ from extractor.pipeline.types import (
 
 _SERVINGS_MIN: int = 1
 _SERVINGS_MAX: int = 20
+
+# BUG-030: imperial / English → metric / German translation table.
+# Layer 2 defence-in-depth: the SYSTEM_PROMPT_DE already tells the LLM to
+# convert imperial units to metric, but models occasionally leak an "oz"
+# or "cup" through. This table lets _normalise_ingredient rewrite those
+# free-text units on the way out so they match our German-metric UI.
+#
+# Each value is ``(target_unit, factor)`` where ``factor`` multiplies the
+# quantity string (when it's numeric). For count-like units —
+# ``clove → Zehe``, ``pinch → Prise``, ``piece → Stück`` — the factor is
+# 1 because the count doesn't change; only the label translates.
+# ``stick`` is the US butter-stick convention (~113 g) and becomes ``g``
+# because the user will want to see the gram figure in the scaled UI.
+_UNIT_TRANSLATIONS: Final[dict[str, tuple[str, float]]] = {
+    # Mass
+    "oz": ("g", 28.35),
+    "ounce": ("g", 28.35),
+    "ounces": ("g", 28.35),
+    "lb": ("g", 453.6),
+    "pound": ("g", 453.6),
+    "pounds": ("g", 453.6),
+    # Volume
+    "cup": ("ml", 240),
+    "cups": ("ml", 240),
+    "tbsp": ("ml", 15),
+    "tablespoon": ("ml", 15),
+    "tablespoons": ("ml", 15),
+    "tsp": ("ml", 5),
+    "teaspoon": ("ml", 5),
+    "teaspoons": ("ml", 5),
+    "fl oz": ("ml", 29.57),
+    "fl. oz.": ("ml", 29.57),
+    "fluid ounce": ("ml", 29.57),
+    # Count-like — factor 1, label only
+    "clove": ("Zehe", 1),
+    "cloves": ("Zehe", 1),
+    "stick": ("g", 113),
+    "sticks": ("g", 113),
+    "pinch": ("Prise", 1),
+    "pinches": ("Prise", 1),
+    "slice": ("Scheibe", 1),
+    "slices": ("Scheibe", 1),
+    "bunch": ("Bund", 1),
+    "bunches": ("Bund", 1),
+    "piece": ("Stück", 1),
+    "pieces": ("Stück", 1),
+}
+
+
+def _translate_unit(
+    unit: str | None,
+    quantity: str | None,
+) -> tuple[str | None, str | None, bool]:
+    """Normalise an English/imperial unit to German/metric.
+
+    Returns a 3-tuple ``(new_unit, new_quantity, was_translated)``.
+
+    - ``unit`` is matched case-insensitively after ``.strip()``; non-matches
+      pass through unchanged with ``was_translated=False``.
+    - ``quantity`` is multiplied by the conversion factor when the source
+      is a numeric string (``"16"``, ``"0.5"``, ``"1,5"`` — both decimal
+      separators tolerated) and rounded to the nearest integer for the
+      whole-number UX our unit chips expect.
+    - Non-numeric quantities (fractions like ``"1/2"``, freeform like
+      ``"nach Geschmack"``) pass through verbatim; only the unit label
+      translates. The prompt already asked the LLM to do the numeric
+      conversion — post-process is a safety net, not a parser.
+    - Count-like translations (clove → Zehe, pinch → Prise …) keep the
+      quantity untouched because their factor is 1.
+
+    The returned ``was_translated`` boolean is currently informational
+    only; callers (``_normalise_ingredient``) ignore it. It's kept in the
+    signature as a hook for future telemetry — e.g. counting how often
+    the LLM still leaks imperial despite the prompt directive — without
+    having to re-thread the function.
+    """
+    if unit is None:
+        return unit, quantity, False
+    key = unit.strip().lower()
+    hit = _UNIT_TRANSLATIONS.get(key)
+    if hit is None:
+        return unit, quantity, False
+    new_unit, factor = hit
+    new_quantity = quantity
+    if quantity and factor != 1:
+        try:
+            # Accept either decimal separator ("1.5" or "1,5"). LLM +
+            # human free-text both show up in practice.
+            n = float(quantity.replace(",", "."))
+        except ValueError:
+            # Non-numeric quantity (fractions, freeform) — leave as-is;
+            # the prompt asked the LLM to convert, post-process just
+            # unit-swaps.
+            pass
+        else:
+            # ``round(..., 0)`` returns an int in Python 3 — the ``int``
+            # cast is implicit. Store as str to match the schema shape.
+            new_quantity = str(round(n * factor))
+    return new_unit, new_quantity, True
+
 
 # P2-10 nutrition clamp bounds. kcal > 5000/portion is almost always an
 # LLM hallucination ("a bowl of butter"). Macros > 500 g/portion likewise —
@@ -190,6 +290,12 @@ def _normalise_ingredient(raw: dict[str, Any]) -> ExtractedIngredient | None:
         return None
     quantity = _optional_str(raw.get("quantity"))
     unit = _optional_str(raw.get("unit"))
+    # BUG-030: rewrite imperial / English units (oz, cup, tbsp, clove …)
+    # to metric / German (g, ml, Zehe …) as a safety net when the LLM
+    # leaks an imperial string despite the SYSTEM_PROMPT_DE directive.
+    # The helper leaves quantity/unit untouched for unknown units and
+    # for non-numeric quantities (fractions, "nach Geschmack").
+    unit, quantity, _translated = _translate_unit(unit, quantity)
     note = _optional_str(raw.get("note"))
     raw_confidence = raw.get("confidence")
     confidence: IngredientConfidenceLevel

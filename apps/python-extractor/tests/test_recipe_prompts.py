@@ -434,3 +434,18 @@ def test_system_prompt_calls_description_a_summary() -> None:
         "the BUG-022 paragraph must describe `description` as a "
         "Zusammenfassung / knapp summary near the field name"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BUG-030 — imperial → metric / German prompt directive
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_system_prompt_includes_imperial_to_metric_conversion() -> None:
+    """BUG-030: the prompt must name the metric-only rule AND list the
+    imperial tokens alongside their German targets. Regression guard so
+    a future edit that drops the paragraph surfaces in CI."""
+    assert "metrisch" in SYSTEM_PROMPT_DE
+    # Grep for the imperial units + their conversions in close proximity.
+    for token in ("oz", "cup", "tbsp", "tsp", "clove", "Zehe"):
+        assert token in SYSTEM_PROMPT_DE, f"prompt missing token {token!r}"
