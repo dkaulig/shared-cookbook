@@ -11,6 +11,47 @@ import { VitePWA } from 'vite-plugin-pwa'
 const APP_VERSION =
   process.env.VITE_APP_VERSION ?? process.env.npm_package_version ?? 'dev'
 
+// OFF2 — onSync handler for the BackgroundSyncPlugin. This function
+// body is serialised verbatim into `dist/sw.js` via workbox-build's
+// `stringify-object` helper, which calls `.toString()` on functions.
+// CRITICAL: the body must reference ONLY service-worker globals
+// (`self`, `fetch`) — any closure over vite-config module scope would
+// resolve to `undefined` at runtime. The TypeScript types below exist
+// only to keep this file type-clean during the build; the actual
+// objects at runtime are Workbox's Queue + the SW ClientList.
+//
+// Drain semantics:
+//   - `shiftRequest()` pops FIFO.
+//   - A network-layer fetch rejection → `unshiftRequest` + rethrow so
+//     the browser retries on the next sync event.
+//   - Any server response (2xx/4xx/5xx) counts as "delivered" — we
+//     drop the entry. The server is authoritative and the UI will
+//     reconcile via invalidation on the `fk-mutation-replayed`
+//     message.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function offlineMutationOnSync({ queue }: { queue: any }): Promise<void> {
+  let replayedCount = 0
+  let entry = await queue.shiftRequest()
+  while (entry) {
+    try {
+      await fetch(entry.request.clone())
+      replayedCount++
+    } catch (err) {
+      await queue.unshiftRequest(entry)
+      throw err
+    }
+    entry = await queue.shiftRequest()
+  }
+  // Notify every open tab so the UI can invalidate affected caches.
+  // `matchAll({ type: 'window' })` excludes popups + shared workers —
+  // only real app windows receive the replay signal.
+  const clientsList = await (self as any).clients.matchAll({ type: 'window' })
+  for (const c of clientsList) {
+    c.postMessage({ type: 'fk-mutation-replayed', count: replayedCount })
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 export default defineConfig({
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
@@ -70,6 +111,100 @@ export default defineConfig({
               networkTimeoutSeconds: 2,
               expiration: { maxEntries: 100, maxAgeSeconds: 7 * 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // OFF2 — offline-safe mutations. If the user makes a cook-mark,
+          // rating change, slot-edit, or shopping-list check while
+          // offline, the SW captures the request in the `fk-mutation-
+          // queue` and auto-replays on reconnect. The onSync callback
+          // drains the queue in FIFO order and posts a
+          // `fk-mutation-replayed` message to every open window so the
+          // UI can invalidate affected caches. Backend PATCH/POST
+          // endpoints are idempotent on replay for the same
+          // (importId, clientMutationId) pair — OFF3 adds the
+          // ETag/If-Match handshake that closes the conflict window.
+          //
+          // Workbox's `method` option takes ONE verb, so we register the
+          // same BackgroundSync plugin three times (PATCH / POST /
+          // DELETE) sharing the same queue name — Workbox interleaves
+          // entries from all three routes correctly because the queue
+          // is backed by a single IDB store keyed on `name`.
+          //
+          // The `urlPattern` matcher is serialised into the SW bundle
+          // via `.toString()`, so it MUST NOT reference closure
+          // variables that only exist in the vite config's module
+          // scope. Inlining the regex + method literal keeps each
+          // route self-contained after stringification.
+          //
+          // SECURITY: replays reuse whatever `Authorization` header was
+          // on the queued request. A 4xx response means the server
+          // rejected it (e.g. post-logout 401) — the onSync handler
+          // treats ANY server response as "delivered" and drops the
+          // entry from the queue. Only network-layer failures (fetch
+          // rejects) re-unshift and rethrow so the browser retries.
+          //
+          // TODO (OFF5): on shared devices (kitchen tablet, PWA), the
+          // SW registration is per-origin, not per-user. A cross-user
+          // drift scenario (user A queues, logs out, user B signs in,
+          // reconnect) would replay user A's mutations against user
+          // B's session. Mitigation = clear the Workbox queue on
+          // logout; tracked for a follow-up slice. Documented in
+          // docs/ops.md §9 for operators.
+          {
+            urlPattern: ({ url, request }: { url: URL; request: Request }) =>
+              request.method === 'PATCH' &&
+              (/^\/api\/recipes\/[^/]+/.test(url.pathname) ||
+                /^\/api\/mealplans\/[^/]+\/slots/.test(url.pathname) ||
+                /^\/api\/shopping-lists\/[^/]+\/items/.test(url.pathname) ||
+                /^\/api\/ratings/.test(url.pathname)),
+            handler: 'NetworkOnly',
+            method: 'PATCH',
+            options: {
+              backgroundSync: {
+                name: 'fk-mutation-queue',
+                options: {
+                  maxRetentionTime: 24 * 60, // minutes = 24h
+                  onSync: offlineMutationOnSync,
+                },
+              },
+            },
+          },
+          {
+            urlPattern: ({ url, request }: { url: URL; request: Request }) =>
+              request.method === 'POST' &&
+              (/^\/api\/recipes\/[^/]+/.test(url.pathname) ||
+                /^\/api\/mealplans\/[^/]+\/slots/.test(url.pathname) ||
+                /^\/api\/shopping-lists\/[^/]+\/items/.test(url.pathname) ||
+                /^\/api\/ratings/.test(url.pathname)),
+            handler: 'NetworkOnly',
+            method: 'POST',
+            options: {
+              backgroundSync: {
+                name: 'fk-mutation-queue',
+                options: {
+                  maxRetentionTime: 24 * 60,
+                  onSync: offlineMutationOnSync,
+                },
+              },
+            },
+          },
+          {
+            urlPattern: ({ url, request }: { url: URL; request: Request }) =>
+              request.method === 'DELETE' &&
+              (/^\/api\/recipes\/[^/]+/.test(url.pathname) ||
+                /^\/api\/mealplans\/[^/]+\/slots/.test(url.pathname) ||
+                /^\/api\/shopping-lists\/[^/]+\/items/.test(url.pathname) ||
+                /^\/api\/ratings/.test(url.pathname)),
+            handler: 'NetworkOnly',
+            method: 'DELETE',
+            options: {
+              backgroundSync: {
+                name: 'fk-mutation-queue',
+                options: {
+                  maxRetentionTime: 24 * 60,
+                  onSync: offlineMutationOnSync,
+                },
+              },
             },
           },
           {
