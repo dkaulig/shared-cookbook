@@ -64,8 +64,33 @@ describe('queryPersister', () => {
       expect(shouldDehydrateQuery(success(['shoppingList', 'g1']))).toBe(true)
     })
 
-    it('excludes the chat key prefix', () => {
+    it('CR3 — allows the sessions-LIST index under `chat` to dehydrate', () => {
+      // The list key takes the form ['chat', 'sessions', { limit }].
+      // Persisting it means the offline-first PWA can render the
+      // user's conversations from IDB when there's no WiFi.
+      expect(
+        shouldDehydrateQuery(success(['chat', 'sessions', { limit: 20 }])),
+      ).toBe(true)
+    })
+
+    it('CR3 — still excludes per-session messages (mid-stream safety)', () => {
+      // The message-list cache MUST stay out of IDB: hydrating a
+      // half-finished stream after a reload would resurrect stale
+      // tokens and confuse the user about where the conversation
+      // paused.
+      expect(
+        shouldDehydrateQuery(success(['chat', 'messages', 'session-1'])),
+      ).toBe(false)
+    })
+
+    it('CR3 — still excludes legacy/unknown chat sub-keys as defence-in-depth', () => {
+      // Anything under `chat` that isn't the sessions-LIST stays
+      // ephemeral. Keeps the blast radius of future query-key typos
+      // inside a deploy, not across reloads.
       expect(shouldDehydrateQuery(success(['chat', 'session-1']))).toBe(false)
+      expect(shouldDehydrateQuery(success(['chat', 'anything-else']))).toBe(
+        false,
+      )
     })
 
     it('excludes import progress polls', () => {
@@ -131,6 +156,11 @@ describe('queryPersister', () => {
       const seed = new QueryClient()
       seed.setQueryData(['recipes', 'all'], ['r1', 'r2'])
       seed.setQueryData(['chat', 'session-1'], { messages: ['hi'] })
+      seed.setQueryData(['chat', 'messages', 'session-1'], [{ id: 'm1' }])
+      seed.setQueryData(
+        ['chat', 'sessions', { limit: 20 }],
+        [{ id: 's1', title: 'Hallo', messageCount: 2 }],
+      )
       seed.setQueryData(['imports'], [{ id: 'i-1' }])
       seed.setQueryData(['stagedPhoto', 'p-1'], { url: 'blob:...' })
 
@@ -151,6 +181,13 @@ describe('queryPersister', () => {
 
       expect(fresh.getQueryData(['recipes', 'all'])).toEqual(['r1', 'r2'])
       expect(fresh.getQueryData(['chat', 'session-1'])).toBeUndefined()
+      expect(
+        fresh.getQueryData(['chat', 'messages', 'session-1']),
+      ).toBeUndefined()
+      // CR3 — the sessions list DOES survive the save/restore cycle.
+      expect(
+        fresh.getQueryData(['chat', 'sessions', { limit: 20 }]),
+      ).toEqual([{ id: 's1', title: 'Hallo', messageCount: 2 }])
       expect(fresh.getQueryData(['imports'])).toBeUndefined()
       expect(fresh.getQueryData(['stagedPhoto', 'p-1'])).toBeUndefined()
     })

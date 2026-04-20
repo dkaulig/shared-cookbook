@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import type {
   ApiError,
   GroupSummary,
 } from '@familien-kochbuch/shared'
 // CR2 — shared `ChatMessage` has been renamed to `ChatMessageDto`
 // (different shape). The pre-CR4 ChatPage still speaks in the legacy
-// role/content pair; CR4 rewrites the page against the SSE surface.
+// role/content pair for the send-turn path; CR4 rewrites the page
+// against the SSE surface.
 import type { LegacyChatMessage as ChatMessage } from './chatApi'
 import {
   AlertTriangle,
   ArrowDown,
   ChevronLeft,
+  Pencil,
   RotateCcw,
   Send,
   Sparkles,
@@ -23,18 +25,25 @@ import { cn } from '@/lib/utils'
 import { useMyGroups } from '@/features/groups/useMyGroups'
 import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { useChatTurn, useConvertChatToRecipe } from './hooks'
+import { useChatMessages, useChatSessions, useRenameChatSession } from './useChatSessions'
+import { RenameSessionDialog } from './RenameSessionDialog'
 import {
   SCROLL_STICKY_THRESHOLD_PX,
   isPinnedToBottom,
 } from './scrollStickiness'
 import { CHAT_HARD_CAP, CHAT_WARN_AT, classifyTurnCap } from './turnCap'
 import { stashChatImport } from './chatImportMemo'
+import {
+  safeGetItem,
+  safeRemoveItem,
+  safeSetItem,
+} from '@/features/_shared/safeStorage'
 
 /**
- * `/chat` — the P2-9 conversational recipe-creation surface.
+ * `/chat/:sessionId` — the CR3 conversational recipe-creation surface.
  *
  * Full-height flex column:
- *   1. Sticky top bar: back button + "Rezept-Chat" title.
+ *   1. Sticky top bar: back button + session title (click to rename).
  *   2. Scrollable message list (flex-1) with user + assistant bubbles.
  *      Once the assistant has sent ≥ 2 replies, the "In Rezept
  *      umwandeln" call-to-action slides in at the top of the list's
@@ -51,68 +60,119 @@ import { stashChatImport } from './chatImportMemo'
  * BottomNav and the browser bottom-bar. The input footer also keeps
  * its own `pb-[env(safe-area-inset-bottom,0px)]` as defence-in-depth.
  *
- * The session id is generated on mount (or picked up from
- * `?session=<uuid>` if the user pasted a URL) and written back into
- * the URL via history.replace so a page reload keeps the same chat
- * thread alive. Messages themselves are NOT persisted — privacy call-
- * out in the P2-9 plan + PRD §5.4. Closing the tab drops the dialogue.
+ * CR3 session lifecycle:
+ * - The session id comes from the URL (`/chat/:sessionId`). The
+ *   redirect-at-`/chat` picks the newest session on entry so the URL
+ *   is always populated by the time this page mounts.
+ * - Message history is pulled from the server via {@link useChatMessages}
+ *   so a reload resumes the thread instead of starting fresh.
+ * - The optimistic outgoing buffer (user text + pending assistant
+ *   reply from the legacy JSON turn endpoint) lives in component state
+ *   until the next server refetch; it is layered on top of the
+ *   fetched history for display.
+ * - Input drafts are keyed by sessionId in `sessionStorage` so
+ *   switching sessions preserves half-typed prompts without leaking
+ *   them across other tabs / users.
  *
- * hoppr reference lessons applied (see commit of step 2 for detail):
- *   - Clear input + append user bubble synchronously on send, before
- *     awaiting the network, so the UI feels instant.
- *   - Ref-mirror for the "sending" flag + messages so async handlers
- *     never operate on stale closures.
- *   - On error: roll back the optimistic user bubble AND preserve the
- *     user's text in the input so "Erneut senden" can resubmit
- *     verbatim — no retype required.
+ * NOTE: CR3 keeps the legacy non-streaming `sendChatTurn` path —
+ * append the user bubble, POST, append the assistant reply. CR4
+ * swaps this block out for the SSE streaming consumer.
  */
+const draftKey = (sessionId: string) => `fk-chat-draft:${sessionId}`
+
 export function ChatPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const { sessionId: routeSessionId } = useParams()
   const navigate = useNavigate()
 
-  // ── Session id ─────────────────────────────────────────────────────
-  // The URL is the source of truth. If the user lands on /chat without
-  // a ?session=… param we mint one on mount + sync it back so a refresh
-  // keeps the thread alive. If a session id is already in the URL we
-  // keep it verbatim — never overwrite what the user pasted.
-  const [sessionId, setSessionId] = useState<string>(() => {
-    const urlSession = searchParams.get('session')
-    if (urlSession && urlSession.length > 0) return urlSession
-    return crypto.randomUUID()
-  })
+  // ── Session id (from URL) ──────────────────────────────────────────
+  // ChatRouteOutlet guarantees we only mount under `/chat/:sessionId`
+  // so routeSessionId should always be defined; fall back to empty
+  // string (disables queries + mutations) so component tests can
+  // still mount the page outside a real router.
+  const sessionId = routeSessionId ?? ''
   const sessionIdRef = useRef(sessionId)
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
 
-  // Write the session id back to the URL once on mount (or whenever it
-  // changes via "Neu starten"). `replace: true` so the user doesn't get
-  // a dead back-button entry pointing at the empty `/chat` URL.
+  // ── Persisted history (DB-side) ────────────────────────────────────
+  const messagesQuery = useChatMessages(sessionId || undefined)
+
+  // ── Session title (for the top bar) ────────────────────────────────
+  const sessionsQuery = useChatSessions()
+  const session = useMemo(
+    () => sessionsQuery.data?.find((s) => s.id === sessionId) ?? null,
+    [sessionsQuery.data, sessionId],
+  )
+
+  // If the sessions list has loaded and the current URL sessionId is
+  // not in it (stale link / someone else's id / deleted session),
+  // bounce back to `/chat` so the redirect picks a fresh target.
   useEffect(() => {
-    const urlSession = searchParams.get('session')
-    if (urlSession !== sessionId) {
-      const next = new URLSearchParams(searchParams)
-      next.set('session', sessionId)
-      setSearchParams(next, { replace: true })
+    if (!sessionId) return
+    if (!sessionsQuery.isSuccess) return
+    const found = (sessionsQuery.data ?? []).some((s) => s.id === sessionId)
+    if (!found) {
+      navigate('/chat', { replace: true })
     }
-    // We intentionally depend only on sessionId — `setSearchParams` is
-    // referentially stable from react-router, and `searchParams` being
-    // in the dep array would create a loop (our own update would
-    // trigger another run).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, sessionsQuery.isSuccess, sessionsQuery.data, navigate])
+
+  // ── Optimistic layer ───────────────────────────────────────────────
+  // The legacy turn endpoint returns a single JSON payload, not a
+  // stream; hold the optimistic user bubble + the assistant reply in
+  // local state until the next messages refetch syncs them in.
+  const [optimistic, setOptimistic] = useState<ChatMessage[]>([])
+  // Reset the optimistic buffer when the session id changes (switching
+  // conversations must not leak in-flight bubbles across threads). A
+  // direct setState in-effect here is intentional — the reset is an
+  // external-event handoff (URL param change), not a derived value.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot URL→state reset on session switch
+    setOptimistic([])
   }, [sessionId])
 
-  // ── Messages state + ref mirror ───────────────────────────────────
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const messages: ChatMessage[] = useMemo(() => {
+    const persisted: ChatMessage[] = (messagesQuery.data ?? [])
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+      }))
+    return [...persisted, ...optimistic]
+  }, [messagesQuery.data, optimistic])
+
   const messagesRef = useRef(messages)
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
 
-  // ── Input state (controlled) ──────────────────────────────────────
-  const [input, setInput] = useState('')
+  // ── Input state (controlled; draft persisted per-session) ──────────
+  const [input, setInput] = useState<string>(() =>
+    sessionId ? safeGetItem(draftKey(sessionId)) ?? '' : '',
+  )
+  // Re-hydrate whenever the sessionId changes (draft-per-session).
+  // The setState-in-effect is intentional: we're reading from an
+  // external store (sessionStorage) in response to a route change.
+  useEffect(() => {
+    if (!sessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot URL→state reset when session id is cleared
+      setInput('')
+      return
+    }
+    setInput(safeGetItem(draftKey(sessionId)) ?? '')
+  }, [sessionId])
+  // Persist input drafts. `safeSetItem` is a no-op in private-mode
+  // Safari / jsdom, so callers don't have to branch.
+  useEffect(() => {
+    if (!sessionId) return
+    if (input.length === 0) {
+      safeRemoveItem(draftKey(sessionId))
+      return
+    }
+    safeSetItem(draftKey(sessionId), input)
+  }, [sessionId, input])
 
-  // ── Network mutations ─────────────────────────────────────────────
+  // ── Network mutations ──────────────────────────────────────────────
   const turnMutation = useChatTurn()
   const convertMutation = useConvertChatToRecipe()
   const sendingRef = useRef(false)
@@ -125,22 +185,36 @@ export function ChatPage() {
   const [error, setError] = useState<string | null>(null)
   const [convertError, setConvertError] = useState<string | null>(null)
 
-  // ── Scroll stickiness ─────────────────────────────────────────────
-  // We deliberately don't mirror the `isPinnedToBottom` result into
-  // state — the value is read once per messages-changed effect and
-  // once on user-driven scroll, directly off the DOM metrics. Keeping
-  // just `hasUnseenBelow` in state means we don't re-render the list
-  // on every scroll tick.
+  // ── Rename (top-bar pencil) ────────────────────────────────────────
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const renameMutation = useRenameChatSession()
+
+  const handleRenameSubmit = useCallback(
+    async (title: string) => {
+      if (!sessionId) return
+      setRenameError(null)
+      try {
+        await renameMutation.mutateAsync({ sessionId, title })
+        setRenameOpen(false)
+      } catch (err) {
+        const apiErr = err as Error
+        setRenameError(
+          apiErr.message ||
+            'Umbenennen fehlgeschlagen. Bitte erneut versuchen.',
+        )
+      }
+    },
+    [renameMutation, sessionId],
+  )
+
+  // ── Scroll stickiness ──────────────────────────────────────────────
   const listRef = useRef<HTMLDivElement | null>(null)
   const [hasUnseenBelow, setHasUnseenBelow] = useState(false)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = listRef.current
     if (!el) return
-    // JSDOM (our test env) doesn't implement scrollTo, so guard the
-    // smooth variant and fall back to a plain scrollTop write — which
-    // JSDOM does support and which is enough for the real code path
-    // too when the browser lacks smooth-scroll support.
     if (typeof el.scrollTo === 'function') {
       el.scrollTo({ top: el.scrollHeight, behavior })
     } else {
@@ -160,9 +234,6 @@ export function ChatPage() {
     if (pinned) setHasUnseenBelow(false)
   }, [])
 
-  // When messages change: auto-scroll to bottom IF we were already
-  // pinned, otherwise raise the "Neue Nachricht ↓" pill. Ref-reads the
-  // latest atBottom so the effect reacts to the correct window.
   useEffect(() => {
     if (messages.length === 0) return
     const el = listRef.current
@@ -179,7 +250,7 @@ export function ChatPage() {
     }
   }, [messages, scrollToBottom])
 
-  // ── Turn-cap status ───────────────────────────────────────────────
+  // ── Turn-cap status ────────────────────────────────────────────────
   const turnCap = classifyTurnCap(messages.length)
   const assistantTurns = useMemo(
     () => messages.filter((m) => m.role === 'assistant').length,
@@ -187,24 +258,25 @@ export function ChatPage() {
   )
   const showConvertCta = assistantTurns >= 2
 
-  // ── Groups (for the convert → picker → navigate flow) ─────────────
+  // ── Groups (for the convert → picker → navigate flow) ──────────────
   const groups = useMyGroups()
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  // ── Send handler ──────────────────────────────────────────────────
+  // ── Send handler ───────────────────────────────────────────────────
   const sendWithContent = useCallback(
     async (content: string) => {
       if (sendingRef.current) return
+      if (!sessionIdRef.current) return
       const trimmed = content.trim()
       if (trimmed.length === 0) return
       if (classifyTurnCap(messagesRef.current.length) === 'blocked') return
 
       const userMsg: ChatMessage = { role: 'user', content: trimmed }
-      // Optimistic append + clear input + wipe any previous error in
-      // the same render tick. The mutation fires right after this.
-      const prevMessages = messagesRef.current
-      const nextMessages = [...prevMessages, userMsg]
-      setMessages(nextMessages)
+      // Optimistic append (local buffer) + clear input + wipe any
+      // previous error in the same render tick.
+      const prevOptimistic = optimistic
+      const nextMessages = [...messagesRef.current, userMsg]
+      setOptimistic((prev) => [...prev, userMsg])
       setInput('')
       setError(null)
 
@@ -213,7 +285,7 @@ export function ChatPage() {
           sessionId: sessionIdRef.current,
           messages: nextMessages,
         })
-        setMessages((prev) => [
+        setOptimistic((prev) => [
           ...prev,
           { role: 'assistant', content: res.assistantMessage },
         ])
@@ -221,14 +293,15 @@ export function ChatPage() {
         const apiErr = err as ApiError
         // Rollback the optimistic bubble + preserve the user's text in
         // the input so "Erneut senden" can resubmit without retyping.
-        setMessages(prevMessages)
+        setOptimistic(prevOptimistic)
         setInput(trimmed)
         setError(
-          apiErr.message || 'Senden fehlgeschlagen. Bitte versuche es erneut.',
+          apiErr.message ||
+            'Senden fehlgeschlagen. Bitte versuche es erneut.',
         )
       }
     },
-    [turnMutation],
+    [turnMutation, optimistic],
   )
 
   const handleSendClick = useCallback(() => {
@@ -241,8 +314,6 @@ export function ChatPage() {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Enter submits, Shift+Enter inserts a newline — textarea-in-chat
-      // convention matches hoppr + most chat surfaces.
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         void sendWithContent(input)
@@ -251,16 +322,7 @@ export function ChatPage() {
     [input, sendWithContent],
   )
 
-  const handleReset = useCallback(() => {
-    const fresh = crypto.randomUUID()
-    setMessages([])
-    setInput('')
-    setError(null)
-    setConvertError(null)
-    setSessionId(fresh)
-  }, [])
-
-  // ── Convert to recipe ─────────────────────────────────────────────
+  // ── Convert to recipe ──────────────────────────────────────────────
   const convertWithGroup = useCallback(
     async (groupId: string) => {
       setConvertError(null)
@@ -310,14 +372,21 @@ export function ChatPage() {
     [convertWithGroup],
   )
 
-  // ── Render ────────────────────────────────────────────────────────
-
+  // ── Render ─────────────────────────────────────────────────────────
   const sendDisabled =
     turnMutation.isPending || input.trim().length === 0 || turnCap === 'blocked'
 
   return (
     <div className="mx-auto flex h-[calc(100dvh-64px-88px-env(safe-area-inset-bottom,0px))] w-full max-w-3xl flex-col px-4 md:h-[calc(100dvh-72px)] md:px-6">
-      <ChatTopBar onBack={() => navigate(-1)} />
+      <ChatTopBar
+        title={session?.title ?? null}
+        onBack={() => navigate(-1)}
+        onRename={() => {
+          setRenameError(null)
+          setRenameOpen(true)
+        }}
+        canRename={!!sessionId}
+      />
 
       <div
         ref={listRef}
@@ -368,8 +437,6 @@ export function ChatPage() {
             onClick={() => scrollToBottom('smooth')}
             className="sticky bottom-4 left-1/2 z-10 mx-auto flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-primary bg-primary/95 px-3 py-1.5 text-[12px] font-semibold text-primary-foreground shadow-[0_4px_12px_-2px_rgba(79,121,97,0.35)] backdrop-blur"
             style={{
-              // Stick above the threshold so the pill is always visible
-              // even when the content height is still growing.
               bottom: `${SCROLL_STICKY_THRESHOLD_PX}px`,
             }}
           >
@@ -379,12 +446,10 @@ export function ChatPage() {
         )}
       </div>
 
-      {/* Turn-cap banner (warn + blocked have different copy) */}
-      {turnCap !== 'ok' && (
-        <TurnCapNotice level={turnCap} onReset={handleReset} />
-      )}
+      {/* Turn-cap banner (warn + blocked have different copy). */}
+      {turnCap !== 'ok' && <TurnCapNotice level={turnCap} />}
 
-      {/* "In Rezept umwandeln" CTA — only after 2+ assistant replies */}
+      {/* "In Rezept umwandeln" CTA — only after 2+ assistant replies. */}
       {showConvertCta && (
         <ConvertToRecipeBar
           pending={convertMutation.isPending}
@@ -430,13 +495,39 @@ export function ChatPage() {
           onClose={() => setPickerOpen(false)}
         />
       )}
+
+      <RenameSessionDialog
+        open={renameOpen}
+        initialTitle={session?.title ?? null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setRenameOpen(false)
+            setRenameError(null)
+          }
+        }}
+        onSubmit={handleRenameSubmit}
+        isLoading={renameMutation.isPending}
+        error={renameError}
+      />
     </div>
   )
 }
 
 // ── Sub-components ────────────────────────────────────────────────────
 
-function ChatTopBar({ onBack }: { onBack: () => void }) {
+function ChatTopBar({
+  title,
+  onBack,
+  onRename,
+  canRename,
+}: {
+  title: string | null
+  onBack: () => void
+  onRename: () => void
+  canRename: boolean
+}) {
+  const displayTitle = title ?? 'Rezept-Chat'
+  const isFallback = !title
   return (
     <header
       role="banner"
@@ -451,11 +542,29 @@ function ChatTopBar({ onBack }: { onBack: () => void }) {
         <ChevronLeft className="h-[18px] w-[18px]" aria-hidden="true" />
       </button>
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        <Sparkles className="h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
-        <h1 className="font-serif text-[20px] font-semibold tracking-[-0.005em] text-foreground">
-          Rezept-Chat
+        <Sparkles
+          className="h-4 w-4 flex-shrink-0 text-primary"
+          aria-hidden="true"
+        />
+        <h1
+          className={cn(
+            'truncate font-serif text-[20px] font-semibold tracking-[-0.005em] text-foreground',
+            isFallback && title === null && 'italic',
+          )}
+        >
+          {displayTitle}
         </h1>
       </div>
+      {canRename && (
+        <button
+          type="button"
+          onClick={onRename}
+          aria-label="Unterhaltung umbenennen"
+          className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <Pencil className="h-[16px] w-[16px]" aria-hidden="true" />
+        </button>
+      )}
     </header>
   )
 }
@@ -501,13 +610,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
   )
 }
 
-function TurnCapNotice({
-  level,
-  onReset,
-}: {
-  level: 'warn' | 'blocked'
-  onReset: () => void
-}) {
+function TurnCapNotice({ level }: { level: 'warn' | 'blocked' }) {
   const isBlocked = level === 'blocked'
   return (
     <div
@@ -530,16 +633,8 @@ function TurnCapNotice({
       />
       <p className="flex-1 leading-[1.4] text-foreground">
         {isBlocked
-          ? `Dialog ist voll — nutze „In Rezept umwandeln" oder starte neu.`
-          : 'Lange Dialoge werden schwächer. Bald bitte in Rezept umwandeln oder neu starten.'}{' '}
-        <button
-          type="button"
-          onClick={onReset}
-          className="ml-1 inline-flex items-center gap-1 align-baseline font-semibold text-primary hover:underline"
-        >
-          <RotateCcw className="h-3 w-3" aria-hidden="true" />
-          Neu starten
-        </button>
+          ? `Dialog ist voll — nutze „In Rezept umwandeln" oder starte eine neue Unterhaltung über die Seitenleiste.`
+          : 'Lange Dialoge werden schwächer. Bald bitte in Rezept umwandeln oder eine neue Unterhaltung starten.'}
       </p>
       <span className="sr-only">
         Turn {isBlocked ? CHAT_HARD_CAP : CHAT_WARN_AT}+

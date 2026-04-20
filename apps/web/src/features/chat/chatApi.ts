@@ -1,5 +1,8 @@
 import type {
   ApiError,
+  ChatMessageDto,
+  ChatSessionListItem,
+  CreateSessionResponse,
   ExtractionResult,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
@@ -13,13 +16,12 @@ import { apiClient } from '@/features/auth/apiClient'
  * recipe) all live at `/api/chat/sessions/...` and the previous
  * `POST /api/chat` single-turn call no longer exists.
  *
- * The frontend swap happens in CR4 (streaming consumer + sessions-list
- * UI). This file is currently a type-compat shim: it preserves the
- * existing surface used by `ChatPage.tsx` so the old page keeps
- * compiling until CR4 rewrites it. {@link sendChatTurn} is marked
- * `@deprecated` — it will throw at runtime because `POST /api/chat` no
- * longer exists, but that is acceptable for CR2 because the frontend
- * doesn't actually ship against the new backend until CR4.
+ * CR3 — adds the REST half of the sessions surface (list/create/rename/
+ * delete/messages). The streaming consumer (`POST …/turn`) lands in CR4.
+ *
+ * The {@link sendChatTurn} legacy helper stays as a compat shim so the
+ * pre-CR4 ChatPage keeps sending turns via the soon-to-be-removed
+ * `POST /api/chat` path while CR3 focuses on the list + resume flow.
  */
 
 async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
@@ -109,4 +111,76 @@ export async function convertChatToRecipe(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+// ── CR3 session-list surface ────────────────────────────────────────
+
+/**
+ * GET `/api/chat/sessions?limit=<n>` — newest-first list of the
+ * caller's sessions. The server defaults to 20; we pass it explicitly
+ * so the query-key matches 1:1 what TanStack sees.
+ */
+export async function fetchChatSessions(
+  limit: number,
+): Promise<ChatSessionListItem[]> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  return request<ChatSessionListItem[]>(`/api/chat/sessions?${qs.toString()}`, {
+    method: 'GET',
+  })
+}
+
+/**
+ * POST `/api/chat/sessions` — create a fresh empty session. Response
+ * returns `{ sessionId }` only; the caller navigates to
+ * `/chat/<sessionId>` which renders the empty shell.
+ */
+export async function createChatSession(): Promise<CreateSessionResponse> {
+  return request<CreateSessionResponse>(`/api/chat/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+/**
+ * PATCH `/api/chat/sessions/:id` — rename via `{ title }`. 204 on
+ * success.
+ */
+export async function renameChatSession(
+  sessionId: string,
+  title: string,
+): Promise<void> {
+  const encoded = encodeURIComponent(sessionId)
+  await request<void>(`/api/chat/sessions/${encoded}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
+/**
+ * DELETE `/api/chat/sessions/:id` — hard delete (or soft, per CR1).
+ * 204 on success.
+ */
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  const encoded = encodeURIComponent(sessionId)
+  await request<void>(`/api/chat/sessions/${encoded}`, {
+    method: 'DELETE',
+  })
+}
+
+/**
+ * GET `/api/chat/sessions/:id/messages?limit=<n>` — load a session's
+ * message history, ASC by creation time. Server defaults to the last
+ * 200 messages; the CR plan pins 200 as the default cap.
+ */
+export async function fetchChatMessages(
+  sessionId: string,
+  limit = 200,
+): Promise<ChatMessageDto[]> {
+  const encoded = encodeURIComponent(sessionId)
+  const qs = new URLSearchParams({ limit: String(limit) })
+  return request<ChatMessageDto[]>(
+    `/api/chat/sessions/${encoded}/messages?${qs.toString()}`,
+    { method: 'GET' },
+  )
 }
