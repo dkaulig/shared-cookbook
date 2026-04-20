@@ -770,6 +770,53 @@ async def test_fetch_blog_rejects_metadata_hostname() -> None:
         await _assert_safe_http_target("http://metadata.google.internal/")
 
 
+async def test_allowed_private_host_bypasses_private_ip_check() -> None:
+    """The ``allowed_private_host`` carveout lets the progress-callback
+    path reach its docker-internal target. Without it, every callback
+    to the ``api`` service would be blocked because 172.x.x.x is
+    RFC1918 — the root cause of BUG-031's lingering "stuck at 5 %"
+    symptom even after the heartbeat ramp landed.
+    """
+
+    def _fake_internal(host: str, *_a: Any, **_k: Any) -> list[Any]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.28.0.5", 0))]
+
+    with patch("extractor.pipeline.url.socket.getaddrinfo", side_effect=_fake_internal):
+        # Without the carveout this raises SsrfBlockedError on the
+        # private 172.28.0.5 resolution. With it, passes cleanly.
+        await _assert_safe_http_target(
+            "http://api:8080/api/internal/imports/abc/progress",
+            allowed_private_host="api",
+        )
+
+
+async def test_allowed_private_host_still_blocks_metadata_hostname() -> None:
+    """Even with a carveout, the known-bad-hostname gate still fires —
+    the allowlist is narrow (one exact host), not a global disable."""
+    with pytest.raises(SsrfBlockedError):
+        await _assert_safe_http_target(
+            "http://metadata.google.internal/",
+            allowed_private_host="api",
+        )
+
+
+async def test_allowed_private_host_does_not_apply_to_different_host() -> None:
+    """Carveout matches on exact hostname — other internal hosts still
+    go through the full private-IP check."""
+
+    def _fake_internal(host: str, *_a: Any, **_k: Any) -> list[Any]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.28.0.5", 0))]
+
+    with (
+        patch("extractor.pipeline.url.socket.getaddrinfo", side_effect=_fake_internal),
+        pytest.raises(SsrfBlockedError),
+    ):
+        await _assert_safe_http_target(
+            "http://somehost:8080/x",
+            allowed_private_host="api",
+        )
+
+
 @respx.mock
 async def test_fetch_blog_rejects_redirect_to_private(
     tmp_path: Path, _fake_public_dns: None
