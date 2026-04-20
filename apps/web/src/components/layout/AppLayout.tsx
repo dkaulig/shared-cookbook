@@ -41,6 +41,19 @@ export function AppLayout() {
   // viewport so backdrop-blur'd fixed-bottom chrome (BottomNav,
   // RecipeActionBar) follows iOS/Chrome's retracting toolbar instead of
   // leaving a transparent gap above the new visual bottom edge.
+  //
+  // BUG-037 — the original formula `window.innerHeight - vv.height` was
+  // unreliable on mobile: Chrome Android and iOS 15+ both fold the
+  // retractable toolbar height INTO `window.innerHeight`, so
+  // `innerHeight ≈ vv.height` at all times and the offset clamped to 0.
+  // Replacement: track the largest `vv.height` seen ("chrome retracted"
+  // baseline) and compute `offset = maxBaseline - currentHeight`. When
+  // chrome is fully retracted the offset is 0; when the URL bar /
+  // keyboard is shown it reflects the chrome-covered pixel band
+  // exactly — independent of `innerHeight`'s cross-browser quirks.
+  // We additionally listen on `window.resize` because some mobile
+  // browsers fire only that event on URL-bar-retract (not
+  // `visualViewport.resize`); the RAF throttle collapses duplicates.
   useEffect(() => {
     const root = document.documentElement
     root.style.setProperty('--viewport-bottom-offset', '0px')
@@ -48,10 +61,13 @@ export function AppLayout() {
     const vv = window.visualViewport
     if (vv == null) return
 
+    let maxVvHeight = vv.height
     let rafId: number | null = null
     const update = () => {
       rafId = null
-      const offset = Math.max(0, window.innerHeight - (vv.height ?? window.innerHeight))
+      const h = vv.height
+      if (h > maxVvHeight) maxVvHeight = h
+      const offset = Math.max(0, maxVvHeight - h)
       root.style.setProperty('--viewport-bottom-offset', `${offset}px`)
     }
     const schedule = () => {
@@ -61,10 +77,12 @@ export function AppLayout() {
 
     vv.addEventListener('resize', schedule)
     vv.addEventListener('scroll', schedule)
+    window.addEventListener('resize', schedule)
     return () => {
       if (rafId != null) window.cancelAnimationFrame(rafId)
       vv.removeEventListener('resize', schedule)
       vv.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
     }
   }, [])
 

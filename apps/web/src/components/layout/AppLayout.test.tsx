@@ -107,18 +107,21 @@ describe('<AppLayout />', () => {
     expect(screen.getByTestId('recipe-new-child')).toBeInTheDocument()
   })
 
-  // ───────── BUG-023 regression ─────────
+  // ───────── BUG-023 + BUG-037 regression ─────────
 
-  describe('--viewport-bottom-offset (BUG-023)', () => {
+  describe('--viewport-bottom-offset (BUG-023 + BUG-037)', () => {
     type VVListener = (event: Event) => void
     let listeners: Record<string, VVListener[]>
+    let vvStub: { height: number; addEventListener: (t: string, f: VVListener) => void; removeEventListener: (t: string, f: VVListener) => void }
     let originalVV: PropertyDescriptor | undefined
     let originalInnerHeight: number
 
     beforeEach(() => {
       listeners = { resize: [], scroll: [] }
-      const stub = {
-        height: 600,
+      vvStub = {
+        // "Chrome retracted" baseline — largest value the visual
+        // viewport will take. The effect captures this on mount.
+        height: 700,
         addEventListener(type: string, fn: VVListener) {
           listeners[type] ??= []
           listeners[type].push(fn)
@@ -130,7 +133,7 @@ describe('<AppLayout />', () => {
       originalVV = Object.getOwnPropertyDescriptor(window, 'visualViewport')
       Object.defineProperty(window, 'visualViewport', {
         configurable: true,
-        value: stub,
+        value: vvStub,
       })
       originalInnerHeight = window.innerHeight
       Object.defineProperty(window, 'innerHeight', {
@@ -153,23 +156,56 @@ describe('<AppLayout />', () => {
       document.documentElement.style.removeProperty('--viewport-bottom-offset')
     })
 
-    it('writes --viewport-bottom-offset = (innerHeight - vv.height) on resize', async () => {
+    async function fireVvResize() {
+      await act(async () => {
+        for (const fn of listeners.resize ?? []) fn(new Event('resize'))
+        await new Promise((r) => requestAnimationFrame(() => r(undefined)))
+      })
+    }
+
+    it('tracks max(vv.height) baseline and reports `max - current` on retract/expand cycles', async () => {
       renderAt('/')
       // Mount-time baseline write.
       expect(
         document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
       ).toBe('0px')
 
-      // Fire the visualViewport `resize` listener; the effect schedules a
-      // RAF, so flush it inside `act` to commit the DOM-style write.
-      await act(async () => {
-        for (const fn of listeners.resize ?? []) fn(new Event('resize'))
-        await new Promise((r) => requestAnimationFrame(() => r(undefined)))
-      })
+      // (1) Chrome retracted (baseline) — no offset.
+      await fireVvResize()
+      expect(
+        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
+      ).toBe('0px')
 
+      // (2) Chrome shown — vv shrinks by 100px → offset = max(700) - 600.
+      vvStub.height = 600
+      await fireVvResize()
       expect(
         document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
       ).toBe('100px')
+
+      // (3) Chrome retracts again — vv back to 700 → offset = 0.
+      vvStub.height = 700
+      await fireVvResize()
+      expect(
+        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
+      ).toBe('0px')
+    })
+
+    it('ignores window.innerHeight entirely (BUG-037: innerHeight tracks chrome on Mobile)', async () => {
+      // The OLD formula was `innerHeight - vv.height`. Simulate a
+      // hostile mobile quirk where innerHeight is wildly smaller than
+      // vv.height; the new max-baseline formula must still produce a
+      // non-negative, non-nonsensical offset.
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: 500,
+      })
+      vvStub.height = 700
+      renderAt('/')
+      await fireVvResize()
+      expect(
+        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
+      ).toBe('0px')
     })
   })
 
