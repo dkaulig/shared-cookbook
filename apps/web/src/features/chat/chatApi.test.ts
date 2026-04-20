@@ -5,11 +5,21 @@ import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import type {
-  ChatMessage,
-  ExtractionResult,
-} from '@familien-kochbuch/shared'
-import { convertChatToRecipe, sendChatTurn } from './chatApi'
+import type { ExtractionResult } from '@familien-kochbuch/shared'
+import {
+  convertChatToRecipe,
+  sendChatTurn,
+  type LegacyChatMessage,
+} from './chatApi'
+
+/**
+ * CR2 — the backend swap from P2-6 Python proxy to native .NET SSE
+ * surface removed `POST /api/chat` outright. This test file exercises
+ * the thin compat shim: `sendChatTurn` still POSTs to the legacy path
+ * (so `ChatPage.tsx` keeps compiling until CR4 rewrites the UI), and
+ * `convertChatToRecipe` has switched to the new session-scoped path at
+ * `/api/chat/sessions/:id/to-recipe` with no body.
+ */
 
 beforeEach(() => {
   useAuthStore.setState({
@@ -18,7 +28,7 @@ beforeEach(() => {
   })
 })
 
-const sampleMessages: ChatMessage[] = [
+const sampleMessages: LegacyChatMessage[] = [
   { role: 'user', content: 'Ich hab Kartoffeln, Quark und Lauch. Vegan bitte.' },
   { role: 'assistant', content: 'Wie viele Portionen?' },
   { role: 'user', content: '4 Portionen.' },
@@ -41,14 +51,14 @@ const sampleResult: ExtractionResult = {
   confidence: { overall: 'medium', notes: [] },
 }
 
-describe('chatApi — sendChatTurn (POST /api/chat)', () => {
-  it('posts sessionId + messages and resolves with the assistant reply', async () => {
-    let captured: { sessionId: string; messages: ChatMessage[] } | null = null
+describe('chatApi — sendChatTurn (legacy compat)', () => {
+  it('still targets the legacy POST /api/chat path (until CR4 swap)', async () => {
+    let captured: { sessionId: string; messages: LegacyChatMessage[] } | null = null
     server.use(
       http.post('/api/chat', async ({ request }) => {
         captured = (await request.json()) as {
           sessionId: string
-          messages: ChatMessage[]
+          messages: LegacyChatMessage[]
         }
         return HttpResponse.json({
           assistant_message: 'Probier Kartoffel-Lauch-Auflauf.',
@@ -65,7 +75,7 @@ describe('chatApi — sendChatTurn (POST /api/chat)', () => {
     expect(captured!.messages).toHaveLength(3)
   })
 
-  it('BUG-026 — maps snake_case wire `assistant_message` → camelCase `assistantMessage`', async () => {
+  it('maps snake_case wire `assistant_message` → camelCase `assistantMessage`', async () => {
     server.use(
       http.post('/api/chat', () =>
         HttpResponse.json({ assistant_message: 'Hallo Welt' }),
@@ -76,81 +86,44 @@ describe('chatApi — sendChatTurn (POST /api/chat)', () => {
       messages: [{ role: 'user', content: 'Hi' }],
     })
     expect(res).toEqual({ assistantMessage: 'Hallo Welt' })
-    expect(res.assistantMessage).toBe('Hallo Welt')
-  })
-
-  it('throws an ApiError on 413 turn-cap overflow', async () => {
-    server.use(
-      http.post('/api/chat', () =>
-        HttpResponse.json(
-          {
-            code: 'too_many_messages',
-            message: 'Dialog ist zu lang. Bitte starte einen neuen Chat.',
-          },
-          { status: 413 },
-        ),
-      ),
-    )
-    await expect(
-      sendChatTurn({
-        sessionId: 'full',
-        messages: sampleMessages,
-      }),
-    ).rejects.toThrow(/zu lang/i)
-  })
-
-  it('throws an ApiError on 503 when the LLM provider is down', async () => {
-    server.use(
-      http.post('/api/chat', () =>
-        HttpResponse.json(
-          {
-            code: 'llm_unavailable',
-            message: 'KI-Service momentan nicht erreichbar.',
-          },
-          { status: 503 },
-        ),
-      ),
-    )
-    await expect(
-      sendChatTurn({ sessionId: 'abc', messages: sampleMessages }),
-    ).rejects.toThrow(/KI-Service/)
   })
 })
 
-describe('chatApi — convertChatToRecipe (POST /api/chat/:session/to-recipe)', () => {
-  it('posts messages to the session-scoped URL and returns the ExtractionResult', async () => {
-    let captured: { messages: ChatMessage[] } | null = null
+describe('chatApi — convertChatToRecipe (CR2 path)', () => {
+  it('POSTs to the new /api/chat/sessions/:id/to-recipe path with no body', async () => {
     let capturedUrl = ''
+    let capturedBody: string | null = null
     server.use(
-      http.post('/api/chat/:sessionId/to-recipe', async ({ request, params }) => {
+      http.post('/api/chat/sessions/:sessionId/to-recipe', async ({ request, params }) => {
         capturedUrl = String(params.sessionId)
-        captured = (await request.json()) as { messages: ChatMessage[] }
+        capturedBody = await request.text()
         return HttpResponse.json(sampleResult)
       }),
     )
-    const res = await convertChatToRecipe('abc-123', sampleMessages)
+    const res = await convertChatToRecipe('abc-123')
     expect(res.recipe.title).toContain('Kartoffel')
     expect(res.confidence.overall).toBe('medium')
     expect(capturedUrl).toBe('abc-123')
-    expect(captured).not.toBeNull()
-    expect(captured!.messages).toHaveLength(3)
+    // CR2: the frontend no longer sends a body — the server loads the
+    // message list from the DB.
+    expect(capturedBody ?? '').toBe('')
   })
 
   it('URL-encodes the sessionId so special characters do not break the path', async () => {
     let capturedPath = ''
     server.use(
-      http.post('/api/chat/:sessionId/to-recipe', ({ request }) => {
+      http.post('/api/chat/sessions/:sessionId/to-recipe', ({ request }) => {
         capturedPath = new URL(request.url).pathname
         return HttpResponse.json(sampleResult)
       }),
     )
-    await convertChatToRecipe('abc/slash?weird', sampleMessages)
+    await convertChatToRecipe('abc/slash?weird')
     expect(capturedPath).toContain(encodeURIComponent('abc/slash?weird'))
   })
 
   it('throws an ApiError on 400 when the chat could not be structured', async () => {
     server.use(
-      http.post('/api/chat/:sessionId/to-recipe', () =>
+      http.post('/api/chat/sessions/:sessionId/to-recipe', () =>
         HttpResponse.json(
           {
             code: 'not_a_recipe',
@@ -161,9 +134,9 @@ describe('chatApi — convertChatToRecipe (POST /api/chat/:session/to-recipe)', 
         ),
       ),
     )
-    await expect(
-      convertChatToRecipe('abc', sampleMessages),
-    ).rejects.toThrow(/noch kein klares Rezept/)
+    await expect(convertChatToRecipe('abc')).rejects.toThrow(
+      /noch kein klares Rezept/,
+    )
   })
 })
 

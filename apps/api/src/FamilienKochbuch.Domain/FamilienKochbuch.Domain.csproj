@@ -9,5 +9,10 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="FamilienKochbuch.Domain.Tests" />
+    <!-- CR2 — the chat/turn endpoint appends streamed tokens onto the
+         assistant ChatMessage row via AppendContent/RecordUsage which
+         are internal to the domain project (mutations-post-create are
+         domain-internal by design). -->
+    <InternalsVisibleTo Include="FamilienKochbuch.Api" />
   </ItemGroup>
 </Project>

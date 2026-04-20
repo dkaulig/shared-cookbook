@@ -3,9 +3,12 @@ import type { KeyboardEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type {
   ApiError,
-  ChatMessage,
   GroupSummary,
 } from '@familien-kochbuch/shared'
+// CR2 — shared `ChatMessage` has been renamed to `ChatMessageDto`
+// (different shape). The pre-CR4 ChatPage still speaks in the legacy
+// role/content pair; CR4 rewrites the page against the SSE surface.
+import type { LegacyChatMessage as ChatMessage } from './chatApi'
 import {
   AlertTriangle,
   ArrowDown,

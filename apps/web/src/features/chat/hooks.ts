@@ -1,41 +1,41 @@
 import { useMutation } from '@tanstack/react-query'
-import type {
-  ChatMessage,
-  ChatTurnRequest,
-  ChatTurnResponse,
-  ExtractionResult,
-} from '@familien-kochbuch/shared'
-import { convertChatToRecipe, sendChatTurn } from './chatApi'
+import type { ExtractionResult } from '@familien-kochbuch/shared'
+import {
+  convertChatToRecipe,
+  sendChatTurn,
+  type LegacyChatMessage,
+  type LegacyChatTurnRequest,
+  type LegacyChatTurnResponse,
+} from './chatApi'
 
 /**
- * Mutation wrapper around `POST /api/chat` — one conversational turn.
+ * Mutation wrapper around the legacy `POST /api/chat` — one conversational
+ * turn. CR2 removed that endpoint on the backend; the mutation still
+ * compiles so `ChatPage.tsx` keeps working until CR4 replaces the UI
+ * with an SSE-streaming consumer.
  *
- * The caller is `ChatPage`, which owns the full `messages[]` state and
- * drives the optimistic user-bubble render before the mutation fires.
- * TanStack's `mutateAsync` throws on HTTP error, so the page can
- * rollback the optimistic bubble + surface a retry affordance.
+ * @deprecated Replace in CR4 with the streaming SSE consumer.
  */
 export function useChatTurn() {
-  return useMutation<ChatTurnResponse, Error, ChatTurnRequest>({
+  return useMutation<LegacyChatTurnResponse, Error, LegacyChatTurnRequest>({
     mutationFn: (body) => sendChatTurn(body),
   })
 }
 
 /**
- * Mutation wrapper around `POST /api/chat/:sessionId/to-recipe`.
+ * Mutation wrapper around `POST /api/chat/sessions/:sessionId/to-recipe`.
  *
- * Returns the same `ExtractionResult` shape the URL + photo import
- * flows emit, so the downstream handoff into `RecipeFormPage` (via
- * sessionStorage + `?chatImportId=<id>`) can reuse the existing
- * `extractedRecipeToPrefill` helper without branching on source.
+ * CR2 moved the messages source from the body to the DB — the hook now
+ * only carries `sessionId`. Callers that previously passed `messages[]`
+ * should drop that argument; it is ignored if still supplied for the
+ * transition period.
  */
 export function useConvertChatToRecipe() {
   return useMutation<
     ExtractionResult,
     Error,
-    { sessionId: string; messages: ChatMessage[] }
+    { sessionId: string; messages?: LegacyChatMessage[] }
   >({
-    mutationFn: ({ sessionId, messages }) =>
-      convertChatToRecipe(sessionId, messages),
+    mutationFn: ({ sessionId }) => convertChatToRecipe(sessionId),
   })
 }

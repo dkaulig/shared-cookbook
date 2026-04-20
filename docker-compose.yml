@@ -79,6 +79,16 @@ services:
       ORCHESTRATOR_PASSWORD_ROTATE: ${ORCHESTRATOR_PASSWORD_ROTATE:-}
       # ── Hangfire worker cap (IF1) ───────────────────────────────
       HANGFIRE_WORKERS: ${HANGFIRE_WORKERS:-}
+      # ── CR2: Azure OpenAI (native .NET chat turn) ───────────────
+      # Reused from the Python extractor's env; ChatDeployment falls
+      # back to Deployment inside AzureOpenAIOptions.ResolveChatDeployment
+      # when blank. API key is secret — .NET reads via IOptions only,
+      # never logs.
+      AzureOpenAI__Endpoint: "${AZURE_OPENAI_ENDPOINT:-}"
+      AzureOpenAI__ApiKey: "${AZURE_OPENAI_API_KEY:-}"
+      AzureOpenAI__ApiVersion: "${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}"
+      AzureOpenAI__Deployment: "${AZURE_OPENAI_DEPLOYMENT_STRUCTURING:-gpt-4.1-mini}"
+      AzureOpenAI__ChatDeployment: "${AZURE_OPENAI_DEPLOYMENT_CHAT:-gpt-5.1-chat}"
       # ── PF3: SMTP for password-reset + invite emails ─────────────
       # Leave empty in dev to fall back to NoOpEmailSender (links appear
       # in the api container logs). Mirror of the prod compose block so

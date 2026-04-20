@@ -1,4 +1,5 @@
 using FamilienKochbuch.Api.Jobs;
+using FamilienKochbuch.Infrastructure.Ai;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
 using Hangfire;
@@ -63,6 +64,12 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
     /// spinning up a real Hangfire server.
     /// </summary>
     public CapturingBackgroundJobClient Jobs { get; } = new();
+
+    /// <summary>CR2 — deterministic Azure OpenAI double used by the
+    /// chat/turn SSE tests. Per-test code calls <c>Reset()</c> in its
+    /// setup and scripts a chunk sequence via the <c>Queue*</c>
+    /// methods.</summary>
+    public FakeAzureOpenAIChatClient AzureOpenAi { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -148,6 +155,15 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
                 services.RemoveAll<FamilienKochbuch.Api.Hubs.ILiveSyncPublisher>();
                 services.AddSingleton(_publisherOverride);
             }
+
+            // CR2 — swap the production Azure OpenAI HttpClient-typed
+            // client for the deterministic fake. HttpClientFactory
+            // registers both a typed-client service and an internal
+            // DefaultTypedHttpClientFactory entry; dropping the service
+            // descriptor for IAzureOpenAIChatClient is enough because
+            // consumers resolve by interface.
+            services.RemoveAll<IAzureOpenAIChatClient>();
+            services.AddSingleton<IAzureOpenAIChatClient>(AzureOpenAi);
         });
     }
 

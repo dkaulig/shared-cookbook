@@ -7,7 +7,10 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ChatMessage, GroupSummary } from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@familien-kochbuch/shared'
+// CR2 shim — shared `ChatMessage` was renamed to `ChatMessageDto`; the
+// pre-CR4 tests still speak in the legacy role/content pair.
+import type { LegacyChatMessage as ChatMessage } from './chatApi'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { ChatPage } from './ChatPage'
@@ -428,7 +431,7 @@ describe('<ChatPage /> — In Rezept umwandeln', () => {
         call += 1
         return HttpResponse.json({ assistant_message: `Reply ${call}` })
       }),
-      http.post('/api/chat/:sessionId/to-recipe', () =>
+      http.post('/api/chat/sessions/:sessionId/to-recipe', () =>
         HttpResponse.json({
           recipe: {
             title: 'Kartoffel-Lauch-Auflauf',
@@ -488,7 +491,7 @@ describe('<ChatPage /> — In Rezept umwandeln', () => {
         call += 1
         return HttpResponse.json({ assistant_message: `Reply ${call}` })
       }),
-      http.post('/api/chat/:sessionId/to-recipe', () =>
+      http.post('/api/chat/sessions/:sessionId/to-recipe', () =>
         HttpResponse.json({
           recipe: {
             title: 'T',

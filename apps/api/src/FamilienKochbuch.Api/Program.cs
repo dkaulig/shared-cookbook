@@ -6,6 +6,7 @@ using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
+using FamilienKochbuch.Infrastructure.Ai;
 using FamilienKochbuch.Infrastructure.Identity;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
@@ -222,6 +223,19 @@ builder.Services.AddHttpClient(ThumbnailAttacher.HttpClientName)
 builder.Services.AddScoped<ThumbnailAttacher>();
 builder.Services.AddScoped<ExtractRecipeFromUrlJob>();
 builder.Services.AddScoped<ExtractRecipeFromPhotosJob>();
+
+// ── CR2: Azure OpenAI streaming chat client + title service ──────────
+// AzureOpenAI__* config keys bind to AzureOpenAIOptions. ChatDeployment
+// falls back to Deployment when blank — a single-deployment resource
+// (the current prod shape) gets Just-Works behaviour. The API key is a
+// secret and flows through IOptions only; never logged.
+builder.Services.Configure<AzureOpenAIOptions>(
+    builder.Configuration.GetSection(AzureOpenAIOptions.SectionName));
+// 120 s timeout covers the Azure streaming response budget.
+builder.Services.AddHttpClient<IAzureOpenAIChatClient, AzureOpenAIChatClient>(
+    AzureOpenAIChatClient.HttpClientName,
+    client => client.Timeout = TimeSpan.FromSeconds(120));
+builder.Services.AddScoped<ChatTitleService>();
 // PF1 — hourly sweep job that reaps abandoned staged photos (>24h old,
 // never promoted onto a recipe). Registered as a recurring job below
 // after the Hangfire dashboard is mounted.
@@ -423,6 +437,31 @@ builder.Services.AddRateLimiter(options =>
             });
     });
 
+    // CR2 — chat /turn endpoint. Per-user sliding window, 10/min to
+    // match the Generate policy's budget on AI calls. Partitioned on
+    // the JWT sub claim so a shared household NAT doesn't throttle
+    // everyone into one bucket.
+    options.AddPolicy(RateLimitPolicies.ChatTurn, httpContext =>
+    {
+        if (ShouldBypassForTests(httpContext))
+            return RateLimitPartition.GetNoLimiter<string>("test-disabled");
+
+        var userId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                     ?? httpContext.User.FindFirst("sub")?.Value
+                     ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                     ?? "anonymous";
+        return RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
+    });
+
     // P3-8 security — SignalR hub negotiate/connect endpoints.
     // Partitioned per-IP: the hub is [Authorize]d but the negotiate POST
     // still burns CPU on JWT validation before auth rejects, so an
@@ -586,6 +625,11 @@ internal static class RateLimitPolicies
     /// a global 10_000/min ceiling applied via
     /// <c>RateLimiterOptions.GlobalLimiter</c> — see Program.cs.</summary>
     public const string ImportProgress = "import-progress";
+
+    /// <summary>CR2 — per-user sliding window 10/min for
+    /// <c>POST /api/chat/sessions/{id}/turn</c>. Prevents a single user
+    /// from running up Azure costs by spamming turns.</summary>
+    public const string ChatTurn = "chat-turn";
 }
 
 /// <summary>Strongly-typed options for non-auth app config.</summary>
