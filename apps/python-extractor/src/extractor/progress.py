@@ -62,6 +62,42 @@ _HEARTBEAT_INTERVAL_S: Final[float] = 2.0
 several heartbeats are dropped (callback failures), the banner does not
 fire spuriously."""
 
+# Phases where the heartbeat fills the progress gap with an elapsed-
+# time ramp. Download / transcribe / structure can have long silent
+# stretches where the underlying tool emits no progress; the ramp
+# ensures the UI sees visible motion. Phases NOT in this set
+# (queued, post_processing, vision_analysis, done, error) are driven
+# by explicit report() calls and don't need a ramp.
+_RAMP_PHASES: Final[frozenset[str]] = frozenset(
+    {
+        "downloading",
+        "transcribing",
+        "structuring",
+    }
+)
+"""Phases where the heartbeat applies the elapsed-time ramp (BUG-031).
+
+The ramp lives here — not in the yt-dlp progress wrapper — because
+silent single-blob downloads (short FB reels) never trigger the
+wrapper's hook, leaving the UI stuck at 0 %. The heartbeat's 2 s timer
+is the only layer that ticks reliably regardless of what the
+underlying tool does."""
+
+_RAMP_RATE_PERCENT_PER_S: Final[float] = 3.0
+"""Seconds per percentage point in the heartbeat ramp.
+
+1/3 of a second per percent ⇒ ~3 %/s ⇒ reaches the 95 % cap at 31.7 s.
+Matches the BUG-027 heuristic that already worked for HLS-fragmented
+downloads — we only moved the calculation into the heartbeat layer."""
+
+_RAMP_MAX_PERCENT: Final[int] = 95
+"""Upper bound for the ramp.
+
+The phase can only actually "complete" via an explicit phase
+transition (``start_heartbeat`` with a new phase OR an explicit
+``report()`` at 100), never via the ramp — 95 is the visible "almost
+there" ceiling."""
+
 
 @dataclass(frozen=True, slots=True)
 class ProgressEvent:
@@ -157,6 +193,12 @@ class ProgressReporter:
         # across multiple phases (downloading → transcribing →
         # structuring) within a single import.
         self._heartbeat_task: asyncio.Task[None] | None = None
+        # Monotonic timestamp at which :meth:`start_heartbeat` was last
+        # called. The :meth:`_heartbeat_loop` uses this as the anchor
+        # for the elapsed-time ramp (BUG-031). ``0.0`` until the first
+        # heartbeat starts — the ramp never fires before that because
+        # :meth:`_heartbeat_loop` itself is the only reader.
+        self._phase_start_monotonic: float = 0.0
         # Lazy-created so a NullProgressReporter never constructs an
         # AsyncClient — constructor-time was wasteful for the no-op
         # path. Populated on first ``_post`` call.
@@ -220,8 +262,17 @@ class ProgressReporter:
 
         Returns the :class:`asyncio.Task` so callers can also cancel
         it directly if they need to.
+
+        Snapshots the monotonic clock as the ramp anchor (BUG-031).
+        Does NOT reset :attr:`_last_phase_progress` — callers already
+        emit an explicit ``report(phase, 0)`` before each phase
+        transition (see ``pipeline/url.py``), so the previous phase's
+        percentage is flushed naturally. Resetting here would also
+        break the invariant "a real progress report made before
+        start_heartbeat must survive the first heartbeat tick".
         """
         await self.stop_heartbeat()
+        self._phase_start_monotonic = time.monotonic()
         task = asyncio.create_task(self._heartbeat_loop(phase))
         self._heartbeat_task = task
         return task
@@ -255,12 +306,29 @@ class ProgressReporter:
         layer; any leftover :class:`httpx.HTTPError` that bubbles up
         is logged at DEBUG (heartbeats are noisy by design and a
         single failure is meaningless).
+
+        BUG-031 — elapsed-time ramp. For phases in :data:`_RAMP_PHASES`
+        the loop computes a synthetic ``ramped`` percentage from the
+        monotonic time since :meth:`start_heartbeat`, capped at
+        :data:`_RAMP_MAX_PERCENT`, and emits
+        ``max(self._last_phase_progress, ramped)``. That keeps real
+        yt-dlp / Whisper progress authoritative whenever it exceeds the
+        ramp, while ensuring the UI never sees "stuck at 5 %" on silent
+        single-blob downloads.
         """
         while True:
             try:
                 await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+                effective = self._last_phase_progress
+                if phase in _RAMP_PHASES:
+                    elapsed = max(0.0, time.monotonic() - self._phase_start_monotonic)
+                    ramped = min(
+                        _RAMP_MAX_PERCENT,
+                        int(elapsed * _RAMP_RATE_PERCENT_PER_S),
+                    )
+                    effective = max(effective, ramped)
                 await self.report(
-                    ProgressEvent(phase=phase, phase_progress=self._last_phase_progress),
+                    ProgressEvent(phase=phase, phase_progress=effective),
                     force=True,
                 )
             except asyncio.CancelledError:

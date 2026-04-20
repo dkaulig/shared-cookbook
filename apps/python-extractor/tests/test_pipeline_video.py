@@ -1,23 +1,27 @@
-"""Tests for the yt-dlp progress wrapper (BUG-027).
+"""Tests for the yt-dlp progress wrapper (BUG-027 + BUG-031).
 
 These exercise :func:`extractor.pipeline.video._make_ytdlp_progress_wrapper`
 in isolation — no real yt-dlp / network involved. The wrapper is the
-single source of truth for "what percent should the UI show?" during
-the downloading phase, so its three progress-source heuristics
-(fragment_count → byte_total → elapsed-time) are the surface area
-worth defending with regression tests.
+source of truth for "what percent should the UI show?" during the
+downloading phase *when yt-dlp actually ticks*, so its fragment-count
+and byte-ratio heuristics are the surface area worth defending here.
+
+The elapsed-time ramp used to live in this wrapper (BUG-027). BUG-031
+moved it to :class:`extractor.progress.ProgressReporter`'s heartbeat
+loop because short-blob downloads never call this hook — see the
+``test_heartbeat_ramps_*`` tests in ``test_progress_reporter.py``.
 
 Background: Facebook / Instagram / TikTok URLs frequently resolve to
 fragmented HLS / m3u8 streams where ``total_bytes=0`` for the entire
-download. The pre-fix wrapper returned 0 % the whole time, leaving the
-UI stuck at the phase boundary for 30-90 s. The new heuristics give
-the UI a steadily-rising progress signal even when total is unknown.
+download. The pre-BUG-027 wrapper returned 0 % the whole time, leaving
+the UI stuck at the phase boundary for 30-90 s. The fragment-count +
+byte-estimate heuristics catch the cases where yt-dlp does tick; the
+heartbeat ramp catches the rest.
 """
 
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import patch
 
 from extractor.pipeline.video import _make_ytdlp_progress_wrapper
 
@@ -110,78 +114,28 @@ def test_ytdlp_wrapper_uses_total_bytes_estimate_as_secondary_fallback() -> None
     assert percent_override == 50
 
 
-def test_ytdlp_wrapper_uses_elapsed_time_when_total_unknown() -> None:
-    """No fragments, no totals → elapsed-time ramp at 3 % / second.
+def test_ytdlp_wrapper_passes_none_override_when_total_unknown() -> None:
+    """No fragments, no totals → ``percent_override=None``.
 
-    Drives a virtual clock by patching ``time.monotonic`` inside the
-    wrapper module so the factory and each tick read the same fake
-    timestamp. The elapsed-time ramp produces the visible "alive"
-    progress that BUG-027 was reported against.
+    BUG-031: the elapsed-time ramp no longer lives here — it moved to
+    the heartbeat loop so short-blob downloads that never trigger this
+    hook still see motion. The wrapper's only remaining job on the
+    unknown-total path is to relay the raw byte count.
     """
     recorder = _Recorder()
-    clock = {"value": 0.0}
-
-    with patch("extractor.pipeline.video.time.monotonic", lambda: clock["value"]):
-        # Factory captures clock=0.0 as the ramp start.
-        wrapper = _make_ytdlp_progress_wrapper(recorder)
-        observed: list[int | None] = []
-        for elapsed in (0.0, 1.0, 2.0, 3.0, 10.0):
-            clock["value"] = elapsed
-            wrapper(
-                {
-                    "status": "downloading",
-                    "downloaded_bytes": int(elapsed * 100_000),
-                    "total_bytes": 0,
-                }
-            )
-            observed.append(recorder.calls[-1][2])
-
-    assert observed == [0, 3, 6, 9, 30]
-
-
-def test_ytdlp_wrapper_caps_elapsed_at_95() -> None:
-    """Elapsed-time ramp must never exceed 95 % so the phase only
-    completes when the real download-finished transition fires."""
-    recorder = _Recorder()
-    clock = {"value": 0.0}
-
-    with patch("extractor.pipeline.video.time.monotonic", lambda: clock["value"]):
-        wrapper = _make_ytdlp_progress_wrapper(recorder)
-        clock["value"] = 1000.0
-        wrapper(
-            {
-                "status": "downloading",
-                "downloaded_bytes": 0,
-                "total_bytes": 0,
-            }
-        )
-
-    _, _, percent_override = recorder.calls[0]
-    assert percent_override == 95
-
-
-def test_ytdlp_wrapper_explicit_start_time_anchors_the_ramp() -> None:
-    """Passing an explicit ``start_time`` lets the caller anchor the
-    elapsed-time ramp to a moment before factory call (e.g. when the
-    pipeline already fired its downloading@0 % event a beat earlier)."""
-    recorder = _Recorder()
-    clock = {"value": 100.0}
-
-    with patch("extractor.pipeline.video.time.monotonic", lambda: clock["value"]):
-        # start_time = 90.0 means we are already 10 s into the ramp at
-        # construction; one more second on the clock = 11 s elapsed.
-        wrapper = _make_ytdlp_progress_wrapper(recorder, start_time=90.0)
-        clock["value"] = 101.0
-        wrapper(
-            {
-                "status": "downloading",
-                "downloaded_bytes": 0,
-                "total_bytes": 0,
-            }
-        )
-
-    _, _, percent_override = recorder.calls[0]
-    assert percent_override == 33  # 11 s * 3 % / s
+    wrapper = _make_ytdlp_progress_wrapper(recorder)
+    wrapper(
+        {
+            "status": "downloading",
+            "downloaded_bytes": 250_000,
+            "total_bytes": 0,
+        }
+    )
+    assert len(recorder.calls) == 1
+    done, total, percent_override = recorder.calls[0]
+    assert percent_override is None
+    assert done == 250_000
+    assert total == 0
 
 
 def test_ytdlp_wrapper_ignores_non_downloading_status() -> None:

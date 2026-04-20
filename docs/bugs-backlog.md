@@ -1635,7 +1635,7 @@ Prompt-Runde.
 
 ## BUG-031 · Video-Progress bleibt bei 5% auch nach BUG-027-Fix (Ramp im falschen Layer)
 **Reported:** 2026-04-20 (nach v0.8.0-Deploy, User: "hängt nach wie vor bei 5%")
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — Ramp-Logik aus `_make_ytdlp_progress_wrapper` entfernt; neue `_RAMP_PHASES`/`_RAMP_RATE`/`_RAMP_MAX` Konstanten in `progress.py`; `_heartbeat_loop` berechnet `elapsed*3` capped at 95 und emittiert `max(_last_phase_progress, ramped)`; `start_heartbeat` snapshot'd `_phase_start_monotonic` (kein Reset von `_last_phase_progress` — die Pipeline ruft bereits `report(phase, 0)` vor jedem `start_heartbeat`). 4 neue Heartbeat-Tests (ramp-when-silent, respects-real-progress, caps-at-95, skips-ramp-on-non-ramp-phases); obsoleter `test_ytdlp_wrapper_uses_elapsed_time_when_total_unknown` entfernt. 357 Python-Tests grün, ruff + mypy clean.)
 **Severity:** HIGH — Regression-Fix für BUG-027.
 **Where:**
 - `apps/python-extractor/src/extractor/pipeline/video.py:317-399` —
@@ -1672,3 +1672,96 @@ yt-dlp-Hook-Calls statt proactive im Timer. Bei stillen Downloads
 - `test_pipeline_video`: bestehende fragment-count + byte-Tests
   bleiben; elapsed-Tests wandern auf Heartbeat-Seite.
 **Rollback-Risiko:** gering — Python-only, keine Schema-Änderung.
+
+---
+
+## BUG-032 · Bottom-Menüs überlappen / schieben sich übereinander (mehrere Suspects)
+**Reported:** 2026-04-20 (User: "die menüs bzw bottom menüs wie tab bar
+und in wochenplan oder so schieben dich teilweise immer noch übereinander
+oder untereinander")
+**Status:** `[ ] open`
+**Severity:** medium (UX — visual chaos auf Mobile-Scroll; teilweise
+Buttons unklickbar hinter anderen Bars)
+**Recherche-Ergebnis:**
+
+### Suspect 1 (HIGH — wahrscheinlicher Haupt-Bösewicht)
+`apps/web/src/features/groups/GroupDetailPage.tsx:326-342` — FAB
+("Neues Rezept"):
+```
+z-20
+style={{ bottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}
+```
+- **z-20 < BottomNav z-30** → bei Overlap gewinnt BottomNav, FAB
+  versteckt sich dahinter.
+- **bottom-Calc referenziert NICHT `var(--viewport-bottom-offset)`** (aus
+  BUG-023). Wenn iOS-Chrome retractet, bewegt sich BottomNav via der
+  Variable nach oben mit dem Visual-Viewport — FAB bleibt auf statischer
+  `96px + safe-area` Position → FAB sitzt jetzt weiter UNTEN relativ
+  zur BottomNav als designed → kann unter die BottomNav rutschen.
+- **Literal `96px`** statt `--bottom-nav-height` Token. Wenn BottomNav-
+  Höhe ändert, FAB-Offset ist hart-verdrahtet falsch.
+
+### Suspect 2 (medium)
+`apps/web/src/features/mealplanning/MealPlanPage.tsx:393-397` +
+`apps/web/src/features/shoppinglist/ShoppingListPage.tsx:258` — beide
+haben eine `sticky top-[56px] z-20`-Sub-Nav (Wochen-Navigation /
+Kategorie-Sort-Toggle).
+- Sticky `top-[56px]` geht davon aus TopNav ist genau 56 px hoch.
+- Bei iOS-Chrome-Retract vergrößert sich Visual-Viewport; die sticky-
+  Position bleibt bei 56 px vom Top des LAYOUT-Viewports — das ist
+  nicht mehr unter der TopNav sondern drunter oder überlappend.
+- `z-20` = TopNav-z-20 = keine klare Stacking-Ordnung bei Overlap.
+- **User's "in Wochenplan"-Erwähnung**: wenn Sub-Nav während Scroll
+  unter oder über die TopNav rutscht, sieht es aus als würden sich
+  zwei Bars übereinander-schieben.
+
+### Suspect 3 (low, aber vorhanden)
+`apps/web/src/features/chat/ChatPage.tsx:551` + 579 —
+`sticky bottom-0` Input-Bar + `sticky bottom-4 z-10` "In Rezept
+umwandeln"-CTA. Sticky heißt: scrollt mit dem Container, nicht mit
+dem Viewport. Sollte nicht mit BottomNav kollidieren, weil die
+Container-Bounds vor der BottomNav enden. **Aber**: wenn
+`container height = 100dvh` dynamisch wächst (chrome-retract), könnte
+der Container bis an den visual-bottom reichen und dann liegt das
+Sticky direkt auf der BottomNav.
+
+### Fix-Plan — 3 Schichten, kombinierbar:
+1. **GroupDetailPage FAB fixen** (der höchste Impact):
+   - `z-20` → `z-40` (über BottomNav-z-30).
+   - `bottom: 'calc(96px + env(...))'` → `bottom: 'calc(var(--bottom-nav-height)
+     + env(safe-area-inset-bottom, 0px) + var(--viewport-bottom-offset, 0px)
+     + 20px)'`. Das `+20px` ist der Luftabstand zwischen BottomNav und FAB.
+   - Damit folgt der FAB automatisch BottomNav-Höhe + Viewport-Offset.
+2. **Sticky-Top-Sub-Nav fixen** (MealPlan + ShoppingList):
+   - Option A: Statt `top-[56px]` eine CSS-Variable `--topnav-height`
+     benutzen, analog zu `--bottom-nav-height`. TopNav setzt sie selbst
+     (via ResizeObserver oder festem Wert).
+   - Option B: Sub-Nav auf `top-0` setzen und die TopNav selbst als
+     "normaler Flow"-Element (nicht sticky) umbauen — Sub-Nav übernimmt
+     die Sticky-Rolle. Weniger invasiv: Option A.
+   - z-Index: Sub-Nav auf `z-10`, TopNav bleibt `z-20`. Bei Überlappung
+     gewinnt TopNav, nicht 50/50-Chaos.
+3. **ChatPage Sticky-Bottom + BottomNav-Luftraum**:
+   - Chat-Container muss `pb-[var(--bottom-nav-height)]` als
+     bottom-padding haben, damit die Sticky-Input-Bar NIE in die
+     BottomNav-Zone reicht.
+
+### Test-Strategie (CSS/Layout):
+- `GroupDetailPage.test.tsx`: Grep-Gate dass der FAB-`bottom: 'calc(...)'`
+  KEINEN hart-verdrahteten `96px`-Wert mehr enthält + enthält beide
+  `--bottom-nav-height` UND `--viewport-bottom-offset` im calc.
+- Neue Regression-Gate-Test-Datei `test/tokens/bottom-anchors.test.ts`:
+  scant alle `.tsx`-Files nach `bottom: 'calc(\d+px` oder
+  `bottom-\[\d+px\]` in fixed-positioned Elementen. Assertion: kein
+  hart-verdrahteter px-Wert in bottom-Formeln OHNE die zwei Variablen.
+- `MealPlanPage.test.tsx` + `ShoppingListPage.test.tsx`: assert dass
+  der Sub-Nav einen z-Index < 20 hat (hilft gegen 50/50-Stacking).
+- Playwright: iPhone-SE-Profile, scroll bis Chrome retracts, assert
+  `getBoundingClientRect()` von BottomNav und FAB überlappen sich nicht.
+
+### Priority
+Medium. Nicht funktions-brechend, aber deutlich unprofessionell bei
+häufigem Scrollen. Bundle-Kandidat in der nächsten Mobile-Polish-Welle.
+
+### Rollback-Risiko
+Gering — reine CSS-Layer-Korrekturen, keine Daten/API-Änderungen.
