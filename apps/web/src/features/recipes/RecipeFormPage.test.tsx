@@ -1669,7 +1669,10 @@ describe('RecipeFormPage (create)', () => {
     })
   }
 
-  it('shows the "{N} Fotos werden beim Speichern angehängt" badge when stagedPhotoIds are stashed', async () => {
+  it('shows the "werden beim Speichern angehängt" pill when stagedPhotos are stashed', async () => {
+    // BUG-024 — the pill dropped the count since the user now sees
+    // the actual thumbnails below. The copy asserts against the
+    // invariant wording (German phrase without the number).
     const { rememberImportStagedPhotoIds } = await import(
       '@/features/imports/importGroupMemo'
     )
@@ -1688,7 +1691,7 @@ describe('RecipeFormPage (create)', () => {
     )
     expect(await screen.findByDisplayValue('PF1 Info')).toBeInTheDocument()
     const badge = screen.getByTestId('staged-photos-info')
-    expect(badge).toHaveTextContent(/3 Fotos werden beim Speichern angehängt/i)
+    expect(badge).toHaveTextContent(/werden beim Speichern angehängt/i)
 
     window.sessionStorage.clear()
   })
@@ -1851,6 +1854,99 @@ describe('RecipeFormPage (create)', () => {
     expect(alert).toHaveTextContent(
       /Rezept gespeichert.*2 von 3 Fotos.*manuell hochladen/i,
     )
+
+    window.sessionStorage.clear()
+  })
+
+  // BUG-024 — when the user arrives at the review form with staged
+  // photos, the grid renders the actual thumbnails (signed SeaweedFS
+  // URLs) alongside the amber "werden beim Speichern angehängt" pill.
+  // Removing one tile hits DELETE /api/staged-photos/:id and drops
+  // the entry from the local state + memo so the save POST reflects
+  // the reduced list.
+  it('renders <img> thumbnails for each preAttached photo plus the info pill', async () => {
+    const { rememberImportStagedPhotos } = await import(
+      '@/features/imports/importGroupMemo'
+    )
+    rememberImportStagedPhotos('imp-bug024-render', [
+      { stagedPhotoId: 's1', url: '/api/photos/s1.jpg?sig=a' },
+      { stagedPhotoId: 's2', url: '/api/photos/s2.jpg?sig=b' },
+    ])
+    server.use(
+      http.get('/api/imports/imp-bug024-render', () =>
+        photoImportResponse('imp-bug024-render', 'BUG-024 Render'),
+      ),
+    )
+
+    render(
+      withProvidersAndImport(
+        '/groups/g1/recipes/new?importId=imp-bug024-render',
+        '',
+      ),
+    )
+    await screen.findByDisplayValue('BUG-024 Render')
+
+    // Two thumbnails render with the right src URLs.
+    const imgs = screen.getAllByRole('img')
+    expect(imgs.length).toBeGreaterThanOrEqual(2)
+    const srcs = imgs.map((i) => i.getAttribute('src'))
+    expect(srcs).toContain('/api/photos/s1.jpg?sig=a')
+    expect(srcs).toContain('/api/photos/s2.jpg?sig=b')
+
+    // Amber pill with the new count-less copy.
+    expect(screen.getByTestId('staged-photos-info')).toHaveTextContent(
+      /werden beim Speichern angehängt/i,
+    )
+
+    window.sessionStorage.clear()
+  })
+
+  it('removes a preAttached thumbnail when × is tapped + hits DELETE /api/staged-photos/:id', async () => {
+    const user = userEvent.setup()
+    const { rememberImportStagedPhotos, recallImportStagedPhotos } =
+      await import('@/features/imports/importGroupMemo')
+    rememberImportStagedPhotos('imp-bug024-remove', [
+      { stagedPhotoId: 's-keep', url: '/api/photos/keep.jpg?sig=a' },
+      { stagedPhotoId: 's-drop', url: '/api/photos/drop.jpg?sig=b' },
+    ])
+
+    let deletedId: string | null = null
+    server.use(
+      http.get('/api/imports/imp-bug024-remove', () =>
+        photoImportResponse('imp-bug024-remove', 'BUG-024 Remove'),
+      ),
+      http.delete('/api/staged-photos/:id', ({ params }) => {
+        deletedId = params.id as string
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    render(
+      withProvidersAndImport(
+        '/groups/g1/recipes/new?importId=imp-bug024-remove',
+        '',
+      ),
+    )
+    await screen.findByDisplayValue('BUG-024 Remove')
+    expect(screen.getAllByRole('img')).toHaveLength(2)
+
+    // Two remove buttons — click the one tied to s-drop. The button
+    // order matches the preAttached list order, so the second
+    // preattached slot's × targets s-drop.
+    const removeButtons = screen.getAllByRole('button', {
+      name: /Importiertes Foto entfernen/i,
+    })
+    expect(removeButtons).toHaveLength(2)
+    await user.click(removeButtons[1]!)
+
+    // Tile disappears optimistically.
+    await waitFor(() => expect(screen.getAllByRole('img')).toHaveLength(1))
+    // DELETE fired with the right id.
+    await waitFor(() => expect(deletedId).toBe('s-drop'))
+    // Memo reflects the reduced list.
+    expect(recallImportStagedPhotos('imp-bug024-remove')).toEqual([
+      { stagedPhotoId: 's-keep', url: '/api/photos/keep.jpg?sig=a' },
+    ])
 
     window.sessionStorage.clear()
   })

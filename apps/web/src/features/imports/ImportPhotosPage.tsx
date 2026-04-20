@@ -20,7 +20,8 @@ import { useEnqueuePhotoImport } from './hooks'
 import { uploadStagedPhoto } from './stagedPhotoApi'
 import {
   rememberImportGroup,
-  rememberImportStagedPhotoIds,
+  rememberImportStagedPhotos,
+  type ImportStagedPhotoMemo,
 } from './importGroupMemo'
 
 /**
@@ -194,14 +195,17 @@ export function ImportPhotosPage() {
     setUploadedCount(0)
     const signedUrls: string[] = []
     // Collected so the create-recipe step can adopt the originals
-    // onto the saved recipe — see `rememberImportStagedPhotoIds`.
-    const stagedPhotoIds: string[] = []
+    // onto the saved recipe + the review-form can render the
+    // thumbnails before save (BUG-024). We persist {id, url} pairs
+    // instead of bare ids so PhotoUploadGrid.preAttached can display
+    // each photo with its signed SeaweedFS URL.
+    const stagedPhotos: ImportStagedPhotoMemo[] = []
     try {
       // Sequential upload — see module docstring for rationale.
       for (const file of files) {
         const { signedUrl, stagedPhotoId } = await uploadStagedPhoto(file)
         signedUrls.push(signedUrl)
-        stagedPhotoIds.push(stagedPhotoId)
+        stagedPhotos.push({ stagedPhotoId, url: signedUrl })
         setUploadedCount(signedUrls.length)
       }
     } catch (err) {
@@ -220,7 +224,7 @@ export function ImportPhotosPage() {
       // Same sessionStorage sidecar the URL-import uses so the progress
       // page can route to the right group on reload.
       rememberImportGroup(importId, groupId)
-      rememberImportStagedPhotoIds(importId, stagedPhotoIds)
+      rememberImportStagedPhotos(importId, stagedPhotos)
       navigate(`/rezepte/import/${importId}`, { state: { groupId } })
     } catch (err) {
       setUploadPhase('idle')
