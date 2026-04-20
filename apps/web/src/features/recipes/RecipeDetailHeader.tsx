@@ -71,15 +71,23 @@ export function RecipeDetailHeader({
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
+    // BUG-039 — body is scroll-locked; the actual scroll container is
+    // the app's <main>. Read scrollTop from that element (query via
+    // `[data-testid="app-scroll"]` which AppLayout exposes) instead
+    // of `window.scrollY` which no longer tracks page scroll.
+    const scrollEl =
+      document.querySelector<HTMLElement>('[data-testid="app-scroll"]') ?? window
     function onScroll() {
       const hero = heroRef.current
       if (!hero) return
       const threshold = hero.offsetHeight - 56
-      setScrolled(window.scrollY > threshold)
+      const y = scrollEl === window ? window.scrollY : (scrollEl as HTMLElement).scrollTop
+      setScrolled(y > threshold)
     }
     onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
+    const target: EventTarget = scrollEl
+    target.addEventListener('scroll', onScroll, { passive: true })
+    return () => target.removeEventListener('scroll', onScroll)
   }, [])
 
   const firstPhoto = recipe.photos[0] ?? null
