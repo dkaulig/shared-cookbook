@@ -202,7 +202,11 @@ class SsrfBlockedError(RuntimeError):
     """
 
 
-async def _assert_safe_http_target(url: str) -> None:
+async def _assert_safe_http_target(
+    url: str,
+    *,
+    allowed_private_host: str | None = None,
+) -> None:
     """Resolve the URL's host and reject any result that is private,
     loopback, link-local, reserved, or a known cloud-metadata hostname.
 
@@ -211,6 +215,16 @@ async def _assert_safe_http_target(url: str) -> None:
     if even one points at a private range, the call is blocked
     (defence-in-depth against DNS-rebinding where the first lookup
     returns public and a later one returns ``127.0.0.1``).
+
+    ``allowed_private_host`` carves out an explicit exception: when the
+    URL's hostname matches it exactly, the private-IP check is skipped
+    (the DNS-resolvability + blocked-hostname checks still run). This
+    exists for the progress-callback path where the target IS a
+    docker-internal service (``api``) whose private IP is the correct
+    destination by design. The pydantic layer at request-ingress already
+    validates that the caller-supplied callback URL matches the env-
+    configured host; this parameter simply tells the defence-in-depth
+    layer about that trust chain.
     """
     try:
         parsed = urlparse(url)
@@ -225,6 +239,10 @@ async def _assert_safe_http_target(url: str) -> None:
         infos = await asyncio.to_thread(socket.getaddrinfo, host, None, 0, socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise SsrfBlockedError(f"dns resolution failed: {exc}") from exc
+    # Trusted callback host: DNS resolved OK, skip the private-IP gate
+    # because the target is supposed to be on the internal docker net.
+    if allowed_private_host is not None and host == allowed_private_host.lower():
+        return
     for _family, _type, _proto, _canon, sockaddr in infos:
         ip_str = sockaddr[0]
         try:

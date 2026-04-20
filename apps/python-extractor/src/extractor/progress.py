@@ -438,11 +438,21 @@ class ProgressReporter:
 
         # Defence-in-depth SSRF check — import lazily so we don't
         # create a hard dep-cycle with ``pipeline.url`` at module
-        # import time.
+        # import time. The pydantic layer already verified at request-
+        # ingress that the caller-supplied callback host matches the
+        # env-configured PROGRESS_CALLBACK_HOST allowlist; we tell the
+        # SSRF guard to skip its private-IP gate for that exact host
+        # (the docker-internal `api` service resolves to 172.x.x.x by
+        # design — without the carveout the guard blocks every single
+        # progress callback, which is why this endpoint spent months
+        # silently failing in prod).
+        import os
+
         from extractor.pipeline.url import SsrfBlockedError, _assert_safe_http_target
 
+        allowed_host = os.environ.get("PROGRESS_CALLBACK_HOST", "api").lower()
         try:
-            await _assert_safe_http_target(url)
+            await _assert_safe_http_target(url, allowed_private_host=allowed_host)
         except SsrfBlockedError as exc:
             # Never include the URL itself — the host name alone can
             # be an attacker-chosen SSRF reconnaissance signal.

@@ -1927,3 +1927,42 @@ Deploy.
   render mit prefill.recipeEmpty=true → `EmptyExtractionExplainer`
   rendert, `RecipeFormInner` NICHT; Click "Trotzdem anlegen" → flippt
   auf Inner; Click "Anderes Video" → Navigation zu `/rezepte/import`.
+
+---
+
+## BUG-035 · SSRF-Guard blockt alle Progress-Callbacks silent (Root-Cause "5% stuck" #2)
+**Reported:** 2026-04-20 (nach v0.8.1-Deploy, User: "videos bleiben nach wie vor bei 5%")
+**Status:** `[x] fixed` (2026-04-20 — `_assert_safe_http_target` in
+`pipeline/url.py` bekam optionalen `allowed_private_host`-Parameter.
+Wenn der URL-Host exakt matched, wird der private-IP-Check
+übersprungen (DNS-Resolution + _BLOCKED_HOSTNAMES-Check laufen
+weiter). `progress.py._post` liest `PROGRESS_CALLBACK_HOST` env (default
+"api") und reicht ihn rein. Die pydantic-Ingress-Layer-Validation
+bleibt die primäre Host-Allowlist; der SSRF-Guard ist jetzt nur noch
+defence-in-depth OHNE den trusted-host falsch-positiv zu blocken.
+3 neue Tests: carveout-bypasses-private-IP, carveout-still-blocks-
+metadata-hostname, carveout-only-matches-exact-host. 373 Python-Tests
+grün, ruff + mypy clean.)
+**Severity:** HIGH — alle Progress-Events werden silent dropped. UI
+sieht nur 5% weil das initiale `phase=downloading, phase_progress=0`
+kommt (VOR dem SSRF-Check weil das erste POST kam, dann ist der Guard
+plötzlich nicht aktiv?) — eigentlich kommt GAR KEIN Event durch.
+**Where:** `apps/python-extractor/src/extractor/pipeline/url.py:205-242`
+`_assert_safe_http_target` blockt **alle** private IPs unconditionally.
+Der docker-interne `api`-Hostname resolved zu 172.28.x.x → blocked.
+Every progress callback blocked silently (logged als WARNING, aber
+Frontend sieht nichts).
+**Prod-Evidenz:**
+```
+progress callback blocked by ssrf guard import_id=... phase=downloading error=SsrfBlockedError
+progress callback blocked by ssrf guard import_id=... phase=transcribing error=SsrfBlockedError  ×11
+progress callback blocked by ssrf guard import_id=... phase=structuring error=SsrfBlockedError  ×6
+progress callback blocked by ssrf guard import_id=... phase=post_processing error=SsrfBlockedError
+```
+Alle vier Phasen geblockt → kein einziger Event erreicht API → kein
+SignalR-Event → Frontend bleibt auf initial-polled `phase=queued` (5%).
+**Lesson für die Memory:** BUG-031 war in der Diagnose nur ein Teil-
+Problem — der Heartbeat-Ramp ist korrekt implementiert, aber die
+Events werden eine Schicht drüber geblockt. "Test with provided links"-
+Regel hat geholfen den eigentlichen Root-Cause zu finden (SSH-Log-
+Inspection zeigte die Warnung sofort).
