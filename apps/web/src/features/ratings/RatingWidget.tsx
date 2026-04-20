@@ -174,7 +174,7 @@ function RatingForm({
         placeholder="Optional: Notiz für beim nächsten Mal — was hat besonders gut geklappt?"
         className={cn(
           'w-full min-h-[64px] resize-y rounded-[10px] border border-[hsl(var(--input))] bg-background px-3 py-2.5',
-          'text-[14px] leading-[1.5] text-foreground',
+          'text-base leading-[1.5] text-foreground',
           'focus:border-[hsl(var(--primary))] focus:outline-none focus:ring-4 focus:ring-[hsl(var(--primary)/0.25)]',
         )}
       />

@@ -248,7 +248,7 @@ export function ImportUrlPage() {
           placeholder="https://…"
           aria-invalid={error != null}
           aria-describedby={error ? 'import-url-error' : undefined}
-          className="mt-2 w-full max-w-full min-w-0 rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[15px] leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 focus-visible:bg-card"
+          className="mt-2 w-full max-w-full min-w-0 rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 focus-visible:bg-card"
         />
         <p className="mt-2 text-[12.5px] text-[hsl(var(--muted-foreground))]">
           Unterstützt: YouTube, Instagram Reels, TikTok, Facebook, Foodblogs mit

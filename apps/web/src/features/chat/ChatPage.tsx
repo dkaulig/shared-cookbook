@@ -405,7 +405,7 @@ export function ChatPage() {
             placeholder="Was möchtest du kochen?"
             aria-label="Nachricht"
             disabled={turnCap === 'blocked'}
-            className="min-h-[44px] max-h-40 flex-1 resize-none rounded-[14px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[15px] leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-[44px] max-h-40 flex-1 resize-none rounded-[14px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
           />
           <Button
             type="button"

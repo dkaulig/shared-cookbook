@@ -1173,7 +1173,7 @@ laut Regression-Test-Policy:
 
 ## BUG-025 · iOS Safari zoomt beim Fokus auf Input-Felder rein (Desktop-Look-Effekt)
 **Reported:** 2026-04-20
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — Option 1 aus dem Backlog angewendet: alle `<input>`, `<textarea>`, `<select>`-Elemente mit `text-[14px]` / `text-[15px]` auf `text-base` (= 16 px) angehoben. Betroffen: `ChatPage.tsx` (Chat-Textarea), `ImportUrlPage.tsx` (URL-Input), `GroupFilterBar.tsx` (Such-Input), `RatingWidget.tsx` (Kommentar-Textarea), `RecipeFormPage.tsx` (FormInput/FormTextarea/FormSelect-Primitives + ingredient-row Überschreibungen für Menge/Einheit/Name/Notiz + Step-Textarea + Step-Preview-Div). Viewport-Meta bleibt a11y-konform (kein `maximum-scale=1`-Hack). Grep-Gate-Test `src/test/tokens/input-font-size.test.ts` scannt den ganzen `apps/web/src`-Tree und asserted, dass kein Form-Input-Tag einen `text-[(10–15)px]`-Token enthält — Regression-Gate gegen jede Neuanlage unter 16 px. Plus Smoke-Tests in `ChatPage.test.tsx`, `ImportUrlPage.test.tsx`, `RecipeFormPage.test.tsx` die asserten dass das jeweilige Haupt-Input-Element `text-base` in der className hat. Alle 1057 Tests grün, Lint clean, Build ok.)
 **Severity:** medium — macht die App auf iPhone wie eine "Desktop-Seite
 auf Mobile" wirken, nicht wie eine native-artige PWA. Jeder Input-Fokus
 = Zoom-Pumpe, User muss rauszoomen/zurückscrollen. Nicht funktions-

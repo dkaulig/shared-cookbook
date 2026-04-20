@@ -444,4 +444,15 @@ describe('<ImportUrlPage />', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/nicht erlaubt/i)
     expect(screen.getByTestId('location')).toHaveTextContent('/rezepte/import/url')
   })
+
+  describe('BUG-025 regression: input font-size ≥ 16px', () => {
+    it('URL input className includes `text-base` (prevents iOS auto-zoom)', async () => {
+      server.use(
+        http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
+      )
+      renderPage()
+      const input = screen.getByLabelText(/Video- oder Blog-URL/i)
+      expect(input.className).toMatch(/\btext-base\b/)
+    })
+  })
 })

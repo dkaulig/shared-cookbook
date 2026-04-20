@@ -1077,7 +1077,7 @@ function FormInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={cn(
-        'w-full rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[15px] leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
+        'w-full rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
         'placeholder:text-[hsl(var(--muted-foreground))]/80',
         'focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 focus-visible:bg-card',
         'disabled:cursor-not-allowed disabled:opacity-50',
@@ -1098,7 +1098,7 @@ function FormTextarea({
       {...props}
       ref={ref}
       className={cn(
-        'min-h-[72px] w-full rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[15px] leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
+        'min-h-[72px] w-full rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
         'placeholder:text-[hsl(var(--muted-foreground))]/80',
         'focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 focus-visible:bg-card',
         'disabled:cursor-not-allowed disabled:opacity-50',
@@ -1114,7 +1114,7 @@ function FormSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
     <select
       {...props}
       className={cn(
-        'w-full appearance-none rounded-[12px] border border-[hsl(var(--input))] bg-card px-[13px] py-[11px] pr-9 text-[14px] leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
+        'w-full appearance-none rounded-[12px] border border-[hsl(var(--input))] bg-card px-[13px] py-[11px] pr-9 text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
         'bg-[url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%2714%27%20height%3D%2714%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2357534e%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpolyline%20points%3D%276%209%2012%2015%2018%209%27/%3E%3C/svg%3E")] bg-[right_12px_center] bg-no-repeat',
         'focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25',
         props.className,
@@ -1253,13 +1253,13 @@ function SortableIngredientRow({
           onChange={(e) => onUpdate(index, (r) => ({ ...r, quantity: e.target.value }))}
           placeholder="Menge"
           aria-label={`Zutat ${index + 1} Menge`}
-          className="py-2 text-right text-[14px]"
+          className="py-2 text-right text-base"
         />
         <FormSelect
           value={row.unit}
           onChange={(e) => onUpdate(index, (r) => ({ ...r, unit: e.target.value }))}
           aria-label={`Zutat ${index + 1} Einheit`}
-          className="py-2 text-[14px]"
+          className="py-2 text-base"
         >
           {UNITS.map((u) => (
             <option key={u} value={u}>
@@ -1273,7 +1273,7 @@ function SortableIngredientRow({
           onChange={(e) => onUpdate(index, (r) => ({ ...r, name: e.target.value }))}
           placeholder="Zutat"
           aria-label={`Zutat ${index + 1} Name`}
-          className="py-2 text-[14px]"
+          className="py-2 text-base"
         />
         {row.confidence &&
           (row.confidence === 'missing' ||
@@ -1289,7 +1289,7 @@ function SortableIngredientRow({
             onChange={(e) => onUpdate(index, (r) => ({ ...r, note: e.target.value }))}
             placeholder="Notiz (optional), z.B. „fein gehackt“"
             aria-label={`Zutat ${index + 1} Notiz`}
-            className="py-1.5 text-[12px]"
+            className="py-1.5 text-base"
           />
         </div>
       </div>
@@ -1449,7 +1449,7 @@ function SortableStepRow({
           <div
             data-testid={`step-preview-${index}`}
             aria-label={`Schritt ${index + 1} Vorschau`}
-            className="min-h-[52px] rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-[14px] leading-[1.4] text-foreground [&_strong]:font-semibold [&_strong]:text-[hsl(var(--primary-hover,var(--primary)))]"
+            className="min-h-[52px] rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground [&_strong]:font-semibold [&_strong]:text-[hsl(var(--primary-hover,var(--primary)))]"
           >
             {row.content.trim().length === 0 ? (
               <span className="text-[hsl(var(--muted-foreground))]">
@@ -1468,7 +1468,7 @@ function SortableStepRow({
             placeholder="Was wird in diesem Schritt gemacht?"
             aria-label={`Schritt ${index + 1}`}
             maxLength={5000}
-            className="min-h-[52px] text-[14px]"
+            className="min-h-[52px] text-base"
           />
         )}
       </div>

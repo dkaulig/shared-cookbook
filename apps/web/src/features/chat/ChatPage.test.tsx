@@ -737,3 +737,11 @@ describe('<ChatPage /> — BUG-001 regression: mobile viewport sizing', () => {
     expect(html).toMatch(/viewport-fit=cover/)
   })
 })
+
+describe('<ChatPage /> — BUG-025 regression: input font-size ≥ 16px', () => {
+  it('chat textarea className includes `text-base` (prevents iOS auto-zoom)', () => {
+    renderPage()
+    const textarea = screen.getByLabelText(/Nachricht/i)
+    expect(textarea.className).toMatch(/\btext-base\b/)
+  })
+})

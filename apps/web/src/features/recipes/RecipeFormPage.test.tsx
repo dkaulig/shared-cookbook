@@ -2218,4 +2218,12 @@ describe('RecipeFormPage (create)', () => {
       ).toBe(true)
     })
   })
+
+  describe('BUG-025 regression: input font-size ≥ 16px', () => {
+    it('Titel input className includes `text-base` (prevents iOS auto-zoom)', () => {
+      render(withProviders('/groups/g1/recipes/new'))
+      const title = screen.getByLabelText(/Titel/i)
+      expect(title.className).toMatch(/\btext-base\b/)
+    })
+  })
 })
