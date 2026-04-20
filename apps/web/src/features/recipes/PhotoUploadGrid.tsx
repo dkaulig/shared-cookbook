@@ -26,6 +26,21 @@ export type PhotoUploadGridProps =
   | LiveProps
   | StagedProps
 
+/**
+ * BUG-024 — a photo that's already persisted in SeaweedFS via the
+ * staged-upload endpoint but not yet bound to the (yet-unsaved)
+ * recipe. Rendered ahead of the staged `File[]` slots so the
+ * photo-import review form can show the actual thumbnails the user
+ * uploaded in the previous step instead of only a count-badge.
+ */
+export interface PreAttachedPhoto {
+  readonly stagedPhotoId: string
+  /** Signed SeaweedFS proxy URL; rendered as `<img src>`. */
+  readonly url: string
+  /** BUG-018 video thumbnail marker → shows a "Thumbnail" badge. */
+  readonly isThumbnail?: boolean
+}
+
 interface LiveProps {
   mode?: 'live'
   /** Id of the recipe the photos belong to — drives the upload / remove mutations. */
@@ -41,6 +56,20 @@ interface StagedProps {
   files: File[]
   /** Fired with the next files array when the user adds / removes one. */
   onFilesChange: (files: File[]) => void
+  /**
+   * BUG-024 — already-server-side-staged photos (either user uploads
+   * from `ImportPhotosPage` or the BUG-018 video thumbnail). Rendered
+   * as thumbnails BEFORE the file-upload slots so the reviewer sees
+   * what will be attached on save. Omitted / empty → grid behaves
+   * exactly as before.
+   */
+  preAttached?: readonly PreAttachedPhoto[]
+  /**
+   * Invoked when the user taps the × on a pre-attached tile. The
+   * parent is responsible for the actual delete (backend + memo
+   * update) — this component stays presentational.
+   */
+  onRemovePreAttached?: (stagedPhotoId: string) => void
   className?: string
 }
 
@@ -153,10 +182,17 @@ function LiveGrid({ recipeId, photos, className }: LiveProps) {
   )
 }
 
-function StagedGrid({ files, onFilesChange, className }: StagedProps) {
+function StagedGrid({
+  files,
+  onFilesChange,
+  preAttached,
+  onRemovePreAttached,
+  className,
+}: StagedProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
+  const preAttachedList = preAttached ?? []
 
   // One blob URL per staged File, kept in state so it survives renders.
   // The array always lines up 1:1 with `files`. We reconcile with the
@@ -197,7 +233,11 @@ function StagedGrid({ files, onFilesChange, className }: StagedProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount cleanup only
   }, [])
 
-  const atLimit = files.length >= MAX_PHOTOS
+  // BUG-024 — the 3-photo cap spans both preAttached (server-side
+  // staged) AND the local `File[]`. The "+ add" slot is hidden once
+  // the combined count hits the cap.
+  const totalCount = preAttachedList.length + files.length
+  const atLimit = totalCount >= MAX_PHOTOS
 
   function acceptFiles(dropped: FileList | File[]) {
     setError(null)
@@ -234,6 +274,27 @@ function StagedGrid({ files, onFilesChange, className }: StagedProps) {
     onFilesChange(next)
   }
 
+  // BUG-024 — preAttached tiles render first, each as its own Slot
+  // variant. They have their own remove button (different handler +
+  // badge), so we don't funnel them through `buildSlotsFromUrls`
+  // which is blind to the distinction.
+  const slots: Slot[] = [
+    ...preAttachedList.map(
+      (p, i): Slot => ({
+        kind: 'preAttached',
+        stagedPhotoId: p.stagedPhotoId,
+        url: p.url,
+        isThumbnail: p.isThumbnail === true,
+        index: i,
+      }),
+    ),
+    ...buildSlotsFromUrls(
+      previews.map((p) => p.url),
+      preAttachedList.length,
+      MAX_PHOTOS - preAttachedList.length,
+    ),
+  ]
+
   return (
     <GridShell
       className={className}
@@ -245,8 +306,19 @@ function StagedGrid({ files, onFilesChange, className }: StagedProps) {
       inputDisabled={atLimit}
       fileInputRef={fileInputRef}
       error={error}
-      slots={buildSlotsFromUrls(previews.map((p) => p.url))}
-      onRemoveFilled={(_url, index) => handleRemove(index)}
+      slots={slots}
+      onRemoveFilled={(_url, displayedIndex) => {
+        // `displayedIndex` is the grid-wide 0-based slot index the
+        // Slot carried. Staged-mode filled slots live AFTER the
+        // preAttached tiles, so subtract that offset to map back to
+        // the local File[] position.
+        handleRemove(displayedIndex - preAttachedList.length)
+      }}
+      onRemovePreAttached={
+        onRemovePreAttached
+          ? (stagedPhotoId: string) => onRemovePreAttached(stagedPhotoId)
+          : undefined
+      }
       filledPending={false}
     />
   )
@@ -255,18 +327,37 @@ function StagedGrid({ files, onFilesChange, className }: StagedProps) {
 type Slot =
   | { kind: 'filled'; url: string; index: number }
   | { kind: 'empty'; index: number }
+  | {
+      kind: 'preAttached'
+      stagedPhotoId: string
+      url: string
+      isThumbnail: boolean
+      index: number
+    }
 
-function buildSlotsFromUrls(urls: string[]): Slot[] {
-  const emptySlots = Math.max(0, MAX_PHOTOS - urls.length)
+/**
+ * `startIndex` lets callers shift the displayed 1-based slot index
+ * (e.g. preAttached tiles come first and consume 0..N, so File[]
+ * slots need to start at N+1). `capacity` caps the total number of
+ * filled+empty slots produced — caller usually passes
+ * `MAX_PHOTOS - preAttachedList.length`.
+ */
+function buildSlotsFromUrls(
+  urls: string[],
+  startIndex = 0,
+  capacity = MAX_PHOTOS,
+): Slot[] {
+  const filledCount = Math.min(urls.length, capacity)
+  const emptySlots = Math.max(0, capacity - filledCount)
   return [
-    ...urls.slice(0, MAX_PHOTOS).map((url, i) => ({
+    ...urls.slice(0, filledCount).map((url, i) => ({
       kind: 'filled' as const,
       url,
-      index: i,
+      index: startIndex + i,
     })),
     ...Array.from({ length: emptySlots }, (_, i) => ({
       kind: 'empty' as const,
-      index: urls.length + i,
+      index: startIndex + filledCount + i,
     })),
   ]
 }
@@ -284,6 +375,12 @@ interface GridShellProps {
   error: string | null
   slots: Slot[]
   onRemoveFilled: (url: string, index: number) => void
+  /**
+   * BUG-024 — invoked when the user taps × on a pre-attached tile.
+   * Omitted (undefined) hides the remove button on those tiles
+   * (useful for a read-only preview mode if we ever want one).
+   */
+  onRemovePreAttached?: (stagedPhotoId: string) => void
   filledPending: boolean
 }
 
@@ -298,6 +395,7 @@ function GridShell({
   error,
   slots,
   onRemoveFilled,
+  onRemovePreAttached,
   filledPending,
 }: GridShellProps) {
   function handleInputChange(e: ChangeEvent<HTMLInputElement>) {
@@ -347,6 +445,22 @@ function GridShell({
                 index={slot.index + 1}
                 onRemove={() => onRemoveFilled(slot.url, slot.index)}
                 pending={filledPending}
+              />
+            )
+          }
+          if (slot.kind === 'preAttached') {
+            return (
+              <PreAttachedSlot
+                key={`pre-${slot.stagedPhotoId}`}
+                stagedPhotoId={slot.stagedPhotoId}
+                url={slot.url}
+                isThumbnail={slot.isThumbnail}
+                index={slot.index + 1}
+                onRemove={
+                  onRemovePreAttached
+                    ? () => onRemovePreAttached(slot.stagedPhotoId)
+                    : undefined
+                }
               />
             )
           }
@@ -414,6 +528,77 @@ function FilledSlot({ url, index, onRemove, pending }: FilledSlotProps) {
       >
         <X className="h-[14px] w-[14px]" aria-hidden="true" />
       </button>
+      <span
+        aria-hidden="true"
+        className="absolute bottom-1.5 left-1.5 grid h-[22px] w-[22px] place-items-center rounded-full bg-[rgba(28,25,23,0.7)] text-[11px] font-semibold text-white"
+      >
+        {index}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * BUG-024 — a server-side staged-photo tile shown in create-mode
+ * during the photo-import review. Identical visuals to the live
+ * FilledSlot with two tweaks:
+ *   - top-left pill labelling the provenance ("Import" or
+ *     "Thumbnail" depending on `isThumbnail`),
+ *   - X button stays hidden when no `onRemove` is provided
+ *     (caller opted out of the per-tile delete flow).
+ */
+interface PreAttachedSlotProps {
+  stagedPhotoId: string
+  url: string
+  isThumbnail: boolean
+  index: number
+  onRemove?: () => void
+}
+
+function PreAttachedSlot({
+  stagedPhotoId,
+  url,
+  isThumbnail,
+  index,
+  onRemove,
+}: PreAttachedSlotProps) {
+  const badgeLabel = isThumbnail ? 'Thumbnail' : 'Import'
+  return (
+    <div
+      data-testid={`preattached-slot-${stagedPhotoId}`}
+      className="relative aspect-square overflow-hidden rounded-[12px] bg-[hsl(var(--muted))]"
+      style={{ backgroundImage: recipePhotoGradient(url) }}
+    >
+      <img
+        src={url}
+        alt="Rezept-Foto"
+        className="h-full w-full object-cover"
+        loading="lazy"
+      />
+      {/* Top-left provenance pill — mirrors the site's
+          tag/pill styling (small, muted, pill-shaped). */}
+      <span
+        data-testid={
+          isThumbnail ? 'preattached-thumbnail-badge' : 'preattached-import-badge'
+        }
+        className="absolute left-1.5 top-1.5 rounded-full bg-[rgba(28,25,23,0.75)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.04em] text-white backdrop-blur-sm"
+      >
+        {badgeLabel}
+      </span>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label="Importiertes Foto entfernen"
+          onClick={onRemove}
+          className={cn(
+            'absolute right-1.5 top-1.5 grid h-[26px] w-[26px] place-items-center rounded-full',
+            'bg-[rgba(28,25,23,0.7)] text-white backdrop-blur-sm transition-colors hover:bg-[hsl(var(--destructive))]',
+            'disabled:cursor-not-allowed disabled:opacity-60',
+          )}
+        >
+          <X className="h-[14px] w-[14px]" aria-hidden="true" />
+        </button>
+      )}
       <span
         aria-hidden="true"
         className="absolute bottom-1.5 left-1.5 grid h-[22px] w-[22px] place-items-center rounded-full bg-[rgba(28,25,23,0.7)] text-[11px] font-semibold text-white"

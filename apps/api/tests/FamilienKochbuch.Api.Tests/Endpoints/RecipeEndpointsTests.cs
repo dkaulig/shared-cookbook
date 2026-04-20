@@ -923,6 +923,71 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             $"Expected 400 or 413, got {response.StatusCode}");
     }
 
+    // ── BUG-024 — DELETE /api/staged-photos/{id} ────────────────────
+
+    [Fact]
+    public async Task DeleteStagedPhoto_Removes_Row_And_Blob_For_Owner()
+    {
+        var (_, token) = await SignupAndLoginAsync("staged-del-owner@ex.com", "D");
+        AuthorizeClient(_client, token);
+
+        using var upload = BuildPhoto(ValidPngBytes(), "photo.png", "image/png");
+        var uploadRes = await _client.PostAsync("/api/recipes/photos/staged", upload);
+        uploadRes.EnsureSuccessStatusCode();
+        var body = (await uploadRes.Content.ReadFromJsonAsync<RecipeEndpoints.StagedPhotoResponse>())!;
+        Assert.True(_factory.Photos.Uploads.ContainsKey(body.PhotoId));
+
+        var response = await _client.DeleteAsync($"/api/staged-photos/{body.StagedPhotoId}");
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False(await db.StagedPhotos.AnyAsync(s => s.Id == body.StagedPhotoId));
+        // Blob is deleted best-effort; the fake storage honours the call.
+        Assert.False(_factory.Photos.Uploads.ContainsKey(body.PhotoId));
+    }
+
+    [Fact]
+    public async Task DeleteStagedPhoto_401_When_Unauthorized()
+    {
+        var response = await _client.DeleteAsync($"/api/staged-photos/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteStagedPhoto_403_When_Caller_Does_Not_Own_Row()
+    {
+        // Uploader: Alice.
+        var (_, aliceToken) = await SignupAndLoginAsync("staged-del-alice@ex.com", "A");
+        AuthorizeClient(_client, aliceToken);
+        using var upload = BuildPhoto(ValidPngBytes(), "photo.png", "image/png");
+        var uploadRes = await _client.PostAsync("/api/recipes/photos/staged", upload);
+        uploadRes.EnsureSuccessStatusCode();
+        var body = (await uploadRes.Content.ReadFromJsonAsync<RecipeEndpoints.StagedPhotoResponse>())!;
+
+        // Switch client to Bob (a different authenticated user).
+        var (_, bobToken) = await SignupAndLoginAsync("staged-del-bob@ex.com", "B");
+        AuthorizeClient(_client, bobToken);
+
+        var response = await _client.DeleteAsync($"/api/staged-photos/{body.StagedPhotoId}");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        // Row survives — the 403 must NOT have side effects.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.True(await db.StagedPhotos.AnyAsync(s => s.Id == body.StagedPhotoId));
+    }
+
+    [Fact]
+    public async Task DeleteStagedPhoto_404_For_Unknown_Id()
+    {
+        var (_, token) = await SignupAndLoginAsync("staged-del-404@ex.com", "D");
+        AuthorizeClient(_client, token);
+
+        var response = await _client.DeleteAsync($"/api/staged-photos/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     // ── PF1 — create-recipe with stagedPhotoIds (promote flow) ──────
 
     private async Task<Guid> UploadStagedPhotoAndGetIdAsync(HttpClient client)

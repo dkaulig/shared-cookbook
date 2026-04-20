@@ -216,6 +216,119 @@ describe('<PhotoUploadGrid mode="staged" />', () => {
     expect(screen.getByTestId('staged-count')).toHaveTextContent('3')
   })
 
+  // BUG-024 — preAttached tiles render ahead of the File[] slots so
+  // the photo-import review form shows the actual thumbnails the user
+  // uploaded in the previous step (instead of a bare count-pill).
+  describe('preAttached (BUG-024)', () => {
+    it('renders one <img> per preAttached entry with the expected source URL', () => {
+      render(
+        withProviders(
+          <PhotoUploadGrid
+            mode="staged"
+            files={[]}
+            onFilesChange={() => {}}
+            preAttached={[
+              { stagedPhotoId: 's1', url: '/api/photos/s1.jpg?sig=x' },
+              { stagedPhotoId: 's2', url: '/api/photos/s2.jpg?sig=x' },
+            ]}
+          />,
+        ),
+      )
+      const imgs = screen.getAllByRole('img')
+      expect(imgs).toHaveLength(2)
+      expect(imgs[0]!.getAttribute('src')).toBe('/api/photos/s1.jpg?sig=x')
+      expect(imgs[1]!.getAttribute('src')).toBe('/api/photos/s2.jpg?sig=x')
+    })
+
+    it('shows the "Thumbnail" badge on isThumbnail tiles and "Import" otherwise', () => {
+      render(
+        withProviders(
+          <PhotoUploadGrid
+            mode="staged"
+            files={[]}
+            onFilesChange={() => {}}
+            preAttached={[
+              {
+                stagedPhotoId: 's-thumb',
+                url: '/api/photos/s-thumb.jpg?sig=x',
+                isThumbnail: true,
+              },
+              { stagedPhotoId: 's-normal', url: '/api/photos/s1.jpg?sig=x' },
+            ]}
+          />,
+        ),
+      )
+      expect(screen.getByTestId('preattached-thumbnail-badge')).toHaveTextContent(
+        /Thumbnail/i,
+      )
+      expect(screen.getByTestId('preattached-import-badge')).toHaveTextContent(
+        /Import/i,
+      )
+    })
+
+    it('invokes onRemovePreAttached with the right stagedPhotoId when × is tapped', async () => {
+      const removed = vi.fn()
+      const user = userEvent.setup()
+      render(
+        withProviders(
+          <PhotoUploadGrid
+            mode="staged"
+            files={[]}
+            onFilesChange={() => {}}
+            preAttached={[
+              { stagedPhotoId: 's-remove-me', url: '/api/photos/s1.jpg?sig=x' },
+            ]}
+            onRemovePreAttached={removed}
+          />,
+        ),
+      )
+      await user.click(
+        screen.getByRole('button', { name: /Importiertes Foto entfernen/i }),
+      )
+      expect(removed).toHaveBeenCalledWith('s-remove-me')
+    })
+
+    it('hides the add-slot once preAttached + files hits the 3-photo cap', () => {
+      render(
+        withProviders(
+          <PhotoUploadGrid
+            mode="staged"
+            files={[]}
+            onFilesChange={() => {}}
+            preAttached={[
+              { stagedPhotoId: 's1', url: '/api/photos/s1.jpg?sig=x' },
+              { stagedPhotoId: 's2', url: '/api/photos/s2.jpg?sig=x' },
+              { stagedPhotoId: 's3', url: '/api/photos/s3.jpg?sig=x' },
+            ]}
+          />,
+        ),
+      )
+      // Three pre-attached tiles, zero add-slots.
+      expect(screen.getAllByRole('img')).toHaveLength(3)
+      expect(
+        screen.queryAllByRole('button', { name: /Foto hochladen/i }),
+      ).toHaveLength(0)
+    })
+
+    it('omits the remove button when onRemovePreAttached is not provided', () => {
+      render(
+        withProviders(
+          <PhotoUploadGrid
+            mode="staged"
+            files={[]}
+            onFilesChange={() => {}}
+            preAttached={[
+              { stagedPhotoId: 's-ro', url: '/api/photos/s1.jpg?sig=x' },
+            ]}
+          />,
+        ),
+      )
+      expect(
+        screen.queryByRole('button', { name: /Importiertes Foto entfernen/i }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('revokes all staged blob URLs on unmount to avoid leaking them', () => {
     const createSpy = vi
       .spyOn(URL, 'createObjectURL')

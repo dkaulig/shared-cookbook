@@ -45,3 +45,34 @@ export async function uploadStagedPhoto(file: File): Promise<StagedPhotoResponse
   }
   return (await response.json()) as StagedPhotoResponse
 }
+
+/**
+ * BUG-024 — drop a staged photo the user decided to discard during
+ * the review step. Hits `DELETE /api/staged-photos/:id`; the server
+ * verifies ownership, removes the DB row, and best-effort deletes
+ * the SeaweedFS blob. 404 on unknown id / 403 on not-owned propagate
+ * as `ApiError` instances the caller can pattern-match on.
+ *
+ * Uses the same 4xx JSON → `ApiError` contract as uploadStagedPhoto
+ * so the RecipeFormPage's handleRemovePreAttached can branch on
+ * `code === 'not_found'` to swallow the already-gone case silently.
+ */
+export async function deleteStagedPhoto(stagedPhotoId: string): Promise<void> {
+  const response = await apiClient(`/api/staged-photos/${stagedPhotoId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    let payload: ApiError | null = null
+    try {
+      payload = (await response.json()) as ApiError
+    } catch {
+      /* non-JSON body — fall through to status-based defaults */
+    }
+    const code = payload?.code ?? `http_${response.status}`
+    const message = payload?.message ?? response.statusText
+    const err = new Error(`${code}: ${message}`) as Error & ApiError
+    err.code = code
+    err.message = message
+    throw err
+  }
+}

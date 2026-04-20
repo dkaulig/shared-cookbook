@@ -228,6 +228,14 @@ public static class RecipeEndpoints
             .RequireAuthorization()
             .DisableAntiforgery()
             .ExcludeFromDescription();
+
+        // BUG-024 — let the review form drop an import-uploaded photo
+        // the user decided to discard before saving. Complements the
+        // hourly SweepAbandonedStagedPhotosJob: this is the
+        // user-initiated path, the sweep is the timeout fallback.
+        app.MapDelete("/api/staged-photos/{id:guid}", DeleteStagedPhotoAsync)
+            .WithTags("Recipes")
+            .RequireAuthorization();
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -961,6 +969,63 @@ public static class RecipeEndpoints
             PhotoId: path,
             SignedUrl: signedUrl,
             StagedPhotoId: staged.Id));
+    }
+
+    // ── DELETE /api/staged-photos/{id} (BUG-024) ───────────────────
+
+    /// <summary>
+    /// BUG-024 — lets the review form drop an unwanted import-uploaded
+    /// staged photo before the user saves the recipe. The hourly
+    /// <see cref="Jobs.SweepAbandonedStagedPhotosJob"/> is the timeout
+    /// fallback for the abandon-the-flow case; this endpoint covers the
+    /// user-initiated "I don't want this photo after all" path.
+    ///
+    /// Ownership is enforced: only the uploader can delete. Already-
+    /// promoted rows (PromotedAt != null) are treated as 404 so the
+    /// caller can't retroactively unpick a photo from a saved recipe
+    /// via this endpoint — they should hit the per-recipe photo-remove
+    /// instead.
+    ///
+    /// Blob delete is best-effort — if SeaweedFS is down the row is
+    /// still removed (an orphan blob is benign and the sweep cleans up
+    /// the filer if we ever re-introduce one).
+    /// </summary>
+    private static async Task<IResult> DeleteStagedPhotoAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var row = await db.StagedPhotos.FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (row is null || row.PromotedAt != null)
+        {
+            return FamilienResults.NotFound(
+                "not_found",
+                "Das Foto ist nicht mehr vorhanden.");
+        }
+        if (row.UserId != userId)
+        {
+            return FamilienResults.Forbidden(
+                "not_owner",
+                "Nur der Uploader darf dieses Foto entfernen.");
+        }
+
+        db.StagedPhotos.Remove(row);
+        await db.SaveChangesAsync(ct);
+
+        try
+        {
+            await photoStorage.DeleteAsync(row.PhotoId, ct);
+        }
+        catch
+        {
+            // Best-effort — the row is gone; an orphan blob is fine.
+        }
+
+        return Results.NoContent();
     }
 
     // ── DELETE /api/recipes/{id}/photos ─────────────────────────────

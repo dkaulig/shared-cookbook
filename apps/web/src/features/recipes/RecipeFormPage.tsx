@@ -43,7 +43,12 @@ import {
   forgetChatImport,
   recallChatImport,
 } from '@/features/chat/chatImportMemo'
-import { recallImportStagedPhotoIds } from '@/features/imports/importGroupMemo'
+import {
+  recallImportStagedPhotos,
+  rememberImportStagedPhotos,
+  type ImportStagedPhotoMemo,
+} from '@/features/imports/importGroupMemo'
+import { deleteStagedPhoto } from '@/features/imports/stagedPhotoApi'
 import {
   useCreateRecipe,
   useGroupTags,
@@ -306,13 +311,25 @@ export function RecipeFormPage({ mode }: Props) {
   // staged-photo id (URL-import path) so the create-recipe POST
   // promotes it alongside any user-uploaded photos. Photo-import path
   // doesn't carry a thumbnail (the user is the photo source).
-  const stagedPhotoIds: string[] = (() => {
+  //
+  // BUG-024 — we now surface these as {id, url} pairs so the review
+  // form can render the actual thumbnails via
+  // `PhotoUploadGrid.preAttached`. The BUG-018 thumbnail is a special
+  // case: the frontend doesn't have a signed URL for it (the import
+  // status endpoint only exposes the id), so we fall back to a
+  // url-less entry — the inner form filters those out before passing
+  // them to the grid, so the thumbnail stays "badge only" until /
+  // unless the backend starts exposing its url too.
+  const initialPreAttached: ImportStagedPhotoMemo[] = (() => {
     if (mode !== 'create' || !importId) return []
     const base = prefill?.isPhotoImport
-      ? recallImportStagedPhotoIds(importId) ?? []
+      ? recallImportStagedPhotos(importId) ?? []
       : []
     const thumbId = prefill?.thumbnailStagedPhotoId
-    return thumbId ? [...base, thumbId] : base
+    if (!thumbId) return base
+    // Mark the thumbnail with an empty url so the grid can skip the
+    // <img> render (no signed URL available today).
+    return [...base, { stagedPhotoId: thumbId, url: '' }]
   })()
 
   return (
@@ -321,7 +338,9 @@ export function RecipeFormPage({ mode }: Props) {
       initial={mode === 'edit' ? recipeQuery.data! : undefined}
       prefill={prefill}
       chatImportId={chatImportSource ? chatImportId : null}
-      stagedPhotoIds={stagedPhotoIds}
+      importId={importId ?? null}
+      initialPreAttached={initialPreAttached}
+      thumbnailStagedPhotoId={prefill?.thumbnailStagedPhotoId ?? null}
     />
   )
 }
@@ -331,7 +350,9 @@ function RecipeFormInner({
   initial,
   prefill,
   chatImportId,
-  stagedPhotoIds,
+  importId,
+  initialPreAttached,
+  thumbnailStagedPhotoId,
 }: {
   mode: 'create' | 'edit'
   initial?: RecipeDetailDto
@@ -344,12 +365,28 @@ function RecipeFormInner({
    */
   chatImportId?: string | null
   /**
-   * Staged-photo ids stashed by `ImportPhotosPage`. Empty unless the
-   * user came in via the photo-import flow. Forwarded into the
-   * create-recipe payload so the server adopts the originals onto
-   * the saved recipe.
+   * BUG-024 — the importId the wrapper resolved (`null` in non-import
+   * create/edit). Needed so the remove-preAttached handler can
+   * update the sessionStorage memo after a successful delete.
    */
-  stagedPhotoIds?: string[]
+  importId?: string | null
+  /**
+   * BUG-024 — server-side staged photos the wrapper recalled from the
+   * session memo (user-uploaded originals) plus the optional BUG-018
+   * video thumbnail. Each entry carries the signed SeaweedFS URL so
+   * the grid can render a thumbnail; entries with an empty URL (e.g.
+   * the BUG-018 thumbnail whose URL isn't exposed to the frontend)
+   * are still forwarded into the save payload but omitted from the
+   * visible grid, so BUG-018 keeps its pre-BUG-024 "badge only"
+   * fallback.
+   */
+  initialPreAttached?: readonly ImportStagedPhotoMemo[]
+  /**
+   * BUG-018 — present when the URL-import job auto-attached a video
+   * thumbnail. Forwarded into the save payload but rendered as "badge
+   * only" (no signed URL available on the frontend yet).
+   */
+  thumbnailStagedPhotoId?: string | null
 }) {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
@@ -443,12 +480,80 @@ function RecipeFormInner({
   // mode. After the recipe POST resolves, handleSubmit iterates these
   // sequentially via uploadRecipePhoto(newRecipeId, file).
   const [stagedPhotos, setStagedPhotos] = useState<File[]>([])
+  // BUG-024 — server-side staged photos seeded from the import memo.
+  // Kept in React state so the remove-preAttached handler can drop an
+  // entry after a successful DELETE without re-reading sessionStorage.
+  // The wrapper computes the initial list once; from there we treat
+  // it as pure UI state.
+  const [preAttached, setPreAttached] = useState<
+    readonly ImportStagedPhotoMemo[]
+  >(() => initialPreAttached ?? [])
   // Drives the submit-button label: 'idle' shows the primary label,
   // 'saving' shows "Speichere …", 'uploading-photos' shows
   // "Fotos hochladen …" during the sequential photo-upload phase.
   const [submitPhase, setSubmitPhase] = useState<
     'idle' | 'saving' | 'uploading-photos'
   >('idle')
+
+  // BUG-024 — the ids we forward into the create-recipe payload are
+  // the preAttached list plus the BUG-018 thumbnail id (if not
+  // already present). The thumbnail id is folded in defensively in
+  // case the wrapper wasn't able to tag it with a URL (see
+  // initialPreAttached comment in the wrapper).
+  const stagedPhotoIds: string[] = (() => {
+    const ids = preAttached.map((p) => p.stagedPhotoId)
+    if (thumbnailStagedPhotoId && !ids.includes(thumbnailStagedPhotoId)) {
+      ids.push(thumbnailStagedPhotoId)
+    }
+    return ids
+  })()
+
+  // BUG-024 — tiles the grid should render (must have a URL; the
+  // BUG-018 thumbnail without a URL stays out of the visible grid
+  // and remains represented only by the amber "wird beim Speichern
+  // angehängt" pill).
+  const gridPreAttached = preAttached
+    .filter((p) => p.url !== '')
+    .map((p) => ({
+      stagedPhotoId: p.stagedPhotoId,
+      url: p.url,
+      isThumbnail:
+        thumbnailStagedPhotoId != null &&
+        p.stagedPhotoId === thumbnailStagedPhotoId,
+    }))
+
+  async function handleRemovePreAttached(stagedPhotoId: string): Promise<void> {
+    // Optimistic removal — the X disappearing immediately matches
+    // the live-photo remove UX. If the DELETE 404s (server already
+    // swept the blob, another tab removed it) we still leave the
+    // tile out; a 5xx re-surfaces via the banner below.
+    const next = preAttached.filter((p) => p.stagedPhotoId !== stagedPhotoId)
+    setPreAttached(next)
+    if (importId) {
+      // Persist the updated list so a later refresh doesn't resurrect
+      // the tile. Drops the memo entirely when the list is empty so
+      // the "zero staged photos" signal survives a reload.
+      if (next.length === 0) {
+        rememberImportStagedPhotos(importId, [])
+      } else {
+        rememberImportStagedPhotos(importId, next)
+      }
+    }
+    try {
+      await deleteStagedPhoto(stagedPhotoId)
+    } catch (err) {
+      const apiErr = err as ApiError
+      // 404 = already gone (swept / removed in another tab) — leave
+      // the tile out, no user-facing banner needed. Surface every
+      // other error so the user understands the tile may reappear on
+      // the saved recipe.
+      if (apiErr.code !== 'not_found' && apiErr.code !== 'http_404') {
+        setError(
+          apiErr.message ?? 'Importiertes Foto konnte nicht entfernt werden.',
+        )
+      }
+    }
+  }
 
   const tagsByCategory = useMemo(() => {
     const grouped = new Map<TagCategory, TagDto[]>()
@@ -731,8 +836,12 @@ function RecipeFormInner({
               title="Fotos"
               description="Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP. Werden beim Speichern hochgeladen."
             >
-              {/* Info badge for the photo-import flow: staged photos
-                  attach automatically on save. Create-mode only. */}
+              {/* BUG-024 — pill is now a copy-only reminder; the
+                  actual thumbnails sit in the grid below. We keep the
+                  amber Sparkles pill (identity cue the import
+                  happened) but drop the count since the user now
+                  sees the tiles. Shown whenever at least one staged
+                  photo is forwarding into the save payload. */}
               {mode === 'create' &&
                 stagedPhotoIds &&
                 stagedPhotoIds.length > 0 && (
@@ -742,15 +851,15 @@ function RecipeFormInner({
                     className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--primary)/0.08)] px-3 py-1 text-[12.5px] font-medium text-[hsl(var(--primary-hover,var(--primary)))] ring-1 ring-[hsl(var(--primary)/0.25)]"
                   >
                     <Sparkles className="h-3 w-3" aria-hidden="true" />
-                    {stagedPhotoIds.length} Foto
-                    {stagedPhotoIds.length === 1 ? '' : 's'} werden beim
-                    Speichern angehängt.
+                    Diese Fotos werden beim Speichern angehängt.
                   </p>
                 )}
               <PhotoUploadGrid
                 mode="staged"
                 files={stagedPhotos}
                 onFilesChange={setStagedPhotos}
+                preAttached={gridPreAttached}
+                onRemovePreAttached={handleRemovePreAttached}
               />
             </FormCard>
           )}
