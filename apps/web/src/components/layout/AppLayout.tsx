@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Outlet, useMatch } from 'react-router-dom'
 import { TopNav } from './TopNav'
 import { BottomNav } from './BottomNav'
@@ -36,6 +37,44 @@ export function AppLayout() {
   // caches. Mounting here (parallel to useLiveSync) keeps the two
   // transport-layer refresh sources wired exactly once per session.
   useBackgroundSyncMessage()
+
+  // BUG-040 — detect keyboard open via visualViewport shrinkage and
+  // set `data-keyboard="open"` on <html> so CSS in index.css can hide
+  // the BottomNav while typing. After BUG-039 the root container is
+  // `fixed inset-0` (layout-viewport sized); iOS keyboard shrinks the
+  // VISUAL viewport from below but the layout viewport doesn't track,
+  // so the nav at flex-bottom ends up hidden behind the keyboard. The
+  // detection threshold (150 px) is comfortably above the iOS URL-bar
+  // retract delta (~50 px) so scroll-triggered chrome animation doesn't
+  // false-positive as keyboard.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (vv == null) return
+    const root = document.documentElement
+
+    const THRESHOLD_PX = 150
+    let rafId: number | null = null
+    const update = () => {
+      rafId = null
+      const delta = window.innerHeight - vv.height
+      if (delta > THRESHOLD_PX) {
+        root.dataset.keyboard = 'open'
+      } else {
+        delete root.dataset.keyboard
+      }
+    }
+    const schedule = () => {
+      if (rafId != null) return
+      rafId = window.requestAnimationFrame(update)
+    }
+
+    vv.addEventListener('resize', schedule)
+    return () => {
+      if (rafId != null) window.cancelAnimationFrame(rafId)
+      vv.removeEventListener('resize', schedule)
+      delete root.dataset.keyboard
+    }
+  }, [])
 
   // DS5: the recipe detail page has its own floating top bar that
   // overlays the hero photo — suppress the shared TopNav there so we

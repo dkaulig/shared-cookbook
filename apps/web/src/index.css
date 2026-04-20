@@ -108,12 +108,13 @@
    * ShoppingList) as their `top` anchor so they clip directly below the
    * TopNav instead of hard-coding a duplicate literal per file.
    *
-   * 56px matches the TopNav's visual baseline used since DS3 (also the
-   * same value the BottomNav uses for its row). If TopNav.tsx ever
-   * grows an explicit `min-h-[…]` or its `py-3 / h-9/h-10` content
-   * changes, update this value accordingly so sub-navs stay flush.
+   * 60 px = the TopNav's content-baseline (py-3 + h-9 logo = 60). The
+   * BUG-040 `pt-safe` on TopNav grows the bar by env(safe-area-inset-top)
+   * on notch devices in installed-PWA mode, so the token chains that in
+   * too — sub-navs stick flush below the full visible TopNav height
+   * regardless of status-bar overlay.
    */
-  --topnav-height: 56px;
+  --topnav-height: calc(env(safe-area-inset-top, 0px) + 60px);
 }
 
 .dark {
@@ -189,6 +190,18 @@ body {
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
+}
+
+/*
+ * BUG-040 — hide BottomNav while the keyboard is open. Set by a
+ * visualViewport listener in AppLayout when the visual viewport
+ * shrinks by more than 150 px (reliably distinguishing keyboard
+ * from URL-bar animation). After BUG-039 the layout viewport is
+ * fixed-bottom-anchored, so without this rule the bar would sit
+ * hidden behind the iOS keyboard the user is typing into.
+ */
+html[data-keyboard='open'] [data-testid='bottom-zone-container'] {
+  display: none;
 }
 
 /*
