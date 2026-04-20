@@ -4,7 +4,17 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// OFF1 — the TanStack Query persister uses this as its cache `buster`.
+// Production builds pin it to `npm_package_version` so a deploy auto-
+// invalidates the IDB cache whenever the app version changes. Dev
+// builds fall back to `'dev'` so HMR reloads can reuse the cache.
+const APP_VERSION =
+  process.env.VITE_APP_VERSION ?? process.env.npm_package_version ?? 'dev'
+
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
+  },
   plugins: [
     react(),
     tailwindcss(),
