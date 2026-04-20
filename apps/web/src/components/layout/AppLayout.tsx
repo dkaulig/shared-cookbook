@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Outlet, useMatch } from 'react-router-dom'
 import { TopNav } from './TopNav'
 import { BottomNav } from './BottomNav'
@@ -27,6 +28,37 @@ export function AppLayout() {
   // when the user lands on any protected route and closes when they
   // log out + ProtectedRoute unmounts AppLayout.
   useLiveSync()
+
+  // BUG-023 — keep `--viewport-bottom-offset` in sync with the visual
+  // viewport so backdrop-blur'd fixed-bottom chrome (BottomNav,
+  // RecipeActionBar) follows iOS/Chrome's retracting toolbar instead of
+  // leaving a transparent gap above the new visual bottom edge.
+  useEffect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--viewport-bottom-offset', '0px')
+
+    const vv = window.visualViewport
+    if (vv == null) return
+
+    let rafId: number | null = null
+    const update = () => {
+      rafId = null
+      const offset = Math.max(0, window.innerHeight - (vv.height ?? window.innerHeight))
+      root.style.setProperty('--viewport-bottom-offset', `${offset}px`)
+    }
+    const schedule = () => {
+      if (rafId != null) return
+      rafId = window.requestAnimationFrame(update)
+    }
+
+    vv.addEventListener('resize', schedule)
+    vv.addEventListener('scroll', schedule)
+    return () => {
+      if (rafId != null) window.cancelAnimationFrame(rafId)
+      vv.removeEventListener('resize', schedule)
+      vv.removeEventListener('scroll', schedule)
+    }
+  }, [])
 
   // DS5: the recipe detail page has its own floating top bar that
   // overlays the hero photo — suppress the shared TopNav there so we

@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
@@ -102,5 +105,79 @@ describe('<AppLayout />', () => {
     renderAt('/groups/g1/recipes/new')
     expect(screen.queryByRole('banner')).toBeNull()
     expect(screen.getByTestId('recipe-new-child')).toBeInTheDocument()
+  })
+
+  // ───────── BUG-023 regression ─────────
+
+  describe('--viewport-bottom-offset (BUG-023)', () => {
+    type VVListener = (event: Event) => void
+    let listeners: Record<string, VVListener[]>
+    let originalVV: PropertyDescriptor | undefined
+    let originalInnerHeight: number
+
+    beforeEach(() => {
+      listeners = { resize: [], scroll: [] }
+      const stub = {
+        height: 600,
+        addEventListener(type: string, fn: VVListener) {
+          listeners[type] ??= []
+          listeners[type].push(fn)
+        },
+        removeEventListener(type: string, fn: VVListener) {
+          listeners[type] = (listeners[type] ?? []).filter((l) => l !== fn)
+        },
+      }
+      originalVV = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: stub,
+      })
+      originalInnerHeight = window.innerHeight
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: 700,
+      })
+    })
+
+    afterEach(() => {
+      if (originalVV) {
+        Object.defineProperty(window, 'visualViewport', originalVV)
+      } else {
+        // jsdom's default — leave the prop undefined as it was on entry.
+        Reflect.deleteProperty(window, 'visualViewport')
+      }
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: originalInnerHeight,
+      })
+      document.documentElement.style.removeProperty('--viewport-bottom-offset')
+    })
+
+    it('writes --viewport-bottom-offset = (innerHeight - vv.height) on resize', async () => {
+      renderAt('/')
+      // Mount-time baseline write.
+      expect(
+        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
+      ).toBe('0px')
+
+      // Fire the visualViewport `resize` listener; the effect schedules a
+      // RAF, so flush it inside `act` to commit the DOM-style write.
+      await act(async () => {
+        for (const fn of listeners.resize ?? []) fn(new Event('resize'))
+        await new Promise((r) => requestAnimationFrame(() => r(undefined)))
+      })
+
+      expect(
+        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
+      ).toBe('100px')
+    })
+  })
+
+  // ───────── BUG-023 CSS-token guard ─────────
+
+  it('defines --viewport-bottom-offset in index.css (BUG-023 token)', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(resolve(here, '../../index.css'), 'utf8')
+    expect(css).toMatch(/--viewport-bottom-offset\s*:/)
   })
 })

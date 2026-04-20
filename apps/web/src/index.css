@@ -98,6 +98,16 @@
    * status toasts, …) must clear this value to stay tap-reachable.
    */
   --bottom-nav-height: calc(env(safe-area-inset-bottom, 0px) + 56px);
+
+  /*
+   * BUG-023 — runtime delta between layout-viewport and visual-viewport
+   * heights, written by the visualViewport listener mounted in AppLayout.
+   * `0px` is the baseline when the browser chrome is fully extended (or
+   * when the API is unavailable on legacy browsers). Fixed-bottom chrome
+   * adds this to its `bottom` so it tracks iOS/Chrome's retracting toolbar
+   * instead of leaving a transparent gap.
+   */
+  --viewport-bottom-offset: 0px;
 }
 
 .dark {

@@ -53,7 +53,11 @@ export function BottomNav() {
           // BUG-014: anchor `bottom` to the safe-area inset so the nav
           // is pushed above iOS/Android dynamic browser chrome instead
           // of sitting flush against `bottom: 0`.
-          'fixed inset-x-0 bottom-[env(safe-area-inset-bottom,0px)] z-30 flex items-stretch justify-around border-t border-border',
+          // BUG-023: also add `--viewport-bottom-offset` so the nav
+          // follows the visual viewport when iOS/Chrome retracts the
+          // toolbar mid-scroll (closing the gap a backdrop-blur'd row
+          // would otherwise reveal).
+          'fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))] z-30 flex items-stretch justify-around border-t border-border',
           // Keep the previous home-indicator padding so the row itself
           // also has breathing room from the very bottom edge on iOS.
           'pb-[env(safe-area-inset-bottom,0px)]',

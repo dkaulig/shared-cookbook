@@ -235,7 +235,10 @@ describe('<BottomNav />', () => {
     // The exact Tailwind arbitrary-value class is the contract for the
     // safe-area handling — assert both the position anchor and the row
     // padding so a future refactor can't silently regress one of them.
-    expect(nav.className).toMatch(/bottom-\[env\(safe-area-inset-bottom,0px\)\]/)
+    // BUG-023 wraps the `bottom` anchor in a `calc(... + var(--viewport-
+    // bottom-offset, 0px))` chain; both forms keep the safe-area inset
+    // present, which is what BUG-014 actually guards against.
+    expect(nav.className).toMatch(/bottom-\[(?:env\(safe-area-inset-bottom,0px\)|calc\(env\(safe-area-inset-bottom,0px\)\+[^\]]+)\]/)
     expect(nav.className).toMatch(/pb-\[env\(safe-area-inset-bottom,0px\)\]/)
   })
 
@@ -247,5 +250,17 @@ describe('<BottomNav />', () => {
     // RecipeActionBar's bottom-offset depends on this token. Guard against
     // accidental removal that would silently re-introduce BUG-021.
     expect(css).toMatch(/--bottom-nav-height\s*:/)
+  })
+
+  // ───────── BUG-023 regression ─────────
+
+  it('chains var(--viewport-bottom-offset) into the bottom anchor (BUG-023)', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(resolve(here, './BottomNav.tsx'), 'utf8')
+    // Without the offset the nav lags the visual viewport when iOS/Chrome
+    // retracts the toolbar mid-scroll, leaving a transparent gap below the
+    // backdrop-blur'd row. Same grep-gate pattern as the BUG-021 token
+    // guard above.
+    expect(source).toMatch(/var\(--viewport-bottom-offset/)
   })
 })

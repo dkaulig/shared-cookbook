@@ -1013,7 +1013,7 @@ laut Regression-Test-Policy:
 
 ## BUG-023 · Gap unter BottomNav wenn Browser-Chrome beim Scrollen einzieht
 **Reported:** 2026-04-20
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — Option 1 aus dem Backlog umgesetzt: neue CSS-Custom-Property `--viewport-bottom-offset` (Default `0px` in `index.css` neben `--bottom-nav-height`), die von einem RAF-throttled `window.visualViewport`-Listener im `AppLayout`-`useEffect` gepflegt wird (`offset = max(0, innerHeight - vv.height)`). Feature-Detection: ohne `window.visualViewport` (Pre-iOS-13) bleibt der Wert `0px`. Drei Consumer applizieren den Offset im `bottom-[calc(... + var(--viewport-bottom-offset,0px))]`-Tail: `BottomNav` (mobile inset), `RecipeActionBar` (sticky bar, mobile + md+) und der Inline-Notifier auf demselben Element. Tests: `AppLayout.test.tsx` mit visualViewport-Stub (innerHeight=700, vv.height=600 → Offset 100px nach `resize`-fire + RAF-flush via `act`); Token-Guard in derselben Datei für `--viewport-bottom-offset` in `index.css`; Grep-Gates in `BottomNav.test.tsx` (1× var-Match) und `RecipeActionBar.test.tsx` (≥2× var-Match für Bar + Notifier). 1075 Web-Tests grün, Lint clean, Build ok.)
 **Severity:** medium (visual — BottomNav bleibt klickbar, man sieht nur
 durch die Lücke den darunter liegenden Seiten-Content; stört aber
 merklich auf Mobile und macht die App weniger "nativ"-wirkend)
