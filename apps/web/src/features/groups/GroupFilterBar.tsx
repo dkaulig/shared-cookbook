@@ -57,7 +57,7 @@ export function GroupFilterBar({
           placeholder="Rezept oder Zutat suchen…"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="flex-1 border-0 bg-transparent py-2.5 text-[15px] text-foreground outline-none placeholder:text-[hsl(var(--muted-foreground))]"
+          className="flex-1 border-0 bg-transparent py-2.5 text-base text-foreground outline-none placeholder:text-[hsl(var(--muted-foreground))]"
         />
       </label>
 
