@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type {
@@ -65,6 +65,7 @@ import { StepMarkdownToolbar } from './StepMarkdownToolbar'
 import { DifficultyPills } from './DifficultyPills'
 import type { DifficultyLevel } from './DifficultyPills'
 import { FormActionBar } from './FormActionBar'
+import { useBottomZoneSlot } from '@/components/layout/bottomZone'
 import { FormIntro } from './FormIntro'
 import { PhotoUploadGrid } from './PhotoUploadGrid'
 import { uploadRecipePhoto } from './recipePhotoApi'
@@ -867,6 +868,31 @@ function RecipeFormInner({
     submitPhase === 'uploading-photos'
   const hasCustomCategory = tagsByCategory.has('Custom')
 
+  // BUG-036 — push the 2-button form row into the unified Bottom-Zone
+  // slot. Previously `<FormActionBar>` rendered as a fixed overlay at
+  // the end of the page; now it lives in the same shared container as
+  // BottomNav itself. We route the button callbacks through refs so
+  // the slot doesn't need to refresh on every keystroke just to pick
+  // up the latest closure over form state. Refs are written from an
+  // effect (not during render) to satisfy the `react-hooks/refs`
+  // lint rule.
+  const cancelRef = useRef(cancel)
+  const submitRef = useRef(handleSubmit)
+  useEffect(() => {
+    cancelRef.current = cancel
+    submitRef.current = handleSubmit
+  })
+  useBottomZoneSlot(
+    <FormActionBar
+      mode={mode}
+      pending={isPending}
+      uploadingPhotos={submitPhase === 'uploading-photos'}
+      onCancel={() => cancelRef.current()}
+      onSubmit={() => void submitRef.current()}
+    />,
+    [mode, isPending, submitPhase],
+  )
+
   return (
     <>
       <RecipeFormTopNav mode={mode} onCancel={cancel} />
@@ -1273,13 +1299,8 @@ function RecipeFormInner({
         )}
       </main>
 
-      <FormActionBar
-        mode={mode}
-        pending={isPending}
-        uploadingPhotos={submitPhase === 'uploading-photos'}
-        onCancel={cancel}
-        onSubmit={() => void handleSubmit()}
-      />
+      {/* BUG-036 — the form's action row lives in the Bottom-Zone slot
+          now (see `useBottomZoneSlot(<FormActionBar … />)` above). */}
     </>
   )
 }

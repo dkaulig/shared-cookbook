@@ -5,6 +5,7 @@ import type { ComponentType, SVGProps } from 'react'
 import { cn } from '@/lib/utils'
 import { CreateActionSheet } from './CreateActionSheet'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
+import { useBottomZoneConsumer } from './bottomZone'
 
 /**
  * DS3 bottom navigation (mobile first).
@@ -27,6 +28,16 @@ import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
  * of the chrome zone) with the existing `pb-…` (give the row breathing
  * room above the home indicator) so both Android Chrome and iOS Safari
  * keep the row visually clear of dynamic browser chrome.
+ *
+ * BUG-036 — the fixed-bottom container is now a TWO-row composition:
+ * an optional contextual slot row (pushed in via `useBottomZoneSlot`)
+ * sits ABOVE the 5-item nav row, separated by a subtle border. Both
+ * rows share the same outer `fixed` wrapper so there is exactly ONE
+ * bottom-edge element to position. A ResizeObserver in
+ * `<BottomZoneProvider>` measures the outer container and writes its
+ * real rendered height into `--bottom-nav-height` so any consumer of
+ * that token (page padding, PwaUpdatePrompt) stays in sync when a
+ * slot mounts / unmounts.
  */
 type NavItem = {
   to: string
@@ -44,11 +55,13 @@ const items: NavItem[] = [
 export function BottomNav() {
   const [createSheetOpen, setCreateSheetOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const { slot, containerRef } = useBottomZoneConsumer()
 
   return (
     <>
-      <nav
-        aria-label="Hauptnavigation"
+      <div
+        ref={containerRef}
+        data-testid="bottom-zone-container"
         className={cn(
           // BUG-014: anchor `bottom` to the safe-area inset so the nav
           // is pushed above iOS/Android dynamic browser chrome instead
@@ -57,42 +70,56 @@ export function BottomNav() {
           // follows the visual viewport when iOS/Chrome retracts the
           // toolbar mid-scroll (closing the gap a backdrop-blur'd row
           // would otherwise reveal).
-          'fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))] z-30 flex items-stretch justify-around border-t border-border',
+          'fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))] z-30',
           // Keep the previous home-indicator padding so the row itself
           // also has breathing room from the very bottom edge on iOS.
           'pb-[env(safe-area-inset-bottom,0px)]',
           'bg-[hsl(var(--background)/0.92)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.82)]',
+          'border-t border-border',
           'md:hidden',
         )}
       >
-        {items.slice(0, 2).map((item) => (
-          <NavItemLink key={item.to} item={item} />
-        ))}
-
-        {/* Centre "+ neues Rezept" FAB — elevates above the row and owns
-            its own shadow so it reads as the primary action. BUG-008:
-            now opens the create-action sheet instead of navigating away. */}
-        <button
-          type="button"
-          aria-label="Neues Rezept"
-          aria-haspopup="dialog"
-          aria-expanded={createSheetOpen}
-          onClick={() => setCreateSheetOpen(true)}
-          className="relative flex flex-1 flex-col items-center gap-1 pb-3 pt-2 text-[11px] font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          <span
-            aria-hidden="true"
-            className="-mt-[14px] grid h-[52px] w-[52px] place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_6px_20px_-4px_rgba(180,83,9,0.55),0_2px_6px_rgba(0,0,0,0.1)] transition-colors hover:bg-[hsl(var(--primary-hover))]"
+        {slot != null && (
+          <div
+            data-testid="bottom-zone-slot"
+            className="flex items-stretch gap-2.5 px-3 py-2.5 border-b border-border/60"
           >
-            <Plus className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
-          </span>
-          <span>Neu</span>
-        </button>
+            {slot}
+          </div>
+        )}
+        <nav
+          aria-label="Hauptnavigation"
+          className="flex items-stretch justify-around"
+        >
+          {items.slice(0, 2).map((item) => (
+            <NavItemLink key={item.to} item={item} />
+          ))}
 
-        {items.slice(2).map((item) => (
-          <NavItemLink key={item.to} item={item} />
-        ))}
-      </nav>
+          {/* Centre "+ neues Rezept" FAB — elevates above the row and owns
+              its own shadow so it reads as the primary action. BUG-008:
+              now opens the create-action sheet instead of navigating away. */}
+          <button
+            type="button"
+            aria-label="Neues Rezept"
+            aria-haspopup="dialog"
+            aria-expanded={createSheetOpen}
+            onClick={() => setCreateSheetOpen(true)}
+            className="relative flex flex-1 flex-col items-center gap-1 pb-3 pt-2 text-[11px] font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <span
+              aria-hidden="true"
+              className="-mt-[14px] grid h-[52px] w-[52px] place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_6px_20px_-4px_rgba(180,83,9,0.55),0_2px_6px_rgba(0,0,0,0.1)] transition-colors hover:bg-[hsl(var(--primary-hover))]"
+            >
+              <Plus className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
+            </span>
+            <span>Neu</span>
+          </button>
+
+          {items.slice(2).map((item) => (
+            <NavItemLink key={item.to} item={item} />
+          ))}
+        </nav>
+      </div>
 
       {createSheetOpen && (
         <CreateActionSheet

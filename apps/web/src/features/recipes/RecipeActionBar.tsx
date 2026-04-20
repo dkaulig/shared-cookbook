@@ -26,7 +26,7 @@ export interface RecipeActionBarProps {
 }
 
 /**
- * DS5 sticky action bar for the recipe detail page. Mirrors
+ * DS5 contextual action bar for the recipe detail page. Mirrors
  * `.actionbar` in `docs/mockups/warme-kueche-recipe-detail.html`:
  *
  *  - Ghost "In Wochenplan" button — navigates to the recipe's group
@@ -38,9 +38,16 @@ export interface RecipeActionBarProps {
  *    mutation, then shows a success status on resolve or an alert on
  *    reject. Disables while pending.
  *
- * Positioning: `fixed bottom-0` with safe-area-inset padding so the bar
- * clears the iOS home indicator. On desktop (`md+`) the BottomNav is
- * hidden, so this bar sits at the viewport bottom directly.
+ * BUG-036 — previously rendered with its own `fixed bottom-[calc(--
+ * bottom-nav-height…)]` wrapper. Now renders as a plain 2-button row;
+ * positioning is handled by the Bottom-Zone slot inside BottomNav
+ * (`useBottomZoneSlot(<RecipeActionBar … />)` in `RecipeDetailPage`).
+ *
+ * The transient success / error notifier stays as a short-lived fixed
+ * overlay above the Bottom-Zone (z-50 so it clears BottomNav's z-30
+ * without colliding with shadcn dialogs at z-50+; dialogs trap focus,
+ * this toast does not, so the tie is visually acceptable). One-two-
+ * second flash; no layout claim on the content area.
  */
 export function RecipeActionBar({
   groupId,
@@ -75,58 +82,39 @@ export function RecipeActionBar({
 
   return (
     <>
-      <div
+      <button
+        type="button"
+        onClick={handleWochenplanClick}
         className={cn(
-          // BUG-021: must stack above BottomNav (z-30) so it stays tap-
-          // reachable during iOS Safari toolbar retraction scroll events.
-          'pointer-events-none fixed inset-x-0 z-40 flex justify-center px-3',
-          // Offset = full BottomNav footprint (--bottom-nav-height already
-          // includes the safe-area inset because BUG-014 double-applies the
-          // inset on BottomNav) + an extra inset so the bar also clears the
-          // iOS home indicator. On md+ BottomNav is `display:none`, so only
-          // the safe-area inset is needed. BUG-023 adds
-          // `--viewport-bottom-offset` so the bar tracks the visual
-          // viewport when iOS/Chrome retracts the toolbar mid-scroll.
-          'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))] md:bottom-[calc(env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))]',
+          'flex-1 inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--input))] bg-card px-4 py-[11px] text-[15px] font-semibold text-foreground',
+          'transition-colors hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))] active:scale-[0.99]',
         )}
       >
-        <div
-          className={cn(
-            'pointer-events-auto flex w-full max-w-3xl gap-2.5 rounded-[16px] border border-border bg-background/96 px-3 py-3 backdrop-blur-lg',
-            'shadow-[0_-8px_24px_-12px_rgba(28,25,23,0.18)]',
-          )}
-        >
-          <button
-            type="button"
-            onClick={handleWochenplanClick}
-            className={cn(
-              'flex-1 inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--input))] bg-card px-4 py-[13px] text-[15px] font-semibold text-foreground',
-              'transition-colors hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))] active:scale-[0.99]',
-            )}
-          >
-            <Calendar className="h-[18px] w-[18px]" aria-hidden="true" />
-            In Wochenplan
-          </button>
-          <button
-            type="button"
-            aria-label="Jetzt gekocht"
-            onClick={handleCookedClick}
-            disabled={markCookedPending}
-            className={cn(
-              'inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--primary))] bg-[hsl(var(--primary))] px-4 py-[13px] text-[15px] font-semibold text-[hsl(var(--primary-foreground))]',
-              'shadow-[0_4px_12px_-4px_rgba(180,83,9,0.45)] transition-colors hover:bg-[hsl(var(--primary-hover,var(--primary)))] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60',
-              'flex-[1.3]',
-            )}
-          >
-            <Check className="h-[18px] w-[18px]" strokeWidth={2.4} aria-hidden="true" />
-            {markCookedPending ? 'Speichere…' : 'Jetzt gekocht'}
-          </button>
-        </div>
-      </div>
+        <Calendar className="h-[18px] w-[18px]" aria-hidden="true" />
+        In Wochenplan
+      </button>
+      <button
+        type="button"
+        aria-label="Jetzt gekocht"
+        onClick={handleCookedClick}
+        disabled={markCookedPending}
+        className={cn(
+          'inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--primary))] bg-[hsl(var(--primary))] px-4 py-[11px] text-[15px] font-semibold text-[hsl(var(--primary-foreground))]',
+          'shadow-[0_4px_12px_-4px_rgba(180,83,9,0.45)] transition-colors hover:bg-[hsl(var(--primary-hover,var(--primary)))] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60',
+          'flex-[1.3]',
+        )}
+      >
+        <Check className="h-[18px] w-[18px]" strokeWidth={2.4} aria-hidden="true" />
+        {markCookedPending ? 'Speichere…' : 'Jetzt gekocht'}
+      </button>
 
       {/* Lightweight inline notifier — avoids pulling in a toast library.
           aria-live on the wrapper keeps SR users informed; sighted users
-          see the short message at the bottom of the page next to the bar. */}
+          see the short message above the Bottom-Zone. The notifier is
+          a separate fixed overlay because it's transient (1-2 s) and
+          shouldn't push the nav row up/down. z-50 clears BottomNav
+          (z-30) and matches the dialog layer without the focus-trap
+          behaviour. */}
       <div className="sr-only" aria-live="polite">
         {status}
       </div>
@@ -136,11 +124,11 @@ export function RecipeActionBar({
       {(status || error) && (
         <div
           className={cn(
-            'pointer-events-none fixed inset-x-0 z-[41] flex justify-center px-3',
-            // BUG-023: include `--viewport-bottom-offset` so the inline
-            // notifier follows the visual viewport in lockstep with the
-            // action bar above it.
-            'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px)+68px+var(--viewport-bottom-offset,0px))] md:bottom-[calc(env(safe-area-inset-bottom,0px)+80px+var(--viewport-bottom-offset,0px))]',
+            'pointer-events-none fixed inset-x-0 z-50 flex justify-center px-3',
+            // Track the rendered BottomNav height + visual-viewport
+            // offset so the toast floats just above the unified Bottom-
+            // Zone without its own positioning math per row count.
+            'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px)+12px)]',
           )}
         >
           {status && (

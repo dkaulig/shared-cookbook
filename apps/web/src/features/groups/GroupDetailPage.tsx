@@ -20,6 +20,7 @@ import { GroupDetailHeader } from './GroupDetailHeader'
 import { GroupFilterBar } from './GroupFilterBar'
 import { GroupMembersAndInvitesPanel } from './GroupMembersAndInvitesPanel'
 import { useGroup } from './hooks'
+import { useBottomZoneSlot } from '@/components/layout/bottomZone'
 
 /**
  * DS4 Group Detail page.
@@ -119,6 +120,28 @@ export function GroupDetailPage() {
     tagsReady: tagsQuery.isSuccess,
     onRandomRequest: handleRandom,
   })
+
+  // BUG-036 — replace the old floating round FAB (fixed bottom-right)
+  // with a full-width primary button in the unified Bottom-Zone slot.
+  // Same target (`/groups/:id/recipes/new`), just folded into the
+  // shared BottomNav container so there's no overlap math per page.
+  useBottomZoneSlot(
+    groupId ? (
+      <Link
+        to={`/groups/${groupId}/recipes/new`}
+        aria-label="Neues Rezept anlegen"
+        className={cn(
+          'flex-1 inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--primary))] bg-[hsl(var(--primary))] px-4 py-[11px] text-[15px] font-semibold text-[hsl(var(--primary-foreground))]',
+          'shadow-[0_4px_12px_-4px_rgba(180,83,9,0.45)] transition-colors hover:bg-[hsl(var(--primary-hover,var(--primary)))] active:scale-[0.99]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+        )}
+      >
+        <Plus className="h-[18px] w-[18px]" strokeWidth={2.4} aria-hidden="true" />
+        Neues Rezept
+      </Link>
+    ) : null,
+    [groupId],
+  )
 
   if (!groupId) return <Navigate to="/groups" replace />
 
@@ -327,37 +350,11 @@ export function GroupDetailPage() {
         )}
       </div>
 
-      {/* FAB — fixed bottom-right. The BottomNav's own centre FAB goes
-          to /groups (the group-picker); this one is contextual (creates
-          inside THIS group). Sits above BottomNav on mobile via bottom
-          inset math.
-          BUG-032: was `z-20` (same stacking context as BottomNav's
-          `z-30`) and hard-coded `96px` + `env(safe-area-inset-bottom)`.
-          That meant the BottomNav could hide the FAB on overlap and
-          the FAB did NOT follow iOS/Chrome's retracting toolbar (only
-          BottomNav did via `--viewport-bottom-offset`), which let the
-          FAB slide under the nav mid-scroll. Switched to `z-40` (above
-          BottomNav, below shadcn dialogs at z-50) and anchored to the
-          `--bottom-nav-height` + `--viewport-bottom-offset` tokens so
-          it tracks the BottomNav's real baseline. `+ 20px` is the
-          visual gap between the BottomNav's top edge and the FAB's
-          bottom edge. */}
-      <Link
-        to={`/groups/${groupId}/recipes/new`}
-        aria-label="Neues Rezept anlegen"
-        className={cn(
-          'fixed right-4 z-40 grid h-[56px] w-[56px] place-items-center rounded-full bg-primary text-primary-foreground',
-          'shadow-[0_8px_24px_-6px_rgba(180,83,9,0.55),0_2px_6px_rgba(0,0,0,0.08)]',
-          'transition-[background-color,transform] duration-150 hover:bg-[hsl(var(--primary-hover))] active:scale-95',
-          'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[hsl(var(--primary)/0.3)]',
-        )}
-        style={{
-          bottom:
-            'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + var(--viewport-bottom-offset, 0px) + 20px)',
-        }}
-      >
-        <Plus className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
-      </Link>
+      {/* BUG-036 — the contextual "Neues Rezept" button now lives in
+          the unified Bottom-Zone slot (see `useBottomZoneSlot` above).
+          The old floating round FAB has been replaced by a full-width
+          primary button for consistency with other contextual actions
+          (RecipeActionBar, FormActionBar). */}
     </div>
   )
 }

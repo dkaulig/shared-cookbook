@@ -9,6 +9,8 @@ import type { GroupDetail, RecipeSummaryDto } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { GroupDetailPage } from './GroupDetailPage'
+import { BottomZoneProvider } from '@/components/layout/bottomZone'
+import { BottomNav } from '@/components/layout/BottomNav'
 
 const detail: GroupDetail = {
   id: 'g1',
@@ -49,39 +51,45 @@ function withProviders(path: string): ReactNode {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: 0 } },
   })
+  // BUG-036 — the "Neues Rezept" CTA lives in the unified Bottom-Zone
+  // slot now, so the test tree must mount <BottomZoneProvider> and
+  // render <BottomNav> as a sibling for the slot to materialise.
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route
-            path="/groups/:id"
-            element={
-              <>
-                <GroupDetailPage />
-                <LocationProbe />
-              </>
-            }
-          />
-          <Route
-            path="/groups/:groupId/recipes/new"
-            element={
-              <>
-                <div data-testid="recipe-new-page">new</div>
-                <LocationProbe />
-              </>
-            }
-          />
-          <Route
-            path="/groups/:groupId/recipes/:recipeId"
-            element={
-              <>
-                <div data-testid="recipe-detail-page">detail</div>
-                <LocationProbe />
-              </>
-            }
-          />
-          <Route path="/groups" element={<div data-testid="groups-list">list</div>} />
-        </Routes>
+        <BottomZoneProvider>
+          <Routes>
+            <Route
+              path="/groups/:id"
+              element={
+                <>
+                  <GroupDetailPage />
+                  <LocationProbe />
+                </>
+              }
+            />
+            <Route
+              path="/groups/:groupId/recipes/new"
+              element={
+                <>
+                  <div data-testid="recipe-new-page">new</div>
+                  <LocationProbe />
+                </>
+              }
+            />
+            <Route
+              path="/groups/:groupId/recipes/:recipeId"
+              element={
+                <>
+                  <div data-testid="recipe-detail-page">detail</div>
+                  <LocationProbe />
+                </>
+              }
+            />
+            <Route path="/groups" element={<div data-testid="groups-list">list</div>} />
+          </Routes>
+          <BottomNav />
+        </BottomZoneProvider>
       </MemoryRouter>
     </QueryClientProvider>
   )
@@ -280,27 +288,27 @@ describe('<GroupDetailPage />', () => {
     expect(subnav.className).not.toContain('z-[9]')
   })
 
-  // BUG-032 — the page FAB ("Neues Rezept") used to sit at `z-20` with
-  // a hard-coded `bottom: calc(96px + env(safe-area-inset-bottom))`.
-  // That left it at the same stacking level as some page sub-navs and,
-  // more damagingly, it did NOT follow `--viewport-bottom-offset` the
-  // way BottomNav does — so on iOS/Chrome toolbar retract the FAB slid
-  // underneath the BottomNav. We now use `z-40` (above BottomNav z-30,
-  // below shadcn dialogs at z-50) and anchor `bottom` to both
-  // `--bottom-nav-height` and `--viewport-bottom-offset`.
-  it('FAB uses z-40 and anchors bottom to --bottom-nav-height + --viewport-bottom-offset (BUG-032)', async () => {
+  // BUG-036 — the "Neues Rezept" CTA migrated from a standalone
+  // fixed-bottom-right round FAB (BUG-032 z-40 + --bottom-nav-height
+  // inline style) into the unified Bottom-Zone slot inside BottomNav.
+  // The old fixed-positioning / inline-style are no longer our
+  // problem — the slot row's single container handles chrome retract
+  // tracking for ALL contextual actions at once. The contract this
+  // test now guards is: the Link renders INSIDE the slot testid, it
+  // points at `/recipes/new`, and it no longer carries any `fixed` /
+  // inline `bottom` style of its own.
+  it('"Neues Rezept" renders as a full-width button inside bottom-zone-slot (BUG-036)', async () => {
     render(withProviders('/groups/g1'))
-    const fab = await screen.findByRole('link', { name: /Neues Rezept/i })
-    expect(fab.className).toContain('z-40')
-    // Should NOT carry the old `z-20`.
-    expect(fab.className).not.toMatch(/\bz-20\b/)
-    // Inline-style bottom must reference BOTH runtime tokens — otherwise
-    // the FAB stops tracking BottomNav on chrome retract.
-    const bottom = (fab as HTMLElement).style.bottom
-    expect(bottom).toContain('var(--bottom-nav-height)')
-    expect(bottom).toContain('var(--viewport-bottom-offset')
-    // And no more hard-coded `96px` literal.
-    expect(bottom).not.toMatch(/\b96px\b/)
+    const link = await screen.findByRole('link', { name: /Neues Rezept/i })
+    const slot = screen.getByTestId('bottom-zone-slot')
+    expect(slot.contains(link)).toBe(true)
+    expect(link).toHaveAttribute('href', '/groups/g1/recipes/new')
+    // No standalone fixed positioning anymore — the wrapping BottomNav
+    // owns that. The link itself is a flex child.
+    expect(link.className).not.toMatch(/\bfixed\b/)
+    expect((link as HTMLElement).style.bottom).toBe('')
+    // Full-width-ish (flex-1) replacement for the old round FAB.
+    expect(link.className).toMatch(/\bflex-1\b/)
   })
 
   // BUG-020 regression — the page used to render TWO links/buttons whose

@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { RecipeFormPage } from './RecipeFormPage'
+import { BottomZoneProvider } from '@/components/layout/bottomZone'
+import { BottomNav } from '@/components/layout/BottomNav'
 import type {
   CreateRecipeRequest,
   RecipeImportDto,
@@ -61,12 +63,19 @@ beforeEach(() => {
 
 function withProviders(initialPath: string): ReactNode {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // BUG-036 — the save/cancel action row lives in the unified Bottom-
+  // Zone slot now, so we mount <BottomZoneProvider> + <BottomNav>
+  // around the form so the slot JSX materialises in the DOM tree and
+  // "Rezept speichern" / "Abbrechen" stay findable by role.
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initialPath]}>
-        <Routes>
-          <Route path="/groups/:groupId/recipes/new" element={<RecipeFormPage mode="create" />} />
-        </Routes>
+        <BottomZoneProvider>
+          <Routes>
+            <Route path="/groups/:groupId/recipes/new" element={<RecipeFormPage mode="create" />} />
+          </Routes>
+          <BottomNav />
+        </BottomZoneProvider>
       </MemoryRouter>
     </QueryClientProvider>
   )
@@ -863,16 +872,19 @@ describe('RecipeFormPage (create)', () => {
     return (
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={[initialPath]}>
-          <Routes>
-            <Route
-              path="/groups/:groupId/recipes/new"
-              element={<RecipeFormPage mode="create" />}
-            />
-            <Route
-              path="/groups/:groupId/recipes/:recipeId"
-              element={<div data-testid="detail-page" />}
-            />
-          </Routes>
+          <BottomZoneProvider>
+            <Routes>
+              <Route
+                path="/groups/:groupId/recipes/new"
+                element={<RecipeFormPage mode="create" />}
+              />
+              <Route
+                path="/groups/:groupId/recipes/:recipeId"
+                element={<div data-testid="detail-page" />}
+              />
+            </Routes>
+            <BottomNav />
+          </BottomZoneProvider>
         </MemoryRouter>
       </QueryClientProvider>
     )
@@ -2028,12 +2040,15 @@ describe('RecipeFormPage (create)', () => {
       return (
         <QueryClientProvider client={client}>
           <MemoryRouter initialEntries={[initialPath]}>
-            <Routes>
-              <Route
-                path="/groups/:groupId/recipes/new"
-                element={<RecipeFormPage mode="create" />}
-              />
-            </Routes>
+            <BottomZoneProvider>
+              <Routes>
+                <Route
+                  path="/groups/:groupId/recipes/new"
+                  element={<RecipeFormPage mode="create" />}
+                />
+              </Routes>
+              <BottomNav />
+            </BottomZoneProvider>
           </MemoryRouter>
         </QueryClientProvider>
       )
@@ -2342,16 +2357,19 @@ describe('RecipeFormPage (create)', () => {
           <MemoryRouter
             initialEntries={[`/groups/g1/recipes/${recipeId}/edit`]}
           >
-            <Routes>
-              <Route
-                path="/groups/:groupId/recipes/:recipeId/edit"
-                element={<RecipeFormPage mode="edit" />}
-              />
-              <Route
-                path="/groups/:groupId/recipes/:recipeId"
-                element={<div data-testid="detail-page" />}
-              />
-            </Routes>
+            <BottomZoneProvider>
+              <Routes>
+                <Route
+                  path="/groups/:groupId/recipes/:recipeId/edit"
+                  element={<RecipeFormPage mode="edit" />}
+                />
+                <Route
+                  path="/groups/:groupId/recipes/:recipeId"
+                  element={<div data-testid="detail-page" />}
+                />
+              </Routes>
+              <BottomNav />
+            </BottomZoneProvider>
           </MemoryRouter>
         </QueryClientProvider>
       )
@@ -2579,13 +2597,16 @@ describe('RecipeFormPage (create)', () => {
       return (
         <QueryClientProvider client={client}>
           <MemoryRouter initialEntries={[initialPath]}>
-            <Routes>
-              <Route
-                path="/groups/:groupId/recipes/new"
-                element={<RecipeFormPage mode="create" />}
-              />
-              <Route path="/rezepte/import" element={<div>ImportLandingStub</div>} />
-            </Routes>
+            <BottomZoneProvider>
+              <Routes>
+                <Route
+                  path="/groups/:groupId/recipes/new"
+                  element={<RecipeFormPage mode="create" />}
+                />
+                <Route path="/rezepte/import" element={<div>ImportLandingStub</div>} />
+              </Routes>
+              <BottomNav />
+            </BottomZoneProvider>
           </MemoryRouter>
         </QueryClientProvider>
       )
