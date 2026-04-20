@@ -1966,3 +1966,121 @@ Problem — der Heartbeat-Ramp ist korrekt implementiert, aber die
 Events werden eine Schicht drüber geblockt. "Test with provided links"-
 Regel hat geholfen den eigentlichen Root-Cause zu finden (SSH-Log-
 Inspection zeigte die Warnung sofort).
+
+---
+
+## BUG-036 · Vereinheitlichte Bottom-Zone: Context-Action-Row in die BottomNav integrieren
+**Reported:** 2026-04-20 (User-Vorschlag: "wäre es nicht sinnvoll oder
+einfacher an solchen stellen wo so zusätzliche buttons reinkommen, die
+direkt ins tab menü zu integrieren? dann hat man die nicht mehr darüber
+und muss die richtig positionieren")
+**Status:** `[ ] open`
+**Severity:** medium (struktureller Refactor — löst eine Klasse von
+Overlap-Bugs, nicht nur einen konkreten)
+
+**Inventur der betroffenen Stellen:**
+1. `apps/web/src/features/recipes/RecipeActionBar.tsx` — "In Wochenplan"
+   + "Jetzt gekocht" auf Rezept-Detail-Seite. Eigenes `fixed` + eigener
+   z-index + eigene Offset-Math relativ zu BottomNav.
+2. `apps/web/src/features/recipes/FormActionBar.tsx` — "Speichern" +
+   "Abbrechen" auf Rezept-Form (create/edit). Gleiche Struktur wie
+   RecipeActionBar.
+3. `apps/web/src/features/groups/GroupDetailPage.tsx:326-342` — runder
+   "Neues Rezept"-FAB bottom-right. BUG-032 hat schon auf z-40 +
+   `--bottom-nav-height`-Math umgebaut, aber bleibt ein separates
+   fixed-Element.
+
+Alle drei leben heute als **separate fixed-Elemente oberhalb der
+BottomNav**. Jedes muss seine Bottom-Position + z-Index relativ zur
+BottomNav richtig berechnen. Bei iOS-Chrome-Retract, bei
+Viewport-Offset-Wechsel, bei future BottomNav-Höhen-Änderungen → immer
+wieder Overlap-Risiko.
+
+**Design — Option (c) aus der Chat-Diskussion: Slot-Pattern**
+
+Neue React-Context-basierte Bottom-Zone:
+
+```tsx
+// apps/web/src/components/layout/bottomZone.tsx (neu)
+type SlotNode = ReactNode
+const BottomZoneContext = createContext<((n: SlotNode) => void) | null>(null)
+
+export function BottomZoneProvider({ children }: PropsWithChildren) {
+  const [slot, setSlot] = useState<SlotNode>(null)
+  return (
+    <BottomZoneContext.Provider value={setSlot}>
+      {children}
+      {/* BottomNav rendert die slot-row + nav-row zusammen */}
+      <BottomZoneBar slot={slot} />
+    </BottomZoneContext.Provider>
+  )
+}
+
+export function useBottomZoneSlot(node: SlotNode, deps: unknown[] = []) {
+  const set = useContext(BottomZoneContext)
+  useEffect(() => {
+    if (!set) return
+    set(node)
+    return () => set(null)
+  }, deps)  // caller controls re-render key
+}
+```
+
+`BottomZoneBar` komponiert in einem einzigen `<div className="fixed bottom-[...]">`:
+- optional obere Row mit `slot`-Content (falls vorhanden)
+- die bestehende 5-Item-Nav-Row
+
+Beide Rows teilen sich:
+- dieselben `env(safe-area-inset-bottom)` + `var(--viewport-bottom-offset)`-Rechnungen
+- denselben z-index (z-30)
+- dieselbe `border-t`, `backdrop-blur`, `bg-background/…`
+
+→ **Keine separate Positionierungs-Math, kein z-Stacking-Puzzle.**
+
+**Migrationen:**
+1. `RecipeActionBar` bekommt neue Signatur: statt `fixed`-Container nur
+   noch die 2-Button-JSX. `RecipeDetailPage` ruft
+   `useBottomZoneSlot(<RecipeActionBar … />, [groupId, recipeId])`.
+2. `FormActionBar` analog. `RecipeFormPage` ruft es auf.
+3. GroupDetailPage "Neues Rezept" FAB wird zu einem regulären Button
+   in der Slot-Row (mit Icon + "Neues Rezept"-Label), statt eines
+   floatenden runden FABs. Dadurch verliert die Seite zwar den "FAB-
+   Look" aber gewinnt Konsistenz mit anderen Pages.
+   Alternative für Suspect 3: Button bleibt rund + bottom-right, wird
+   aber ebenfalls über `useBottomZoneSlot` mit einem
+   `<FloatingRoundFab>`-Wrapper gerendert. Design-Entscheidung bei der
+   Implementation — wahrscheinlich ist die regulär-integrierte Variante
+   cleaner.
+
+**Grep-Gate als Regression-Test:**
+- Neue `test/tokens/bottom-zone.test.ts`: scannt `apps/web/src` nach
+  `fixed bottom-[calc` / `fixed .*bottom-\[` / `style={{ bottom:` auf
+  Komponenten-Source. Einzig erlaubte Matches: `BottomNav.tsx` selbst
+  (oder `BottomZoneBar.tsx`) + `PwaUpdatePrompt.tsx` (System-Update-
+  Banner, separater Layer).
+
+**Component-Tests:**
+- `BottomZoneBar.test.tsx`: mit Slot-Content rendert 2 Rows; ohne
+  Slot nur die Nav-Row.
+- `useBottomZoneSlot.test.tsx`: setzt Slot on mount, cleared on unmount,
+  updated on deps change.
+- `RecipeDetailPage.test.tsx`: assert die "In Wochenplan"-Buttons
+  rendern jetzt inside `data-testid="bottom-zone-slot"` (nicht mehr als
+  separates fixed-Element).
+
+**Scope-Guards:**
+- `PwaUpdatePrompt` bleibt ausserhalb — Update-Banner ist infra/system-
+  Layer, nicht Teil der Page-Content-Navigation.
+- Modale Dialoge (ConflictDialog, ConfirmDialog, EditSlotDialog etc.)
+  bleiben `fixed inset-0 z-50` — das sind Overlays, nicht Bottom-Zone-
+  Elemente.
+- BottomNav-Logik selbst (FAB mit CreateActionSheet, Safe-Area, etc.)
+  bleibt unverändert.
+
+**Rollback-Risiko:** medium — ist ein App-weiter Refactor, aber jede
+Migration ist einzeln reversibel (könnte auch slice-weise landen).
+
+**Empfohlener Plan:** einmaliger Agent-Dispatch mit vollem Design oben.
+Sequentiell: (1) Slot-Infra + BottomZoneBar + Provider, (2) RecipeActionBar
+migriert, (3) FormActionBar migriert, (4) GroupDetailPage FAB migriert,
+(5) grep-gate test. Alles in ein Commit weil logisch zusammengehörig.
