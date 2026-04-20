@@ -229,42 +229,33 @@ describe('<BottomNav />', () => {
     )
   })
 
-  // ───────── BUG-014 regression ─────────
+  // ───────── BUG-039 — hoppr-style flex-column layout ─────────
 
-  it('anchors the nav with a safe-area-inset-aware bottom + padding (BUG-014)', () => {
+  it('renders as a `flex-shrink-0` flex child with `.pb-safe` (BUG-039 — no `fixed`, no `bottom:`)', () => {
     renderAt('/')
-    // BUG-036 — the safe-area classes moved from the inner `<nav>` up
-    // to the outer Bottom-Zone container (`data-testid="bottom-zone-
-    // container"`) so that both the slot row and the nav row share
-    // one fixed-positioning + backdrop source of truth.
     const container = screen.getByTestId('bottom-zone-container')
-    // BUG-023 wraps the `bottom` anchor in a `calc(... + var(--viewport-
-    // bottom-offset, 0px))` chain; both forms keep the safe-area inset
-    // present, which is what BUG-014 actually guards against.
-    expect(container.className).toMatch(/bottom-\[(?:env\(safe-area-inset-bottom,0px\)|calc\(env\(safe-area-inset-bottom,0px\)\+[^\]]+)\]/)
-    expect(container.className).toMatch(/pb-\[env\(safe-area-inset-bottom,0px\)\]/)
+    // Under BUG-039 the nav is a plain sibling of `<main>` inside
+    // `AppLayout`'s fixed-viewport root. The container MUST carry
+    // `flex-shrink-0` (docks to the flex-bottom) and `.pb-safe`
+    // (home-indicator clearance) and MUST NOT be `fixed` or chain
+    // any `bottom-[…]` anchor.
+    expect(container.className).toMatch(/\bflex-shrink-0\b/)
+    expect(container.className).toMatch(/\bpb-safe\b/)
+    expect(container.className).not.toMatch(/\bfixed\b/)
+    expect(container.className).not.toMatch(/\bbottom-\[/)
   })
 
-  // ───────── BUG-021 regression ─────────
-
-  it('exposes a --bottom-nav-height custom property in index.css so overlays can clear the nav', () => {
-    const here = dirname(fileURLToPath(import.meta.url))
-    const css = readFileSync(resolve(here, '../../index.css'), 'utf8')
-    // RecipeActionBar's bottom-offset depends on this token. Guard against
-    // accidental removal that would silently re-introduce BUG-021.
-    expect(css).toMatch(/--bottom-nav-height\s*:/)
-  })
-
-  // ───────── BUG-023 regression ─────────
-
-  it('chains var(--viewport-bottom-offset) into the bottom anchor (BUG-023)', () => {
+  it('no longer chains var(--viewport-bottom-offset) / var(--bottom-nav-height) anywhere in BottomNav.tsx (BUG-039)', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(resolve(here, './BottomNav.tsx'), 'utf8')
-    // Without the offset the nav lags the visual viewport when iOS/Chrome
-    // retracts the toolbar mid-scroll, leaving a transparent gap below the
-    // backdrop-blur'd row. Same grep-gate pattern as the BUG-021 token
-    // guard above.
-    expect(source).toMatch(/var\(--viewport-bottom-offset/)
+    expect(source).not.toMatch(/var\(--viewport-bottom-offset/)
+    expect(source).not.toMatch(/var\(--bottom-nav-height/)
+  })
+
+  it('defines the `.pb-safe` utility in index.css so BottomNav can use it (BUG-039)', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(resolve(here, '../../index.css'), 'utf8')
+    expect(css).toMatch(/\.pb-safe\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom/)
   })
 
   // ───────── BUG-036 regression ─────────

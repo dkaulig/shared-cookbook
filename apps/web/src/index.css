@@ -92,22 +92,15 @@
   --caution-foreground: 20 85% 40%;
 
   /*
-   * BUG-021 — single source of truth for the mobile BottomNav footprint.
-   * 56px is the intrinsic `NavItemLink` min-height; `safe-area-inset-bottom`
-   * tracks the iOS home-indicator. Any fixed overlay (RecipeActionBar,
-   * status toasts, …) must clear this value to stay tap-reachable.
+   * BUG-039 — legacy fallback, no longer consumed. The hoppr-style
+   * flex-column layout in `AppLayout.tsx` makes `<main>` the sole
+   * scroll container, so no page needs to pad its content past the
+   * nav; the old runtime ResizeObserver that wrote a dynamic value
+   * here is gone. Kept as a `0px` fallback to avoid a silent break
+   * if any downstream `var(--bottom-nav-height)` consumer slips past
+   * the BUG-039 grep-sweep.
    */
-  --bottom-nav-height: calc(env(safe-area-inset-bottom, 0px) + 56px);
-
-  /*
-   * BUG-023 — runtime delta between layout-viewport and visual-viewport
-   * heights, written by the visualViewport listener mounted in AppLayout.
-   * `0px` is the baseline when the browser chrome is fully extended (or
-   * when the API is unavailable on legacy browsers). Fixed-bottom chrome
-   * adds this to its `bottom` so it tracks iOS/Chrome's retracting toolbar
-   * instead of leaving a transparent gap.
-   */
-  --viewport-bottom-offset: 0px;
+  --bottom-nav-height: 0px;
 
   /*
    * BUG-032 — single source of truth for the shared TopNav height, used
@@ -162,7 +155,7 @@
 html,
 body,
 #root {
-  min-height: 100dvh;
+  height: 100%;
 }
 
 body {
@@ -171,6 +164,31 @@ body {
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /*
+   * BUG-039 — root document never scrolls. `AppLayout` is
+   * `fixed inset-0 flex flex-col overflow-hidden` and `<main>` is
+   * the sole scroll container. Locking body overflow here is a
+   * belt-and-braces guarantee that the URL-bar retract animation
+   * never fires.
+   */
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/*
+ * BUG-039 — safe-area utilities, mirrors hoppr's `.pb-safe` / `.pt-safe`.
+ * Used on BottomNav (home-indicator clearance) + any header/nav that
+ * wants notch-aware top padding without hand-rolling arbitrary-value
+ * Tailwind classes.
+ */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
 }
 
 /*

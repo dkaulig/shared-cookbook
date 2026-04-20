@@ -3,7 +3,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -14,21 +13,21 @@ import type { PropsWithChildren, ReactNode } from 'react'
  *
  * The BottomNav is the single source of truth for everything that lives
  * at the bottom of a mobile viewport. Pages that used to render their
- * own `fixed bottom-[calc(--bottom-nav-height…)]` action bars
- * (`RecipeActionBar`, `FormActionBar`, GroupDetailPage FAB) now push a
- * contextual row into this slot via `useBottomZoneSlot`.
+ * own `fixed bottom-[…]` action bars (`RecipeActionBar`, `FormActionBar`,
+ * GroupDetailPage FAB) push a contextual row into this slot via
+ * `useBottomZoneSlot`.
  *
  *   - `<BottomZoneProvider>` wraps the authenticated app shell and owns
- *     the slot state + renders the `<BottomNav />` that consumes it.
+ *     the slot state.
  *   - `useBottomZoneSlot(node, deps)` sets the slot on mount / deps
  *     change and clears it on unmount. No exported setter — the hook is
  *     the single API.
  *
- * The Provider also measures the rendered height of the BottomNav
- * container via a ResizeObserver and writes it into
- * `--bottom-nav-height` on `:root`, so any consumer of that CSS token
- * (e.g. content-area `pb-[…]` padding, PwaUpdatePrompt) scales
- * automatically when a slot is mounted / unmounted.
+ * BUG-039 — the ResizeObserver that measured the rendered BottomNav
+ * height into `--bottom-nav-height` is gone. Under the hoppr-style
+ * flex-column layout, `<main>` is the scroll container and it already
+ * stops at the BottomNav's top edge natively; no page needs to pad its
+ * content to clear the nav anymore.
  */
 
 type SlotNode = ReactNode
@@ -36,77 +35,24 @@ type BottomZoneSetter = (node: SlotNode) => void
 
 const BottomZoneContext = createContext<BottomZoneSetter | null>(null)
 const BottomZoneSlotContext = createContext<SlotNode>(null)
-const BottomZoneMeasureContext = createContext<
-  ((node: HTMLElement | null) => void) | null
->(null)
 
 /**
- * Provides the slot state + the measurement plumbing. The nav itself
- * is rendered by the caller (usually `<AppLayout>`) as a SIBLING of
- * `children`, so this file never imports `BottomNav.tsx` — keeping the
- * hooks + context colocated with the provider without introducing a
- * circular module boundary between provider and consumer.
+ * Provides the slot state. The nav itself is rendered by the caller
+ * (usually `<AppLayout>`) as a sibling of `children`, so this file
+ * never imports `BottomNav.tsx` — keeping the hooks + context colocated
+ * with the provider without introducing a circular module boundary.
  */
 export function BottomZoneProvider({ children }: PropsWithChildren) {
   const [slot, setSlot] = useState<SlotNode>(null)
-  // Keep the measurement effect keyed off the latest element handed to
-  // us by BottomNav so we observe the right DOM node even if BottomNav
-  // remounts (e.g. during hot reload).
-  const [measuredEl, setMeasuredEl] = useState<HTMLElement | null>(null)
 
   const setSlotStable = useCallback<BottomZoneSetter>((node) => {
     setSlot(node)
   }, [])
 
-  const registerMeasureTarget = useCallback(
-    (node: HTMLElement | null) => setMeasuredEl(node),
-    [],
-  )
-
-  // ResizeObserver → `--bottom-nav-height`. One source of truth: we
-  // write the actual rendered outer-container height (safe-area pad +
-  // slot-row + nav-row) back onto `:root` so any `calc(var(--bottom-nav-
-  // height) + …)` consumer stays in sync without its own measurement.
-  useEffect(() => {
-    if (measuredEl == null) return
-    if (typeof window === 'undefined') return
-    const root = document.documentElement
-    const DEFAULT = 'calc(env(safe-area-inset-bottom, 0px) + 56px)'
-
-    if (typeof ResizeObserver === 'undefined') {
-      // jsdom / very old browsers — leave the index.css default in place.
-      root.style.setProperty('--bottom-nav-height', DEFAULT)
-      return
-    }
-
-    const apply = () => {
-      const h = measuredEl.getBoundingClientRect().height
-      // Guard against a momentary 0 during the initial paint — fall back
-      // to the CSS default so consumers don't collapse their padding.
-      if (h > 0) {
-        root.style.setProperty('--bottom-nav-height', `${Math.round(h)}px`)
-      } else {
-        root.style.setProperty('--bottom-nav-height', DEFAULT)
-      }
-    }
-
-    apply()
-    const ro = new ResizeObserver(apply)
-    ro.observe(measuredEl)
-    return () => {
-      ro.disconnect()
-      // Reset to CSS default on unmount so stale JS-written values
-      // don't shadow the stylesheet when the provider re-mounts.
-      root.style.setProperty('--bottom-nav-height', DEFAULT)
-    }
-  }, [measuredEl])
-
   return (
     <BottomZoneContext.Provider value={setSlotStable}>
       <BottomZoneSlotContext.Provider value={slot}>
-        <BottomZoneMeasureContext.Provider value={registerMeasureTarget}>
-          {children}
-        </BottomZoneMeasureContext.Provider>
+        {children}
       </BottomZoneSlotContext.Provider>
     </BottomZoneContext.Provider>
   )
@@ -153,24 +99,20 @@ export function useBottomZoneSlot(
 }
 
 /**
- * BottomNav-side hook: returns the current slot ReactNode, and a
- * callback ref that the nav wires to its outer fixed container so the
- * Provider can measure its height.
+ * BottomNav-side hook: returns the current slot ReactNode and a
+ * (legacy) ref callback. The ref was used by the BUG-036 ResizeObserver
+ * that wrote `--bottom-nav-height`; BUG-039 removed the observer but we
+ * keep the prop shape so BottomNav's JSX stays stable across the
+ * refactor. The ref is a no-op function now.
  */
 export function useBottomZoneConsumer(): {
   slot: SlotNode
   containerRef: (node: HTMLElement | null) => void
 } {
   const slot = useContext(BottomZoneSlotContext)
-  const registerMeasureTarget = useContext(BottomZoneMeasureContext)
-  // `registerMeasureTarget` is stable (useCallback in provider) — memo
-  // the wrapper so BottomNav's JSX doesn't re-attach the ref on every
-  // render.
-  const containerRef = useMemo(
-    () => (node: HTMLElement | null) => {
-      registerMeasureTarget?.(node)
-    },
-    [registerMeasureTarget],
-  )
-  return { slot, containerRef }
+  return { slot, containerRef: noopRef }
+}
+
+function noopRef(_node: HTMLElement | null): void {
+  // no-op — see BUG-039 notes on useBottomZoneConsumer.
 }

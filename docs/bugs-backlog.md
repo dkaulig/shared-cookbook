@@ -2173,3 +2173,92 @@ sation greift nie.
 Gering — nur `AppLayout.tsx` Effect-Body + `index.html` Meta-Tag.
 `window.visualViewport`-Fallback (`vv == null`) bleibt erhalten für
 Pre-iOS-13-Geräte.
+
+---
+
+## BUG-039 · BottomNav bleibt dockend: hoppr-Stil Flex-Column-Layout (body scroll lock)
+**Reported:** 2026-04-20 (User: "das [BottomNav-Retract-Gap] hat immer
+noch nicht hundertprozentig funktioniert. ich habe dann mal die App
+hoppr benutzt und da funktioniert es sauber — schau da mal wie die das
+umgesetzt haben.")
+**Status:** `[x] fixed` (2026-04-20 — vollständiger Layout-Refactor nach
+hoppr-Vorbild: `AppLayout`-Root ist jetzt `fixed inset-0 flex flex-col
+overflow-hidden`; `<main>` ist der einzige Scroll-Container
+(`flex-1 min-h-0 overflow-y-auto`); `BottomNav` ist `flex-shrink-0`-
+Sibling mit `.pb-safe` statt `position: fixed`. Da das Body-Dokument
+selbst nie scrollt, animiert die Browser-URL-Bar nie — kein Gap, kein
+Sprung, keine `--viewport-bottom-offset`-Kompensation mehr nötig. Die
+Patches aus BUG-014/021/023/032/036/037/038 (visualViewport-Listener,
+ResizeObserver auf `--bottom-nav-height`, `fixed bottom-[calc(env+var)]`
+auf der Nav) sind ersatzlos entfernt. Tests entsprechend umgeschrieben.)
+**Severity:** medium (visual — derselbe "dockt-nicht-wirklich-sauber-
+Effekt" wie BUG-037, der nach Schichtfixes immer noch nicht hundert-
+prozentig stabil war; nicht funktions-brechend, aber den "native-PWA"-
+Eindruck weiter beschädigt)
+
+### Research-Ergebnis (hoppr Production-PWA)
+hoppr's `TripView.tsx` (lines 509-600) demonstriert das Muster:
+
+```jsx
+<div className="fixed inset-0 flex flex-col overflow-hidden bg-gray-50">
+  <header className="flex-shrink-0 ...">…</header>
+  <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto">{content}</main>
+  <nav className="flex-shrink-0 ... pb-safe">…</nav>
+</div>
+```
+
+**Kernidee:** Body-Scroll sperren. Der Browser triggert die URL-Bar-
+Retract-Animation nur bei Seiten-Scroll. Wenn der Root nie scrollt,
+animiert die URL-Bar nie, und es gibt keinen Versatz zu kompensieren.
+
+- Root: `fixed inset-0 flex flex-col overflow-hidden` — füllt den
+  Viewport, verbietet Scroll auf dem Root selbst.
+- Header: `flex-shrink-0` — feste Höhe.
+- Main: `flex-1 min-h-0 overflow-y-auto` — der EINZIGE Scroll-
+  Container.
+- Nav: `flex-shrink-0` + `pb-safe` — Sibling-Flex-Child, NICHT
+  `position: fixed`. Safe-area-padding erledigt den Home-Indicator.
+
+KEIN visualViewport-Listener, KEIN `--viewport-bottom-offset`, KEIN
+`--bottom-nav-height` ResizeObserver — purer Flexbox-Aufbau.
+
+### Finale Lösung
+Vollständige Migration auf hoppr-Layout:
+1. `AppLayout.tsx`: Root → `fixed inset-0 flex flex-col overflow-hidden`.
+2. `BottomNav.tsx`: `flex-shrink-0 pb-safe`, keine `fixed`/`bottom-[…]`-
+   Klassen mehr.
+3. `bottomZone.tsx`: ResizeObserver + `--bottom-nav-height`-Write
+   entfernt — Pages brauchen keine BottomNav-Höhen-Kompensation mehr,
+   da `<main>` nativ an der Nav-Oberkante stoppt.
+4. `index.css`: `.pb-safe`/`.pt-safe`-Utilities ergänzt; Body bekommt
+   `overflow: hidden` + `overscroll-behavior: none` als Belt-and-
+   Suspenders-Scroll-Lock; `--viewport-bottom-offset` entfernt,
+   `--bottom-nav-height` als Fallback-`0px` belassen.
+5. `RecipeActionBar.tsx`: Notifier-Overlay nutzt jetzt
+   `bottom-[calc(env(safe-area-inset-bottom,0px)+88px)]` statt der
+   entfernten Token-Kette.
+6. `ChatPage.tsx`: `h-[calc(100dvh-…)]`-Math ersetzt durch `h-full`
+   (Parent-`<main>` liefert die richtige Höhe).
+7. `index.html`: Viewport-Meta unverändert (`interactive-widget=
+   resizes-content` bleibt sinnvoll für Keyboard-Interaktion).
+
+### Test-Strategie
+- `AppLayout.test.tsx`: BUG-023/BUG-037-visualViewport-Tests gelöscht.
+  Neue Invariante: Root-Div hat `fixed inset-0 flex flex-col overflow-
+  hidden`, `<main>` hat `flex-1 min-h-0 overflow-y-auto`.
+- `BottomNav.test.tsx`: `bottom-[calc(...)]`/`fixed`-Assertions ersetzt
+  durch `flex-shrink-0` + `.pb-safe` + Negative-Checks auf `fixed` /
+  `bottom-[` / `var(--viewport-bottom-offset)` / `var(--bottom-nav-
+  height)`.
+- `bottom-zone.test.ts`: Allowlist auf Transient-Overlays verengt
+  (PwaUpdatePrompt, RecipeActionBar-Notifier); BottomNav ist NICHT
+  mehr auf der Liste.
+- `viewport-meta.test.ts`: Unverändert.
+- `ChatPage.test.tsx` BUG-001-Block: `100dvh`-Assertion umgekehrt
+  (muss jetzt FEHLEN — `h-full` statt der alten Math).
+
+### Rollback
+Medium — App-weiter Refactor. Aber alle Änderungen leben in 5 Dateien
+(`AppLayout.tsx`, `BottomNav.tsx`, `bottomZone.tsx`, `index.css`,
+`RecipeActionBar.tsx` + `ChatPage.tsx`-1-Zeile) und sind in einem
+atomaren Commit landbar/revert-bar.

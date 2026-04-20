@@ -1,10 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { act, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
@@ -80,12 +77,28 @@ describe('<AppLayout />', () => {
     expect(container.querySelector('.auth-parchment')).toBeNull()
   })
 
-  it('reserves bottom space so content clears the fixed BottomNav', () => {
+  // ───────── BUG-039 — hoppr-style flex-column layout ─────────
+
+  it('wraps the shell in a `fixed inset-0 flex flex-col overflow-hidden` root', () => {
+    const { container } = renderAt('/')
+    // The outermost layout div carries the BUG-039 hoppr invariants:
+    // fixed + flex-column + overflow-hidden so the document never scrolls.
+    const root = container.firstElementChild as HTMLElement | null
+    expect(root).not.toBeNull()
+    expect(root?.className).toMatch(/\bfixed\b/)
+    expect(root?.className).toMatch(/\binset-0\b/)
+    expect(root?.className).toMatch(/\bflex\b/)
+    expect(root?.className).toMatch(/\bflex-col\b/)
+    expect(root?.className).toMatch(/\boverflow-hidden\b/)
+  })
+
+  it('`<main>` is the sole scroll container (flex-1 min-h-0 overflow-y-auto)', () => {
     const { container } = renderAt('/')
     const main = container.querySelector('main[data-app-shell="true"]')
     expect(main).not.toBeNull()
-    // Tailwind utility echoes the mockup's `padding-bottom: 88px + safe-area`.
-    expect(main?.className).toMatch(/pb-/)
+    expect(main?.className).toMatch(/\bflex-1\b/)
+    expect(main?.className).toMatch(/\bmin-h-0\b/)
+    expect(main?.className).toMatch(/\boverflow-y-auto\b/)
   })
 
   it('hides the shared TopNav on the recipe detail route (DS5 owns its own top bar)', () => {
@@ -105,115 +118,5 @@ describe('<AppLayout />', () => {
     renderAt('/groups/g1/recipes/new')
     expect(screen.queryByRole('banner')).toBeNull()
     expect(screen.getByTestId('recipe-new-child')).toBeInTheDocument()
-  })
-
-  // ───────── BUG-023 + BUG-037 regression ─────────
-
-  describe('--viewport-bottom-offset (BUG-023 + BUG-037)', () => {
-    type VVListener = (event: Event) => void
-    let listeners: Record<string, VVListener[]>
-    let vvStub: { height: number; addEventListener: (t: string, f: VVListener) => void; removeEventListener: (t: string, f: VVListener) => void }
-    let originalVV: PropertyDescriptor | undefined
-    let originalInnerHeight: number
-
-    beforeEach(() => {
-      listeners = { resize: [], scroll: [] }
-      vvStub = {
-        // "Chrome retracted" baseline — largest value the visual
-        // viewport will take. The effect captures this on mount.
-        height: 700,
-        addEventListener(type: string, fn: VVListener) {
-          listeners[type] ??= []
-          listeners[type].push(fn)
-        },
-        removeEventListener(type: string, fn: VVListener) {
-          listeners[type] = (listeners[type] ?? []).filter((l) => l !== fn)
-        },
-      }
-      originalVV = Object.getOwnPropertyDescriptor(window, 'visualViewport')
-      Object.defineProperty(window, 'visualViewport', {
-        configurable: true,
-        value: vvStub,
-      })
-      originalInnerHeight = window.innerHeight
-      Object.defineProperty(window, 'innerHeight', {
-        configurable: true,
-        value: 700,
-      })
-    })
-
-    afterEach(() => {
-      if (originalVV) {
-        Object.defineProperty(window, 'visualViewport', originalVV)
-      } else {
-        // jsdom's default — leave the prop undefined as it was on entry.
-        Reflect.deleteProperty(window, 'visualViewport')
-      }
-      Object.defineProperty(window, 'innerHeight', {
-        configurable: true,
-        value: originalInnerHeight,
-      })
-      document.documentElement.style.removeProperty('--viewport-bottom-offset')
-    })
-
-    async function fireVvResize() {
-      await act(async () => {
-        for (const fn of listeners.resize ?? []) fn(new Event('resize'))
-        await new Promise((r) => requestAnimationFrame(() => r(undefined)))
-      })
-    }
-
-    it('tracks max(vv.height) baseline and reports `max - current` on retract/expand cycles', async () => {
-      renderAt('/')
-      // Mount-time baseline write.
-      expect(
-        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
-      ).toBe('0px')
-
-      // (1) Chrome retracted (baseline) — no offset.
-      await fireVvResize()
-      expect(
-        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
-      ).toBe('0px')
-
-      // (2) Chrome shown — vv shrinks by 100px → offset = max(700) - 600.
-      vvStub.height = 600
-      await fireVvResize()
-      expect(
-        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
-      ).toBe('100px')
-
-      // (3) Chrome retracts again — vv back to 700 → offset = 0.
-      vvStub.height = 700
-      await fireVvResize()
-      expect(
-        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
-      ).toBe('0px')
-    })
-
-    it('ignores window.innerHeight entirely (BUG-037: innerHeight tracks chrome on Mobile)', async () => {
-      // The OLD formula was `innerHeight - vv.height`. Simulate a
-      // hostile mobile quirk where innerHeight is wildly smaller than
-      // vv.height; the new max-baseline formula must still produce a
-      // non-negative, non-nonsensical offset.
-      Object.defineProperty(window, 'innerHeight', {
-        configurable: true,
-        value: 500,
-      })
-      vvStub.height = 700
-      renderAt('/')
-      await fireVvResize()
-      expect(
-        document.documentElement.style.getPropertyValue('--viewport-bottom-offset'),
-      ).toBe('0px')
-    })
-  })
-
-  // ───────── BUG-023 CSS-token guard ─────────
-
-  it('defines --viewport-bottom-offset in index.css (BUG-023 token)', () => {
-    const here = dirname(fileURLToPath(import.meta.url))
-    const css = readFileSync(resolve(here, '../../index.css'), 'utf8')
-    expect(css).toMatch(/--viewport-bottom-offset\s*:/)
   })
 })

@@ -13,31 +13,18 @@ import { useBottomZoneConsumer } from './bottomZone'
  * Mirrors `.bottomnav` in `docs/mockups/warme-kueche-home.html`:
  *   Start · Gruppen · + FAB · Wochenplan · Profil
  *
- * - Sticky bottom + `backdrop-blur` + safe-area inset so the nav floats
- *   above a scrolling page and clears the iOS home indicator.
- * - Four symmetric items plus a centred FAB; the FAB now opens a
- *   `<CreateActionSheet>` (BUG-008) instead of jumping straight to
- *   `/groups`. The sheet branches into manual recipe / URL import / photo
- *   import / chat / new group.
+ * BUG-039 — hoppr-style flex-column layout. The nav is no longer a
+ * `fixed`-positioned overlay; it's a plain `flex-shrink-0` sibling of
+ * `<main>` inside `AppLayout`'s `fixed inset-0 flex flex-col` root.
+ * Because the root document never scrolls, the browser URL bar never
+ * animates → no gap to compensate for, no `visualViewport` listener,
+ * no `--viewport-bottom-offset` chain. Safe-area inset is handled
+ * with the `.pb-safe` utility (defined in `index.css`).
  *
- * BUG-014 — the nav previously sat with a flat `bottom-0` and a single
- * inline `paddingBottom: env(safe-area-inset-bottom)`. On iOS Safari the
- * URL-bar retraction animation could briefly overlap the row because the
- * `bottom` anchor itself ignored the safe-area inset. We now combine
- * `bottom-[env(safe-area-inset-bottom,0px)]` (push the whole nav up out
- * of the chrome zone) with the existing `pb-…` (give the row breathing
- * room above the home indicator) so both Android Chrome and iOS Safari
- * keep the row visually clear of dynamic browser chrome.
- *
- * BUG-036 — the fixed-bottom container is now a TWO-row composition:
- * an optional contextual slot row (pushed in via `useBottomZoneSlot`)
- * sits ABOVE the 5-item nav row, separated by a subtle border. Both
- * rows share the same outer `fixed` wrapper so there is exactly ONE
- * bottom-edge element to position. A ResizeObserver in
- * `<BottomZoneProvider>` measures the outer container and writes its
- * real rendered height into `--bottom-nav-height` so any consumer of
- * that token (page padding, PwaUpdatePrompt) stays in sync when a
- * slot mounts / unmounts.
+ * The Bottom-Zone slot pattern (BUG-036) stays intact: a contextual
+ * row (pushed in via `useBottomZoneSlot`) sits ABOVE the 5-item nav
+ * row, separated by a subtle border. Both rows share the same outer
+ * flex wrapper.
  */
 type NavItem = {
   to: string
@@ -63,17 +50,11 @@ export function BottomNav() {
         ref={containerRef}
         data-testid="bottom-zone-container"
         className={cn(
-          // BUG-014: anchor `bottom` to the safe-area inset so the nav
-          // is pushed above iOS/Android dynamic browser chrome instead
-          // of sitting flush against `bottom: 0`.
-          // BUG-023: also add `--viewport-bottom-offset` so the nav
-          // follows the visual viewport when iOS/Chrome retracts the
-          // toolbar mid-scroll (closing the gap a backdrop-blur'd row
-          // would otherwise reveal).
-          'fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))] z-30',
-          // Keep the previous home-indicator padding so the row itself
-          // also has breathing room from the very bottom edge on iOS.
-          'pb-[env(safe-area-inset-bottom,0px)]',
+          // BUG-039 — flex-shrink-0 + pb-safe. No `fixed`, no `bottom:`,
+          // no z-index: the parent `<AppLayout>` is a flex-column on a
+          // fixed-viewport root, so this sibling naturally docks to
+          // the bottom edge and spans the full width.
+          'flex-shrink-0 pb-safe',
           'bg-[hsl(var(--background)/0.92)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.82)]',
           'border-t border-border',
           'md:hidden',
