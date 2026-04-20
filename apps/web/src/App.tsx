@@ -19,6 +19,8 @@ import { ImportUrlPage } from '@/features/imports/ImportUrlPage'
 import { ImportPhotosPage } from '@/features/imports/ImportPhotosPage'
 import { ImportProgressPage } from '@/features/imports/ImportProgressPage'
 import { ChatPage } from '@/features/chat/ChatPage'
+import { ChatIndexRedirect } from '@/features/chat/ChatIndexRedirect'
+import { ChatRouteOutlet } from '@/features/chat/ChatRouteOutlet'
 import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
 import { MealPlanPage } from '@/features/mealplanning/MealPlanPage'
 import { ShoppingListPage } from '@/features/shoppinglist/ShoppingListPage'
@@ -93,7 +95,16 @@ export default function App() {
               path="/rezepte/import/:importId"
               element={<ImportProgressPage />}
             />
-            <Route path="/chat" element={<ChatPage />} />
+            {/* CR3 — /chat routes share a sessions-sidebar shell.
+                `/chat` itself redirects to the newest session (or mints
+                a fresh one when the user has none), and
+                `/chat/:sessionId` is the actual chat surface. Both
+                mount inside <ChatRouteOutlet /> which owns the
+                <ChatSessionsShell>. */}
+            <Route path="/chat" element={<ChatRouteOutlet />}>
+              <Route index element={<ChatIndexRedirect />} />
+              <Route path=":sessionId" element={<ChatPage />} />
+            </Route>
             <Route path="/wochenplan" element={<WochenplanStub />} />
             <Route path="/profil" element={<ProfilStub />} />
           </Route>

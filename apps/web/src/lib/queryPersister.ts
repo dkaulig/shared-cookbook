@@ -64,15 +64,18 @@ export const persister = createAsyncStoragePersister({
 /**
  * Keys whose queries we explicitly DO NOT persist. Resuming these from
  * IDB after a reload would be actively wrong:
- * - `chat`: hydrating a stale chat session looks like the model is
- *   replying to yesterday's conversation.
  * - `imports` / `importStatus`: the progress poll is live-only; a
  *   hydrated half-finished "50%" would block forever on a missing job.
  * - `stagedPhoto` / `stagedPhotos`: SeaweedFS upload handles have TTLs;
  *   hydrating them points the UI at dead blobs.
+ *
+ * `chat` is handled separately inside {@link shouldDehydrateQuery} —
+ * the sessions-LIST index survives IDB (so the offline PWA can still
+ * show "your conversations" even without WiFi), but per-session
+ * message bodies and any other `['chat', …]` queries do not. A mid-
+ * stream reload must never resurrect stale tokens.
  */
 const EPHEMERAL_KEY_PREFIXES: readonly string[] = [
-  'chat',
   'imports',
   'importStatus',
   'stagedPhoto',
@@ -89,6 +92,16 @@ export function shouldDehydrateQuery(query: {
   state: { status: string }
 }): boolean {
   const head = query.queryKey[0]
+  if (head === 'chat') {
+    // CR3 — allow the sessions-list index to survive reload so the
+    // offline-first PWA renders yesterday's conversations when there's
+    // no WiFi. Message bodies (and any other `['chat', …]` key) still
+    // skip IDB so a mid-stream reload can't resurrect stale tokens.
+    if (query.queryKey[1] === 'sessions') {
+      return query.state.status === 'success'
+    }
+    return false
+  }
   if (typeof head === 'string' && EPHEMERAL_KEY_PREFIXES.includes(head)) {
     return false
   }
