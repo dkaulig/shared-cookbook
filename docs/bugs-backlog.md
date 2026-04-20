@@ -1339,3 +1339,147 @@ schichtig:
 - **Regression-Grep-Gate:** Test dass in `chatApi.ts` der Wire-Type
   `assistant_message` explizit deklariert ist (verhindert spätere
   Regression durch "type assertion nur" ohne Mapper).
+
+---
+
+## BUG-027 · Video-Import: Progress bleibt minutenlang bei 5%, dann plötzlich 100%
+**Reported:** 2026-04-20 (während Bug-Sweep-2)
+**Status:** `[ ] open`
+**Severity:** HIGH — PV1-PV4 ganzer Slice war darauf designed die
+0→5→100-Sprungstufe zu eliminieren. Aktuell tut der Slice in prod das
+nicht, weil Facebook-/Instagram-Downloads fragmentiert sind und
+yt-dlp für diese Quellen `total_bytes=0` liefert.
+**Where:**
+- `apps/python-extractor/src/extractor/pipeline/url.py:574-588` —
+  `_safe_percent(done, total)` returnt **0** sobald `total <= 0`. Mit
+  einem FB-m3u8-Stream bleibt `total_bytes=0` den gesamten Download
+  lang → `phase_progress=0` → kein erkennbarer Fortschritt.
+- `apps/python-extractor/src/extractor/pipeline/video.py:317-349` —
+  `_make_ytdlp_progress_wrapper` forwarded nur `downloaded_bytes` +
+  `total_bytes` (oder `total_bytes_estimate` als Fallback). FB liefert
+  häufig keinen davon zuverlässig.
+- `apps/python-extractor/src/extractor/progress.py:44` — `_THROTTLE_MS
+  = 500`. Events mit `phase_progress=0` gelten als "keine Änderung"
+  → werden bei wiederholtem gleichen Wert gefiltert.
+- `apps/web/src/features/live/useLiveSync.ts:160-170` — **sekundärer
+  Verschärfungsfaktor**: `applyImportProgressEvent` returnt silently
+  wenn kein `prev` (REST-GET noch nicht gelandet). Der ERSTE SignalR-
+  Event bei Import-Enqueue-plus-Navigate fällt ggf. immer weg.
+**Symptom:** User sieht beim Video-Import Phase "downloading" +
+"5 %" für 15–90 s (je nach Video-Länge). Dann plötzlich Sprung auf
+Transcribing oder direkt 100 %. Das PV4-Design-Ziel "progress feels
+alive" ist damit verfehlt.
+**Root cause (klar identifiziert):** FB + IG + TikTok-URLs resolven
+bei yt-dlp häufig zu m3u8-Fragment-Streams. `total_bytes` ist bei
+Fragmenten meist `None`/`0`, weil die Gesamtgröße erst nach
+Verkettung bekannt ist. `total_bytes_estimate` hilft nur manchmal.
+Ohne `total` ist `_safe_percent = 0`, was bedeutet die Download-
+Phase macht UI-seitig **null** sichtbare Fortschrittsangabe.
+**Likely fix — mehrschichtig, idealerweise alle 3:**
+1. **Python: phase_progress-Heuristik bei unbekanntem total**
+   (wichtigster Fix). `_make_ytdlp_progress_wrapper` nimmt optional
+   einen elapsed-time-Start-Timestamp auf; wenn `total==0`, berechnet
+   sich `phase_progress = min(95, int(elapsed_seconds * 3))` —
+   rampt linear in ~30 s auf 90 %, Cap bei 95 %, transitioniert dann
+   zur nächsten Phase. Zusatz: wenn yt-dlp `fragment_index` +
+   `fragment_count` mitliefert (häufig bei HLS), diese Werte
+   verwenden → `phase_progress = int(fragment_index / fragment_count
+   * 100)`. Echte relative Position wenn verfügbar, sonst elapsed-
+   time-Ramp.
+2. **Python: heartbeat-event alle 2 s während downloading +
+   transcribing + structuring**. asyncio-timer im `ProgressReporter`
+   emittiert force=True Event (umgeht Throttle) mit aktuellem Phase-
+   State. Frontend `StaleBanner` reagiert ab 30 s idle — Heartbeat
+   verhindert dass er aktiviert wird und signalisiert "alive".
+3. **Frontend: Skip-if-no-prev opportunistisch lockern** (SECURITY-
+   SENSIBEL!). Aktuell wird ein SignalR-Event verworfen wenn
+   REST-GET noch nicht gelandet ist. Security-Grund: Phantom-DTO für
+   fremde importId könnte Cache kompromittieren. ALTERNATIVE:
+   Phantom erlauben wenn URL-pathname `/rezepte/import/:id` mit
+   `id === payload.importId` matcht UND `importGroupMemo` für die
+   importId dasselbe `groupId` wie `payload.groupId` liefert →
+   trust-chain verifiziert. Dokumentieren als "opportunistic phantom
+   only on own-import own-group trust-chain".
+**Priority:** HIGH — Kernfeature-Demonstration nicht stabil. Option 1
+ist Must-have, Option 2 nice-to-have im selben Slice, Option 3
+separater kleiner Follow-up.
+**Test-Strategie:** Domain-Logic-Bug → Unit + Integration:
+- `test_pipeline_video.py`: neuer Test — mock yt-dlp-hook mit
+  3 Events (total_bytes=0, downloaded_bytes=steigend) über 2 s →
+  assert phase_progress steigt monoton von 0 auf > 0 dank
+  elapsed-time-Heuristik.
+- `test_pipeline_video.py`: mock info mit
+  `status="downloading", fragment_index=5, fragment_count=20` →
+  expect phase_progress ≈ 25.
+- `test_progress.py`: Heartbeat-Test, asyncio fake-clock 5 s laufen
+  lassen → assert ≥ 2 heartbeat-Events emittiert.
+- `useLiveSync.test.tsx`: falls Option 3 umgesetzt, trust-chain-
+  phantom-allow (match) + cross-group-phantom-reject.
+- Ops/Live-Smoke: `smoke-live.sh --import-url=<fb-url>` Assertion:
+  mindestens 5 **distinct phase_progress-Werte** innerhalb der
+  ersten 30 s (nicht nur 5 distinct phases).
+
+---
+
+## BUG-028 · Video-Import: Zutaten-Mengen durcheinander (2g in quantity, ~900g in description)
+**Reported:** 2026-04-20 (während Bug-Sweep-2, URL:
+`facebook.com/share/r/18gMgiLGLB/?mibextid=wwXIfr`)
+**Status:** `[ ] open`
+**Severity:** medium (Datenqualität — Rezept nach Import enthält
+nachweislich falsche Mengen, User muss manuell pflegen)
+**Where:**
+- `apps/python-extractor/src/extractor/prompts/recipe_extraction.py:130-170`
+  — `SYSTEM_PROMPT_DE` definiert nicht hart, dass Mengen-Strings wie
+  "900 g" komplett im `quantity`-Feld landen sollen statt in
+  `description` oder `note`.
+- `apps/python-extractor/src/extractor/pipeline/post_process.py` —
+  kein Validator der `\d+\s*(g|ml|kg|l)` in `description` catcht.
+- `apps/python-extractor/src/extractor/pipeline/url.py` — Whisper-
+  Transkript geht 1:1 an Azure. Bei verrauschter FB-Reel-Audio kann
+  Whisper Mengenangaben falsch hören ("zweihundert Gramm" → "2
+  hundert g") → Azure pickt die erste Zahl als `quantity`.
+**Symptom:** Nach Video-Import: Zutat z.B. `quantity="2", unit="g"`
+obwohl der tatsächliche Wert ~900 g war. Die ~900 g erscheinen
+freitext-artig in `description` oder `note`. Bei Portionsangaben
+("2 Personen, 900 g Fleisch") unklar ob Azure die Personenzahl als
+Menge interpretiert.
+**Root cause (vermutet, nicht live-reproduziert):** Zwei Faktoren:
+1. **Whisper-Quality**: FB-Reels mit leiser/verrauschter Audio +
+   Hintergrundmusik. Zahlen + Einheiten leiden zuerst.
+2. **Prompt-Tightening fehlt**: System-Prompt sagt nicht explizit
+   "Zahl+Einheit gehört IMMER in quantity+unit EINER Zutatenzeile,
+   NIE in description oder note".
+**Likely fix — 3 Optionen, 1+2 kombinierbar:**
+1. **Prompt-Härtung** (`recipe_extraction.py:130-170`, billig):
+   Zusatzabsatz: *"Wenn du eine Zahl mit Einheit hörst ('200 g',
+   '500 ml', '3 EL'), gehört sie IMMER in `quantity` + `unit` einer
+   Zutat-Zeile. Niemals in `description`, `note` oder andere Felder.
+   Bei Unsicherheit setze `confidence='uncertain'` UND ordne die
+   Menge trotzdem einer Zutat zu — lieber unsicher-mit-Menge als
+   sicher-ohne-Menge. NIEMALS Portionszahl ('2 Personen') als
+   Zutatenmenge interpretieren."*
+2. **Post-Process-Validator** (`post_process.py`, defense-in-depth):
+   Regex-Scan auf `description` + `ingredient.note` nach Mustern
+   `\b\d{1,4}\s*(?:g|kg|ml|l|EL|TL|Stück|Prise)\b`. Bei Treffern
+   Variante (a): confidence der umgebenden Zutat auf `uncertain`
+   downgrade + loggen. Variante (b): Menge heuristisch auf
+   matching-named Ingredient im Kontext-Window zuordnen. (a) ist
+   low-risk, (b) mächtiger aber kann Fehl-Zuordnungen machen —
+   (a) empfohlen für ersten Fix.
+3. **Whisper-language-Hint + Temperature**: wenn Audio-Sprache
+   detected als "de" → Whisper mit `language="de", temperature=0.0`.
+   Reduziert Zahlen-Halluzinationen. Eigener Slice-Scope.
+**Priority:** medium — Fix 1+2 zusammen dämpfen deutlich. Option 3
+ist größer.
+**Test-Strategie:** Domain-Logic-Bug → Unit-Test:
+- `test_post_process.py`: Theory mit 4 Cases:
+  - description "Klassischer Auflauf" + normale Zutaten → no warn.
+  - description "ca. 500 g Fleisch dazu" + Zutat Fleisch null-qty →
+    warn (auto-attach in Variante b).
+  - Zutat Fleisch note "900 g" + quantity=2 → warn + confidence-
+    downgrade.
+  - description "2 Personen" + Zutat Fleisch qty=2 → prompt-level
+    Abdeckung via mock-LLM-Integration-test.
+- `test_photo_prompts.py` / `test_url_prompts.py`: grep-style assert
+  dass SYSTEM_PROMPT_DE die Wörter "quantity", "description" und
+  "NIEMALS" im gleichen Absatz enthält (prompt-regression-gate).
