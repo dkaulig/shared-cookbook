@@ -759,7 +759,7 @@ assert dass nach Import das Recipe mindestens 1 Photo hat.
 
 ## BUG-019 · Such-Placeholder läuft aus dem Input-Feld heraus (GroupFilterBar)
 **Reported:** 2026-04-20
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — responsive placeholder via `useIsMobile` — `"Suchen…"` on mobile, full `"Rezept oder Zutat suchen…"` on md+; `aria-label` stays `"Suche"`)
 **Severity:** low (kosmetisch, kein Funktionsverlust — Input funktioniert,
 sieht nur abgeschnitten aus auf schmalen Viewports)
 **Where:** `apps/web/src/features/groups/GroupFilterBar.tsx:57` —

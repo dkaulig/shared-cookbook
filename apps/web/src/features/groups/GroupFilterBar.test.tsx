@@ -1,7 +1,31 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { GroupFilterBar } from './GroupFilterBar'
+
+/**
+ * `useIsMobile` reads `window.matchMedia`. jsdom ships with matchMedia
+ * returning `matches: false` (= desktop) by default, which is what most
+ * of these tests want. The BUG-019 regression tests below flip it to
+ * `true` to exercise the mobile placeholder branch. Mirrors the helper
+ * in `PhaseStepper.test.tsx`.
+ */
+function mockMatchMedia(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  })
+}
 
 /**
  * DS4 filter bar — `.filter-bar` in
@@ -164,6 +188,57 @@ describe('<GroupFilterBar />', () => {
     )
     const btn = screen.getByRole('button', { name: /Würfle/ })
     expect(btn).toBeDisabled()
+  })
+
+  describe('regression BUG-019: responsive search placeholder', () => {
+    // jsdom's default matchMedia reports matches: false (= desktop).
+    // We stub per-test and restore in afterEach so other tests in the
+    // suite keep seeing the desktop branch.
+    const originalMatchMedia = window.matchMedia
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: originalMatchMedia,
+      })
+    })
+
+    it('uses the full placeholder on desktop (md+)', () => {
+      mockMatchMedia(false)
+      render(
+        <GroupFilterBar
+          searchQuery=""
+          onSearchChange={() => {}}
+          activeFilterCount={0}
+          isFilterOpen={false}
+          onToggleFilter={() => {}}
+          onRandomPick={() => {}}
+          isRandomPending={false}
+        />,
+      )
+      const search = screen.getByRole('searchbox', { name: /suche/i })
+      expect(search).toHaveAttribute('placeholder', 'Rezept oder Zutat suchen…')
+    })
+
+    it('uses the short "Suchen…" placeholder on mobile (below md)', () => {
+      mockMatchMedia(true)
+      render(
+        <GroupFilterBar
+          searchQuery=""
+          onSearchChange={() => {}}
+          activeFilterCount={0}
+          isFilterOpen={false}
+          onToggleFilter={() => {}}
+          onRandomPick={() => {}}
+          isRandomPending={false}
+        />,
+      )
+      const search = screen.getByRole('searchbox', { name: /suche/i })
+      expect(search).toHaveAttribute('placeholder', 'Suchen…')
+      // The accessible name must stay the canonical "Suche" regardless
+      // of viewport — screen readers never see the shortened copy.
+      expect(search).toHaveAttribute('aria-label', 'Suche')
+    })
   })
 
   it('regression BUG-006: keeps the Zufall button inside the viewport on mobile', () => {
