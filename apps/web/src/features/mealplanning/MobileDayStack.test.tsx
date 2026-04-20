@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { MealPlanSlotDto, MealSlot } from '@familien-kochbuch/shared'
@@ -7,6 +7,20 @@ import { defaultOpenDays } from './mobileDayStackHelpers'
 
 const PLAN_ID = '11111111-1111-1111-1111-111111111111'
 const WEEK_START = '2026-04-20' // Monday
+
+// Pin "today" to the Sunday before WEEK_START so `defaultOpenDays` always
+// falls back to Monday-only regardless of the real clock. Without this
+// the suite is flaky whenever CI (or a dev machine) runs on a date that
+// lands inside the WEEK_START..+6d fixture window — then "tomorrow"
+// defaults open and the "collapsed other days" assertions break.
+// Using vi.setSystemTime without useFakeTimers so userEvent's real-timer
+// queue keeps working.
+beforeAll(() => {
+  vi.setSystemTime(new Date('2026-04-19T12:00:00Z'))
+})
+afterAll(() => {
+  vi.useRealTimers()
+})
 
 function makeSlot(
   id: string,
