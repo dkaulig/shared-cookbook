@@ -61,7 +61,13 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
+      includeAssets: [
+        'favicon.svg',
+        'icon-192.png',
+        'icon-512.png',
+        'icon-maskable-512.png',
+        'apple-touch-icon.png',
+      ],
       manifest: {
         name: 'Familien-Kochbuch',
         short_name: 'Kochbuch',
@@ -80,7 +86,11 @@ export default defineConfig({
         icons: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          // Dedicated maskable PNG with a ~20% safe-zone around the K
+          // glyph so iOS / Android can crop to a circle without clipping
+          // the letterform. Rendered from icon-maskable.svg in
+          // scripts/render-pwa-icons.js.
+          { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
