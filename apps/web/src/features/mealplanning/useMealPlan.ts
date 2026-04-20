@@ -15,6 +15,7 @@ import {
   fetchMealPlan,
   patchSlot,
 } from './mealPlanApi'
+import { buildIfMatch } from '@/features/_shared/ifMatch'
 
 /**
  * Centralised TanStack-Query key factory for the meal-planning cache.
@@ -125,14 +126,33 @@ export function usePatchSlot(groupId: string, weekStart: string, planId: string)
   return useMutation<
     MealPlanSlotDto,
     Error,
-    { slotId: string; patch: PatchSlotRequest },
+    {
+      slotId: string
+      patch: PatchSlotRequest
+      /**
+       * OFF4 — when present, overrides the cached plan-version for
+       * this call's `If-Match`. The conflict resolver uses this to
+       * retry against the server's current version after a 409.
+       */
+      expectedVersion?: number
+    },
     { previous: MealPlanDto | null | undefined }
   >({
     // `gcTime: 0` evicts the mutation state the moment nothing observes
     // it — keeps an unmounted-mid-flight mutation from persisting a
     // half-applied optimistic snapshot into an unrelated week's cache.
     gcTime: 0,
-    mutationFn: ({ slotId, patch }) => patchSlot(planId, slotId, patch),
+    mutationFn: ({ slotId, patch, expectedVersion }) => {
+      // OFF4 — backend enforces optimistic concurrency on the plan's
+      // version (a slot PATCH bumps the plan's Version). Read the
+      // current cached plan version or honour an override (keep-local
+      // retry path).
+      const cached = client.getQueryData<MealPlanDto | null>(queryKey)
+      const version = expectedVersion ?? cached?.version
+      const ifMatch =
+        planId && typeof version === 'number' ? buildIfMatch(planId, version) : undefined
+      return patchSlot(planId, slotId, patch, { ifMatch })
+    },
     onMutate: async (variables) => {
       // Cancel any in-flight refetch so it can't clobber the optimistic
       // snapshot after we apply it.

@@ -886,4 +886,75 @@ describe('<MealPlanPage />', () => {
       screen.queryByRole('heading', { name: /Plan enthält bereits Slots/i }),
     ).not.toBeInTheDocument()
   })
+
+  it('OFF4 — opens conflict dialog on 409 from slot PATCH; Keep-Local retries with new If-Match', async () => {
+    let patchCallCount = 0
+    const ifMatchHeaders: Array<string | null> = []
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [makeSlot('s1', { label: 'Spaghetti', isCooked: false })],
+        }),
+      ),
+      http.patch(`/api/mealplans/${PLAN_ID}/slots/s1`, async ({ request }) => {
+        patchCallCount++
+        ifMatchHeaders.push(request.headers.get('If-Match'))
+        if (patchCallCount === 1) {
+          // Server says: plan already moved to version 9.
+          const currentPlan: MealPlanDto = {
+            id: PLAN_ID,
+            groupId: GROUP_ID,
+            weekStart: WEEK_START,
+            version: 9,
+            createdAt: '2026-04-20T00:00:00Z',
+            updatedAt: '2026-04-20T00:00:00Z',
+            slots: [
+              makeSlot('s1', {
+                label: 'Spaghetti (Server)',
+                isCooked: false,
+              }),
+            ],
+          }
+          return HttpResponse.json(
+            {
+              code: 'version_mismatch',
+              message: 'Der Eintrag wurde zwischenzeitlich geändert.',
+              current: currentPlan,
+            },
+            { status: 409 },
+          )
+        }
+        return HttpResponse.json(
+          makeSlot('s1', { label: 'Spaghetti (Server)', isCooked: true }),
+        )
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+
+    await user.click(
+      await screen.findByTestId('mealplan-slot-cooked-toggle-s1'),
+    )
+
+    const dialog = await screen.findByRole('dialog', {
+      name: /Konflikt im Wochenplan/,
+    })
+    expect(dialog).toBeInTheDocument()
+
+    const keepLocalBtn = await screen.findByRole('button', {
+      name: /Lokal behalten/i,
+    })
+    await user.click(keepLocalBtn)
+
+    await waitFor(() => expect(patchCallCount).toBe(2))
+    // Retry carries If-Match with the new version 9.
+    expect(ifMatchHeaders[1]).toMatch(/W\/"[^"]+-9"/)
+  })
 })

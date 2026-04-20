@@ -4,9 +4,10 @@ import type {
   PatchShoppingListItemRequest,
   ShoppingListDto,
   ShoppingListItemDto,
+  VersionMismatchError as VersionMismatchErrorBody,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
-import { ApiErrorBase } from '@/features/_shared/apiError'
+import { ApiErrorBase, VersionMismatchError } from '@/features/_shared/apiError'
 import { stripUndefined } from '@/features/_shared/mergePatch'
 
 /**
@@ -28,7 +29,7 @@ export class ShoppingListApiError extends ApiErrorBase {
 
 async function request<T>(
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init?: import('@/features/auth/apiClient').ApiClientInit,
   emptyResult?: T,
 ): Promise<T> {
   const response = await apiClient(input, init)
@@ -50,6 +51,13 @@ async function throwApiError(response: Response): Promise<never> {
   }
   const code = payload?.code ?? `http_${response.status}`
   const message = payload?.message ?? response.statusText
+  // OFF4 — 409 version_mismatch surfaces as a typed VersionMismatchError
+  // so the conflict resolver hook can narrow via `instanceof`. All
+  // other failures keep the existing ShoppingListApiError path.
+  if (response.status === 409 && code === 'version_mismatch') {
+    const body = payload as unknown as VersionMismatchErrorBody | null
+    throw new VersionMismatchError(message, body?.current ?? null)
+  }
   throw new ShoppingListApiError(code, message, response.status)
 }
 
@@ -91,6 +99,7 @@ export async function patchShoppingListItem(
   listId: string,
   itemId: string,
   patch: PatchShoppingListItemRequest,
+  options?: { ifMatch?: string },
 ): Promise<ShoppingListItemDto> {
   return request<ShoppingListItemDto>(
     `/api/shopping-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`,
@@ -98,6 +107,7 @@ export async function patchShoppingListItem(
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(stripUndefined(patch)),
+      ifMatch: options?.ifMatch,
     },
   )
 }

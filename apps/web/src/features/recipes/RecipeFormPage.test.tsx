@@ -2322,4 +2322,124 @@ describe('RecipeFormPage (create)', () => {
       expect(title.className).toMatch(/\btext-base\b/)
     })
   })
+
+  describe('OFF4 — 409 conflict opens ConflictDialog and Keep-Local retries', () => {
+    function editModeProviders(recipeId: string): ReactNode {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      return (
+        <QueryClientProvider client={client}>
+          <MemoryRouter
+            initialEntries={[`/groups/g1/recipes/${recipeId}/edit`]}
+          >
+            <Routes>
+              <Route
+                path="/groups/:groupId/recipes/:recipeId/edit"
+                element={<RecipeFormPage mode="edit" />}
+              />
+              <Route
+                path="/groups/:groupId/recipes/:recipeId"
+                element={<div data-testid="detail-page" />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>
+      )
+    }
+
+    it('shows the conflict dialog on 409, then Keep-Local retries with If-Match set to the server version', async () => {
+      const RECIPE_ID = 'r-confl'
+      const user = userEvent.setup()
+      let putCallCount = 0
+      const ifMatchHeaders: Array<string | null> = []
+
+      const initialRecipe = {
+        id: RECIPE_ID,
+        groupId: 'g1',
+        createdByUserId: 'u1',
+        createdByDisplayName: 'U',
+        title: 'Bestehender Titel',
+        description: 'Alte Beschreibung',
+        defaultServings: 4,
+        difficulty: 1,
+        sourceType: 'Manual',
+        photos: [],
+        createdAt: '2026-04-18T00:00:00Z',
+        updatedAt: '2026-04-18T00:00:00Z',
+        version: 3,
+        ingredients: [
+          {
+            id: 'ing-1',
+            position: 0,
+            quantity: 100,
+            unit: 'g',
+            name: 'Mehl',
+            scalable: true,
+          },
+        ],
+        steps: [{ id: 'st-1', position: 0, content: 'Mischen.' }],
+        tags: [],
+        nutritionEstimate: null,
+      }
+
+      server.use(
+        http.get(`/api/recipes/${RECIPE_ID}`, () =>
+          HttpResponse.json(initialRecipe),
+        ),
+        http.get(`/api/recipes/${RECIPE_ID}/revisions`, () =>
+          HttpResponse.json([]),
+        ),
+        http.put(`/api/recipes/${RECIPE_ID}`, ({ request }) => {
+          putCallCount++
+          ifMatchHeaders.push(request.headers.get('If-Match'))
+          if (putCallCount === 1) {
+            return HttpResponse.json(
+              {
+                code: 'version_mismatch',
+                message: 'Der Eintrag wurde zwischenzeitlich geändert.',
+                current: {
+                  ...initialRecipe,
+                  version: 11,
+                  title: 'Server-Titel',
+                },
+              },
+              { status: 409 },
+            )
+          }
+          return HttpResponse.json({ ...initialRecipe, version: 12 })
+        }),
+      )
+
+      render(editModeProviders(RECIPE_ID))
+
+      // Wait for the form to render with the edit-mode initial state.
+      const title = await screen.findByLabelText(/Titel/i)
+      expect(title).toHaveValue('Bestehender Titel')
+
+      // Submit — in edit mode the action bar label is "Änderungen
+      // speichern". There's also a hidden sr-only submit inside the
+      // form; we pick the visible one.
+      const saveButtons = screen.getAllByRole('button', {
+        name: /Änderungen speichern/i,
+      })
+      await user.click(saveButtons[0]!)
+
+      // Dialog opens.
+      const dialog = await screen.findByRole('dialog', {
+        name: /Konflikt im Rezept/,
+      })
+      expect(dialog).toBeInTheDocument()
+
+      // Keep-Local retries.
+      await user.click(
+        within(dialog).getByRole('button', { name: /Lokal behalten/i }),
+      )
+
+      await waitFor(() => expect(putCallCount).toBe(2))
+      // First call's If-Match was the cached version 3; the retry must
+      // use the server's current version (11).
+      expect(ifMatchHeaders[1]).toMatch(/W\/"[^"]+-11"/)
+    })
+  })
 })

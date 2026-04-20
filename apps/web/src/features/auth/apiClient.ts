@@ -8,6 +8,9 @@ import { useAuthStore } from './authStore'
  *    the original request with the new token
  *  - on refresh failure, clears the auth store and returns the original 401
  *  - refuses to recurse when the failing call IS the refresh endpoint
+ *  - optionally sets an `If-Match` header (OFF4 optimistic-concurrency
+ *    opt-in — callers that already know the server-side Version pass it
+ *    through so the backend can reject a stale mutation with 409)
  *
  * Kept deliberately small — TanStack Query + the auth hooks sit on top
  * and can do higher-level error handling (redirect to login, toast, …).
@@ -20,9 +23,24 @@ export function __resetApiClient(): void {
   refreshInFlight = null
 }
 
+/**
+ * OFF4-compatible extension of `RequestInit`. The `ifMatch` field is
+ * preferred over setting the `If-Match` header directly on `init.headers`
+ * so upstream call-sites don't have to hand-build the ETag string — the
+ * `ETagHelper.Compute(id, version)` convention lives in a tiny frontend
+ * helper (`ifMatch.ts`) and callers just pipe its output through here.
+ *
+ * Every existing caller that doesn't pass `ifMatch` keeps the exact
+ * behaviour it had before OFF4 — the header is only attached when the
+ * field is present and non-empty.
+ */
+export interface ApiClientInit extends RequestInit {
+  ifMatch?: string
+}
+
 export async function apiClient(
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init?: ApiClientInit,
 ): Promise<Response> {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
   const isRefreshCall = url.endsWith(REFRESH_URL)
@@ -43,15 +61,24 @@ export async function apiClient(
 
 async function fetchWithAuth(
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init?: ApiClientInit,
 ): Promise<Response> {
   const { accessToken } = useAuthStore.getState()
   const headers = new Headers(init?.headers)
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+  // OFF4 — attach If-Match when the caller supplied a non-empty value.
+  // Backwards-compatible: callers without `ifMatch` continue working
+  // exactly as before, and the header only lands on the wire when we
+  // know the current cached Version.
+  if (init?.ifMatch) headers.set('If-Match', init.ifMatch)
   // TODO: CSRF hardening needed if cookie-based auth is added (today we
   // rely on Bearer tokens + SameSite=strict refresh cookie, so the
   // classic browser CSRF vector doesn't apply — revisit if that changes).
-  return fetch(input, { ...init, headers, credentials: 'include' })
+  // Strip the `ifMatch` key from the forwarded init — fetch() doesn't
+  // know about it and some engines warn on unknown RequestInit fields.
+  const { ifMatch: _omit, ...rest } = init ?? {}
+  void _omit
+  return fetch(input, { ...rest, headers, credentials: 'include' })
 }
 
 /**

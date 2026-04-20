@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Link,
   Navigate,
@@ -22,11 +22,17 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { cn } from '@/lib/utils'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
+import {
+  ConflictDialog,
+  useConflictResolver,
+} from '@/features/_shared/ConflictDialog'
+import { VersionMismatchError } from '@/features/_shared/apiError'
 import { AddSlotDialog } from './AddSlotDialog'
 import { DeleteSlotDialog } from './DeleteSlotDialog'
 import { EditSlotDialog } from './EditSlotDialog'
 import { MobileDayStack } from './MobileDayStack'
 import { SortableMealRow } from './SortableMealRow'
+import { SlotConflictBody } from './SlotConflictBody'
 import { SORT_ORDER_STEP } from './constants'
 import { MealPlanApiError, patchSlot as patchSlotApi } from './mealPlanApi'
 import {
@@ -124,6 +130,37 @@ export function MealPlanPage() {
   const planId = plan?.id ?? ''
   const patchMutation = usePatchSlot(groupId, weekStart || '', planId)
   const copyMutation = useCopyFromWeek(groupId, weekStart || '', planId)
+
+  // OFF4 — conflict resolver for slot patches. We track the last-
+  // dispatched patch so keep-local can re-fire it against the server's
+  // current plan-version. The dialog's wrapper type (`SlotWithVersion`)
+  // carries the plan's `version` so the resolver's generic constraint
+  // `T extends { version: number }` is satisfied — MealPlanSlotDto
+  // itself has no version field (the plan is the versioned aggregate).
+  const pendingPatchRef = useRef<
+    | {
+        slotId: string
+        patch: import('@familien-kochbuch/shared').PatchSlotRequest
+        local: MealPlanSlotDto
+      }
+    | null
+  >(null)
+  const conflict = useConflictResolver<MealPlanSlotDto & { version: number }>({
+    onKeepLocal: async (expectedVersion) => {
+      const pending = pendingPatchRef.current
+      if (!pending) return
+      await patchMutation.mutateAsync({
+        slotId: pending.slotId,
+        patch: pending.patch,
+        expectedVersion,
+      })
+    },
+    onKeepServer: () => {
+      void queryClient.invalidateQueries({
+        queryKey: mealPlanQueryKeys.forWeek(groupId, weekStart || ''),
+      })
+    },
+  })
 
   // `slotsByDayMeal` walks every slot + builds a 7×4 map; recomputing on
   // every render will start to matter once P3-3 drag adds re-render
@@ -245,12 +282,38 @@ export function MealPlanPage() {
 
   const handleToggleCooked = useCallback(
     (slot: MealPlanSlotDto, nextCooked: boolean) => {
-      patchMutation.mutate({
+      const patch: PatchSlotRequest = { isCooked: nextCooked }
+      const localProjection: MealPlanSlotDto = { ...slot, isCooked: nextCooked }
+      pendingPatchRef.current = {
         slotId: slot.id,
-        patch: { isCooked: nextCooked },
-      })
+        patch,
+        local: localProjection,
+      }
+      patchMutation.mutate(
+        { slotId: slot.id, patch },
+        {
+          onError: (err) => {
+            if (err instanceof VersionMismatchError) {
+              // Server 409 body is the full plan DTO (OFF3). Extract
+              // the matching slot for the dialog — the slot carries
+              // the plan's `version` for If-Match purposes so we copy
+              // it onto the slot's synthetic `version` field required
+              // by `useConflictResolver<T extends { version: number }>`.
+              const plan = err.current as
+                | { version: number; slots: MealPlanSlotDto[] }
+                | null
+              const serverSlot = plan?.slots?.find((s) => s.id === slot.id)
+              if (!plan || !serverSlot) return
+              conflict.captureFrom409(
+                { ...localProjection, version: plan.version },
+                { current: { ...serverSlot, version: plan.version } },
+              )
+            }
+          },
+        },
+      )
     },
-    [patchMutation],
+    [patchMutation, conflict],
   )
 
   // P3-9 "Plan der letzten Woche kopieren".
@@ -579,6 +642,23 @@ export function MealPlanPage() {
         }}
         isLoading={copyMutation.isPending}
       />
+
+      {conflict.state && (
+        <ConflictDialog<MealPlanSlotDto & { version: number }>
+          open={conflict.state.open}
+          onClose={conflict.close}
+          title="Konflikt im Wochenplan"
+          subtitle="Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll."
+          currentServer={conflict.state.serverCurrent}
+          localPending={conflict.state.localPending}
+          renderDiff={({ current, local }) => (
+            <SlotConflictBody current={current} local={local} />
+          )}
+          onKeepLocal={conflict.resolveKeepLocal}
+          onKeepServer={conflict.resolveKeepServer}
+          isLoading={patchMutation.isPending}
+        />
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -27,10 +27,18 @@ import {
 } from '@/features/mealplanning/weekGrid'
 import { safeGetItem, safeSetItem } from '@/features/_shared/safeStorage'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
+import {
+  ConflictDialog,
+  useConflictResolver,
+} from '@/features/_shared/ConflictDialog'
+import { VersionMismatchError } from '@/features/_shared/apiError'
+import { useQueryClient } from '@tanstack/react-query'
 import { AddItemDialog } from './AddItemDialog'
 import { CATEGORY_LABELS } from './categoryLabels'
+import { ItemConflictBody } from './ItemConflictBody'
 import { ShoppingListApiError } from './shoppingListApi'
 import {
+  shoppingListQueryKeys,
   useDeleteShoppingListItem,
   useGenerateShoppingList,
   usePatchShoppingListItem,
@@ -123,6 +131,35 @@ function ShoppingListView({
   const generate = useGenerateShoppingList(planId)
   const patchItem = usePatchShoppingListItem(planId, listId)
   const deleteItem = useDeleteShoppingListItem(planId, listId)
+  const queryClient = useQueryClient()
+
+  // OFF4 — conflict resolver for item patches. Captures the last
+  // dispatched patch so keep-local can re-dispatch with the server's
+  // current version.
+  const pendingPatchRef = useRef<
+    | {
+        itemId: string
+        patch: import('@familien-kochbuch/shared').PatchShoppingListItemRequest
+        local: ShoppingListItemDto
+      }
+    | null
+  >(null)
+  const conflict = useConflictResolver<ShoppingListItemDto & { version: number }>({
+    onKeepLocal: async (expectedVersion) => {
+      const pending = pendingPatchRef.current
+      if (!pending) return
+      await patchItem.mutateAsync({
+        itemId: pending.itemId,
+        patch: pending.patch,
+        expectedVersion,
+      })
+    },
+    onKeepServer: () => {
+      void queryClient.invalidateQueries({
+        queryKey: shoppingListQueryKeys.forPlan(planId),
+      })
+    },
+  })
 
   const [sortMode, setSortMode] = useState<SortMode>(() =>
     readSortMode(groupId, weekStart),
@@ -146,12 +183,34 @@ function ShoppingListView({
   const handleToggleChecked = useCallback(
     (item: ShoppingListItemDto) => {
       if (!listId) return
-      patchItem.mutate({
-        itemId: item.id,
-        patch: { isChecked: !item.isChecked },
-      })
+      const patch = { isChecked: !item.isChecked }
+      const localProjection: ShoppingListItemDto = { ...item, isChecked: !item.isChecked }
+      pendingPatchRef.current = { itemId: item.id, patch, local: localProjection }
+      patchItem.mutate(
+        { itemId: item.id, patch },
+        {
+          onError: (err) => {
+            if (err instanceof VersionMismatchError) {
+              // 409 body is the full ShoppingListDto (OFF3). Extract
+              // the matching item + stamp the list's version onto the
+              // wrapper so the resolver's `T extends { version }`
+              // constraint is happy without polluting the item DTO
+              // shape.
+              const list = err.current as
+                | { version: number; items: ShoppingListItemDto[] }
+                | null
+              const serverItem = list?.items?.find((i) => i.id === item.id)
+              if (!list || !serverItem) return
+              conflict.captureFrom409(
+                { ...localProjection, version: list.version },
+                { current: { ...serverItem, version: list.version } },
+              )
+            }
+          },
+        },
+      )
     },
-    [patchItem, listId],
+    [patchItem, listId, conflict],
   )
 
   const handleDelete = useCallback(
@@ -362,6 +421,23 @@ function ShoppingListView({
         onConfirm={handleConfirmDelete}
         isLoading={deleteItem.isPending}
       />
+
+      {conflict.state && (
+        <ConflictDialog<ShoppingListItemDto & { version: number }>
+          open={conflict.state.open}
+          onClose={conflict.close}
+          title="Konflikt in der Einkaufsliste"
+          subtitle="Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll."
+          currentServer={conflict.state.serverCurrent}
+          localPending={conflict.state.localPending}
+          renderDiff={({ current, local }) => (
+            <ItemConflictBody current={current} local={local} />
+          )}
+          onKeepLocal={conflict.resolveKeepLocal}
+          onKeepServer={conflict.resolveKeepServer}
+          isLoading={patchItem.isPending}
+        />
+      )}
     </div>
   )
 }
