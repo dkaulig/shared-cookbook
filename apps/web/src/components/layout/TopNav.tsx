@@ -30,7 +30,14 @@ export function TopNav() {
     <header
       role="banner"
       className={cn(
-        'sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/60 px-5 py-3',
+        // BUG-040 — `pt-safe` clears the iOS status-bar overlay in
+        // installed-PWA standalone mode. Without it, on notch devices
+        // the first ~47 px of the TopNav sits behind the translucent
+        // status bar, so the clickable content (logo + home-link) is
+        // pushed up against / partly behind the notch. In browser tabs
+        // and on non-notch devices `env(safe-area-inset-top)` = 0, so
+        // this is a no-op.
+        'sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/60 px-5 py-3 pt-safe',
         'bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/75',
       )}
     >
