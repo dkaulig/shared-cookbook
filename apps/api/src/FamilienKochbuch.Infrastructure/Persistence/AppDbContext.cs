@@ -34,6 +34,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RecipeImport> RecipeImports => Set<RecipeImport>();
     public DbSet<StagedPhoto> StagedPhotos => Set<StagedPhoto>();
     public DbSet<ChatUsageLog> ChatUsageLogs => Set<ChatUsageLog>();
+    public DbSet<ChatSession> ChatSessions => Set<ChatSession>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
     public DbSet<MealPlan> MealPlans => Set<MealPlan>();
     public DbSet<MealPlanSlot> MealPlanSlots => Set<MealPlanSlot>();
     public DbSet<ShoppingList> ShoppingLists => Set<ShoppingList>();
@@ -49,6 +51,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.ApplyConfiguration(new RecipeImportConfiguration());
         builder.ApplyConfiguration(new StagedPhotoConfiguration());
         builder.ApplyConfiguration(new ChatUsageLogConfiguration());
+        builder.ApplyConfiguration(new ChatSessionConfiguration());
+        builder.ApplyConfiguration(new ChatMessageConfiguration());
         builder.ApplyConfiguration(new MealPlanConfiguration());
         builder.ApplyConfiguration(new MealPlanSlotConfiguration());
         builder.ApplyConfiguration(new ShoppingListConfiguration());
