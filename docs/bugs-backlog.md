@@ -1777,3 +1777,148 @@ häufigem Scrollen. Bundle-Kandidat in der nächsten Mobile-Polish-Welle.
 
 ### Rollback-Risiko
 Gering — reine CSS-Layer-Korrekturen, keine Daten/API-Änderungen.
+
+---
+
+## BUG-033 · Video-Caption-URL: Kein Rezept extrahiert obwohl Link in Caption
+**Reported:** 2026-04-20 (URL: `facebook.com/share/r/18nmn8B7mU/?mibextid=wwXIfr`
+— User vermutet "war ein Link in der Caption")
+**Status:** `[ ] open`
+**Severity:** medium (Feature-Lücke — Caption-Link-Follow existiert via
+P2-2.1, aber greift nicht für alle FB-Reel-Muster).
+**Where:**
+- `apps/python-extractor/src/extractor/pipeline/url.py:173-183` —
+  `_SHORTENER_HOSTS` frozenset filtert `bit.ly`, `tinyurl.com`,
+  `lnk.bio`, `linktr.ee`, `t.co`, `ow.ly`, `buff.ly`. FB-Reels packen
+  die Rezept-URL oft als **bit.ly**- oder **linktr.ee**-Verkürzer in
+  die Caption, weil die native FB-Preview-Handling kürzer wirkt.
+- `apps/python-extractor/src/extractor/pipeline/url.py:115-` —
+  `_VIDEO_HOSTS` filtert Cross-Recursion auf IG / TikTok / YouTube.
+  Korrekt, nicht Teil des Bugs.
+**Prod-Evidenz** (Import `5da20fda-…`, Video `18nmn8B7mU`):
+- Status=`done`, ingredients=[], steps=[], title="Unbekanntes Rezept"
+- Azure tokens: 1229 prompt + 516 completion → Whisper-Transkript
+  kam durch, Azure hat analysiert und gesagt "kein Rezept"
+- thumbnail_url ist da (yt-dlp Metadaten funktionierten)
+- **Keine Caption-URL-Follow-Log-Einträge** in API/Python-Logs.
+**Root-cause-Hypothesen:**
+1. **Shortener-Filter greift zu breit** — wenn die Caption
+   `"Rezept: https://bit.ly/xyz"` enthält, wird das silent gedropped
+   statt per HEAD-request geresolved + gecrawled.
+2. **Caption hatte gar keinen Link** — Video ist wirklich kein Rezept.
+   Dann ist Pipeline OK, aber UX (BUG-034) fehlt.
+3. **Link war da aber Regex hat nicht gematcht** — z.B. Zero-width-
+   spaces, Unicode-Escapes, oder Tracking-Parameter die den URL-
+   Regex-Terminator früh triggern.
+**Fix-Plan (3 Optionen, kombinierbar):**
+1. **Shortener auflösen statt dropped**:
+   Neuer Helper `_resolve_shortener(url, max_redirects=3)` macht
+   einen HEAD-request mit 5s-Timeout, extrahiert `Location`-Header,
+   resolved bis zur finalen URL (oder max 3 redirects). Dann die
+   `_VIDEO_HOSTS`/`same-host`-Filter auf die finale URL anwenden.
+   Pro: echte Coverage für FB-Reels mit Shortenern. Kontra: eine
+   extra HEAD-request pro Caption mit Shortener (rate-limit-OK,
+   shorteners ratelimiten nicht aggressive).
+2. **Caption ins ResultJson persistieren** (Debug-UX):
+   Neuer Feld `recipe.caption_excerpt: str` auf ResultJson mit den
+   ersten ~500 Chars der Caption. Dann kann User in einem Debug-
+   Panel sehen was Azure überhaupt zum Analysieren hatte → schließt
+   "Hypothese 2" aus ohne Prod-DB-Inspect.
+3. **Caption-URL-Follow-Log auf INFO heben**: aktuell silent; bei
+   match loggen "caption_url_followed src=<host> target=<host>"; bei
+   filter-skip loggen "caption_url_skipped reason=shortener/video".
+   Kein Code-Fix, nur Observability — dann sehen wir zukünftig welche
+   Filter-Regel greift.
+**Empfohlen:** (3) zuerst zum Debuggen, dann (1) wenn bestätigt dass
+Shortener-Filter Hauptursache ist.
+**Priority:** medium — nicht kritisch, aber häufiges Failure-Pattern
+bei Short-Form-Video-Apps.
+**Test-Strategie:**
+- `test_extract_caption_blog_url`: neuer Case mit bit.ly + mock
+  HEAD-response → assert dass die resolved-URL zurückkommt, nicht null.
+- `test_extract_caption_blog_url_max_redirects`: bit.ly → goo.gl →
+  blog.example → assert follow, aber nach max 3 redirects stop.
+- Regression: alle bestehenden 6 Tests in `test_pipeline_url.py` für
+  Caption-URL-Parsing müssen grün bleiben.
+
+---
+
+## BUG-034 · Leeres Extraktions-Ergebnis: UX zeigt leeres Formular statt Fehler
+**Reported:** 2026-04-20 (User: "wenn kein rezept extrahiert werden kann
+sollte das so angezeigt werden mit begründung und nicht ein leeres
+rezept formular")
+**Status:** `[ ] open`
+**Severity:** HIGH — macht Pipeline-Failures wie echte Funktionsbugs
+aussehen; User kann nicht unterscheiden ob's der Extractor oder das
+Video war.
+**Where:**
+- **Backend**: `apps/python-extractor/src/extractor/pipeline/post_process.py`
+  returnt current einen Erfolg-Result auch wenn `ingredients=[]` UND
+  `steps=[]`. Der API-Job `ExtractRecipeFromUrlJob` speichert das als
+  `Status=Done`.
+- **Frontend**: `apps/web/src/features/recipes/RecipeFormPage.tsx`
+  rendert bei done-status + leerem Prefill das normale Formular — ohne
+  jede Information dass etwas fehlgeschlagen ist.
+**Symptom:** User sieht nach Video-Import ein fast-leeres Formular
+(nur Fallback-Title "Unbekanntes Rezept", manchmal ein Thumbnail),
+denkt "Extraktor kaputt". Tatsächlich hat Azure das Video bewusst
+als "kein Rezept" klassifiziert.
+**Root cause:** Keine Quality-Gate-Schicht zwischen "pipeline
+terminated ohne Exception" und "ergab ein brauchbares Rezept". Der
+Azure-Fallback-Title und Confidence "low" sind vorhanden aber werden
+nicht als UI-Signal verwendet.
+**Fix-Plan (Schichten, vollständig):**
+1. **Backend quality-gate** (`post_process.py`):
+   Nach dem Normalize-Loop: wenn
+   `len(ingredients) == 0 AND len(steps) == 0`, neuer Top-level-Flag
+   `result.recipe_empty = true` + `result.empty_reason: str` mit
+   einem aus drei Werten:
+   - `"no_recipe_detected"` (Default — Azure hat leeres Rezept
+     zurückgegeben, Transkript war nicht-rezeptartig)
+   - `"empty_transcript"` (wenn Whisper-Transkript < 40 Chars war
+     — separater Gate im url.py pipeline)
+   - `"extractor_error"` (sollte zu `Status=Error` gehen statt hier,
+     aber als Fallback)
+2. **Shared type** (`packages/shared/src/types/import.ts`):
+   `ExtractionResult` bekommt `recipeEmpty?: boolean` +
+   `emptyReason?: 'no_recipe_detected' | 'empty_transcript' | 'extractor_error'`.
+3. **Frontend** (`RecipeFormPage.tsx` wrapper):
+   Vor `<RecipeFormInner>` branchen:
+   ```tsx
+   if (prefill?.recipeEmpty) {
+     return <EmptyExtractionExplainer
+       reason={prefill.emptyReason}
+       sourceUrl={prefill.sourceUrl}
+       onRetry={() => navigate('/rezepte/import?url=' + ...)}
+       onProceedEmpty={() => setProceed(true)}  // state to skip the gate
+     />
+   }
+   ```
+4. **Neue Component** `EmptyExtractionExplainer.tsx`:
+   - Heading: "Kein Rezept erkannt"
+   - Body mit Reason-Erklärung:
+     - `no_recipe_detected`: "Aus diesem Video konnte kein Rezept
+       extrahiert werden. Möglicherweise enthält das Video kein
+       Kochrezept, oder der gesprochene Inhalt reicht nicht aus."
+     - `empty_transcript`: "Das Video enthielt keinen verwertbaren
+       Audio-Inhalt (nur Musik oder stumm)."
+     - `extractor_error`: "Bei der Analyse ist ein Fehler aufgetreten."
+   - Zwei Buttons: **"Anderes Video probieren"** (→ `/rezepte/import`)
+     + **"Trotzdem als leeres Rezept anlegen"** (proceed-flag → regular
+     form mit nur Thumbnail).
+   - Debug-collapsible "Was hat der Extractor bekommen?" zeigt
+     Caption-Excerpt (falls BUG-033-Option-2 implementiert ist).
+**Priority:** HIGH — bundle-Kandidat mit BUG-033 (Caption-Follow)
+für die "Video-Import Quality"-Fix-Welle. (3)+(4) können standalone
+landen, (1)+(2) brauchen Schema-Update + Migration-koordinierten
+Deploy.
+**Test-Strategie:**
+- **Backend**: `test_pipeline_post_process.py` — Theory mit 3 Cases:
+  leere ingredients+steps → recipe_empty=true + reason passend;
+  volle Zutaten → recipe_empty=false + reason=None;
+  leere nach dedupe (BUG-022) aber nicht Azure → recipe_empty=true.
+- **Shared**: type-round-trip test.
+- **Frontend**: `RecipeFormPage.test.tsx` — neue Tests:
+  render mit prefill.recipeEmpty=true → `EmptyExtractionExplainer`
+  rendert, `RecipeFormInner` NICHT; Click "Trotzdem anlegen" → flippt
+  auf Inner; Click "Anderes Video" → Navigation zu `/rezepte/import`.
