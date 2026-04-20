@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Outlet, useMatch } from 'react-router-dom'
 import { TopNav } from './TopNav'
 import { BottomNav } from './BottomNav'
+import { BottomZoneProvider } from './bottomZone'
 import { useLiveSync } from '@/features/live/useLiveSync'
 import { useBackgroundSyncMessage } from '@/features/offline/useBackgroundSyncMessage'
 
@@ -87,14 +88,23 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
-      {!hideTopNav && <TopNav />}
-      <main
-        data-app-shell="true"
-        className="relative flex-1 pb-[calc(88px+env(safe-area-inset-bottom,0px))] md:pb-10"
-      >
-        <Outlet />
-      </main>
-      <BottomNav />
+      {/* BUG-036 — the provider owns the Bottom-Zone slot state and
+          measures the rendered BottomNav height into `--bottom-nav-
+          height`. We keep `<BottomNav />` as a sibling of `children`
+          (rendered inside the provider's subtree so its
+          `useBottomZoneConsumer()` resolves) rather than letting the
+          provider render it, to avoid a circular import between
+          `bottomZone.tsx` and `BottomNav.tsx`. */}
+      <BottomZoneProvider>
+        {!hideTopNav && <TopNav />}
+        <main
+          data-app-shell="true"
+          className="relative flex-1 pb-[calc(88px+env(safe-area-inset-bottom,0px))] md:pb-10"
+        >
+          <Outlet />
+        </main>
+        <BottomNav />
+      </BottomZoneProvider>
     </div>
   )
 }

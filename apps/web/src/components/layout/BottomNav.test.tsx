@@ -12,6 +12,7 @@ import type { GroupSummary } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { BottomNav } from './BottomNav'
+import { BottomZoneProvider, useBottomZoneSlot } from './bottomZone'
 
 function renderAt(initialPath: string) {
   const client = new QueryClient({
@@ -232,15 +233,16 @@ describe('<BottomNav />', () => {
 
   it('anchors the nav with a safe-area-inset-aware bottom + padding (BUG-014)', () => {
     renderAt('/')
-    const nav = screen.getByRole('navigation', { name: /hauptnavigation/i })
-    // The exact Tailwind arbitrary-value class is the contract for the
-    // safe-area handling — assert both the position anchor and the row
-    // padding so a future refactor can't silently regress one of them.
+    // BUG-036 — the safe-area classes moved from the inner `<nav>` up
+    // to the outer Bottom-Zone container (`data-testid="bottom-zone-
+    // container"`) so that both the slot row and the nav row share
+    // one fixed-positioning + backdrop source of truth.
+    const container = screen.getByTestId('bottom-zone-container')
     // BUG-023 wraps the `bottom` anchor in a `calc(... + var(--viewport-
     // bottom-offset, 0px))` chain; both forms keep the safe-area inset
     // present, which is what BUG-014 actually guards against.
-    expect(nav.className).toMatch(/bottom-\[(?:env\(safe-area-inset-bottom,0px\)|calc\(env\(safe-area-inset-bottom,0px\)\+[^\]]+)\]/)
-    expect(nav.className).toMatch(/pb-\[env\(safe-area-inset-bottom,0px\)\]/)
+    expect(container.className).toMatch(/bottom-\[(?:env\(safe-area-inset-bottom,0px\)|calc\(env\(safe-area-inset-bottom,0px\)\+[^\]]+)\]/)
+    expect(container.className).toMatch(/pb-\[env\(safe-area-inset-bottom,0px\)\]/)
   })
 
   // ───────── BUG-021 regression ─────────
@@ -263,5 +265,52 @@ describe('<BottomNav />', () => {
     // backdrop-blur'd row. Same grep-gate pattern as the BUG-021 token
     // guard above.
     expect(source).toMatch(/var\(--viewport-bottom-offset/)
+  })
+
+  // ───────── BUG-036 regression ─────────
+
+  it('renders only the nav row (no slot) when no BottomZoneProvider is in the tree', () => {
+    renderAt('/')
+    // With no provider wrapping, `useBottomZoneConsumer` returns a null
+    // slot and no slot-row should render.
+    expect(screen.queryByTestId('bottom-zone-slot')).not.toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: /hauptnavigation/i })).toBeInTheDocument()
+  })
+
+  function renderWithSlotProvider(slotContent: ReactNode) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    })
+    function SlotMounter({ children }: { children: ReactNode }) {
+      useBottomZoneSlot(children, [children])
+      return null
+    }
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <BottomZoneProvider>
+            <SlotMounter>{slotContent}</SlotMounter>
+            <BottomNav />
+          </BottomZoneProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  }
+
+  it('renders a slot row ABOVE the nav row when a BottomZoneProvider + slot node are mounted (BUG-036)', async () => {
+    renderWithSlotProvider(<span data-testid="fake-slot">hello</span>)
+    const slotRow = await screen.findByTestId('bottom-zone-slot')
+    const navRow = screen.getByRole('navigation', { name: /hauptnavigation/i })
+    expect(slotRow).toBeInTheDocument()
+    expect(slotRow.textContent).toContain('hello')
+    // Both live inside the same Bottom-Zone container — the slot row
+    // must appear before the nav row in document order so it visually
+    // sits on top.
+    const container = screen.getByTestId('bottom-zone-container')
+    const children = Array.from(container.children)
+    const slotIdx = children.indexOf(slotRow)
+    const navIdx = children.indexOf(navRow)
+    expect(slotIdx).toBeGreaterThanOrEqual(0)
+    expect(navIdx).toBeGreaterThan(slotIdx)
   })
 })

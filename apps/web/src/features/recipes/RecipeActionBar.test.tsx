@@ -110,19 +110,37 @@ describe('RecipeActionBar', () => {
     })
   })
 
-  // ───────── BUG-021 regression ─────────
+  // ───────── BUG-036 regression — no more self-fixed wrapper ─────────
 
-  it('stacks the action bar above BottomNav (z >= 30)', () => {
+  // The bar used to render a `<div className="pointer-events-none fixed
+  // inset-x-0 z-40 …">` wrapper that hand-positioned itself above the
+  // BottomNav. BUG-036 migrated the buttons into the unified Bottom-
+  // Zone slot; the component must no longer render any `fixed` outer
+  // container of its own around the buttons.
+  it('does not render its own fixed-positioned button container (BUG-036)', () => {
     const { container } = renderBar()
-    // The ActionBar wrapper is the first fixed div. jsdom does not expand
-    // Tailwind arbitrary values via getComputedStyle, so fall back to a
-    // grep-style className assertion (documented in the BUG-021 backlog
-    // entry test-strategy).
-    const fixedBar = container.querySelector('div.fixed')
-    expect(fixedBar).not.toBeNull()
-    expect(fixedBar!.className).toMatch(/\bz-40\b/)
+    // The only acceptable `fixed` element is the transient status/error
+    // toast — and that only exists AFTER a click. On initial render
+    // there must be zero fixed elements.
+    const fixedElements = container.querySelectorAll('div.fixed, div.pointer-events-none.fixed')
+    expect(fixedElements).toHaveLength(0)
   })
 
+  it('buttons render as direct flex items (not wrapped in a bubble container) (BUG-036)', () => {
+    renderBar()
+    const btn = screen.getByRole('button', { name: /In Wochenplan/i })
+    // In the Bottom-Zone slot, the parent owns the flex row; the button
+    // itself must carry `flex-1`.
+    expect(btn.className).toMatch(/\bflex-1\b/)
+  })
+
+  // ───────── BUG-021 legacy note ─────────
+
+  // BUG-021 originally asserted the bar stacked above BottomNav via
+  // `z-40`. With BUG-036 the bar no longer positions itself — both the
+  // buttons and the BottomNav share the same z-30 container, so the
+  // stacking question is moot. We keep one anchoring test that the
+  // source file doesn't regress to a single-digit arbitrary z-index.
   it('does not use a z-index below 30 anywhere in RecipeActionBar.tsx', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(resolve(here, './RecipeActionBar.tsx'), 'utf8')
@@ -130,25 +148,5 @@ describe('RecipeActionBar', () => {
     // z-30. The bar previously had `z-[8]`; guard against any regression
     // that re-introduces a single-digit arbitrary z.
     expect(source).not.toMatch(/z-\[[0-9]\]/)
-  })
-
-  it('pins the bottom offset to the --bottom-nav-height token (not a hard-coded 72px)', () => {
-    const here = dirname(fileURLToPath(import.meta.url))
-    const source = readFileSync(resolve(here, './RecipeActionBar.tsx'), 'utf8')
-    expect(source).toMatch(/--bottom-nav-height/)
-    expect(source).not.toMatch(/env\(safe-area-inset-bottom,0px\)\+72px/)
-  })
-
-  // ───────── BUG-023 regression ─────────
-
-  it('chains var(--viewport-bottom-offset) into both the action bar and the inline notifier (BUG-023)', () => {
-    const here = dirname(fileURLToPath(import.meta.url))
-    const source = readFileSync(resolve(here, './RecipeActionBar.tsx'), 'utf8')
-    // Two consumers (the bar wrapper + the success/error notifier) must
-    // both pick up the offset so they track iOS/Chrome's retracting
-    // toolbar in lockstep — without this they would float above a
-    // transparent gap once the visual viewport grows.
-    const matches = source.match(/var\(--viewport-bottom-offset/g) ?? []
-    expect(matches.length).toBeGreaterThanOrEqual(2)
   })
 })

@@ -1974,7 +1974,7 @@ Inspection zeigte die Warnung sofort).
 einfacher an solchen stellen wo so zusätzliche buttons reinkommen, die
 direkt ins tab menü zu integrieren? dann hat man die nicht mehr darüber
 und muss die richtig positionieren")
-**Status:** `[ ] open`
+**Status:** `[x] fixed`
 **Severity:** medium (struktureller Refactor — löst eine Klasse von
 Overlap-Bugs, nicht nur einen konkreten)
 

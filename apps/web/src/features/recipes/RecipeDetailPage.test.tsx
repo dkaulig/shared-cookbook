@@ -9,6 +9,8 @@ import type { RecipeDetailDto } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { RecipeDetailPage } from './RecipeDetailPage'
+import { BottomZoneProvider } from '@/components/layout/bottomZone'
+import { BottomNav } from '@/components/layout/BottomNav'
 
 const recipe: RecipeDetailDto = {
   id: 'r1',
@@ -70,12 +72,18 @@ beforeEach(() => {
 
 function withProviders(path: string): ReactNode {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // BUG-036 — the "Jetzt gekocht" / "In Wochenplan" action bar moved
+  // into the unified Bottom-Zone slot, so tests must render
+  // <BottomZoneProvider> + <BottomNav> for the slot JSX to materialise.
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/groups/:groupId/recipes/:recipeId" element={<RecipeDetailPage />} />
-        </Routes>
+        <BottomZoneProvider>
+          <Routes>
+            <Route path="/groups/:groupId/recipes/:recipeId" element={<RecipeDetailPage />} />
+          </Routes>
+          <BottomNav />
+        </BottomZoneProvider>
       </MemoryRouter>
     </QueryClientProvider>
   )

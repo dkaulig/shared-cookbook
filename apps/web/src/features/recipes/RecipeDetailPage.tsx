@@ -20,6 +20,7 @@ import { NutritionSection } from './NutritionSection'
 import { RecipeHistoryPanel } from './RecipeHistoryPanel'
 import { RecipeActionBar } from './RecipeActionBar'
 import { ForkRecipeDialog } from './ForkRecipeDialog'
+import { useBottomZoneSlot } from '@/components/layout/bottomZone'
 
 /**
  * DS5 recipe-detail page. Composes the hero header, portion stepper,
@@ -64,6 +65,24 @@ export function RecipeDetailPage() {
   const currentSnapshot = useMemo(
     () => (detail.data ? toSnapshot(detail.data) : null),
     [detail.data],
+  )
+
+  // BUG-036 — push the contextual "In Wochenplan" + "Jetzt gekocht"
+  // row into the unified Bottom-Zone slot. Previously the action bar
+  // rendered inline at the end of the page with its own fixed-bottom
+  // wrapper. Hook must run before the early returns below so its order
+  // stays stable across re-renders.
+  const recipeIdForSlot = detail.data?.id ?? ''
+  useBottomZoneSlot(
+    detail.data && groupId ? (
+      <RecipeActionBar
+        groupId={groupId}
+        recipeId={recipeIdForSlot}
+        onMarkCooked={() => markCooked.mutateAsync()}
+        markCookedPending={markCooked.isPending}
+      />
+    ) : null,
+    [groupId, recipeIdForSlot, markCooked.isPending],
   )
 
   if (!recipeId) return <Navigate to={`/groups/${groupId}`} replace />
@@ -212,12 +231,9 @@ export function RecipeDetailPage() {
         </section>
       </main>
 
-      <RecipeActionBar
-        groupId={groupId}
-        recipeId={recipe.id}
-        onMarkCooked={() => markCooked.mutateAsync()}
-        markCookedPending={markCooked.isPending}
-      />
+      {/* BUG-036 — the sticky action row now lives in the Bottom-Zone
+          slot (see the `useBottomZoneSlot` call above). No inline
+          render here anymore. */}
 
       {forkDialogOpen && (
         <ForkRecipeDialog
