@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using FamilienKochbuch.Api.Http;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
@@ -148,6 +149,10 @@ public static class RecipeEndpoints
         DateTimeOffset? LastCookedAt,
         DateTimeOffset CreatedAt,
         DateTimeOffset UpdatedAt,
+        // OFF3: optimistic-concurrency counter the client mirrors into
+        // the If-Match header on subsequent PUT/PATCH/DELETE. Starts at
+        // 0 on a freshly created recipe; bumps once per mutation.
+        int Version,
         IngredientDto[] Ingredients,
         StepDto[] Steps,
         TagDto[] Tags,
@@ -326,6 +331,7 @@ public static class RecipeEndpoints
             recipe.LastCookedAt,
             recipe.CreatedAt,
             recipe.UpdatedAt,
+            recipe.Version,
             ingredients,
             steps,
             tags,
@@ -727,7 +733,7 @@ public static class RecipeEndpoints
         if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
-        return Results.Ok(detail);
+        return ETagHelper.Ok(detail, recipe.Id, recipe.Version);
     }
 
     // ── PUT /api/recipes/{id} ───────────────────────────────────────
@@ -735,6 +741,7 @@ public static class RecipeEndpoints
     private static async Task<IResult> UpdateRecipeAsync(
         Guid id,
         UpdateRecipeRequest body,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
         IPhotoStorage photoStorage,
@@ -748,6 +755,15 @@ public static class RecipeEndpoints
         if (recipe is null) return Results.NotFound();
 
         if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
+
+        // OFF3: optimistic-concurrency check. Absent If-Match is allowed
+        // (backward-compat with pre-OFF3 clients); a mismatched value
+        // returns 409 with the server's current detail as the `current`
+        // projection so the frontend can render the conflict UI.
+        var currentDtoForConflict = await ProjectDetailAsync(db, recipe, photoStorage, ct);
+        var conflict = ETagHelper.RequireMatchingVersion(
+            httpRequest, recipe, () => recipe.Id, currentDtoForConflict);
+        if (conflict is not null) return conflict;
 
         if (!await AreTagIdsValidForGroupAsync(db, body.TagIds, recipe.GroupId, ct))
             return FamilienResults.BadRequest("invalid_tag", "Ein oder mehrere Tags sind unbekannt oder gehören nicht zur Gruppe.");
@@ -796,6 +812,19 @@ public static class RecipeEndpoints
         {
             return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            // OFF3: someone else wrote to this recipe between our read
+            // and this save. Map to the same 409 shape as the If-Match
+            // check — re-project the current state so the client sees a
+            // fresh DTO + version.
+            var current = (await LoadRecipeWithChildrenAsync(db, id, ct))!;
+            var currentDto = await ProjectDetailAsync(db, current, photoStorage, ct);
+            return FamilienResults.Conflict(
+                "version_mismatch",
+                "Der Eintrag wurde zwischenzeitlich geändert.",
+                (object?)currentDto);
+        }
 
         // Reload to project the detail DTO from fresh state.
         recipe = (await LoadRecipeWithChildrenAsync(db, recipe.Id, ct))!;
@@ -807,7 +836,7 @@ public static class RecipeEndpoints
             recipe.Id, userId, RecipeChangeType.Edited, clock.GetUtcNow(), ct);
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
-        return Results.Ok(detail);
+        return ETagHelper.Ok(detail, recipe.Id, recipe.Version);
     }
 
     // ── DELETE /api/recipes/{id} ────────────────────────────────────

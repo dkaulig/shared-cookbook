@@ -19,6 +19,7 @@ const detail: GroupDetail = {
   isPrivateCollection: false,
   memberCount: 2,
   myRole: 'Admin',
+  version: 0,
   members: [
     { userId: 'u1', displayName: 'Alice', role: 'Admin', joinedAt: '2026-04-18T00:00:00Z' },
     { userId: 'u2', displayName: 'Bob', role: 'Member', joinedAt: '2026-04-18T00:00:00Z' },

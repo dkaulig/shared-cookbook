@@ -1,3 +1,5 @@
+using FamilienKochbuch.Domain.Common;
+
 namespace FamilienKochbuch.Domain.Entities;
 
 /// <summary>
@@ -6,8 +8,13 @@ namespace FamilienKochbuch.Domain.Entities;
 /// (<see cref="IsPrivateCollection"/> = true) which must never be deletable
 /// (PRD §4.4 — "Private Sammlung: implizite Ein-Personen-Gruppe, automatisch
 /// für jeden User angelegt").
+///
+/// OFF3: implements <see cref="IVersionedEntity"/> so every metadata edit
+/// (name, description, default-servings, cover) bumps a monotonically
+/// increasing <see cref="Version"/> used for ETag + optimistic
+/// concurrency on mutation endpoints.
 /// </summary>
-public class Group
+public class Group : IVersionedEntity
 {
     public const int NameMaxLength = 100;
     public const int DescriptionMaxLength = 500;
@@ -54,6 +61,7 @@ public class Group
         Name = trimmedName;
         Description = normalizedDescription;
         DefaultServings = defaultServings;
+        Version = 0;
         CreatedAt = createdAt;
         IsPrivateCollection = false;
     }
@@ -84,6 +92,18 @@ public class Group
 
     public DateTimeOffset? DeletedAt { get; private set; }
 
+    /// <summary>
+    /// OFF3 optimistic-concurrency token — monotonically increases by
+    /// one on every metadata edit or soft-delete. Starts at 0.
+    /// </summary>
+    public int Version { get; private set; }
+
+    /// <summary>
+    /// <see cref="IVersionedEntity.BumpVersion"/>. Every public mutation
+    /// on the aggregate invokes this exactly once per call.
+    /// </summary>
+    public void BumpVersion() => Version++;
+
     /// <summary>Soft-deletes the group. Throws when the group is the per-user
     /// Private Sammlung — that record is reserved and always present.</summary>
     public void SoftDelete(DateTimeOffset at)
@@ -93,12 +113,16 @@ public class Group
                 "Private Sammlung cannot be deleted.");
 
         DeletedAt = at;
+        BumpVersion();
     }
 
     /// <summary>Partial metadata update. Any null argument leaves the
     /// corresponding field untouched; <c>defaultServings</c> null means no
     /// change. All present fields are validated the same way as the
-    /// constructor.</summary>
+    /// constructor. Bumps <see cref="Version"/> exactly once per call
+    /// regardless of how many fields changed (mirrors the
+    /// <see cref="IVersionedEntity"/> contract — one mutation method
+    /// call = one version bump).</summary>
     public void UpdateMetadata(
         string? name,
         string? description,
@@ -148,5 +172,7 @@ public class Group
             var trimmed = coverImageUrl.Trim();
             CoverImageUrl = trimmed.Length == 0 ? null : trimmed;
         }
+
+        BumpVersion();
     }
 }

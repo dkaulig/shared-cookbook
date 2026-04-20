@@ -27,6 +27,7 @@ const recipe: RecipeDetailDto = {
   lastCookedAt: null,
   createdAt: '2026-04-18T00:00:00Z',
   updatedAt: '2026-04-18T00:00:00Z',
+  version: 0,
   ingredients: [
     { id: 'i1', position: 0, quantity: 500, unit: 'g', name: 'Mehl', note: null, scalable: true },
     { id: 'i2', position: 1, quantity: null, unit: 'Prise', name: 'Salz', note: null, scalable: false },
@@ -56,6 +57,7 @@ beforeEach(() => {
         isPrivateCollection: false,
         memberCount: 1,
         myRole: 'Admin',
+        version: 0,
         members: [],
       }),
     ),
@@ -169,6 +171,7 @@ describe('RecipeDetailPage', () => {
             isPrivateCollection: true,
             memberCount: 1,
             myRole: 'Admin',
+            version: 0,
           },
           {
             id: 'g2',
@@ -179,6 +182,7 @@ describe('RecipeDetailPage', () => {
             isPrivateCollection: false,
             memberCount: 2,
             myRole: 'Member',
+            version: 0,
           },
         ]),
       ),

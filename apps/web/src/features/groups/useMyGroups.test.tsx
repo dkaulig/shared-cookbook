@@ -41,6 +41,7 @@ describe('useMyGroups', () => {
             isPrivateCollection: false,
             memberCount: 1,
             myRole: 'Admin',
+            version: 0,
           },
         ]),
       ),

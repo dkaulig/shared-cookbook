@@ -90,6 +90,7 @@ describe('<GroupsPage />', () => {
             isPrivateCollection: true,
             memberCount: 1,
             myRole: 'Admin',
+            version: 0,
           },
           {
             id: 'fam',
@@ -100,6 +101,7 @@ describe('<GroupsPage />', () => {
             isPrivateCollection: false,
             memberCount: 2,
             myRole: 'Admin',
+            version: 0,
           },
         ]),
       ),
@@ -129,6 +131,7 @@ describe('<GroupsPage />', () => {
           isPrivateCollection: false,
           memberCount: 1,
           myRole: 'Admin',
+          version: 0,
         }
         current = [...current, newGroup]
         return HttpResponse.json(newGroup, { status: 201 })

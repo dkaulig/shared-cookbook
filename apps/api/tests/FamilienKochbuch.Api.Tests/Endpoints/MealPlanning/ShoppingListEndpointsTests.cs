@@ -719,4 +719,132 @@ public class ShoppingListEndpointsTests : IClassFixture<FamilienKochbuchWebAppli
 
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
     }
+
+    // ── OFF3 ETag + If-Match ─────────────────────────────────────────
+
+    [Fact]
+    public async Task GET_ShoppingList_Returns_ETag_Header()
+    {
+        var (userId, token) = await SignupAndLoginAsync("sl-etag@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId, "R", 2, (1m, "g", "Salz"));
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        await AddSlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2);
+        var list = await GenerateAsync(plan.Id);
+
+        var res = await _client.GetAsync($"/api/mealplans/{plan.Id}/shopping-list");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.True(res.Headers.Contains("ETag"));
+        var etag = res.Headers.GetValues("ETag").Single();
+        Assert.Equal($"W/\"{list.Id:D}-{list.Version}\"", etag);
+    }
+
+    [Fact]
+    public async Task PatchItem_With_Correct_IfMatch_Succeeds()
+    {
+        var (userId, token) = await SignupAndLoginAsync("sl-patch-ok@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId, "R", 2, (1m, "g", "Salz"));
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        await AddSlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2);
+        var list = await GenerateAsync(plan.Id);
+        var item = list.Items[0];
+
+        using var req = new HttpRequestMessage(HttpMethod.Patch,
+            $"/api/shopping-lists/{list.Id}/items/{item.Id}")
+        {
+            Content = new StringContent("""{"isChecked": true}""", Encoding.UTF8, "application/json"),
+        };
+        req.Headers.TryAddWithoutValidation("If-Match", $"W/\"{list.Id:D}-{list.Version}\"");
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task PatchItem_With_Stale_IfMatch_Returns_409_With_Current_List()
+    {
+        var (userId, token) = await SignupAndLoginAsync("sl-patch-stale@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId, "R", 2, (1m, "g", "Salz"));
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        await AddSlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2);
+        var list = await GenerateAsync(plan.Id);
+        var item = list.Items[0];
+        var staleVersion = list.Version;
+
+        // Move the list forward with a manual PATCH (no If-Match).
+        var firstPatch = await _client.PatchAsync(
+            $"/api/shopping-lists/{list.Id}/items/{item.Id}",
+            new StringContent("""{"isChecked": true}""", Encoding.UTF8, "application/json"));
+        firstPatch.EnsureSuccessStatusCode();
+
+        using var req = new HttpRequestMessage(HttpMethod.Patch,
+            $"/api/shopping-lists/{list.Id}/items/{item.Id}")
+        {
+            Content = new StringContent("""{"isChecked": false}""", Encoding.UTF8, "application/json"),
+        };
+        req.Headers.TryAddWithoutValidation("If-Match", $"W/\"{list.Id:D}-{staleVersion}\"");
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<OFF3ConflictBodyDto>();
+        Assert.NotNull(body);
+        Assert.Equal("version_mismatch", body!.Code);
+        Assert.NotNull(body.Current);
+        Assert.Equal(staleVersion + 1, body.Current!.Value.GetProperty("version").GetInt32());
+    }
+
+    [Fact]
+    public async Task PatchItem_Without_IfMatch_Succeeds_For_Backcompat()
+    {
+        var (userId, token) = await SignupAndLoginAsync("sl-patch-none@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId, "R", 2, (1m, "g", "Salz"));
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        await AddSlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2);
+        var list = await GenerateAsync(plan.Id);
+        var item = list.Items[0];
+
+        var res = await _client.PatchAsync(
+            $"/api/shopping-lists/{list.Id}/items/{item.Id}",
+            new StringContent("""{"isChecked": true}""", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task GET_ShoppingList_After_Multiple_Item_Mutations_Has_Incrementing_Version()
+    {
+        var (userId, token) = await SignupAndLoginAsync("sl-multi@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId, "R", 2, (1m, "g", "Salz"));
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        await AddSlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2);
+        var list = await GenerateAsync(plan.Id);
+        var item = list.Items[0];
+        var baseline = list.Version;
+
+        (await _client.PatchAsync(
+            $"/api/shopping-lists/{list.Id}/items/{item.Id}",
+            new StringContent("""{"isChecked": true}""", Encoding.UTF8, "application/json")))
+            .EnsureSuccessStatusCode();
+        (await _client.PatchAsync(
+            $"/api/shopping-lists/{list.Id}/items/{item.Id}",
+            new StringContent("""{"isChecked": false}""", Encoding.UTF8, "application/json")))
+            .EnsureSuccessStatusCode();
+
+        var res = await _client.GetAsync($"/api/mealplans/{plan.Id}/shopping-list");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var etag = res.Headers.GetValues("ETag").Single();
+        Assert.Equal($"W/\"{list.Id:D}-{baseline + 2}\"", etag);
+    }
+
+    private sealed record OFF3ConflictBodyDto(string Code, string Message, System.Text.Json.JsonElement? Current);
 }

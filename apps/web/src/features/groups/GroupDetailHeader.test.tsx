@@ -32,6 +32,7 @@ const baseGroup: GroupDetail = {
   isPrivateCollection: false,
   memberCount: 4,
   myRole: 'Admin',
+  version: 0,
   members: [
     member('u1', 'David'),
     member('u2', 'Maria'),

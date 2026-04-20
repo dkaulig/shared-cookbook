@@ -19,6 +19,7 @@ const GROUPS = [
     isPrivateCollection: true,
     memberCount: 1,
     myRole: 'Admin',
+    version: 0,
   },
   {
     id: 'g-target',
@@ -29,6 +30,7 @@ const GROUPS = [
     isPrivateCollection: false,
     memberCount: 2,
     myRole: 'Member',
+    version: 0,
   },
   {
     id: 'g-target-2',
@@ -39,6 +41,7 @@ const GROUPS = [
     isPrivateCollection: false,
     memberCount: 3,
     myRole: 'Admin',
+    version: 0,
   },
 ]
 

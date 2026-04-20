@@ -127,3 +127,4 @@ export type {
   RecipeImportProgressEventPayload,
 } from './recipeImport.ts'
 export { RECIPE_IMPORT_PHASES } from './recipeImport.ts'
+export type { VersionMismatchError } from './conflicts.ts'

@@ -33,6 +33,7 @@ function groupWith(overrides: Partial<GroupDetail> = {}): GroupDetail {
     isPrivateCollection: false,
     memberCount: 3,
     myRole: 'Admin',
+    version: 0,
     members: [
       member('u1', 'Alice', 'Admin'),
       member('u2', 'Bob', 'Member'),

@@ -32,6 +32,10 @@ internal sealed class ShoppingListItemConfiguration : IEntityTypeConfiguration<S
         e.Property(i => i.Source).HasConversion<int>().IsRequired();
         e.Property(i => i.SortOrder).IsRequired();
         e.Property(i => i.CarriedOverFromPreviousWeek).IsRequired();
+        // OFF3: Version powers the weak ETag + If-Match concurrency
+        // check on the per-item PATCH endpoint; IsConcurrencyToken adds
+        // a DB-level race guard for the rare parallel-write case.
+        e.Property(i => i.Version).IsRequired().IsConcurrencyToken();
         e.Property(i => i.CreatedAt).IsRequired();
         e.Property(i => i.UpdatedAt).IsRequired();
 

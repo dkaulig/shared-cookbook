@@ -1,9 +1,11 @@
 using System.Security.Claims;
+using FamilienKochbuch.Api.Http;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -36,7 +38,10 @@ public static class GroupEndpoints
         decimal DefaultServings,
         bool IsPrivateCollection,
         int MemberCount,
-        string MyRole);
+        string MyRole,
+        // OFF3: the optimistic-concurrency counter the client mirrors
+        // into If-Match on subsequent PUT /api/groups/{id}.
+        int Version);
 
     public record GroupMemberDto(Guid UserId, string DisplayName, string Role, DateTimeOffset JoinedAt);
 
@@ -49,6 +54,9 @@ public static class GroupEndpoints
         bool IsPrivateCollection,
         int MemberCount,
         string MyRole,
+        // OFF3: mirrors GroupSummaryDto.Version so both shapes expose
+        // the concurrency token.
+        int Version,
         GroupMemberDto[] Members);
 
     public record GroupInviteDto(
@@ -161,7 +169,7 @@ public static class GroupEndpoints
             .Select(e => new GroupSummaryDto(
                 e.Group.Id, e.Group.Name, e.Group.Description, e.Group.CoverImageUrl,
                 e.Group.DefaultServings, e.Group.IsPrivateCollection,
-                e.MemberCount, e.Role.ToString()))
+                e.MemberCount, e.Role.ToString(), e.Group.Version))
             .OrderByDescending(g => g.IsPrivateCollection)
             .ThenBy(g => g.Name, StringComparer.CurrentCulture)
             .ToArray();
@@ -193,15 +201,16 @@ public static class GroupEndpoints
         var detail = new GroupDetailDto(
             group.Id, group.Name, group.Description, group.CoverImageUrl,
             group.DefaultServings, group.IsPrivateCollection,
-            members.Count, myMembership.Role.ToString(),
+            members.Count, myMembership.Role.ToString(), group.Version,
             members.OrderBy(m => m.DisplayName, StringComparer.CurrentCulture).ToArray());
 
-        return Results.Ok(detail);
+        return ETagHelper.Ok(detail, group.Id, group.Version);
     }
 
     private static async Task<IResult> UpdateGroupAsync(
         Guid id,
         UpdateGroupRequest body,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
         CancellationToken ct)
@@ -216,6 +225,14 @@ public static class GroupEndpoints
         if (myMembership is null) return Results.Forbid();
         if (myMembership.Role != GroupRole.Admin) return Results.Forbid();
 
+        // OFF3 concurrency check. Absent If-Match proceeds unchanged
+        // (backward-compat path). Mismatch returns 409 with the current
+        // GroupSummary DTO so the frontend sees fresh server-state.
+        var summaryForConflict = await LoadSummaryAsync(db, group.Id, userId, ct);
+        var conflict = ETagHelper.RequireMatchingVersion(
+            httpRequest, group, () => group.Id, summaryForConflict);
+        if (conflict is not null) return conflict;
+
         try
         {
             group.UpdateMetadata(body.Name, body.Description, body.DefaultServings, body.CoverImageUrl);
@@ -225,9 +242,24 @@ public static class GroupEndpoints
             return FamilienResults.BadRequest("invalid_input", ex.Message);
         }
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Defense-in-depth: two writers raced past the If-Match
+            // check (possible when both arrived without If-Match, or
+            // both with the same stale ETag). Second writer gets 409.
+            var current = await LoadSummaryAsync(db, group.Id, userId, ct);
+            return FamilienResults.Conflict(
+                "version_mismatch",
+                "Der Eintrag wurde zwischenzeitlich geändert.",
+                (object?)current);
+        }
+
         var summary = await LoadSummaryAsync(db, group.Id, userId, ct);
-        return Results.Ok(summary);
+        return ETagHelper.Ok(summary, group.Id, group.Version);
     }
 
     private static async Task<IResult> DeleteGroupAsync(
@@ -639,7 +671,7 @@ public static class GroupEndpoints
         return new GroupSummaryDto(
             group.Id, group.Name, group.Description, group.CoverImageUrl,
             group.DefaultServings, group.IsPrivateCollection,
-            memberCount, myMembership.Role.ToString());
+            memberCount, myMembership.Role.ToString(), group.Version);
     }
 
     private static bool TryGetUserId(ClaimsPrincipal principal, out Guid userId)

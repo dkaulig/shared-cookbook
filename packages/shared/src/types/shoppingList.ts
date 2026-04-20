@@ -73,6 +73,14 @@ export interface ShoppingListItemDto {
 export interface ShoppingListDto {
   id: string
   mealPlanId: string
+  /**
+   * OFF3 optimistic-concurrency counter — mirrors
+   * `ShoppingList.Version`. Starts at 0 on a freshly-generated list;
+   * bumps by one on every mutation (regenerate, add manual item, edit
+   * item, delete item). Client echoes as `If-Match: W/"<id>-<version>"`
+   * on subsequent PATCH/POST/DELETE to detect conflicts.
+   */
+  version: number
   createdAt: string
   updatedAt: string
   lastGeneratedAt: string

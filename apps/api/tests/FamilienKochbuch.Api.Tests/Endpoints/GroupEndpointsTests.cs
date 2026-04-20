@@ -1020,4 +1020,113 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
         db.GroupMemberships.Add(m);
         await db.SaveChangesAsync();
     }
+
+    // ── OFF3 ETag + If-Match ─────────────────────────────────────────
+
+    [Fact]
+    public async Task GET_Group_Returns_ETag_Header_With_Version_Zero()
+    {
+        var (_, tok) = await SignupAndLoginAsync("etag-group@ex.com", "E");
+        AuthorizeClient(_client, tok);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("ETagGroup", null, null));
+        create.EnsureSuccessStatusCode();
+        var summary = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var res = await _client.GetAsync($"/api/groups/{summary.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.True(res.Headers.Contains("ETag"));
+        var etag = res.Headers.GetValues("ETag").Single();
+        Assert.Equal($"W/\"{summary.Id:D}-0\"", etag);
+    }
+
+    [Fact]
+    public async Task PUT_Group_With_Correct_IfMatch_Succeeds_And_Bumps_Version()
+    {
+        var (_, tok) = await SignupAndLoginAsync("ifmatch-g-ok@ex.com", "E");
+        AuthorizeClient(_client, tok);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("VerGroup", null, null));
+        var summary = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        using var req = new HttpRequestMessage(HttpMethod.Put, $"/api/groups/{summary.Id}")
+        {
+            Content = JsonContent.Create(
+                new GroupEndpoints.UpdateGroupRequest("Neu", null, null, null)),
+        };
+        req.Headers.TryAddWithoutValidation("If-Match", $"W/\"{summary.Id:D}-{summary.Version}\"");
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var updated = (await res.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+        Assert.Equal(summary.Version + 1, updated.Version);
+    }
+
+    [Fact]
+    public async Task PUT_Group_With_Stale_IfMatch_Returns_409_With_Current_Summary()
+    {
+        var (_, tok) = await SignupAndLoginAsync("ifmatch-g-stale@ex.com", "E");
+        AuthorizeClient(_client, tok);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Stale", null, null));
+        var summary = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+        var stale = summary.Version;
+
+        // Move server forward with a no-If-Match PUT.
+        var intermediate = await _client.PutAsJsonAsync($"/api/groups/{summary.Id}",
+            new GroupEndpoints.UpdateGroupRequest("Zwischen", null, null, null));
+        intermediate.EnsureSuccessStatusCode();
+
+        using var req = new HttpRequestMessage(HttpMethod.Put, $"/api/groups/{summary.Id}")
+        {
+            Content = JsonContent.Create(
+                new GroupEndpoints.UpdateGroupRequest("Zu spät", null, null, null)),
+        };
+        req.Headers.TryAddWithoutValidation("If-Match", $"W/\"{summary.Id:D}-{stale}\"");
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<OFF3ConflictBodyDto>();
+        Assert.NotNull(body);
+        Assert.Equal("version_mismatch", body!.Code);
+        Assert.NotNull(body.Current);
+        Assert.Equal(stale + 1, body.Current!.Value.GetProperty("version").GetInt32());
+    }
+
+    [Fact]
+    public async Task PUT_Group_Without_IfMatch_Succeeds_For_Backcompat()
+    {
+        var (_, tok) = await SignupAndLoginAsync("ifmatch-g-none@ex.com", "E");
+        AuthorizeClient(_client, tok);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("NoIfMatch", null, null));
+        var summary = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        var res = await _client.PutAsJsonAsync($"/api/groups/{summary.Id}",
+            new GroupEndpoints.UpdateGroupRequest("A", null, null, null));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task GET_Group_After_Multiple_PUTs_Has_Incrementing_Version_In_ETag()
+    {
+        var (_, tok) = await SignupAndLoginAsync("mult-g@ex.com", "E");
+        AuthorizeClient(_client, tok);
+        var create = await _client.PostAsJsonAsync("/api/groups",
+            new GroupEndpoints.CreateGroupRequest("Multi", null, null));
+        var summary = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+
+        (await _client.PutAsJsonAsync($"/api/groups/{summary.Id}",
+            new GroupEndpoints.UpdateGroupRequest("A", null, null, null))).EnsureSuccessStatusCode();
+        (await _client.PutAsJsonAsync($"/api/groups/{summary.Id}",
+            new GroupEndpoints.UpdateGroupRequest("B", null, null, null))).EnsureSuccessStatusCode();
+
+        var res = await _client.GetAsync($"/api/groups/{summary.Id}");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal($"W/\"{summary.Id:D}-2\"", res.Headers.GetValues("ETag").Single());
+    }
+
+    private sealed record OFF3ConflictBodyDto(string Code, string Message, System.Text.Json.JsonElement? Current);
 }

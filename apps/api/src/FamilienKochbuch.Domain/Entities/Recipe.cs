@@ -1,3 +1,4 @@
+using FamilienKochbuch.Domain.Common;
 using FamilienKochbuch.Domain.Enums;
 
 namespace FamilienKochbuch.Domain.Entities;
@@ -8,8 +9,12 @@ namespace FamilienKochbuch.Domain.Entities;
 /// ordered <see cref="Steps"/>, and a set of <see cref="RecipeTags"/>.
 /// PRD §4.1 / §8.3 invariants: title required (1..200), default servings
 /// positive, difficulty in 1..3, at most three photos.
+///
+/// OFF3: implements <see cref="IVersionedEntity"/> so every mutation
+/// method bumps a monotonically increasing <see cref="Version"/> used
+/// for weak ETags + optimistic-concurrency <c>If-Match</c> checks.
 /// </summary>
-public class Recipe
+public class Recipe : IVersionedEntity
 {
     public const int TitleMaxLength = 200;
     public const int DescriptionMaxLength = 2000;
@@ -58,6 +63,7 @@ public class Recipe
         SourceUrl = normalizedSourceUrl;
         SourceType = sourceType;
         ForkOfRecipeId = forkOfRecipeId;
+        Version = 0;
         CreatedAt = createdAt;
         UpdatedAt = createdAt;
     }
@@ -82,6 +88,21 @@ public class Recipe
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
     public DateTimeOffset? DeletedAt { get; private set; }
+
+    /// <summary>
+    /// OFF3 optimistic-concurrency token — monotonically increases by
+    /// one on every mutation (title/metadata edit, photo change, mark-
+    /// cooked, nutrition update, soft-delete). Starts at 0 on a fresh
+    /// recipe. Never reset.
+    /// </summary>
+    public int Version { get; private set; }
+
+    /// <summary>
+    /// <see cref="IVersionedEntity.BumpVersion"/>. Called by every
+    /// mutation method on the aggregate so a single endpoint invocation
+    /// bumps the counter exactly once per state change.
+    /// </summary>
+    public void BumpVersion() => Version++;
 
     /// <summary>
     /// Optional LLM-estimated per-portion nutrition (P2-10). ``null``
@@ -125,6 +146,7 @@ public class Recipe
         SourceUrl = normalizedSourceUrl;
         SourceType = sourceType;
         UpdatedAt = updatedAt;
+        BumpVersion();
     }
 
     public void AddPhoto(string url)
@@ -136,6 +158,7 @@ public class Recipe
                 $"A recipe may have at most {MaxPhotos} photos.");
 
         Photos.Add(url.Trim());
+        BumpVersion();
     }
 
     public bool RemovePhoto(string url)
@@ -143,12 +166,22 @@ public class Recipe
         if (string.IsNullOrWhiteSpace(url))
             throw new ArgumentException("Photo URL must not be blank.", nameof(url));
 
-        return Photos.Remove(url.Trim());
+        var removed = Photos.Remove(url.Trim());
+        if (removed) BumpVersion();
+        return removed;
     }
 
-    public void MarkCooked(DateTimeOffset at) => LastCookedAt = at;
+    public void MarkCooked(DateTimeOffset at)
+    {
+        LastCookedAt = at;
+        BumpVersion();
+    }
 
-    public void SoftDelete(DateTimeOffset at) => DeletedAt = at;
+    public void SoftDelete(DateTimeOffset at)
+    {
+        DeletedAt = at;
+        BumpVersion();
+    }
 
     /// <summary>
     /// Replaces (or clears, when <paramref name="estimate"/> is
@@ -158,6 +191,7 @@ public class Recipe
     {
         NutritionEstimate = estimate;
         UpdatedAt = at;
+        BumpVersion();
     }
 
     // ── Validation helpers ─────────────────────────────────────────

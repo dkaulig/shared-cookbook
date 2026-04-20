@@ -100,6 +100,13 @@ export interface RecipeDetailDto {
   lastCookedAt?: string | null
   createdAt: string
   updatedAt: string
+  /**
+   * OFF3 optimistic-concurrency counter — mirrors `Recipe.Version`.
+   * Starts at 0 on a freshly-created recipe; bumps by one on every
+   * mutation. Client echoes as `If-Match: W/"<id>-<version>"` on
+   * subsequent PUT/POST/DELETE/PATCH to detect conflicts.
+   */
+  version: number
   ingredients: IngredientDto[]
   steps: RecipeStepDto[]
   tags: TagDto[]

@@ -53,6 +53,7 @@ describe('group hooks', () => {
             isPrivateCollection: false,
             memberCount: 1,
             myRole: 'Admin',
+            version: 0,
           },
           { status: 201 },
         ),
@@ -104,6 +105,7 @@ describe('group hooks', () => {
       isPrivateCollection: false,
       memberCount: 1,
       myRole: 'Admin',
+      version: 0,
       members: [],
     })
     // Seed the members + invites caches too so we can assert all three

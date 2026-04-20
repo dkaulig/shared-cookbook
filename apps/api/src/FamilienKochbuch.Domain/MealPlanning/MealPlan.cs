@@ -1,3 +1,5 @@
+using FamilienKochbuch.Domain.Common;
+
 namespace FamilienKochbuch.Domain.MealPlanning;
 
 /// <summary>
@@ -7,10 +9,11 @@ namespace FamilienKochbuch.Domain.MealPlanning;
 /// into existence for the same week (plan §Data model / §P3-0).
 ///
 /// <see cref="Version"/> is incremented whenever the aggregate's slot
-/// collection mutates; P3-9 will use it for optimistic concurrency + a
-/// light-weight edit history. P3-0 only exposes the bump primitive.
+/// collection mutates; P3-9 uses it for optimistic concurrency + a
+/// light-weight edit history. OFF3 (Phase 5) additionally uses it as the
+/// ETag payload for the mutation endpoints.
 /// </summary>
-public sealed class MealPlan
+public sealed class MealPlan : IVersionedEntity
 {
     // EF-friendly parameterless ctor — private so all domain construction
     // goes through the validating ctor below.
@@ -48,7 +51,7 @@ public sealed class MealPlan
 
     /// <summary>
     /// Bumps <see cref="Version"/> and refreshes <see cref="UpdatedAt"/>.
-    /// Call after any slot-level change; P3-9 will wrap this in a unit-of-
+    /// Call after any slot-level change; P3-9 wraps this in a unit-of-
     /// work so a single "save" mutates the version exactly once regardless
     /// of how many slot-rows changed.
     /// </summary>
@@ -57,4 +60,14 @@ public sealed class MealPlan
         Version++;
         UpdatedAt = at;
     }
+
+    /// <summary>
+    /// <see cref="IVersionedEntity.BumpVersion"/> implementation — bumps
+    /// the version without touching <see cref="UpdatedAt"/>. Endpoints
+    /// that also want to refresh the timestamp should prefer the
+    /// <see cref="BumpVersion(DateTimeOffset)"/> overload; this
+    /// parameterless form exists so the aggregate satisfies the cross-
+    /// cutting OFF3 interface.
+    /// </summary>
+    void IVersionedEntity.BumpVersion() => Version++;
 }
