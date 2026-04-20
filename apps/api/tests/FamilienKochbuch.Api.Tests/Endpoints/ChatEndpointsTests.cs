@@ -454,7 +454,7 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         using var reader = new StreamReader(stream, Encoding.UTF8);
         string? eventName = null;
         string? data = null;
-        while (!reader.EndOfStream)
+        while (true)
         {
             var line = await reader.ReadLineAsync(ct);
             if (line is null) break;
