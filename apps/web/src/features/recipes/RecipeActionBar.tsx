@@ -84,8 +84,10 @@ export function RecipeActionBar({
           // includes the safe-area inset because BUG-014 double-applies the
           // inset on BottomNav) + an extra inset so the bar also clears the
           // iOS home indicator. On md+ BottomNav is `display:none`, so only
-          // the safe-area inset is needed.
-          'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px))] md:bottom-[env(safe-area-inset-bottom,0px)]',
+          // the safe-area inset is needed. BUG-023 adds
+          // `--viewport-bottom-offset` so the bar tracks the visual
+          // viewport when iOS/Chrome retracts the toolbar mid-scroll.
+          'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))] md:bottom-[calc(env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))]',
         )}
       >
         <div
@@ -135,7 +137,10 @@ export function RecipeActionBar({
         <div
           className={cn(
             'pointer-events-none fixed inset-x-0 z-[41] flex justify-center px-3',
-            'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px)+68px)] md:bottom-[calc(env(safe-area-inset-bottom,0px)+80px)]',
+            // BUG-023: include `--viewport-bottom-offset` so the inline
+            // notifier follows the visual viewport in lockstep with the
+            // action bar above it.
+            'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px)+68px+var(--viewport-bottom-offset,0px))] md:bottom-[calc(env(safe-area-inset-bottom,0px)+80px+var(--viewport-bottom-offset,0px))]',
           )}
         >
           {status && (

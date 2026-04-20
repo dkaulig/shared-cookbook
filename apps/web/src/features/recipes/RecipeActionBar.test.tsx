@@ -138,4 +138,17 @@ describe('RecipeActionBar', () => {
     expect(source).toMatch(/--bottom-nav-height/)
     expect(source).not.toMatch(/env\(safe-area-inset-bottom,0px\)\+72px/)
   })
+
+  // ───────── BUG-023 regression ─────────
+
+  it('chains var(--viewport-bottom-offset) into both the action bar and the inline notifier (BUG-023)', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(resolve(here, './RecipeActionBar.tsx'), 'utf8')
+    // Two consumers (the bar wrapper + the success/error notifier) must
+    // both pick up the offset so they track iOS/Chrome's retracting
+    // toolbar in lockstep — without this they would float above a
+    // transparent gap once the visual viewport grows.
+    const matches = source.match(/var\(--viewport-bottom-offset/g) ?? []
+    expect(matches.length).toBeGreaterThanOrEqual(2)
+  })
 })
