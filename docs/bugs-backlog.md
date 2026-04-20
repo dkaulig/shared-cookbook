@@ -2084,3 +2084,92 @@ Migration ist einzeln reversibel (könnte auch slice-weise landen).
 Sequentiell: (1) Slot-Infra + BottomZoneBar + Provider, (2) RecipeActionBar
 migriert, (3) FormActionBar migriert, (4) GroupDetailPage FAB migriert,
 (5) grep-gate test. Alles in ein Commit weil logisch zusammengehörig.
+
+---
+
+## BUG-037 · BottomNav dockt nicht sauber unten wenn Browser-Chrome retractet (finale Lösung)
+**Reported:** 2026-04-20 (User: "das hat schon mal super geklappt
+[BUG-036 Bottom-Zone] was jetzt leider immer noch nicht funktioniert
+ist das die bottom bar sauber unten an den rand dockt wenn die browser
+bar unten verschwindet dazu gerne mal ordentlich recherchieren um da
+auch ne finale lösung zu finden [...] ich hab das thema aber auch mit
+chrome gerade")
+**Status:** `[ ] open`
+**Severity:** medium (visual — bar bleibt klickbar + Gap darunter stört
+den "native PWA"-Eindruck; nicht funktions-brechend)
+
+### Research-Ergebnis (Chrome + Safari)
+
+**iOS 26 hat einen eigenen Apple-seitigen Bug**
+([WebKit #297779](https://bugs.webkit.org/show_bug.cgi?id=297779),
+[Mastodon #36144](https://github.com/mastodon/mastodon/issues/36144)):
+fixed-bottom-Elemente springen während URL-Bar-Retract. Safari 26.1
+Beta hat einen Teil davon gefixt. Apple muss final nachziehen — nicht
+client-side fixbar.
+
+**Unser Code hat aber auch ein eigenes Problem** (browser-übergreifend,
+auch Chrome):
+
+```tsx
+// AppLayout.tsx aktuell:
+const offset = Math.max(0, window.innerHeight - (vv.height ?? window.innerHeight))
+```
+
+`window.innerHeight` ist auf Mobile **nicht stabil** — Chrome Android
+trackt die Toolbar teilweise selbst im `innerHeight`-Wert, iOS 15+
+ebenso. Dann ist `innerHeight ≈ vv.height` → Offset immer 0 → Kompen-
+sation greift nie.
+
+### Finale Lösung — 3 Schichten
+
+1. **`interactive-widget=resizes-content` in `<meta viewport>`**
+   ([HTMHell guide](https://www.htmhell.dev/adventcalendar/2024/4/))
+   - Chrome 108+, Firefox 132+ unterstützen das: bei Virtual-Keyboard
+     / Toolbar-Animation schrumpft der Layout-Viewport mit dem Visual-
+     Viewport mit → `position: fixed; bottom: 0` folgt automatisch.
+   - Safari ignoriert das Attribut (noch kein WebKit-Support). Schadet
+     nicht, liefert aber Chrome-seitig die saubere Out-of-the-box-
+     Lösung.
+   - Aktuell steht in `apps/web/index.html:14`:
+     `width=device-width, initial-scale=1.0, viewport-fit=cover`.
+     Ergänzen auf: `..., viewport-fit=cover, interactive-widget=resizes-content`.
+
+2. **Max-VisualViewport-Height-Baseline statt `innerHeight`**
+   (für Safari + iOS-26-Bug-Fallback):
+   ```ts
+   let maxVvHeight = 0
+   const update = () => {
+     const h = vv.height
+     if (h > maxVvHeight) maxVvHeight = h
+     const offset = Math.max(0, maxVvHeight - h)
+     root.style.setProperty('--viewport-bottom-offset', `${offset}px`)
+   }
+   ```
+   Die erste "gute" vv.height (wenn URL-Bar retracted ist) setzt das
+   Baseline. Danach ist Offset eindeutig "URL-Bar verdeckt so viel
+   vom visual viewport". Robust gegen `innerHeight`-Instabilität.
+
+3. **`window resize`-Listener als Belt-and-Suspenders**:
+   Manche mobile-Browser feuern nur `window.resize` bei URL-Bar-
+   Retract, nicht `visualViewport.resize`. Event-Handler auf beiden
+   parallel registrieren, RAF-throttle schützt vor Doppel-Fire.
+
+### Nice-to-Have (zusätzlich)
+- CSS-Fallback: `@supports (height: 100dvh)` → BottomNav in einem
+  `100dvh`-Container mit `sticky bottom-0` statt `fixed`. Bei dvh-
+  Support (iOS 15.4+, Chrome 108+) ist das der sauberste Weg. Aber
+  größerer Refactor, separater Slice.
+
+### Test-Strategie (CSS/Layout)
+- Grep-Gate: `index.html` enthält `interactive-widget=resizes-content`.
+- Unit-Test `AppLayout.test.tsx`: stub `visualViewport` mit verschiedenen
+  `.height`-Werten, fire `resize` → assert `--viewport-bottom-offset`
+  reflektiert `max - current` (nicht `innerHeight - current`).
+- Manuelle Playwright-Validation auf Chrome-Android-Profil: scroll,
+  Toolbar retracts, `getBoundingClientRect().bottom` von BottomNav
+  gleich `window.innerHeight` (kein Gap).
+
+### Rollback
+Gering — nur `AppLayout.tsx` Effect-Body + `index.html` Meta-Tag.
+`window.visualViewport`-Fallback (`vv == null`) bleibt erhalten für
+Pre-iOS-13-Geräte.
