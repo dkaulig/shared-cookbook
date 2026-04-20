@@ -1,7 +1,12 @@
 # Phase CR — AI-Chat Rebuild (Persistent Sessions + SSE Streaming)
 
 **Date:** 2026-04-20
-**Status:** Active — 5 slices (CR1..CR5), sequential
+**Status:** ✅ Complete — all 5 slices landed 2026-04-20 (CR1 domain +
+migration, CR2 .NET SSE streaming + sessions surface, CR3 frontend
+sessions list + resume, CR4 frontend SSE consumer + typing indicator,
+CR5 Python `/chat` turn endpoint deleted). The Python extractor now
+only serves the `/chat/{session_id}/to-recipe` conversion proxy; chat
+turns are native .NET + Azure OpenAI streaming end-to-end.
 **Priority:** user-interrupt after Phase 5 OFF4 (OFF5 paused, resumes
 after CR)
 **Reference:** `/Users/dkaulig/Projects/hoppr/` — production-grade chat

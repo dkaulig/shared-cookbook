@@ -1,15 +1,18 @@
 """AI-chat pipeline (P2-4).
 
-Two public coroutines consumed by :mod:`extractor.main` endpoints:
+Exports one public coroutine consumed by :mod:`extractor.main`:
 
-- :func:`chat_turn` — forwards the dialogue to the provider's chat
-  method with :data:`CHAT_SYSTEM_PROMPT_DE`. Validates the envelope
-  (non-empty, ``<= MAX_MESSAGES`` turns) before hitting the LLM.
 - :func:`chat_to_recipe` — structures the full dialogue into a
   :class:`ExtractionResult` via
   :meth:`LLMProvider.extract_structured` with
   :data:`TO_RECIPE_SYSTEM_PROMPT_DE` + :data:`RECIPE_SCHEMA`, then runs
   the defensive :func:`post_process` step from P2-2.
+
+CR5 removed the conversational ``chat_turn`` helper — chat turns are
+served natively by the .NET API (Azure OpenAI SSE streaming). Only the
+to-recipe conversion lives here now because it reuses the
+ExtractionResult shape + post-process pipeline that the rest of the
+Python service already owns.
 
 Validation raises pipeline-local exceptions
 (:class:`EmptyMessagesError`, :class:`MessagesTooLongError`). The HTTP
@@ -27,11 +30,10 @@ import logging
 from collections.abc import Sequence
 from typing import Final
 
-from extractor.llm import ChatMessage, LLMProvider, TokenUsage
+from extractor.llm import ChatMessage, LLMProvider
 from extractor.pipeline.post_process import post_process
 from extractor.pipeline.types import ExtractionResult
 from extractor.prompts.chat import (
-    CHAT_SYSTEM_PROMPT_DE,
     RECIPE_SCHEMA,
     TO_RECIPE_SYSTEM_PROMPT_DE,
 )
@@ -66,46 +68,6 @@ def _validate_messages(messages: Sequence[ChatMessage]) -> None:
         )
 
 
-async def chat_turn(
-    messages: Sequence[ChatMessage],
-    provider: LLMProvider,
-) -> tuple[str, TokenUsage]:
-    """Run one conversational turn.
-
-    Returns ``(reply_text, usage)``. The HTTP layer emits the usage
-    counts as ``X-Extractor-*`` headers so the .NET side can persist
-    them against the chat session.
-
-    Parameters
-    ----------
-    messages
-        Full conversation history the client is maintaining — the
-        service is stateless, so every turn ships the full array.
-    provider
-        :class:`LLMProvider` (real Azure or a mock).
-
-    Raises
-    ------
-    EmptyMessagesError
-        ``messages`` was empty. Maps to HTTP 400.
-    MessagesTooLongError
-        Too many turns. Maps to HTTP 413.
-    LLMProviderError
-        The provider raised; re-raised unchanged for the HTTP layer
-        to classify (503 / 500).
-    """
-    _validate_messages(messages)
-    # User content stays out of INFO logs — turn count is enough for
-    # operational visibility.
-    logger.info("chat_turn start turns=%d", len(messages))
-    reply, usage = await provider.chat(
-        system_prompt=CHAT_SYSTEM_PROMPT_DE,
-        messages=messages,
-    )
-    logger.info("chat_turn done reply_len=%d", len(reply))
-    return reply, usage
-
-
 async def chat_to_recipe(
     messages: Sequence[ChatMessage],
     provider: LLMProvider,
@@ -130,7 +92,8 @@ async def chat_to_recipe(
     Raises
     ------
     EmptyMessagesError, MessagesTooLongError, LLMProviderError
-        Same semantics as :func:`chat_turn`.
+        Validation + provider errors bubble up for the HTTP layer
+        to classify (400 / 413 / 503 / 500).
     """
     _validate_messages(messages)
     logger.info("chat_to_recipe start session_id=%s turns=%d", session_id, len(messages))
@@ -154,5 +117,4 @@ __all__ = [
     "EmptyMessagesError",
     "MessagesTooLongError",
     "chat_to_recipe",
-    "chat_turn",
 ]
