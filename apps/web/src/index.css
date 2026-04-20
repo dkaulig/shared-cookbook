@@ -90,6 +90,14 @@
   --warning-foreground: 36 80% 35%;
   --caution: 25 95% 53%; /* orange-ish */
   --caution-foreground: 20 85% 40%;
+
+  /*
+   * BUG-021 — single source of truth for the mobile BottomNav footprint.
+   * 56px is the intrinsic `NavItemLink` min-height; `safe-area-inset-bottom`
+   * tracks the iOS home-indicator. Any fixed overlay (RecipeActionBar,
+   * status toasts, …) must clear this value to stay tap-reachable.
+   */
+  --bottom-nav-height: calc(env(safe-area-inset-bottom, 0px) + 56px);
 }
 
 .dark {
