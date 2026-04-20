@@ -1497,94 +1497,129 @@ ist größer.
   dass SYSTEM_PROMPT_DE die Wörter "quantity", "description" und
   "NIEMALS" im gleichen Absatz enthält (prompt-regression-gate).
 
+
 ---
 
-## BUG-029 · Video-Import: Zutaten ohne Namen / leere Ingredient-Liste
-**Reported:** 2026-04-20 (URL: `facebook.com/share/r/18Ue6Nh8Xp/?mibextid=wwXIfr`)
+## BUG-029 · Zutaten-Name-Input ist auf Mobile zu schmal (Textabschnitt)
+**Reported:** 2026-04-20 (URL-Beispiel: `facebook.com/share/r/18Ue6Nh8Xp/?mibextid=wwXIfr`)
 **Status:** `[ ] open`
-**Severity:** HIGH — Import-Ergebnis unbrauchbar; User muss komplett
-manuell pflegen. Tritt nach BUG-028-Fix weiterhin auf → tieferer
-Pipeline-Defekt als "Prompt schärfen" allein lösen kann.
-**Where (verdächtig, nicht verifiziert an dieser URL):**
-- `apps/python-extractor/src/extractor/pipeline/url.py` — Whisper-
-  Transkript-Qualität: bei FB-Reels mit Musik-only oder sehr leiser
-  Stimme liefert Whisper entweder Leerstring oder Musik-Text-Artefakte.
-  Azure bekommt keinen brauchbaren Input.
-- `apps/python-extractor/src/extractor/prompts/recipe_extraction.py:35-43`
-  — `_INGREDIENT_SCHEMA` hat `name: {minLength: 1}`. Azure KANN also
-  kein leeres `name` liefern — muss mind. 1 Zeichen sein. Platzhalter
-  wie `"-"`, `"?"`, `"Zutat"` kommen aber durch.
-- `apps/python-extractor/src/extractor/pipeline/post_process.py:182-215`
-  — `_normalise_ingredient` droppt Ingredients mit blankem/fehlendem
-  `name` (`name.strip()` → empty → skip). Wenn ALLE Namen blank sind
-  → leere Liste.
-**Symptom:** User sieht im Rezept-Formular nach Video-Import entweder
-- eine **leere Zutatenliste** (alle gedropped weil namen blank waren), oder
-- Zutatenzeilen mit Mengen + Einheiten aber **Platzhalter-Namen**
-  (`"-"`, `"?"`, `"Zutat"`, `"Zutat 1"`).
-**Root-cause-Hypothesen (mehrere, die kombiniert wirken könnten):**
-1. **Whisper-Leertranskript** bei Videos ohne gesprochenen Kommentar
-   (reines B-Roll mit Musik). Azure halluziniert generische Zutaten
-   ohne echte Namen.
-2. **Azure interpretiert visuelle Zutaten-Beschriftungen NICHT** —
-   die Video-Inhaltsbeschreibung kommt NUR über Whisper-Audio, nicht
-   über Frame-Analyse. Wenn im Video ein Zutaten-Overlay "500g Mehl"
-   eingeblendet ist, aber akustisch nichts gesagt wird, landet das
-   nirgendwo.
-3. **Schema-Schwelle zu lax**: `name: minLength: 1` erlaubt 1-Zeichen-
-   Platzhalter. Kein Regex der "echter" Name-Pattern prüft.
-4. **Kein LLM-Self-Check "bist du dir sicher dass ein Rezept
-   extrahierbar war?"** — bei fehlendem Transkript sollte der LLM
-   sagen "kein Rezept extrahierbar" statt halluzinieren.
-**Likely fix — 4 Optionen, stackable:**
-1. **Transkript-Minimum-Gate** (Python, defense-in-depth): in
-   `pipeline/url.py` prüfen nach Whisper: wenn `transcript.strip()`
-   kürzer als z.B. 40 Zeichen → nicht an Azure schicken, Import sofort
-   als `error` mit Code `empty_transcript` und User-Message "Aus
-   diesem Video konnte kein Text extrahiert werden (nur Musik oder
-   stumm)". Verhindert dass Azure überhaupt halluzinieren muss.
-2. **Schema-Verschärfung** (`_INGREDIENT_SCHEMA`): `name: minLength: 2`
-   + Pattern `^[\p{L}\p{M}].*` (muss mit Buchstabe oder diakritischem
-   Mark starten, nicht mit `-`/`?`/Zahl/Punkt). Filtert die 1-Zeichen-
-   Platzhalter aus. **Downside**: könnte legitime ultra-kurze Namen
-   wie "Öl" blocken (2 Zeichen, passt). "O" als Einzelzutat kommt
-   praktisch nie vor.
-3. **Post-Process "result-quality-gate"**: in `post_process.py` nach
-   `_normalise_ingredient`-Loop: wenn `len(ingredients) == 0` ODER
-   wenn >= 50% der Namen gedroppt wurden → Result als `confidence:
-   "low"` markieren + neue Top-level-Flag `requires_manual_review:
-   true`. Frontend zeigt dann eine Warn-Banner "Dieses Rezept braucht
-   manuellen Feinschliff" statt silent-empty-form.
-4. **Prompt-Härtung** (`recipe_extraction.py:SYSTEM_PROMPT_DE`):
-   Zusatzsatz *"Wenn du im Transkript KEINE konkreten Zutaten mit
-   Namen erkennst (nur generische Kategorien wie 'Gemüse' ohne
-   Spezifika), gib eine LEERE `ingredients`-Liste zurück. Erfinde
-   keine Platzhalter-Namen wie 'Zutat 1'. Leere Liste ist ehrlicher
-   als erfundene Zutaten."*. Kombinierbar mit Option 3 als UI-Signal.
-**Empfohlener Plan**: Alle 4 kombiniert. (1) + (2) sind billig, (3)
-gibt dem User Transparenz, (4) weist den LLM in die richtige Richtung.
-**Priority:** HIGH — nach BUG-028-Fix war die Erwartung dass Video-
-Import jetzt gut genug funktioniert; dass JETZT ein neuer Failure-
-Mode auftaucht zeigt dass Quality-Gates fehlen. Bundle-Kandidat in
-nächster Fix-Welle.
-**Test-Strategie:** Domain-Logic-Bug → Unit + Integration:
-- `test_pipeline_url.py`: neuer Test — mock Whisper returnt `""` (leer) →
-  assert der Job setzt `error_message = "empty_transcript"`, Azure
-  wird NICHT aufgerufen.
-- `test_pipeline_post_process.py`: Theory mit 4 Cases:
-  - Alle Zutaten haben valide Namen → unchanged.
-  - Hälfte der Zutaten haben blanke/1-Zeichen-Namen → `_normalise_ingredient`
-    droppt sie (heute schon) + `requires_manual_review=true` Flag.
-  - Komplett leere Liste nach Normalize → `confidence="low"` +
-    `requires_manual_review=true`.
-  - Valide Liste mit 5 Zutaten → `requires_manual_review=false`.
-- `test_ingredient_schema.py`: mit neuer `name`-Regel — `"-"`, `"?"`,
-  `"."`, `"1"` werden Schema-rejected; `"Öl"`, `"Butter"`, `"Mehl"`
-  akzeptiert.
-- `test_recipe_prompts.py`: grep-style — SYSTEM_PROMPT_DE enthält
-  "LEERE" und "Platzhalter" im gleichen Absatz.
-- Frontend: `RecipeFormPage.test.tsx` — render mit prefill wo
-  `requires_manual_review=true` → assert Warn-Banner visible.
-- Ops: `smoke-live.sh --import-url=<url>` assertion dass bei known-
-  good Video die Zutatenliste >= 3 valide Namen hat (nightly
-  regression-gate gegen prompt-drift).
+**Severity:** HIGH — User sieht Zutaten-Namen nicht; wirkt als wären
+Zutaten leer / nicht extrahiert. Ursprünglich als Whisper/Azure-Bug
+verdächtigt, User hat bei Live-Test erkannt: Daten sind da, das
+Input-Feld ist einfach zu schmal.
+**Where:** `apps/web/src/features/recipes/RecipeFormPage.tsx:1475` —
+inneres Zutaten-Grid:
+```
+grid grid-cols-[92px_96px_1fr]
+```
+plus äußeres Row-Grid bei line 1459:
+```
+grid grid-cols-[28px_1fr_auto] ... pl-1 pr-2.5
+```
+**Symptom:** Auf iPhone SE (375 px) nach Viewport-Rechnung:
+- Card-Padding + Ring ~20 px → ~335 px nutzbar
+- `pl-1 pr-2.5` (14 px) → 321 px
+- Drag-Handle 28 + gap 8 = 36 px → 285 px
+- Delete-Spalte ~48 px → ~237 px innen
+- Menge 92 + Einheit 96 + Gaps 12 = 200 px fest verbraucht
+- **Name bekommt: ~37 px** — ca. 3 Buchstaben sichtbar.
+**Root cause:** 3-Spalten-Grid (Menge / Einheit / Name) in einer
+horizontal eng begrenzten Zeile. Menge + Einheit nehmen zusammen
+188 px fest — Mobile hat nicht genug Rest für den wichtigsten Wert
+(den Zutaten-Namen).
+**Likely fix — 3 Optionen, Vorschlag Option 1:**
+1. **Stacked Layout auf Mobile** (empfohlen): Name oben full-width,
+   Menge + Einheit in einer Zeile darunter. Konkret:
+   ```
+   mobile: flex-col; name full-width; below [menge-96px][einheit-96px]
+   md+:    unverändert grid-cols-[92px_96px_1fr]
+   ```
+   Pro: Name bekommt ~285 px = deutlich genug; Menge+Einheit teilen
+   sich die folgende Zeile großzügig. Kontra: Row wird ~12 px höher
+   auf Mobile (nicht tragisch, Zutaten-Liste scrollt ohnehin).
+2. **Shrink Menge + Einheit**: 92 → 64, 96 → 72. Rettet 52 px → Name
+   bekommt ~89 px. Noch grenzwertig bei langen Namen wie
+   "Tomatenmark".
+3. **Name-First-Layout** (UX-Win): Name primary ganz oben, Menge +
+   Einheit in "kleiner"-Typo-Zeile darunter. Entspricht wie Kochbücher
+   es schreiben ("Mehl — 500 g"). Kontra: visuell Umgewöhnung.
+**Kombinierbar**: Option 1 oder 3 + Option 2 für md-Breakpoint-Tuning.
+**Priority:** HIGH — blockiert Review von Video-/Foto-Imports auf
+Mobile wo 90% der User das Formular öffnen.
+**Test-Strategie:** CSS/Layout-Bug laut Regression-Test-Policy:
+- `RecipeFormPage.test.tsx`: render mit prefill + 375×667 viewport,
+  assert das Name-Input `getBoundingClientRect().width >= 150` (nach
+  Fix). Grep-Gate: assert dass `grid-cols-[92px_96px_1fr]` nicht
+  mehr ohne `flex-col md:grid` davor auftritt.
+- Optional Playwright mit 3 Ingredient-Namen unterschiedlicher Länge
+  (kurz/mittel/lang) → screenshot-compare dass keiner abgeschnitten
+  wird.
+
+---
+
+## BUG-030 · Imperial- und Englisch-Einheiten in Import-Ergebnissen
+**Reported:** 2026-04-20
+**Status:** `[ ] open`
+**Severity:** medium (Daten-Hygiene — User muss bei amerikanischen
+Quellen manuell umrechnen; Rezept passt sonst nicht in unsere
+metrische UI)
+**Where:** `apps/python-extractor/src/extractor/prompts/recipe_extraction.py`
++ `photo_recipe.py` SYSTEM_PROMPT_DE; `pipeline/post_process.py`
+`_normalise_ingredient`. Plus Frontend-Unit-Liste in
+`apps/web/src/features/recipes/RecipeFormPage.tsx` Dropdown bei
+`UNITS`.
+**Symptom:** Bei Import amerikanischer/englischsprachiger Videos
+landen Zutaten mit `unit: "oz"`, `"cloves"`, `"cups"`, `"tbsp"`,
+`"tsp"`, `"lb"`, `"fl oz"`. User-Beispiel: "16 oz Hackfleisch",
+"4 cloves Knoblauch". Unsere Unit-Dropdown kennt diese nicht → stehen
+als freie Strings da, keine Skalierung möglich.
+**User-Direktive:** "also metrisch und deutsch die mengenangaben".
+**Root cause:** Prompt sagt nur "Deutsch" für Texte aber nicht
+explizit "metrisches System, deutsche Maßeinheiten". Post-Process
+normalisiert Unit-Strings nicht.
+**Likely fix — 2 Schichten (beide):**
+1. **Prompt-Härtung** (SYSTEM_PROMPT_DE in beiden Prompt-Dateien):
+   Neuer Absatz (auf Deutsch, wie der Rest): *"Alle Mengenangaben
+   MÜSSEN metrisch und auf Deutsch sein: `g` / `kg` / `ml` / `l` /
+   `EL` / `TL` / `Stück` / `Prise` / `Bund` / `Tasse` / `Becher` /
+   `Scheibe` / `Zehe`. Rechne imperial-Einheiten um: 1 oz = 28 g,
+   1 lb = 454 g, 1 cup = 240 ml, 1 tbsp = 15 ml, 1 tsp = 5 ml,
+   1 clove = 1 Zehe, 1 stick = 113 g. Gebe die Menge in der
+   umgerechneten Einheit zurück, keine imperial-Strings im
+   Output."*
+2. **Post-Process-Fallback** (`post_process.py` `_normalise_ingredient`):
+   Mapping-Dict wenn LLM trotz Prompt-Anweisung imperial
+   durchlässt:
+   ```
+   UNIT_TRANSLATIONS = {
+       "oz": ("g", 28.35),          "ounce": ("g", 28.35),
+       "ounces": ("g", 28.35),
+       "lb": ("g", 453.6),          "pound": ("g", 453.6),
+       "pounds": ("g", 453.6),
+       "cup": ("ml", 240),          "cups": ("ml", 240),
+       "tbsp": ("ml", 15),          "tablespoon": ("ml", 15),
+       "tsp": ("ml", 5),            "teaspoon": ("ml", 5),
+       "fl oz": ("ml", 29.57),      "fl. oz.": ("ml", 29.57),
+       "clove": ("Zehe", 1),        "cloves": ("Zehe", 1),
+       "stick": ("g", 113),         "sticks": ("g", 113),
+       "pinch": ("Prise", 1),       "pinches": ("Prise", 1),
+       "slice": ("Scheibe", 1),     "slices": ("Scheibe", 1),
+       "bunch": ("Bund", 1),        "bunches": ("Bund", 1),
+       "piece": ("Stück", 1),       "pieces": ("Stück", 1),
+   }
+   ```
+   Wenn `unit.lower().strip()` ein Match ist: `new_unit, factor =
+   UNIT_TRANSLATIONS[key]`; `quantity = str(round(float(quantity) *
+   factor))`. Preserviert `confidence` + `note`. Bei Parse-Fail
+   `quantity` unverändert + `confidence="uncertain"`.
+**Priority:** medium — stört bei amerikanischen Quellen, passiert
+aber seltener als deutsche Rezepte. Bundle-Kandidat mit nächster
+Prompt-Runde.
+**Test-Strategie:** Domain-Logic-Bug → Unit-Test:
+- `test_post_process.py`: Theory mit 10 Cases, einer pro
+  UNIT_TRANSLATIONS-Key plus edge-cases (leading/trailing whitespace,
+  mixed-case "OZ", deutsche Durchreiche "g" unchanged).
+- `test_recipe_prompts.py`: grep dass SYSTEM_PROMPT_DE "oz", "cups",
+  "tbsp" mit Umrechnung enthält.
+- Frontend: kein Test nötig — Dropdown-Unit-Liste muss nur eines der
+  übersetzten deutschen Werte enthalten können (ist sie alle schon).
