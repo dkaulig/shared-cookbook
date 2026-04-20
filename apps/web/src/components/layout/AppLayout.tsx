@@ -3,6 +3,7 @@ import { Outlet, useMatch } from 'react-router-dom'
 import { TopNav } from './TopNav'
 import { BottomNav } from './BottomNav'
 import { useLiveSync } from '@/features/live/useLiveSync'
+import { useBackgroundSyncMessage } from '@/features/offline/useBackgroundSyncMessage'
 
 /**
  * DS3 protected-route shell.
@@ -28,6 +29,12 @@ export function AppLayout() {
   // when the user lands on any protected route and closes when they
   // log out + ProtectedRoute unmounts AppLayout.
   useLiveSync()
+
+  // OFF2 — listen for `fk-mutation-replayed` messages from the
+  // service worker's background-sync queue and invalidate affected
+  // caches. Mounting here (parallel to useLiveSync) keeps the two
+  // transport-layer refresh sources wired exactly once per session.
+  useBackgroundSyncMessage()
 
   // BUG-023 — keep `--viewport-bottom-offset` in sync with the visual
   // viewport so backdrop-blur'd fixed-bottom chrome (BottomNav,

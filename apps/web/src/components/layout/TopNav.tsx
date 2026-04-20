@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ChefHatLogo } from '@/components/brand/ChefHatLogo'
+import { NetworkIndicator } from '@/components/layout/NetworkIndicator'
 import { useAuth } from '@/features/auth/useAuth'
 import { cn } from '@/lib/utils'
 
@@ -50,6 +51,9 @@ export function TopNav() {
       </Link>
 
       <nav aria-label="Kontonavigation" className="flex items-center gap-1">
+        {/* OFF2 — offline + queued-replay indicator. Silent when online
+            and queue is empty so the happy-path UI stays quiet. */}
+        <NetworkIndicator />
         <button
           type="button"
           disabled
