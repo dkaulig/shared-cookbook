@@ -2516,4 +2516,181 @@ describe('RecipeFormPage (create)', () => {
       expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
   })
+
+  // ── BUG-034: empty-extraction explainer ────────────────────────────
+  //
+  // When the extractor quality-gate flagged the result as empty
+  // (no ingredients AND no steps — the typical FB-Reel "not actually a
+  // recipe" case), the wrapper must render `EmptyExtractionExplainer`
+  // instead of the silent empty form. The user can then either try a
+  // different video or — via the escape hatch — proceed to the empty
+  // form anyway.
+  describe('BUG-034 — empty-extraction explainer', () => {
+    function emptyResultSeed(
+      importId: string,
+      emptyReason:
+        | 'no_recipe_detected'
+        | 'empty_transcript'
+        | 'extractor_error'
+        | null = 'no_recipe_detected',
+    ): RecipeImportDto {
+      return {
+        id: importId,
+        groupId: 'g1',
+        source: 'url',
+        status: 'done',
+        progress: 100,
+        sourceUrl: 'https://facebook.com/share/r/xyz',
+        result: {
+          recipe: {
+            title: 'Unbekanntes Rezept',
+            description: null,
+            servings: null,
+            difficulty: null,
+            prep_minutes: null,
+            cook_minutes: null,
+            ingredients: [],
+            steps: [],
+            tags: [],
+            source_url: 'https://facebook.com/share/r/xyz',
+            thumbnail_url: null,
+          },
+          confidence: { overall: 'low', notes: [] },
+          recipe_empty: true,
+          empty_reason: emptyReason,
+        },
+        errorMessage: null,
+        createdAt: '2026-04-20T12:00:00Z',
+        completedAt: '2026-04-20T12:00:05Z',
+      }
+    }
+
+    function withSeededCache(
+      initialPath: string,
+      seed: RecipeImportDto,
+    ): ReactNode {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      client.setQueryData(importQueryKeys.status(seed.id), seed)
+      server.use(
+        http.get(`/api/imports/${seed.id}`, () => new Promise(() => {})),
+      )
+      return (
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={[initialPath]}>
+            <Routes>
+              <Route
+                path="/groups/:groupId/recipes/new"
+                element={<RecipeFormPage mode="create" />}
+              />
+              <Route path="/rezepte/import" element={<div>ImportLandingStub</div>} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>
+      )
+    }
+
+    it('renders the explainer instead of the empty form when recipe_empty=true', async () => {
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-empty',
+          emptyResultSeed('imp-empty'),
+        ),
+      )
+
+      // Explainer heading visible.
+      expect(
+        await screen.findByRole('heading', { name: /kein rezept erkannt/i }),
+      ).toBeInTheDocument()
+      // Inner form did NOT mount — no title field, no ingredient inputs.
+      expect(screen.queryByLabelText(/^Titel$/i)).not.toBeInTheDocument()
+      expect(
+        screen.queryByLabelText(/Zutat 1 Name/i),
+      ).not.toBeInTheDocument()
+    })
+
+    it('switches to the inner form when the user clicks "Trotzdem leer anlegen"', async () => {
+      const user = userEvent.setup()
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-proceed',
+          emptyResultSeed('imp-proceed'),
+        ),
+      )
+
+      // Start in the explainer branch.
+      await screen.findByRole('heading', { name: /kein rezept erkannt/i })
+      await user.click(
+        screen.getByRole('button', { name: /trotzdem leer anlegen/i }),
+      )
+
+      // Inner form now rendered — title field + fallback title prefilled.
+      expect(
+        await screen.findByDisplayValue('Unbekanntes Rezept'),
+      ).toBeInTheDocument()
+      // Explainer is gone.
+      expect(
+        screen.queryByRole('heading', { name: /kein rezept erkannt/i }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('navigates to /rezepte/import on "Anderes Video probieren"', async () => {
+      const user = userEvent.setup()
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-retry',
+          emptyResultSeed('imp-retry'),
+        ),
+      )
+
+      await screen.findByRole('heading', { name: /kein rezept erkannt/i })
+      await user.click(
+        screen.getByRole('button', { name: /anderes video probieren/i }),
+      )
+
+      // Route stub confirms navigation landed on /rezepte/import.
+      expect(await screen.findByText(/ImportLandingStub/)).toBeInTheDocument()
+    })
+
+    it.each([
+      [
+        'no_recipe_detected' as const,
+        /kein kochrezept|zutaten und schritte zu erkennen/i,
+      ],
+      [
+        'empty_transcript' as const,
+        /keinen verwertbaren audio-inhalt|musik oder stumm/i,
+      ],
+      [
+        'extractor_error' as const,
+        /fehler aufgetreten|als bug/i,
+      ],
+    ])(
+      'branches copy on empty_reason=%s',
+      async (reason, expectedCopy) => {
+        render(
+          withSeededCache(
+            `/groups/g1/recipes/new?importId=imp-${reason}`,
+            emptyResultSeed(`imp-${reason}`, reason),
+          ),
+        )
+        await screen.findByRole('heading', { name: /kein rezept erkannt/i })
+        expect(screen.getByText(expectedCopy)).toBeInTheDocument()
+      },
+    )
+
+    it('shows the sourceUrl chip when the import carries one', async () => {
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-chip',
+          emptyResultSeed('imp-chip'),
+        ),
+      )
+      await screen.findByRole('heading', { name: /kein rezept erkannt/i })
+      expect(
+        screen.getByText(/facebook\.com\/share\/r\/xyz/),
+      ).toBeInTheDocument()
+    })
+  })
 })

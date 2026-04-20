@@ -27,6 +27,7 @@ from typing import Any, Final
 from extractor.llm.provider import TokenUsage
 from extractor.pipeline.types import (
     ConfidenceLevel,
+    EmptyReason,
     ExtractedIngredient,
     ExtractedRecipe,
     ExtractedStep,
@@ -242,7 +243,25 @@ def post_process(
         "notes": notes,
     }
 
-    result: ExtractionResult = {"recipe": recipe, "confidence": confidence}
+    # BUG-034 — empty-extraction quality gate. When the LLM returned
+    # neither ingredients NOR steps the pipeline succeeded "nominally"
+    # (no exception, the source was reachable, Azure answered) but the
+    # result is not a recipe. We surface that as a dedicated flag so the
+    # frontend can branch on it instead of rendering a silently-empty
+    # form. ``empty_reason`` is ``"no_recipe_detected"`` here because we
+    # only fire this gate after the pipeline got a full LLM response;
+    # ``"empty_transcript"`` / ``"extractor_error"`` are reserved for
+    # pipeline-level gates (BUG-033 and future error-degradation paths)
+    # that sit ABOVE post-process.
+    recipe_empty: bool = len(ingredients) == 0 and len(steps) == 0
+    empty_reason: EmptyReason | None = "no_recipe_detected" if recipe_empty else None
+
+    result: ExtractionResult = {
+        "recipe": recipe,
+        "confidence": confidence,
+        "recipe_empty": recipe_empty,
+        "empty_reason": empty_reason,
+    }
     if usage is not None:
         result["usage"] = usage
     return result

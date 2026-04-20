@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type {
   ConfidenceLevel,
+  EmptyReason,
   ExtractedIngredient,
   ExtractedRecipe,
   ExtractedStep,
@@ -109,7 +110,7 @@ describe('imports.ts DTOs', () => {
     expect(recipe.tags).toContain('backen')
   })
 
-  it('ExtractionResult wraps recipe + confidence', () => {
+  it('ExtractionResult wraps recipe + confidence + empty-gate fields', () => {
     const confidence: ExtractionConfidence = { overall: 'high', notes: [] }
     const result: ExtractionResult = {
       recipe: {
@@ -126,8 +127,50 @@ describe('imports.ts DTOs', () => {
         thumbnail_url: null,
       },
       confidence,
+      recipe_empty: false,
+      empty_reason: null,
     }
     expect(result.confidence.overall).toBe('high')
+    expect(result.recipe_empty).toBe(false)
+    expect(result.empty_reason).toBeNull()
+  })
+
+  // BUG-034 — empty-extraction flag round-trips through JSON serialise/
+  // deserialise, the wire format between Python (snake_case) and the
+  // frontend mirror in this file. The .NET bridge forwards `ResultJson`
+  // opaquely, so a structural rename on either side would surface here.
+  it('BUG-034: ExtractionResult round-trips recipe_empty + empty_reason via JSON', () => {
+    const reasons: EmptyReason[] = [
+      'no_recipe_detected',
+      'empty_transcript',
+      'extractor_error',
+    ]
+    expect(reasons).toHaveLength(3)
+
+    const source: ExtractionResult = {
+      recipe: {
+        title: 'Unbekanntes Rezept',
+        description: null,
+        servings: null,
+        difficulty: null,
+        prep_minutes: null,
+        cook_minutes: null,
+        ingredients: [],
+        steps: [],
+        tags: [],
+        source_url: 'https://facebook.com/share/r/xyz',
+        thumbnail_url: null,
+      },
+      confidence: { overall: 'low', notes: [] },
+      recipe_empty: true,
+      empty_reason: 'no_recipe_detected',
+    }
+    const wire = JSON.stringify(source)
+    const parsed = JSON.parse(wire) as ExtractionResult
+    expect(parsed.recipe_empty).toBe(true)
+    expect(parsed.empty_reason).toBe('no_recipe_detected')
+    expect(parsed.recipe.ingredients).toEqual([])
+    expect(parsed.recipe.steps).toEqual([])
   })
 
   it('RecipeImportDto carries the full status shape the client exposes', () => {

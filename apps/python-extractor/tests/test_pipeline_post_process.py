@@ -614,6 +614,103 @@ def test_post_process_imperial_ingredient_converted_end_to_end() -> None:
     assert ingredients[1]["unit"] == "Zehe"
 
 
+# ─────────────────────────────────────────────────────────────────────
+# BUG-034 — empty-extraction quality gate
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_post_process_sets_recipe_empty_when_no_ingredients_or_steps() -> None:
+    """Both lists empty on input → `recipe_empty=True`, reason set.
+
+    Azure occasionally returns an entirely empty extraction (the Whisper
+    transcript was chatter / no recipe content) but the HTTP path stays
+    200. The post-processor flags that so the frontend can render a
+    dedicated "Kein Rezept erkannt" explainer instead of a silent empty
+    form — see the `EmptyExtractionExplainer` wrapper in the web app.
+    """
+    data = _base_recipe_dict()
+    data["ingredients"] = []
+    data["steps"] = []
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe_empty"] is True
+    assert result["empty_reason"] == "no_recipe_detected"
+
+
+def test_post_process_leaves_recipe_empty_false_on_valid_recipe() -> None:
+    """Non-empty ingredients + steps → gate is silent.
+
+    The happy path keeps `recipe_empty=False` and `empty_reason=None` so
+    the wire shape is symmetric (both fields always present) and the
+    frontend only branches into the explainer when the gate actually
+    fires.
+    """
+    data = _base_recipe_dict()
+    data["ingredients"] = [
+        {
+            "name": "Mehl",
+            "quantity": "500",
+            "unit": "g",
+            "note": None,
+            "confidence": "high",
+        },
+        {
+            "name": "Zucker",
+            "quantity": "100",
+            "unit": "g",
+            "note": None,
+            "confidence": "high",
+        },
+        {
+            "name": "Eier",
+            "quantity": "3",
+            "unit": "Stück",
+            "note": None,
+            "confidence": "high",
+        },
+    ]
+    data["steps"] = [
+        {"position": 1, "content": "Ofen vorheizen.", "confidence": "high"},
+        {"position": 2, "content": "Zutaten mischen.", "confidence": "high"},
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe_empty"] is False
+    assert result["empty_reason"] is None
+
+
+def test_post_process_sets_recipe_empty_when_all_ingredients_dropped() -> None:
+    """Ingredients with blank names are dropped by `_normalise_ingredient`;
+    if that leaves zero ingredients AND steps is empty, the gate fires.
+
+    Tests the post-normalise check (not pre-normalise) — the guard
+    looks at the cleaned-up `ingredients`/`steps` lists so LLM noise
+    (blank-name rows, malformed steps) doesn't accidentally keep the
+    gate silent on an effectively-empty recipe.
+    """
+    data = _base_recipe_dict()
+    data["ingredients"] = [
+        {
+            "name": "",  # dropped by _normalise_ingredient
+            "quantity": "1",
+            "unit": "g",
+            "note": None,
+            "confidence": "high",
+        },
+        {
+            "name": "   ",  # also dropped (whitespace-only)
+            "quantity": "2",
+            "unit": "g",
+            "note": None,
+            "confidence": "high",
+        },
+    ]
+    data["steps"] = []
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe"]["ingredients"] == []
+    assert result["recipe"]["steps"] == []
+    assert result["recipe_empty"] is True
+    assert result["empty_reason"] == "no_recipe_detected"
+
+
 def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
     """Plan §2.5 post-process: step positions must be 1..N in input order
     even when the LLM returns gapped (1, 3, 5) or mis-ordered values.

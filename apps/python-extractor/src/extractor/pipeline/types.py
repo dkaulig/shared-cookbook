@@ -60,6 +60,26 @@ INGREDIENT_CONFIDENCE_LEVELS: Final[tuple[IngredientConfidenceLevel, ...]] = get
     IngredientConfidenceLevel
 )
 
+EmptyReason = Literal["no_recipe_detected", "empty_transcript", "extractor_error"]
+"""BUG-034 — why the extractor returned an empty recipe.
+
+- ``no_recipe_detected`` — Azure analysed the sources and emitted zero
+  ingredients AND zero steps; the caller fed a valid (non-blank)
+  transcript / blog / caption but nothing recipe-shaped came back.
+- ``empty_transcript`` — pipeline-layer gate (out of scope for BUG-034;
+  BUG-033 wires this from ``url.py``): the caller had no audio to feed
+  the LLM (silent / music-only video).
+- ``extractor_error`` — post-analysis exception degraded to an empty
+  result instead of propagating as a 500; kept in the enum so the UI
+  can branch copy even though today's pipeline raises instead.
+
+Kept as a runtime-accessible tuple (:data:`EMPTY_REASONS`) so tests and
+future schema validators can iterate without manually mirroring the
+literal.
+"""
+
+EMPTY_REASONS: Final[tuple[EmptyReason, ...]] = get_args(EmptyReason)
+
 
 class ExtractedIngredient(TypedDict):
     """One ingredient line from the recipe.
@@ -168,13 +188,24 @@ class ExtractionResult(TypedDict):
     recipe: ExtractedRecipe
     confidence: ExtractionConfidence
     usage: NotRequired[TokenUsage]
+    # BUG-034 — empty-extraction quality gate. ``recipe_empty`` is True
+    # when post-processing found ``len(ingredients) == 0 AND
+    # len(steps) == 0``; ``empty_reason`` carries a machine-readable
+    # classifier so the frontend can branch copy. Both fields are always
+    # present on the wire (``recipe_empty=False`` + ``empty_reason=None``
+    # on healthy extractions) so the .NET bridge's opaque JSON-string
+    # forwarding stays symmetric with the TS mirror.
+    recipe_empty: bool
+    empty_reason: EmptyReason | None
 
 
 __all__ = [
     "CONFIDENCE_LEVELS",
+    "EMPTY_REASONS",
     "INGREDIENT_CONFIDENCE_LEVELS",
     "STEP_CONFIDENCE_LEVELS",
     "ConfidenceLevel",
+    "EmptyReason",
     "ExtractedIngredient",
     "ExtractedRecipe",
     "ExtractedStep",

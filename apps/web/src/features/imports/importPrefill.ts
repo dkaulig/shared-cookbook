@@ -1,5 +1,7 @@
 import type {
+  EmptyReason,
   ExtractedRecipe,
+  ExtractionResult,
   IngredientConfidenceLevel,
   NutritionEstimate,
   StepConfidenceLevel,
@@ -71,6 +73,20 @@ export interface ImportPrefill {
    * favour of the persisted SeaweedFS copy).
    */
   thumbnailStagedPhotoId: string | null
+  /**
+   * BUG-034 — true when the extractor gated the result as "no
+   * recipe detected" (empty ingredients AND empty steps after
+   * normalisation). The form wrapper branches on this to render
+   * `EmptyExtractionExplainer` instead of the normal inner form.
+   * Defaults to `false` for chat imports + legacy callers where the
+   * field is missing on the parsed `ExtractionResult`.
+   */
+  recipeEmpty: boolean
+  /**
+   * BUG-034 — machine-readable reason so the explainer can pick German
+   * copy. `null` iff `recipeEmpty === false`.
+   */
+  emptyReason: EmptyReason | null
 }
 
 /** Form default when the source is silent on servings. */
@@ -218,7 +234,31 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
     // DTO via `withImportEnvelope` — the bare extracted-recipe shape
     // doesn't carry it.
     thumbnailStagedPhotoId: null,
+    // BUG-034 — the empty-gate fields live on the outer ExtractionResult,
+    // not the inner ExtractedRecipe. The wrapper `extractedResultToPrefill`
+    // (below) layers them on top. Bare-recipe callers get the
+    // "not empty" default so they skip the explainer branch.
+    recipeEmpty: false,
+    emptyReason: null,
   }
+}
+
+/**
+ * BUG-034 — sibling of {@link extractedRecipeToPrefill} that also
+ * carries the outer-envelope empty-gate fields through. Prefer this
+ * when you have the full {@link ExtractionResult} (e.g. the polling
+ * response from `GET /api/imports/:id`). Falls back gracefully when
+ * the server omitted the fields — older Python builds or a bad
+ * proxy — so the form never crashes on missing keys.
+ */
+export function extractedResultToPrefill(result: ExtractionResult): ImportPrefill {
+  const prefill = extractedRecipeToPrefill(result.recipe)
+  // Server payloads from before BUG-034 have neither field; treat the
+  // missing values as "not empty" to preserve the pre-BUG-034 UX
+  // (no explainer on legacy results).
+  const recipeEmpty = result.recipe_empty ?? false
+  const emptyReason = (result.empty_reason ?? null) as EmptyReason | null
+  return { ...prefill, recipeEmpty, emptyReason }
 }
 
 /**
