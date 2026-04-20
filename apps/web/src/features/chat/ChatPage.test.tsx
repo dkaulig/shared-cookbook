@@ -144,7 +144,7 @@ describe('<ChatPage /> — send + optimistic append', () => {
     ).toBeInTheDocument()
 
     // Now release the mutation so the test cleanup is clean.
-    release?.(HttpResponse.json({ assistantMessage: 'Super!' }))
+    release?.(HttpResponse.json({ assistant_message: 'Super!' }))
     await screen.findByText('Super!')
   })
 
@@ -152,7 +152,7 @@ describe('<ChatPage /> — send + optimistic append', () => {
     const user = userEvent.setup()
     server.use(
       http.post('/api/chat', () =>
-        HttpResponse.json({ assistantMessage: 'Probier einen Auflauf.' }),
+        HttpResponse.json({ assistant_message: 'Probier einen Auflauf.' }),
       ),
     )
     renderPage()
@@ -172,7 +172,7 @@ describe('<ChatPage /> — send + optimistic append', () => {
         const body = (await request.json()) as { messages: ChatMessage[] }
         bodies.push(body.messages)
         return HttpResponse.json({
-          assistantMessage: `turn ${bodies.length}`,
+          assistant_message: `turn ${bodies.length}`,
         })
       }),
     )
@@ -239,7 +239,7 @@ describe('<ChatPage /> — error + retry', () => {
             { status: 503 },
           )
         }
-        return HttpResponse.json({ assistantMessage: 'Zweiter Versuch klappt.' })
+        return HttpResponse.json({ assistant_message: 'Zweiter Versuch klappt.' })
       }),
     )
     renderPage()
@@ -279,7 +279,7 @@ describe('<ChatPage /> — turn cap', () => {
       http.post('/api/chat', () => {
         call += 1
         return HttpResponse.json({
-          assistantMessage: `Reply ${call}`,
+          assistant_message: `Reply ${call}`,
         })
       }),
     )
@@ -307,7 +307,7 @@ describe('<ChatPage /> — turn cap', () => {
     server.use(
       http.post('/api/chat', () => {
         call += 1
-        return HttpResponse.json({ assistantMessage: `Reply ${call}` })
+        return HttpResponse.json({ assistant_message: `Reply ${call}` })
       }),
     )
     renderPage()
@@ -334,7 +334,7 @@ describe('<ChatPage /> — turn cap', () => {
     server.use(
       http.post('/api/chat', () => {
         call += 1
-        return HttpResponse.json({ assistantMessage: `Reply ${call}` })
+        return HttpResponse.json({ assistant_message: `Reply ${call}` })
       }),
     )
     // Mock the id so we can see it change after reset.
@@ -376,7 +376,7 @@ describe('<ChatPage /> — In Rezept umwandeln', () => {
     server.use(
       http.post('/api/chat', () => {
         call += 1
-        return HttpResponse.json({ assistantMessage: `Reply ${call}` })
+        return HttpResponse.json({ assistant_message: `Reply ${call}` })
       }),
     )
     renderPage()
@@ -425,7 +425,7 @@ describe('<ChatPage /> — In Rezept umwandeln', () => {
       ),
       http.post('/api/chat', () => {
         call += 1
-        return HttpResponse.json({ assistantMessage: `Reply ${call}` })
+        return HttpResponse.json({ assistant_message: `Reply ${call}` })
       }),
       http.post('/api/chat/:sessionId/to-recipe', () =>
         HttpResponse.json({
@@ -485,7 +485,7 @@ describe('<ChatPage /> — In Rezept umwandeln', () => {
       ),
       http.post('/api/chat', () => {
         call += 1
-        return HttpResponse.json({ assistantMessage: `Reply ${call}` })
+        return HttpResponse.json({ assistant_message: `Reply ${call}` })
       }),
       http.post('/api/chat/:sessionId/to-recipe', () =>
         HttpResponse.json({
@@ -536,7 +536,7 @@ describe('<ChatPage /> — input behaviour', () => {
     const user = userEvent.setup()
     server.use(
       http.post('/api/chat', () =>
-        HttpResponse.json({ assistantMessage: 'ok' }),
+        HttpResponse.json({ assistant_message: 'ok' }),
       ),
     )
     renderPage()
@@ -568,7 +568,7 @@ describe('<ChatPage /> — input behaviour', () => {
     await user.click(screen.getByRole('button', { name: /^Senden$/i }))
     // In flight → disabled.
     expect(screen.getByRole('button', { name: /^Senden$/i })).toBeDisabled()
-    release?.(HttpResponse.json({ assistantMessage: 'fertig' }))
+    release?.(HttpResponse.json({ assistant_message: 'fertig' }))
     await screen.findByText('fertig')
   })
 })
@@ -578,7 +578,7 @@ describe('<ChatPage /> — scroll stickiness', () => {
     const user = userEvent.setup()
     server.use(
       http.post('/api/chat', () =>
-        HttpResponse.json({ assistantMessage: 'Hier eine lange Antwort.' }),
+        HttpResponse.json({ assistant_message: 'Hier eine lange Antwort.' }),
       ),
     )
     renderPage()
@@ -629,7 +629,7 @@ describe('<ChatPage /> — navigation chrome', () => {
     const user = userEvent.setup()
     server.use(
       http.post('/api/chat', () =>
-        HttpResponse.json({ assistantMessage: 'yo' }),
+        HttpResponse.json({ assistant_message: 'yo' }),
       ),
     )
     renderPage()
@@ -646,6 +646,60 @@ describe('<ChatPage /> — navigation chrome', () => {
 
 // Silence a potential "unused" lint on this helper — referenced above.
 void within
+
+describe('<ChatPage /> — BUG-026 regression: snake_case wire + undefined-content history', () => {
+  // Two-faces-of-one-bug: Python emits `{ "assistant_message": "…" }`
+  // (snake_case); the .NET proxy forwards verbatim. Before the wire
+  // mapper, the UI read `res.assistantMessage` → undefined, so (1) the
+  // assistant bubble rendered empty and (2) the optimistic history
+  // append pushed `{ role: 'assistant', content: undefined }` into
+  // state, which on the next turn serialised without a `content` key
+  // and the backend rejected it as `invalid_message`.
+  it('renders the assistant bubble from snake_case wire and keeps history well-formed across turns', async () => {
+    const user = userEvent.setup()
+    const bodies: { messages: ChatMessage[] }[] = []
+    let call = 0
+    server.use(
+      http.post('/api/chat', async ({ request }) => {
+        const body = (await request.json()) as { messages: ChatMessage[] }
+        bodies.push(body)
+        call += 1
+        return HttpResponse.json({
+          assistant_message: call === 1 ? 'Ja gerne' : 'Klar, weiter geht es',
+        })
+      }),
+    )
+    renderPage()
+
+    const input = screen.getByLabelText(/Nachricht/i)
+    await user.type(input, 'Hi')
+    await user.click(screen.getByRole('button', { name: /^Senden$/i }))
+
+    // Symptom #1: assistant bubble must render with the real text, not
+    // an empty node from a `content: undefined` assistant message.
+    expect(await screen.findByText('Ja gerne')).toBeInTheDocument()
+
+    await user.type(input, 'weiter')
+    await user.click(screen.getByRole('button', { name: /^Senden$/i }))
+    await screen.findByText('Klar, weiter geht es')
+
+    // Symptom #2: the second-turn POST body must carry a well-formed
+    // history — every message has a non-empty string `content`. No
+    // entry with `content === undefined` or a missing `content` key.
+    expect(bodies).toHaveLength(2)
+    const secondBody = bodies[1]
+    expect(secondBody.messages).toEqual([
+      { role: 'user', content: 'Hi' },
+      { role: 'assistant', content: 'Ja gerne' },
+      { role: 'user', content: 'weiter' },
+    ])
+    for (const msg of secondBody.messages) {
+      expect(msg).toHaveProperty('content')
+      expect(typeof msg.content).toBe('string')
+      expect(msg.content.length).toBeGreaterThan(0)
+    }
+  })
+})
 
 describe('<ChatPage /> — BUG-001 regression: mobile viewport sizing', () => {
   // The bug: on iOS Safari + Chrome Android the chat input was hidden

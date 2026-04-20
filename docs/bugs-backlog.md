@@ -1244,7 +1244,7 @@ laut Regression-Test-Policy:
 
 ## BUG-026 · Chat-Antwort erscheint leer + zweite Nachricht wirft "Inhalt darf nicht leer" (zwei Symptome, ein Root-Cause)
 **Reported:** 2026-04-20 (zwei separate User-Reports, gleiche Wurzel)
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — Option 1 aus dem Backlog angewendet: `chatApi.sendChatTurn` holt jetzt das Python-Wire als `ChatTurnResponseWire { assistant_message: string }` und normalisiert am Edge auf `{ assistantMessage }` — analog zum bestehenden Muster aus `importsApi.mapStatusResponse`. .NET-Proxy + Python bleiben unverändert. Drei Regression-Tests abgedeckt: `chatApi.test.ts` asserts snake→camel Roundtrip und enthält ein Grep-Regression-Gate dass der Wire-Type-Name `assistant_message` im Source bleibt; `ChatPage.test.tsx` fährt beide Symptome in einem Integrations-Flow durch — erster Turn rendert Bubble "Ja gerne", zweiter Turn-Body trägt eine wohlgeformte History ohne `content === undefined` oder fehlenden `content`-Key. Alle 47 Chat-Tests grün, Lint clean, Build ok.)
 **Severity:** HIGH — Chat-Feature funktioniert faktisch gar nicht auf
 prod. 1. Turn zeigt leeres Assistant-Bubble, 2. Send crasht mit
 server-side 400.

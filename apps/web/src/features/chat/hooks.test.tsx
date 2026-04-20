@@ -27,7 +27,7 @@ describe('useChatTurn', () => {
   it('POSTs sessionId + messages and resolves with the assistantMessage', async () => {
     server.use(
       http.post('/api/chat', async () =>
-        HttpResponse.json({ assistantMessage: 'Wie viele Portionen?' }),
+        HttpResponse.json({ assistant_message: 'Wie viele Portionen?' }),
       ),
     )
     const { result } = renderHook(() => useChatTurn(), {

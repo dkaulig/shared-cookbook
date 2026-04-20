@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/msw/server'
@@ -48,7 +51,7 @@ describe('chatApi — sendChatTurn (POST /api/chat)', () => {
           messages: ChatMessage[]
         }
         return HttpResponse.json({
-          assistantMessage: 'Probier Kartoffel-Lauch-Auflauf.',
+          assistant_message: 'Probier Kartoffel-Lauch-Auflauf.',
         })
       }),
     )
@@ -60,6 +63,20 @@ describe('chatApi — sendChatTurn (POST /api/chat)', () => {
     expect(captured).not.toBeNull()
     expect(captured!.sessionId).toBe('abc-123')
     expect(captured!.messages).toHaveLength(3)
+  })
+
+  it('BUG-026 — maps snake_case wire `assistant_message` → camelCase `assistantMessage`', async () => {
+    server.use(
+      http.post('/api/chat', () =>
+        HttpResponse.json({ assistant_message: 'Hallo Welt' }),
+      ),
+    )
+    const res = await sendChatTurn({
+      sessionId: 'abc',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })
+    expect(res).toEqual({ assistantMessage: 'Hallo Welt' })
+    expect(res.assistantMessage).toBe('Hallo Welt')
   })
 
   it('throws an ApiError on 413 turn-cap overflow', async () => {
@@ -147,5 +164,17 @@ describe('chatApi — convertChatToRecipe (POST /api/chat/:session/to-recipe)', 
     await expect(
       convertChatToRecipe('abc', sampleMessages),
     ).rejects.toThrow(/noch kein klares Rezept/)
+  })
+})
+
+describe('chatApi — BUG-026 regression-grep gate', () => {
+  // A purely-textual check: if someone removes the snake→camel mapper
+  // and types the wire as camelCase, the mapper re-regresses silently.
+  // This asserts the literal `assistant_message` (snake_case) still
+  // appears in the source so the mismatch surfaces in the PR diff.
+  it('chatApi.ts still declares the snake_case wire key `assistant_message`', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(resolve(here, './chatApi.ts'), 'utf8')
+    expect(source).toMatch(/assistant_message/)
   })
 })

@@ -49,6 +49,20 @@ async function throwApiError(response: Response): Promise<never> {
 }
 
 /**
+ * Wire shape of `POST /api/chat` — the .NET bridge forwards the Python
+ * body verbatim, and Python emits snake_case (`assistant_message`). We
+ * normalise at the edge (analogue to `importsApi.mapStatusResponse`)
+ * so the React layer stays on the camelCase `ChatTurnResponse` surface.
+ * BUG-026: without this mapper `res.assistantMessage` was `undefined`,
+ * the assistant bubble rendered empty, and the next turn's history
+ * carried a `content: undefined` entry that the backend rejected as
+ * `invalid_message`.
+ */
+interface ChatTurnResponseWire {
+  assistant_message: string
+}
+
+/**
  * One conversational turn. The caller owns the full `messages[]` array
  * — the backend is stateless (P2-4) and needs the complete history on
  * every call. `sessionId` exists purely for logging correlation + the
@@ -57,11 +71,12 @@ async function throwApiError(response: Response): Promise<never> {
 export async function sendChatTurn(
   body: ChatTurnRequest,
 ): Promise<ChatTurnResponse> {
-  return request<ChatTurnResponse>('/api/chat', {
+  const wire = await request<ChatTurnResponseWire>('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  return { assistantMessage: wire.assistant_message }
 }
 
 /**
