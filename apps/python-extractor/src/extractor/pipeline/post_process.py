@@ -20,6 +20,8 @@ Returns an :class:`ExtractionResult` ready to ship to the HTTP layer.
 
 from __future__ import annotations
 
+import re
+from difflib import SequenceMatcher
 from typing import Any
 
 from extractor.llm.provider import TokenUsage
@@ -112,9 +114,16 @@ def post_process(
 
     nutrition_estimate = _normalise_nutrition_estimate(llm_output.get("nutrition_estimate"))
 
+    # BUG-022 + BUG-028 — two defensive guards on the description field
+    # plus the surrounding ingredients. The dedupe (BUG-022) runs first so
+    # the mass-leak scan (BUG-028) never re-acts to a description that's
+    # about to be dropped anyway.
+    description = _normalise_description(_optional_str(llm_output.get("description")), steps)
+    ingredients = _flag_mass_leak_in_description(description, ingredients)
+
     recipe: ExtractedRecipe = {
         "title": str(llm_output.get("title") or "Unbenanntes Rezept"),
-        "description": _optional_str(llm_output.get("description")),
+        "description": description,
         "servings": servings,
         "difficulty": _optional_int(llm_output.get("difficulty")),
         "prep_minutes": _optional_int(llm_output.get("prep_minutes")),
@@ -266,6 +275,86 @@ def _normalise_nutrition_estimate(raw: Any) -> NutritionEstimate | None:
         "carbs_g": cleaned["carbs_g"],
         "fat_g": cleaned["fat_g"],
     }
+
+
+# BUG-022 dedupe + BUG-028 mass-leak guard. Both helpers are intentionally
+# pure (no logging side-effects) so they're easy to unit-test in isolation.
+# The similarity threshold is a tradeoff documented in the docstring.
+_DESCRIPTION_DUPLICATE_THRESHOLD: float = 0.80
+_MASS_PATTERN: re.Pattern[str] = re.compile(
+    r"\d+\s*(?:g|kg|ml|l|EL|TL|Stück|Prise)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalise_description(description: str | None, steps: list[ExtractedStep]) -> str | None:
+    """Drop description when it's substantially identical to steps[0].
+
+    BUG-022. Vision-LLM on handwritten photo scans has a habit of
+    populating ``description`` with the first step's text (to fulfil the
+    required JSON field), then emitting the same text again in
+    ``steps[0]``. Exact string equality is rare (the LLM rephrases
+    slightly), so compare via :class:`difflib.SequenceMatcher` ratio;
+    ≥ 0.80 similarity after simple normalisation (lower, strip, collapse
+    whitespace) counts as duplicate. A short-circuit substring match
+    catches the common "description ⊂ first step" case before the more
+    expensive ratio computation.
+    """
+    if not description or not steps:
+        return description
+    first_step_text = steps[0]["content"]
+    if not first_step_text:
+        return description
+    a = " ".join(description.lower().split())
+    b = " ".join(first_step_text.lower().split())
+    if not a or not b:
+        return description
+    # Short-circuit: exact-substring match in either direction
+    # (description ⊂ step or step ⊂ description).
+    if a in b or b in a:
+        return None
+    ratio = SequenceMatcher(None, a, b).ratio()
+    if ratio >= _DESCRIPTION_DUPLICATE_THRESHOLD:
+        return None
+    return description
+
+
+def _flag_mass_leak_in_description(
+    description: str | None, ingredients: list[ExtractedIngredient]
+) -> list[ExtractedIngredient]:
+    """Downgrade confidence on shaky ingredients when ``description`` leaks a mass.
+
+    BUG-028. If the LLM put a mass/volume token (``500 g``, ``3 EL``, …)
+    into ``description`` AND there's at least one ingredient whose own
+    quantity is ``None`` or already flagged uncertain, that's a strong
+    signal the LLM mis-routed a quantity into the prose field. We do
+    NOT attempt to auto-attach the leaked quantity (heuristic risk —
+    "Variante a" from the backlog); we just downgrade the affected
+    ingredients' confidence to ``"low"`` so the review UI surfaces them
+    for manual correction.
+
+    Note: the prompt instructs the LLM to use ``confidence="uncertain"``
+    in this case, but that literal isn't part of the
+    :data:`IngredientConfidenceLevel` enum (the closest validated
+    levels are ``"low"`` and ``"handwritten_uncertain"``). For the
+    URL-path the schema-valid downgrade is ``"low"`` — the same level
+    ``_normalise_ingredient`` already coerces an unknown raw_confidence
+    to.
+    """
+    if not description:
+        return ingredients
+    if not _MASS_PATTERN.search(description):
+        return ingredients
+    shaky = {None, "missing", "low", "handwritten_uncertain"}
+    if not any(i["quantity"] is None or i["confidence"] in shaky for i in ingredients):
+        return ingredients
+    flagged: list[ExtractedIngredient] = []
+    for ingredient in ingredients:
+        if ingredient["quantity"] is None or ingredient["confidence"] in shaky:
+            flagged.append({**ingredient, "confidence": "low"})
+        else:
+            flagged.append(ingredient)
+    return flagged
 
 
 def _normalise_tags(raw_tags: list[Any]) -> list[str]:

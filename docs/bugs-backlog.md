@@ -932,7 +932,13 @@ assertion:
 
 ## BUG-022 · Foto-Extraktion: erster Step landet zusätzlich in Beschreibung
 **Reported:** 2026-04-20
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — `SYSTEM_PROMPT_DE` in beiden
+Prompt-Dateien um eine `description`-als-Zusammenfassung-Direktive
+ergänzt + `_normalise_description` Helper in `post_process.py`
+dropt `description` wenn ≥ 80 % SequenceMatcher-Ähnlichkeit zu
+`steps[0].content` (oder Substring-Match in beide Richtungen);
+3 Unit-Tests in `test_pipeline_post_process.py` + grep-style Prompt-
+Regression in `test_recipe_prompts.py` und `test_photo_prompts.py`.)
 **Severity:** medium (UX — doppelter Text im Formular, User muss beim
 Review manuell aufräumen; nicht blockierend aber nervt bei jedem
 Handschrift-Import)
@@ -1424,7 +1430,14 @@ separater kleiner Follow-up.
 ## BUG-028 · Video-Import: Zutaten-Mengen durcheinander (2g in quantity, ~900g in description)
 **Reported:** 2026-04-20 (während Bug-Sweep-2, URL:
 `facebook.com/share/r/18gMgiLGLB/?mibextid=wwXIfr`)
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — `SYSTEM_PROMPT_DE` in beiden
+Prompt-Dateien um die "Zahl+Einheit gehört IMMER in quantity+unit,
+NIEMALS in description/note"-Direktive + Portionszahl-Klärung
+ergänzt; `_flag_mass_leak_in_description` Helper in `post_process.py`
+downgraded Confidence shaky-quantity-Zutaten auf `"low"` wenn
+`description` ein Mass-Pattern `\d+\s*(g|kg|ml|l|EL|TL|Stück|Prise)`
+enthält (Variante a, kein Auto-Attach); 3 Unit-Tests inkl. Cross-Bug-
+Skip-Test (description war BUG-022-deduped → kein Downgrade).)
 **Severity:** medium (Datenqualität — Rezept nach Import enthält
 nachweislich falsche Mengen, User muss manuell pflegen)
 **Where:**

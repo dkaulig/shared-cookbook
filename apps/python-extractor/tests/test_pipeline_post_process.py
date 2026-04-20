@@ -347,6 +347,126 @@ def test_post_process_drops_nutrition_with_missing_field() -> None:
     assert result["recipe"]["nutrition_estimate"] is None
 
 
+# ─────────────────────────────────────────────────────────────────────
+# BUG-022 — description / steps[0] dedupe
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_bug022_drops_description_when_identical_to_first_step() -> None:
+    """description == steps[0].content (verbatim) → description set to None.
+
+    The Vision-LLM on handwritten photos likes to fill the required
+    `description` field with the first step text. Post-process catches
+    that with a SequenceMatcher ratio >= 0.80; an exact match is the
+    trivial case.
+    """
+    data = _base_recipe_dict()
+    data["description"] = "Zwiebel hacken und in Butter glasig dünsten"
+    data["steps"] = [
+        {
+            "position": 1,
+            "content": "Zwiebel hacken und in Butter glasig dünsten",
+            "confidence": "high",
+        }
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe"]["description"] is None
+
+
+def test_bug022_keeps_description_when_unrelated_to_steps() -> None:
+    """A genuine summary description survives — no false-positive dedupe."""
+    data = _base_recipe_dict()
+    data["description"] = "Klassischer Apfelkuchen nach Oma-Rezept"
+    data["steps"] = [
+        {"position": 1, "content": "Äpfel schälen", "confidence": "high"},
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe"]["description"] == "Klassischer Apfelkuchen nach Oma-Rezept"
+
+
+def test_bug022_borderline_similarity_threshold() -> None:
+    """Borderline case: short description that is a strict prefix of the
+    first step gets dropped via the substring short-circuit (description ⊂
+    step). This is the side we came down on — a 4-word description that
+    re-appears verbatim inside a 9-word first step is still "the LLM
+    parroted the step into description". If the user wanted that exact
+    summary they'd phrase it differently from the step instruction."""
+    data = _base_recipe_dict()
+    data["description"] = "Zwiebel fein hacken"
+    data["steps"] = [
+        {
+            "position": 1,
+            "content": "Zwiebel fein hacken und in Butter dünsten",
+            "confidence": "high",
+        }
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe"]["description"] is None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BUG-028 — mass-leak in description downgrades ingredient confidence
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_bug028_downgrades_confidence_when_mass_in_description() -> None:
+    """description carries a mass/volume token + ingredient has null qty
+    → that ingredient's confidence is downgraded to "low" (the schema-
+    valid stand-in for the prompt's "uncertain" instruction; the
+    type-system enum doesn't include "uncertain")."""
+    data = _base_recipe_dict()
+    data["description"] = "ca. 500 g Fleisch dazugeben"
+    data["ingredients"] = [
+        {
+            "name": "Fleisch",
+            "quantity": None,
+            "unit": None,
+            "note": None,
+            "confidence": "high",
+        }
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe"]["ingredients"][0]["confidence"] == "low"
+
+
+def test_bug028_does_not_downgrade_when_description_clean() -> None:
+    """A description with no mass/volume token leaves ingredient confidence
+    untouched — the guard is a precision filter, not a blanket downgrade."""
+    data = _base_recipe_dict()
+    data["description"] = "Klassischer Auflauf mit knuspriger Kruste"
+    # The base dict already has a single ingredient with quantity="1 kg"
+    # confidence="high"; that's the happy-path baseline.
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe"]["ingredients"][0]["confidence"] == "high"
+
+
+def test_bug028_skips_guard_when_description_was_deduped() -> None:
+    """If the description happens to mass-match a step (BUG-022 fires
+    first → description becomes None), the BUG-028 guard sees no
+    description and does not downgrade anything. Otherwise we'd flag
+    ingredients based on text the user never sees."""
+    data = _base_recipe_dict()
+    # Step text contains a mass token; description is verbatim copy →
+    # BUG-022 dedupe drops description before the BUG-028 guard runs.
+    duplicated = "500 g Mehl in die Schüssel geben und verrühren"
+    data["description"] = duplicated
+    data["steps"] = [{"position": 1, "content": duplicated, "confidence": "high"}]
+    data["ingredients"] = [
+        {
+            "name": "Mehl",
+            "quantity": None,
+            "unit": None,
+            "note": None,
+            "confidence": "high",
+        }
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe"]["description"] is None
+    # Ingredient gets the standard `_normalise_ingredient` treatment
+    # (null quantity → "missing"), NOT the BUG-028 downgrade to "low".
+    assert result["recipe"]["ingredients"][0]["confidence"] == "missing"
+
+
 def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
     """Plan §2.5 post-process: step positions must be 1..N in input order
     even when the LLM returns gapped (1, 3, 5) or mis-ordered values.
