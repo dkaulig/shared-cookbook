@@ -1,5 +1,5 @@
 import { act, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NetworkIndicator } from './NetworkIndicator'
 import {
   dispatchSwMessage,
@@ -57,7 +57,8 @@ describe('<NetworkIndicator />', () => {
     expect(pill).toHaveAttribute('aria-live', 'polite')
   })
 
-  it('returns to the idle empty host after a successful replay', () => {
+  it('returns to the idle empty host after a successful replay (post-flash)', () => {
+    vi.useFakeTimers()
     const { container } = render(<NetworkIndicator />)
     act(() => {
       dispatchSwMessage({ type: 'fk-mutation-queued' })
@@ -69,10 +70,38 @@ describe('<NetworkIndicator />', () => {
     act(() => {
       dispatchSwMessage({ type: 'fk-mutation-replayed', count: 1 })
     })
-    // Back to idle → pill disappears, idle host remains.
+    // OFF5 — green "synchronisiert" flash now appears for 2s.
+    expect(
+      screen.getByTestId('network-indicator-flash'),
+    ).toHaveTextContent(/1 synchronisiert/i)
+
+    // After 2s the flash disappears and we return to the idle host.
+    act(() => {
+      vi.advanceTimersByTime(2100)
+    })
     expect(screen.queryByTestId('network-indicator')).toBeNull()
     expect(
       container.querySelector('[data-testid="network-indicator-idle"]'),
     ).not.toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('flashes "N synchronisiert" transiently after replay drain', () => {
+    vi.useFakeTimers()
+    render(<NetworkIndicator />)
+    act(() => {
+      dispatchSwMessage({ type: 'fk-mutation-queued' })
+      dispatchSwMessage({ type: 'fk-mutation-queued' })
+      dispatchSwMessage({ type: 'fk-mutation-queued' })
+    })
+    act(() => {
+      dispatchSwMessage({ type: 'fk-mutation-replayed', count: 3 })
+    })
+    const flash = screen.getByTestId('network-indicator-flash')
+    expect(flash).toHaveTextContent(/3 synchronisiert/i)
+    // Flash uses the green emerald variant (not amber / sky).
+    const pill = screen.getByTestId('network-indicator')
+    expect(pill.className).toMatch(/emerald/)
+    vi.useRealTimers()
   })
 })

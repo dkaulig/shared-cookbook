@@ -29,8 +29,9 @@ export interface NetworkStatus {
  * from). For this slice we accept a reduced UX — `pendingReplayCount`
  * starts at 0 and only resets on the replay signal. Offline users
  * still see the "Offline" pill via signal #1, which is the more
- * important of the two indicators. Full pending-count telemetry
- * lands when OFF5 migrates to `injectManifest`.
+ * important of the two indicators. Full pending-count telemetry is
+ * tracked as an offline-v2 follow-up (would require migrating to
+ * `injectManifest` + an owned SW source).
  */
 export function useNetworkStatus(): NetworkStatus {
   const [online, setOnline] = useState<boolean>(() =>

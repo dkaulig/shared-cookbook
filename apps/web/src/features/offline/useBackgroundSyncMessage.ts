@@ -11,10 +11,13 @@ import { useSwMessage } from './useSwMessage'
  * targeted invalidation would require the SW to decode queued URLs +
  * extract IDs, which isn't worth the complexity for a hobby app.
  *
- * TODO (integration): jsdom doesn't implement `serviceWorker`, so end-
- * to-end SW replay is out of scope for vitest. See
- * `scripts/smoke-offline.sh` (future Playwright test in OFF5) for the
- * real browser-level verification.
+ * Integration note: jsdom doesn't implement `serviceWorker`, so the
+ * end-to-end SW replay is out of scope for vitest. The Playwright
+ * offline smoke at `apps/web/e2e/offline.spec.ts` (OFF5) covers the
+ * read-cache + indicator contract against the real built SW; the
+ * mutation-replay contract stays vitest-scope because Playwright's
+ * `setOffline` can't reliably proxy the Workbox `BackgroundSyncPlugin`
+ * behavior.
  */
 export function useBackgroundSyncMessage(): void {
   const queryClient = useQueryClient()

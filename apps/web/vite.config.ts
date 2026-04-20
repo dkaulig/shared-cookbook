@@ -143,13 +143,13 @@ export default defineConfig({
           // entry from the queue. Only network-layer failures (fetch
           // rejects) re-unshift and rethrow so the browser retries.
           //
-          // TODO (OFF5): on shared devices (kitchen tablet, PWA), the
-          // SW registration is per-origin, not per-user. A cross-user
-          // drift scenario (user A queues, logs out, user B signs in,
-          // reconnect) would replay user A's mutations against user
-          // B's session. Mitigation = clear the Workbox queue on
-          // logout; tracked for a follow-up slice. Documented in
-          // docs/ops.md §9 for operators.
+          // FOLLOW-UP (offline v2, post-Phase-5): on shared devices
+          // (kitchen tablet, PWA), the SW registration is per-origin,
+          // not per-user. A cross-user drift scenario (user A queues,
+          // logs out, user B signs in, reconnect) would replay user A's
+          // mutations against user B's session. Mitigation = clear the
+          // Workbox queue on logout. Documented as a known limitation
+          // in docs/ops.md §9 "Offline behavior" until the fix lands.
           {
             urlPattern: ({ url, request }: { url: URL; request: Request }) =>
               request.method === 'PATCH' &&
