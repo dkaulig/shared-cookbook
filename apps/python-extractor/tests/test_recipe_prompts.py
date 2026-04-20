@@ -383,3 +383,54 @@ def test_system_prompt_de_requests_nutrition_estimation() -> None:
     assert "nährwert" in lowered or "kalorien" in lowered or "kcal" in lowered
     # Must also mention the per-portion contract.
     assert "portion" in lowered or "pro portion" in lowered
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BUG-028 prompt-regression gates — quantity routing rule
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_system_prompt_forbids_mass_in_description() -> None:
+    """The BUG-028 prompt-hardening paragraph must mention `description`,
+    `quantity` and the hard-NO marker `NIEMALS` within a 400-char window
+    of each other (the same paragraph). The prompt has multiple
+    occurrences of each keyword — we look for the tightest window
+    containing all three. Grep-style guard so any future edit that drops
+    the rule surfaces in CI."""
+    text = SYSTEM_PROMPT_DE
+
+    def all_indices(needle: str) -> list[int]:
+        out: list[int] = []
+        start = 0
+        while True:
+            idx = text.find(needle, start)
+            if idx < 0:
+                return out
+            out.append(idx)
+            start = idx + 1
+
+    desc = all_indices("description")
+    quant = all_indices("quantity")
+    niemals = all_indices("NIEMALS")
+    assert desc, "prompt missing the word 'description'"
+    assert quant, "prompt missing the word 'quantity'"
+    assert niemals, "prompt missing the hard-NO marker 'NIEMALS'"
+    tightest = min(max(d, q, n) - min(d, q, n) for d in desc for q in quant for n in niemals)
+    assert tightest <= 400, (
+        f"description/quantity/NIEMALS too far apart ({tightest} chars) — "
+        "the BUG-028 paragraph likely got split or dropped"
+    )
+
+
+def test_system_prompt_calls_description_a_summary() -> None:
+    """The BUG-022 prompt-hardening paragraph must call `description` a
+    short summary (Zusammenfassung / knapp) — within 200 chars of the
+    word `description`."""
+    text = SYSTEM_PROMPT_DE
+    desc_idx = text.find("description")
+    assert desc_idx >= 0, "prompt missing the word 'description'"
+    window = text[max(0, desc_idx - 200) : desc_idx + 200].lower()
+    assert "zusammenfassung" in window or "knapp" in window, (
+        "the BUG-022 paragraph must describe `description` as a "
+        "Zusammenfassung / knapp summary near the field name"
+    )

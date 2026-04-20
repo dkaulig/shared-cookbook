@@ -85,6 +85,17 @@ SYSTEM_PROMPT_DE: Final[str] = (
     "Für Zutaten ohne erkennbare Menge setze `quantity` auf null und "
     '`confidence` auf "missing". Tags sind kurze Kleinbuchstaben-'
     'Stichwörter (z.B. "kuchen", "backen", "sonntag"). '
+    "Das Feld `description` ist AUSSCHLIESSLICH eine knappe 1-2-Satz-"
+    'Zusammenfassung des Gerichts (z.B. "Klassischer Rührteig mit '
+    'Äpfeln"). Wiederhole dort NIEMALS Schritte, Zutaten, Mengenangaben '
+    "oder Zubereitungsanweisungen. Wenn keine sinnvolle Zusammenfassung "
+    "ableitbar ist, setze `description` auf null. "
+    'Wenn du eine Zahl mit Einheit hörst oder liest ("200 g", "500 ml", '
+    '"3 EL"), gehört sie IMMER in `quantity` + `unit` EINER Zutat-Zeile. '
+    "Niemals in `description`, `note` oder andere Felder. Bei Unsicherheit "
+    'setze `confidence="uncertain"` UND ordne die Menge trotzdem zu einer '
+    'Zutat zu. NIEMALS Portionszahl ("2 Personen") als Zutatenmenge '
+    "interpretieren — das gehört in `servings`. "
     "Schätze pro Portion die Nährwerte (kcal, protein_g, carbs_g, "
     "fat_g) als ganze Zahlen und gib sie im Feld `nutrition_estimate` "
     "zurück. Die Werte beziehen sich auf EINE Portion. Wenn du Mengen "

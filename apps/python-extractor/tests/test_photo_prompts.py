@@ -275,6 +275,55 @@ def test_photo_system_prompt_de_requests_nutrition_estimation() -> None:
     assert "portion" in lowered or "pro portion" in lowered
 
 
+# ─────────────────────────────────────────────────────────────────────
+# BUG-028 prompt-regression gates — quantity routing rule (mirror of
+# the URL-prompt assertions in test_recipe_prompts.py).
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_system_prompt_forbids_mass_in_description() -> None:
+    """Same hardening paragraph as the URL-path prompt: `description`,
+    `quantity` and the hard-NO marker `NIEMALS` must appear within a
+    400-char window of each other (tightest co-occurrence across all
+    repeated mentions)."""
+    text = SYSTEM_PROMPT_DE
+
+    def all_indices(needle: str) -> list[int]:
+        out: list[int] = []
+        start = 0
+        while True:
+            idx = text.find(needle, start)
+            if idx < 0:
+                return out
+            out.append(idx)
+            start = idx + 1
+
+    desc = all_indices("description")
+    quant = all_indices("quantity")
+    niemals = all_indices("NIEMALS")
+    assert desc, "prompt missing the word 'description'"
+    assert quant, "prompt missing the word 'quantity'"
+    assert niemals, "prompt missing the hard-NO marker 'NIEMALS'"
+    tightest = min(max(d, q, n) - min(d, q, n) for d in desc for q in quant for n in niemals)
+    assert tightest <= 400, (
+        f"description/quantity/NIEMALS too far apart ({tightest} chars) — "
+        "the BUG-028 paragraph likely got split or dropped"
+    )
+
+
+def test_system_prompt_calls_description_a_summary() -> None:
+    """BUG-022 paragraph: `description` is named a Zusammenfassung /
+    knapp summary within 200 chars of the field name."""
+    text = SYSTEM_PROMPT_DE
+    desc_idx = text.find("description")
+    assert desc_idx >= 0, "prompt missing the word 'description'"
+    window = text[max(0, desc_idx - 200) : desc_idx + 200].lower()
+    assert "zusammenfassung" in window or "knapp" in window, (
+        "the BUG-022 paragraph must describe `description` as a "
+        "Zusammenfassung / knapp summary near the field name"
+    )
+
+
 def test_photo_recipe_schema_does_not_mutate_base_recipe_schema() -> None:
     """Extending the base schema by reference would corrupt the URL
     pipeline's confidence enum for the rest of the process. Guard
