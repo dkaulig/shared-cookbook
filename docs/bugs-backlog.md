@@ -754,3 +754,588 @@ Download-Logic + Staged-Photo-Integration. Eigener kleiner Slice
 "IMPORT-THUMB" post-Bug-Sweep.
 **Test-Strategie:** E2E-Test mit einem bekannten public Video-URL,
 assert dass nach Import das Recipe mindestens 1 Photo hat.
+
+---
+
+## BUG-019 · Such-Placeholder läuft aus dem Input-Feld heraus (GroupFilterBar)
+**Reported:** 2026-04-20
+**Status:** `[ ] open`
+**Severity:** low (kosmetisch, kein Funktionsverlust — Input funktioniert,
+sieht nur abgeschnitten aus auf schmalen Viewports)
+**Where:** `apps/web/src/features/groups/GroupFilterBar.tsx:57` —
+Gruppen-Detail-Seite, DS4-Filter-Bar
+**Symptom:** Placeholder `"Rezept oder Zutat suchen…"` wird auf
+schmalen Viewports (~≤390 px) abgeschnitten / läuft rechts aus dem
+Input-Rahmen heraus. Tritt auf, weil der Suchfeld-Block `flex-1` +
+`min-w-0` ist (aus BUG-006-Fix, damit Filter- und Zufall-Buttons im
+Viewport bleiben) — der Shrink-below-content ist funktional korrekt,
+aber der Text wirkt visuell "abgehackt".
+**User-Vorschlag:** Suchfeld auf eigene Zeile (stacked layout unter
+Filter + Zufall-Buttons).
+**Likely fix — 3 Optionen zur Wahl:**
+1. **Stacked layout auf Mobile** (user-Vorschlag, grösster Redesign-
+   Hub): GroupFilterBar wird auf `flex-col md:flex-row`; Suchfeld
+   `w-full` oben, Filter + Zufall `flex-row gap-2.5` darunter. Pro:
+   maximaler Platz fürs Placeholder, klare Hierarchie. Kontra: zweite
+   Row kostet vertikalen Raum auf Mobile, wo `sticky top-*` Header
+   bereits ~120 px belegt.
+2. **Kürzerer Placeholder** (1-Zeilen-Fix): `"Suchen…"` statt
+   `"Rezept oder Zutat suchen…"`. Pro: minimal-invasiv, Layout bleibt
+   wie heute. Kontra: weniger selbst-erklärend — User muss den `aria-
+   label="Suche"` + Magnifier-Icon benutzen um zu wissen dass auch
+   nach Zutaten gesucht werden kann.
+3. **Responsive Placeholder** (Kompromiss): `useIsMobile()`-Hook
+   schaltet Placeholder-Text um — `"Suchen…"` auf Mobile,
+   `"Rezept oder Zutat suchen…"` ab md-Breakpoint. Pro: kein
+   Layout-Change, kein Info-Verlust auf Desktop. Kontra: hint über
+   Zutaten-Suche fehlt trotzdem auf Mobile (man könnte als Compensation
+   nach 2-3 s idle Toast/Hint einblenden, aber Scope-Creep).
+**Priority:** LOW — kosmetisch, GroupDetailPage ist noch deutlich
+funktional. Bundle-Kandidat mit weiterer Mobile-Polish-Welle.
+**Test-Strategie:** Component-Test `GroupFilterBar.test.tsx` mit
+viewport 375 × 667 (iPhone SE), assert dass `input.placeholder`-Text
+entweder in-input-fits (measure via `scrollWidth <= clientWidth`) oder
+— bei stacked layout — auf eigener Zeile rendert (parent hat
+`flex-direction: column` via computed-style). CSS/Layout-Bug → grep +
+computed-style assertion laut Regression-Test-Policy.
+
+---
+
+## BUG-020 · Zwei identische Cog-Icons im Gruppen-Header (Tags vs. Einstellungen)
+**Reported:** 2026-04-20
+**Status:** `[ ] open`
+**Severity:** medium (UX — navigation-confusion, nicht funktional kaputt)
+**Where:**
+- `apps/web/src/features/groups/GroupDetailPage.tsx:200-206` — kleiner
+  Cog-Button oben rechts im Gruppen-Top-Bar, navigiert nach
+  `/groups/{id}/tags`. **Wichtig:** Button hat aktuell
+  `aria-label="Einstellungen"` obwohl er auf Tags-Seite zeigt — doppelt
+  verwirrend für Screenreader-User.
+- `apps/web/src/features/groups/GroupDetailHeader.tsx:100-103` —
+  "Einstellungen"-Button unten im Group-Header-Card, navigiert nach
+  `/groups/{id}/settings`. Gleiches `lucide-react/Settings`-Icon.
+**Symptom:** User sieht **zwei Zahnräder** direkt untereinander auf
+derselben Seite, beide mit Tooltip/Label "Einstellungen"-ähnlich. Ein
+Klick geht zur Tag-Verwaltung, der andere zur Gruppen-Settings-Seite
+(Name / Beschreibung / Foto / Mitglieder). Keine visuelle Unterscheidung.
+**User-Vorschlag:** Tag-Verwaltung als Section ans Ende der
+`GroupSettingsPage` anhängen und den Tag-Cog-Button in der Top-Bar
+entfernen — ein einziger Einstellungs-Einstieg pro Gruppe.
+**Likely fix — 3 Optionen zur Wahl:**
+1. **Tag-Verwaltung in GroupSettingsPage integrieren** (user-Vorschlag,
+   empfohlen): Die bestehende `/groups/{id}/tags`-Route rendert einen
+   `GroupTagsPanel`-Inhalt (CRUD der gruppen-eigenen Tags). Diesen als
+   letzte Section in `GroupSettingsPage` einfügen (nach Mitglieder +
+   Einladungen). Route `/groups/{id}/tags` bleibt kompatibel, rendert
+   aber eine Redirect- oder Deep-Anchor-Navigation (`#tags`) nach
+   `/groups/{id}/settings`. Top-Bar-Cog in `GroupDetailPage.tsx`
+   entfernen, die `GroupDetailHeader`-Einstellungen-Pill bleibt einzige
+   Anlaufstelle. Pro: ein mentaler Ort für "alles zur Gruppe"; eine
+   Info-Architektur-Aufräumung. Kontra: längere Settings-Seite —
+   Nutzer mit vielen Custom-Tags scrollen.
+2. **Icons ausdifferenzieren** (minimal-invasiv): Cog-Button für Tags
+   bleibt, bekommt aber `lucide-react/Tags`- oder `Tag`-Icon (Etikett-
+   Symbol), `aria-label="Tags verwalten"`. Pro: kein Routing-Refactor.
+   Kontra: löst die UX-Frage "zwei Einstellungs-Einstiege" nicht —
+   Tags-Button bleibt prominent im Header obwohl er funktional eine
+   Einstellungs-Section ist.
+3. **Tags in einen Overflow-Menü-Eintrag verschieben** (kompromiss):
+   Top-Bar-Button wird zu einem `MoreVertical`-3-Dots-Menü mit
+   Einträgen "Tags verwalten" + (später) weitere Power-User-Actions.
+   Einstellungen-Pill im GroupDetailHeader bleibt primär. Pro:
+   skaliert für künftige Actions. Kontra: dritter Navigation-Style
+   auf einer ohnehin dichten Seite.
+**Priority:** medium — Information-Architecture-Fix lohnt sich, weil
+Tags-CRUD-Fläche eh klein ist (typisch &lt;10 Custom-Tags pro Gruppe)
+und gut in die Settings-Seite passt. Bundle-Kandidat mit einer
+Settings-Seiten-Sektionierung (Collapsible-Sections analog
+`MobileDayStack` aus P3-10).
+**Test-Strategie:** Frontend-UX-Bug → Component-Test + Integration:
+- `GroupDetailPage.test.tsx`: assert dass Top-Bar keinen zweiten
+  Cog-Link mehr rendert (`queryByRole('link', { name: /einstellungen/i })`
+  liefert genau **einen** Match — den GroupDetailHeader-Pill).
+- `GroupSettingsPage.test.tsx`: assert dass die Tag-Verwaltungs-Section
+  mit Heading "Tags" + existing tag-CRUD-Controls rendert.
+- Route-Redirect-Test: `/groups/{id}/tags` → navigiert zu
+  `/groups/{id}/settings#tags` (deep-anchor) oder rendert die
+  zusammengeführte Seite mit `scrollIntoView` auf die Tag-Section.
+
+---
+
+## BUG-021 · RecipeActionBar rutscht beim Scrollen unter die BottomNav
+**Reported:** 2026-04-20
+**Status:** `[ ] open`
+**Severity:** HIGH — blockiert "Jetzt gekocht" + "In Wochenplan" CTAs auf
+Mobile. Das sind die primären Aktionen der Rezept-Detail-Seite.
+**Where:** `apps/web/src/features/recipes/RecipeActionBar.tsx:76-119`
+(ActionBar) + `apps/web/src/components/layout/BottomNav.tsx:56`
+(BottomNav).
+**Symptom:** Auf Rezept-Detail-Seite sitzen zwei Buttons ("In Wochenplan"
++ "Jetzt gekocht") in einer fixed-bottom Bar knapp über der
+BottomNav. Beim Scrollen (speziell iOS Safari mit dynamischer
+Toolbar) wandern die Buttons visuell **unter** die BottomNav und sind
+nicht mehr klickbar.
+**Root cause (vermutet, 2 Faktoren):**
+1. **z-Index-Mismatch:** RecipeActionBar hat `z-[8]`, BottomNav hat
+   `z-30`. Bei jeder Überlappung gewinnt die BottomNav → ActionBar
+   verschwindet unter ihr statt davor.
+2. **Bottom-Offset zu knapp berechnet:** ActionBar positioniert sich
+   via `bottom-[calc(env(safe-area-inset-bottom,0px)+72px)]`. BUG-014
+   hat die BottomNav auf `bottom-[env(safe-area-inset-bottom)]` +
+   `pb-[env(safe-area-inset-bottom)]` gesetzt — das zählt den
+   Safe-Area-Inset zweimal + ~56 px Content-Höhe. Auf iPhone mit
+   Safe-Area-Inset ~34 px ist die BottomNav effektiv **90 px** hoch
+   (34 + 56), aber die ActionBar springt nur 72 px nach oben → 18 px
+   Überlappung. Ruckelt beim Scrollen weil iOS die Safe-Area-Inset-
+   Werte während der Adressleisten-Retraktion neu berechnet und die
+   beiden fixed-Elemente unterschiedlich schnell repainten.
+**Likely fix — 3 Optionen:**
+1. **Beide Faktoren fixen** (empfohlen): ActionBar `z-[8]` → `z-40`
+   (über BottomNav `z-30`), UND bottom-offset korrigieren auf
+   `bottom-[calc(env(safe-area-inset-bottom,0px)+92px)]` (34 Inset +
+   56 Nav-Höhe + 2 px Luft). Oder — sauberer — zentrale CSS-Variable
+   `--bottom-nav-height: calc(env(safe-area-inset-bottom,0px) + 56px)`
+   in `index.css` definieren und beide Stellen (BottomNav sizing,
+   ActionBar offset) darauf referenzieren. Einmalige Quelle der
+   Wahrheit, fliegt nicht mehr auseinander wenn Nav-Höhe geändert
+   wird.
+2. **ActionBar in BottomNav mergen** (strukturell): Auf
+   Rezept-Detail-Routes die BottomNav durch die ActionBar ersetzen
+   (route-conditional render in `AppLayout`). Pro: keine Overlap-
+   Frage mehr. Kontra: User verliert den Zugriff auf Start/Gruppen/
+   Wochenplan-Nav auf dem Rezept-Screen — braucht Back-Arrow plus
+   klare UX-Entscheidung.
+3. **ActionBar non-fixed am Ende des Content** (klassisch): Statt
+   `fixed bottom-` die Bar als letzten Block der Seite rendern, mit
+   `sticky bottom-[calc(env(safe-area-inset-bottom)+56px)]` falls
+   sinnvoll. Pro: keine dynamische Viewport-Mathematik. Kontra:
+   Primary-Action ist nicht mehr auf Screen beim Scrollen durch
+   lange Zutaten-Listen — der UX-Grund warum die Bar fixed ist
+   fällt weg.
+**Priority:** HIGH — primäre CTAs unklickbar auf Mobile ist
+funktions-blockierend, gehört in die nächste Bug-Welle.
+**Test-Strategie:** CSS/Layout-Bug → Component-Test + computed-style
+assertion:
+- `RecipeActionBar.test.tsx`: rendere in `jsdom` mit fake viewport
+  375 × 667, assert dass `getComputedStyle(actionBar).zIndex` > dem
+  der BottomNav (**Regressions-Gate gegen z-Index-Mismatch**).
+- Integration: Playwright-E2E auf iPhone SE-Profile, scroll durch
+  langes Rezept, assert dass sowohl "In Wochenplan" als auch
+  "Jetzt gekocht" am Ende via `page.locator('button').isVisible()`
+  klickbar sind und nicht von `nav[aria-label="Hauptnavigation"]`
+  überlagert werden (`.boundingBox()` Overlap-Check).
+- Grep-Guard: assert dass kein `z-\[[0-9]\]` unter 30 in
+  `features/recipes/*ActionBar*` auftritt (verhindert Regression auf
+  kleinen z-Wert).
+
+---
+
+## BUG-022 · Foto-Extraktion: erster Step landet zusätzlich in Beschreibung
+**Reported:** 2026-04-20
+**Status:** `[ ] open`
+**Severity:** medium (UX — doppelter Text im Formular, User muss beim
+Review manuell aufräumen; nicht blockierend aber nervt bei jedem
+Handschrift-Import)
+**Where:**
+- `apps/python-extractor/src/extractor/prompts/photo_recipe.py:72-93` —
+  `SYSTEM_PROMPT_DE` sagt zwar "Setze ursprüngliche Rezept-Überschriften
+  als title" aber definiert nicht, was `description` enthalten soll
+  vs. was nach `steps` gehört. Das URL-prompt in
+  `prompts/recipe_extraction.py:130-150` hat das gleiche Problem, aber
+  bei Video/Blog-Quellen trennt der LLM meist korrekt weil mehr Kontext
+  vorliegt — bei isolierten Foto-Scans ohne Blog-Prosa greift der LLM
+  öfter auf "first sentence = description, plus also first step".
+- `apps/python-extractor/src/extractor/pipeline/post_process.py:90-123`
+  — Post-Process hat **kein Dedupe** zwischen `description` und
+  `steps[0]`, reicht die LLM-Ausgabe 1:1 durch.
+**Symptom:** Bei Bild-Import erscheint der Text des ersten Schritts
+wortgleich (oder stark ähnlich) auch im Beschreibung-Feld des
+Formulars. Beispiel: wenn Schritt 1 = "Zwiebel fein hacken und in
+heißer Butter glasig dünsten", steht in Beschreibung oft derselbe
+Satz oder eine Paraphrase davon.
+**Root cause (vermutet):** Azure Vision-LLM sieht bei handschriftlichen
+Rezepten wenig Prosa-Kontext (nur Zutatenliste + Schritte). Um das
+`description`-Feld (im Schema required als `["string", "null"]`) zu
+füllen, greift es auf den ersten Step als "Beschreibung der
+Zubereitung" zurück und emittiert ihn in BEIDEN Feldern. Kein
+technischer Bug, sondern Prompt-Engineering-Lücke + fehlender
+Dedupe-Guard.
+**Likely fix — 3 Optionen, kombinierbar:**
+1. **Prompt schärfen** (billig, erste Verteidigungslinie):
+   `photo_recipe.py:SYSTEM_PROMPT_DE` ergänzen um einen expliziten
+   Satz: *"Das Feld `description` ist NUR für eine knappe
+   Zusammenfassung (max. 1–2 Sätze), was das Gericht ist — z.B.
+   'Klassischer Rührteig mit Äpfeln'. Wiederhole dort KEINE Schritte,
+   Zutaten oder Zubereitungsanweisungen. Wenn keine sinnvolle
+   Zusammenfassung aus dem Foto ableitbar ist, setze `description`
+   auf `null`."* Gleiches im URL-Prompt spiegeln (sauber halten).
+2. **Post-Process-Dedupe** (defense-in-depth):
+   `post_process.py` bekommt nach Step 118 einen Guard: wenn
+   `description` ≥ 80 % Levenshtein-Ähnlichkeit (oder normalised-
+   substring-match) mit `steps[0].text` hat, setze `description =
+   None`. Schlank via `difflib.SequenceMatcher` aus stdlib — keine
+   neue Dependency. Rettet auch URL-Extraktionen falls LLM dort mal
+   dasselbe tut.
+3. **Frontend-Review-Warnung** (Leichtgewicht): im `RecipeFormPage`
+   Prefill-Review-Block einen Hinweis rendern wenn
+   `description.trim() === steps[0]?.text.trim()` — "Tipp: Beschreibung
+   und erster Schritt sind identisch — ggf. Beschreibung löschen."
+   Pro: kein Pipeline-Change, User behält Kontrolle. Kontra: reiner
+   UX-Polish, löst Root-Cause nicht.
+**Priority:** medium — Prompt-Fix (#1) + Post-Process-Dedupe (#2)
+zusammen sind der richtige Fix; #3 ist nice-to-have und kann wegfallen.
+Bundle-Kandidat mit der nächsten LLM-Prompt-Polish-Runde.
+**Test-Strategie:** Domain-Logic-Bug → Unit-Test im Python-Extractor
+laut Regression-Test-Policy:
+- `test_photo_prompts.py`: neuer Test assert dass
+  `SYSTEM_PROMPT_DE` explizit "description" und "nicht wiederholen"
+  in einem Satz erwähnt (grep-style, fängt Prompt-Regressions).
+- `test_post_process.py`: Theory-Test mit 3 Inputs:
+  (a) `description="Zwiebel hacken und dünsten"`, `steps[0]="Zwiebel
+      hacken und dünsten"` → assert description == None nach
+      post_process (exact match).
+  (b) `description="Klassischer Apfelkuchen"`,
+      `steps[0]="Zwiebel hacken"` → assert description unverändert
+      (kein false-positive).
+  (c) `description="Zwiebel fein hacken"`, `steps[0]="Zwiebel hacken
+      und in Butter dünsten"` → Borderline — Entscheidung beim
+      Impl-Zeitpunkt, mit Threshold dokumentieren.
+- Integration-Test mit einer echten kleinen Foto-Fixture (falls
+  vorhanden) — opportunistisch, kein Gate.
+
+---
+
+## BUG-023 · Gap unter BottomNav wenn Browser-Chrome beim Scrollen einzieht
+**Reported:** 2026-04-20
+**Status:** `[ ] open`
+**Severity:** medium (visual — BottomNav bleibt klickbar, man sieht nur
+durch die Lücke den darunter liegenden Seiten-Content; stört aber
+merklich auf Mobile und macht die App weniger "nativ"-wirkend)
+**Where:** `apps/web/src/components/layout/BottomNav.tsx:50-62`
+(positioning) + indirekt `apps/web/src/index.css` Viewport-Setup.
+**Symptom:** iOS Safari und Chrome-Mobile blenden die untere Browser-
+Toolbar (Zurück / Vorwärts / Tabs) beim Scrollen nach unten aus. Unsere
+BottomNav hängt an `bottom-[env(safe-area-inset-bottom,0px)]`, bewegt
+sich aber **nicht** mit der animierten Toolbar-Retraktion mit. Ergebnis:
+eine ~50 px hohe Lücke zwischen BottomNav und dem neuen visuellen
+Viewport-Rand wird sichtbar — man schaut durch die Transparenz der
+BottomNav-Glasmorphose auf den Page-Content dahinter.
+**Root cause:** Klassisches Layout-Viewport vs. Visual-Viewport-Problem:
+- `env(safe-area-inset-bottom)` reagiert nicht auf dynamische Chrome-
+  Animation; nur auf Home-Indicator-Area. Wenn Chrome sich zurückzieht,
+  bleibt der Wert konstant.
+- `position: fixed` referenziert den **Layout-Viewport**, nicht den
+  animiert-schrumpfenden Visual-Viewport. Während der Retract-Animation
+  driftet die Bar relativ zum Visual-Bottom nach oben weg.
+- Chrome-Safari berechnet `100dvh` dynamisch neu — aber `fixed
+  bottom-[…]` erbt das nicht automatisch, weil Safari's dynamische
+  Toolbar-Animation aus Performance-Gründen nur die Bildschirm-
+  Projektion ändert, nicht das Layout.
+**Likely fix — 3 Optionen mit Trade-offs:**
+1. **`visualViewport`-API + CSS-Variable** (empfohlen, modern):
+   Einmalig im App-Layout-Effekt einen Listener auf
+   `window.visualViewport` registrieren; bei jedem `resize`/`scroll`-
+   Event wird eine CSS-Custom-Property gesetzt:
+   ```ts
+   const vv = window.visualViewport
+   const update = () => {
+     const offset = window.innerHeight - (vv?.height ?? window.innerHeight)
+     document.documentElement.style.setProperty(
+       '--viewport-bottom-offset', `${offset}px`
+     )
+   }
+   vv?.addEventListener('resize', update)
+   vv?.addEventListener('scroll', update)
+   ```
+   Dann BottomNav:
+   `bottom-[calc(env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px))]`.
+   Bar folgt dem Visual-Viewport 1:1.
+   Pro: sauber, standards-konform (VisualViewport ist W3C baseline);
+   löst auch Keyboard-Overlay-Gap beim Chat-Input. Kontra: zusätzlicher
+   Listener, muss 60 fps glatt laufen (RAF-throttling einbauen).
+2. **`100dvh`-basierter Layout-Trick:** BottomNav nicht fixed, sondern
+   letzter Block einer `min-h-dvh flex-col` Layout-Schiene, die mit
+   `flex-grow` + `overflow-auto` den Page-Content scrollt. Die Bar sitzt
+   "physikalisch" am Flex-Ende, nicht per `fixed`. Pro: keine
+   JS-Listener, browser-native. Kontra: grosser Umbau von
+   `AppLayout.tsx:50`; muss mit SignalR-Push-Toasts + RecipeActionBar-
+   Overlay kompatibel bleiben.
+3. **Acceptance** (0-Aufwand-Option): Status-quo belassen, aber
+   BottomNav-Hintergrund auf `bg-background` statt `bg-background/82`
+   setzen + `backdrop-blur` weg. Pro: der Gap ist nicht mehr sichtbar
+   weil solide Farbe. Kontra: visueller Glasmorphose-Effekt
+   verschwindet; der Gap existiert noch, wird nur kaschiert — Android-
+   Nutzer sehen ihn teilweise trotzdem weil dort die Toolbar oben
+   retracted, aber unten eine Tab-Preview auftauchen kann.
+**Priority:** medium — passt zusammen mit BUG-021 in eine
+Mobile-Chrome-Polish-Welle. Option 1 ist der einzige echte Fix.
+**Test-Strategie:** Frontend-UX-Bug → Integration-Test + Component-Test:
+- `AppLayout.test.tsx`: mock `window.visualViewport` mit `height=600`
+  und fire `resize` auf `700` → assert dass
+  `document.documentElement.style.getPropertyValue(
+  '--viewport-bottom-offset')` === `"100px"`.
+- `BottomNav.test.tsx`: grep-style assert dass classes das
+  `var(--viewport-bottom-offset)` referenzieren (Regressions-Gate
+  gegen versehentlichem Entfernen des calc()).
+- Manuelle Playwright-Probe auf iPhone-SE-Profile mit
+  `emulateMedia({media:'screen'})` + `page.evaluate` um
+  visualViewport zu shrinken; assert BottomNav boundingBox.bottom ≤
+  visualViewport.height.
+- Als Bonus: ChatPage `h-[calc(100dvh-…)` kann dieselbe CSS-Variable
+  re-usen → cleaner one-source-of-truth (BUG-001-Follow-up, weil der
+  Gap dort schon einmal als Root-Cause auftauchte, BUG-001-Fix hat
+  das Problem nur für den Chat-Input addressiert, nicht global).
+
+---
+
+## BUG-024 · Foto-Import: Staged-Fotos sind im Formular unsichtbar, erscheinen erst nach Speichern
+**Reported:** 2026-04-20
+**Status:** `[ ] open`
+**Severity:** medium — UX-Erwartungs-Mismatch: User verunsichert ob
+die hochgeladenen Fotos wirklich ans neue Rezept kommen, hochlädt ggf.
+nochmal. Nicht funktions-brechend (Save-Pfad funktioniert), aber
+Trust-erodierend.
+**Where:** `apps/web/src/features/recipes/RecipeFormPage.tsx:729-756`
+(create-mode render-branch) + `PhotoUploadGrid.tsx` (kennt nur zwei
+Modi: `existing photos` + `File[] für neue uploads`, kein Modus für
+"bereits-server-seitig-gestagte Fotos mit Signed-URL").
+**Symptom:** Nach Foto-Import (1–10 Fotos) öffnet sich das Rezept-
+Formular im Review-Modus. Der User sieht:
+- eine kleine Amber-Pill oben rechts im Foto-Card: *"3 Fotos werden
+  beim Speichern angehängt."* (leicht zu übersehen)
+- darunter ein leeres `PhotoUploadGrid` mit `+ Foto hinzufügen` Slots
+- **keine Thumbnails** der tatsächlich importierten Fotos.
+Erst nach Save → Navigation zum Recipe-Detail → sieht er die drei
+Fotos am Rezept.
+**Root cause:** `stagedPhotoIds: string[]` wird im Wrapper korrekt
+eingesammelt (inkl. BUG-018-Thumbnail), aber nur als **Zähler** im
+Badge + im POST-Body an den Promote-Endpoint weitergegeben. Die
+`PhotoUploadGrid`-Komponente hat aktuell keinen Pfad, um StagedPhotos
+per `stagedPhotoId` + Signed-URL nachzuladen und als visuelle Kacheln
+zu rendern. Grund: das File-Binary liegt schon in SeaweedFS, der
+Browser hat aber keinen `File`-Blob dafür mehr.
+**Likely fix — 3 Optionen:**
+1. **Neuer `PhotoUploadGrid`-Modus "staged-server"** (empfohlen,
+   sauberster Weg):
+   - Neues Prop: `preAttached?: { stagedPhotoId: string; url: string;
+     isThumbnail?: boolean }[]`.
+   - `ImportPhotosPage` persistiert nicht nur die IDs in
+     `importGroupMemo` sondern **auch die Preview-URLs**, die der
+     staged-photo-upload sowieso zurückgibt (`StagedPhotoResponse.url`
+     — das ist die signed SeaweedFS URL). `RecipeFormPage`-Wrapper
+     liest beide, reicht sie als `preAttached` runter.
+   - `PhotoUploadGrid` rendert die `preAttached`-Kacheln VOR den
+     neuen Upload-Slots, mit einem kleinen Hint-Badge ("importiert")
+     und — optional — einem Entfernen-Button (ruft
+     `DELETE /api/staged-photos/:id` auf, zieht aus der Liste, so
+     kann User unerwünschte Import-Fotos abwählen bevor er speichert).
+   - BUG-018-Thumbnail (Video) taucht im selben Grid auf, mit Badge
+     "Thumbnail", gleicher Remove-Flow.
+   Pro: volle visuelle Bestätigung, Parity zu "edit-mode photos";
+   scaled bereits BUG-018 mit ab.
+   Kontra: braucht kleinen Backend-Check ob
+   `DELETE /api/staged-photos/:id` bereits existiert (sonst Endpoint
+   nachziehen + RecipeImport-Unverknüpfen sauber machen).
+2. **Preview-URLs im `stagedPhotoIds`-Memo mitspeichern** ohne neues
+   Grid-Feature: Badge erweitern auf inline-Grid aus 3 Mini-
+   Thumbnails (64 × 64 px) per `<img>`-Tag. Pro: kein
+   `PhotoUploadGrid`-Refactor. Kontra: zwei Grid-Strukturen
+   nebeneinander, kein einheitliches "hier sind deine Fotos"-Gefühl;
+   Remove-Funktion wird komisch zu verorten.
+3. **Banner-Copy anpassen** (0-Aufwand, rein UX):
+   Pill umformulieren zu einer auffälligeren Info-Box mit Icon-Stack
+   ähnlich wie der Import-Provenance-Banner, statt inline-Pill. Der
+   User ignoriert die Info nicht mehr, sieht die Fotos aber trotzdem
+   nicht. Kontra: palliativ statt fix; Vertrauen bleibt geschwächt
+   weil User "sehen will".
+**Priority:** medium — Option 1 lohnt, weil es auch das BUG-018-
+Thumbnail-Onboarding visualisiert (aktuell weiß der User beim
+Video-Import auch nicht dass ein Thumbnail staged ist — der sieht
+auch nur die Badge-Zahl). Zwei UX-Fragen werden in einem
+Grid-Refactor abgeräumt.
+**Test-Strategie:** Frontend-UX-Bug → Component-Test mit State-Setup
+laut Regression-Test-Policy:
+- `PhotoUploadGrid.test.tsx`: neue Tests mit `mode="create"` +
+  `preAttached=[{id,url}]` Prop → assert dass pro preAttached-Eintrag
+  ein `<img src>` mit der URL rendert + Badge "Importiert" sichtbar ist.
+- `RecipeFormPage.test.tsx`: integration — photo-import flow mit
+  seedCache für `stagedPhotoIds + urls` → assert dass Grid
+  `queryAllByRole('img')` ≥ `stagedPhotoIds.length` liefert.
+- `importGroupMemo.test.ts`: Test dass URL-Payload neben IDs
+  persistiert wird + `recallImportStagedPhotoUrls` in gleicher
+  Reihenfolge zurückliefert.
+- Optional: Integration-Test "staged photo remove" → `DELETE`
+  `/api/staged-photos/:id` wird gerufen, preAttached-Item
+  verschwindet, save fährt mit reduziertem `stagedPhotoIds`-Array
+  weiter.
+
+---
+
+## BUG-025 · iOS Safari zoomt beim Fokus auf Input-Felder rein (Desktop-Look-Effekt)
+**Reported:** 2026-04-20
+**Status:** `[ ] open`
+**Severity:** medium — macht die App auf iPhone wie eine "Desktop-Seite
+auf Mobile" wirken, nicht wie eine native-artige PWA. Jeder Input-Fokus
+= Zoom-Pumpe, User muss rauszoomen/zurückscrollen. Nicht funktions-
+brechend, aber stark Wahrnehmungs-schädigend.
+**Where:** Betroffen sind alle Inputs/Textareas mit `font-size < 16px`.
+Konkret (grep-verifiziert):
+- `apps/web/src/features/chat/ChatPage.tsx:408` — Chat-Textarea
+  `text-[15px]` (das User-Report-Symptom).
+- `apps/web/src/features/imports/ImportUrlPage.tsx:251` — URL-Import
+  Input `text-[15px]`.
+- `apps/web/src/features/recipes/RecipeFormPage.tsx:1080, 1101, 1117,
+  1452` — Form-Inputs / Textareas / Selects `text-[14px]` bzw.
+  `text-[15px]` (Zutaten-Notes, Description, unit-Select, Tag-Input).
+- `apps/web/index.html:14` — Viewport-Meta hat absichtlich kein
+  `maximum-scale=1, user-scalable=no` (a11y-konform — Zoom bleibt
+  erlaubt, ist der richtige Weg).
+**Symptom:** User tippt auf Chat-Input (oder jedes andere Formular-
+Feld) → iOS Safari / Chrome-Mobile zoomt auf ~150 % rein, das ganze
+Layout springt. Nur wieder rauszoomen indem man ausserhalb tippt oder
+pinch-zoom zurück.
+**Root cause:** **iOS Safari auto-zoomt jedes Input-Element mit
+`font-size < 16px` beim Fokus**, um sicherzustellen dass der Text für
+den User lesbar ist. Das ist dokumentiertes WebKit-Verhalten (seit
+iOS 3.0) und betrifft `input`, `textarea`, `select`. Chrome-Mobile
+zieht mittlerweile nach. Unsere Design-Tokens haben Inputs auf 14–15 px
+Schriftgröße gesetzt (aus Design-Consistency), was dicht unter der
+iOS-Schwelle liegt.
+**Likely fix — 3 Optionen, in Reihenfolge der Präferenz:**
+1. **Inputs auf 16 px+ bringen** (empfohlen, a11y-konform + native-
+   feel): alle `<input>`, `<textarea>`, `<select>`-Klassen von
+   `text-[14px]` / `text-[15px]` auf `text-base` (= 16 px) bzw.
+   `text-[16px]` anheben. Visuelles Tuning bei Bedarf via
+   `tracking-tight` oder leicht dickerem padding, um die Höhe
+   konsistent zu halten. Pro: kein JS, keine meta-tag-Hack, plus
+   bessere Lesbarkeit (WCAG 1.4.4). Kontra: Design-Tokens müssen
+   minimal angepasst werden (ein ganzes Pass über Form-CSS — geschätzt
+   ~10–15 class-strings).
+2. **Responsive font-size** (Kompromiss): `text-[15px] md:text-[14px]`
+   oder via CSS-Media-Query `@media (max-width: 767px)` alle
+   input/textarea-Selektoren auf `font-size: 16px`. Pro: Desktop
+   behält kompaktere Felder. Kontra: zwei Quellen der Wahrheit,
+   Tokens weichen vom Look-and-Feel-Prinzip "Mobile First".
+3. **Meta-viewport-Hack** (NICHT empfohlen):
+   `maximum-scale=1, user-scalable=no` in `index.html`. Pro: ein-Zeilen-
+   Fix. Kontra: **bricht a11y** — User kann nicht mehr pinch-zoomen.
+   iOS ignoriert das mittlerweile eh bei VoiceOver-aktiv, aber
+   Android honoriert es und blockt Zoom hart. WCAG 1.4.4 verletzt.
+   Nur als absolute Notlösung falls Design-Änderung unmöglich ist.
+**Priority:** medium — gut als Teil einer gezielten Mobile-Polish-Welle
+zusammen mit BUG-021 (ActionBar-Overlap) und BUG-023 (Viewport-Gap).
+Option 1 ist klar gewinn.
+**Test-Strategie:** CSS/Layout-Bug → grep-style + Component-Test
+laut Regression-Test-Policy:
+- **Grep-Gate** im Test-Suite: eine neue `test/tokens/input-font-size.test.ts`
+  die mit fs.readFile + regex über `apps/web/src/**/*.tsx` läuft und
+  assertiert, dass kein `<input`/`<textarea`/`<select` mit einer
+  class-string gerendert wird, die `text-\[(1[0-5])px\]` enthält.
+  Regressions-Gate gegen jede Neuanlage unter 16 px.
+- **Component-Test** für `ChatPage`, `ImportUrlPage`, `RecipeFormPage`:
+  render in jsdom, query das `<textarea>` / `<input>`, assert
+  `getComputedStyle(input).fontSize >= "16px"`.
+- **Playwright iPhone-SE-Profile**: focus input, assert
+  `window.visualViewport.scale === 1` bleibt (kein Zoom getriggert).
+  Opportunistisch, kein Gate (Playwright simuliert iOS-Safari-Zoom
+  nicht 100 %-ig akkurat).
+
+---
+
+## BUG-026 · Chat-Antwort erscheint leer + zweite Nachricht wirft "Inhalt darf nicht leer" (zwei Symptome, ein Root-Cause)
+**Reported:** 2026-04-20 (zwei separate User-Reports, gleiche Wurzel)
+**Status:** `[ ] open`
+**Severity:** HIGH — Chat-Feature funktioniert faktisch gar nicht auf
+prod. 1. Turn zeigt leeres Assistant-Bubble, 2. Send crasht mit
+server-side 400.
+**Where:**
+- **Wire-Ursprung:** `apps/python-extractor/src/extractor/main.py:269-278`
+  — `ChatResponse` returned JSON `{"assistant_message": "..."}` in
+  **snake_case** (FastAPI + pydantic default, keine alias_generator).
+- **Proxy:** `apps/api/src/FamilienKochbuch.Api/Endpoints/ChatEndpoints.cs:289-295`
+  — .NET reicht das Python-Body **verbatim** durch (`Results.Content(
+  bodyText, contentType, …)`), **keine snake→camel Konversion**.
+- **Frontend:** `packages/shared/src/types/chat.ts:34-36` +
+  `apps/web/src/features/chat/chatApi.ts:57-65` — TS-Type erwartet
+  `assistantMessage` (camelCase). `request<ChatTurnResponse>` castet
+  blind ohne Normalisierung.
+- **Downstream-Trigger für Symptom #2:**
+  `apps/web/src/features/chat/ChatPage.tsx:213-216` —
+  `setMessages((prev) => [...prev, { role: 'assistant', content:
+  res.assistantMessage }])` pusht `content: undefined` ins Array.
+  Beim nächsten Send wird die komplette History erneut gesendet;
+  `ChatEndpoints.cs:325-330` validiert `string.IsNullOrWhiteSpace(
+  m.Content)` → 400 `invalid_message` → User sieht "Nachrichten-
+  inhalt darf nicht leer sein."
+**Symptom #1 (user report 1):** Nach "Senden" im Chat erscheint ein
+leeres Assistant-Bubble unterhalb der User-Nachricht. Text nicht
+sichtbar, kein Error-Banner.
+**Symptom #2 (user report 2):** Zweite User-Nachricht im gleichen
+Session-Turn wird mit Error abgelehnt: "Nachrichteninhalt darf nicht
+leer sein." — obwohl im Input-Feld klar Text steht.
+**Root cause (gemeinsam):** snake_case/camelCase-Wire-Mismatch zwischen
+Python und Frontend; .NET-Proxy macht keinen Case-Convert. Das
+Assistant-Bubble zeigt nichts (undefined → React rendert nichts),
+die History enthält aber einen Eintrag mit `content: undefined` →
+bei Serialisierung wird das zu `{"role":"assistant"}` ohne
+`content`-Key, was das Backend als leer wertet.
+**Likely fix — 3 Optionen (erste empfohlen):**
+1. **Frontend-Mapper in `chatApi.ts`** (minimal-invasiv,
+   Mustern wie `importsApi.mapStatusResponse` folgend):
+   ```ts
+   interface ChatTurnResponseWire { assistant_message: string }
+   export async function sendChatTurn(body: ChatTurnRequest):
+     Promise<ChatTurnResponse> {
+     const wire = await request<ChatTurnResponseWire>('/api/chat', …)
+     return { assistantMessage: wire.assistant_message }
+   }
+   ```
+   Pro: einzige-Stelle-Fix, konsistent mit dem bestehenden
+   snake→camel-Muster aus dem Imports-Flow; kein Backend-Deploy
+   nötig. Kontra: wenn zusätzliche Chat-Endpoints kommen (to-recipe
+   ist schon ExtractionResult-shaped, da greift ein anderer
+   Mapper-Pfad), muss pro Endpoint sauber weitergepflegt werden.
+2. **.NET-Proxy konvertiert** (alternativ):
+   `ChatEndpoints.ChatTurnAsync` deserialisiert den Python-Body zu
+   einem server-side DTO und serialisiert mit
+   `JsonSerializerDefaults.Web` (camelCase) weiter. Pro: Wire wird
+   zentral sauber, alle Clients bekommen camelCase. Kontra: macht
+   den "pure proxy"-Ansatz des Plan-Kontrakts kaputt; hebt auch die
+   Extractor-Header-Weiterreichung nicht auf, muss aber jeden Feld-
+   Namen kennen (aktuell passes der Proxy auch zukünftige Felder
+   ungesehen durch).
+3. **Python emittiert bereits camelCase** (globale Lösung):
+   `ChatResponse.model_config` bekommt
+   `alias_generator=to_camel, populate_by_name=True`, FastAPI
+   `response_model_by_alias=True` als Endpoint-Option. Pro: Source-
+   of-truth-Fix, alle Endpoints gewinnen mit. Kontra: breiter Blast-
+   Radius — andere Python-Responses (ExtractionResult, Health,
+   Progress-Callback) sind alle snake_case konvention-ierend; ein
+   unbedachter Schwung auf camelCase bricht potenziell
+   `importsApi.mapStatusResponse` und den JSON-Strict-Match auf
+   `ResultJson`. Nur mit kompletter Proxy-Impact-Analyse.
+**Priority:** HIGH — Chat ist ein Feature-komplett-Ausfall. Prompt
+fixen, am besten mit Option 1 als hotfix in next-bug-sweep. Ein Regel-
+Ticket "wire-normalisation audit" könnte die Parallelen in anderen
+Endpoints (`/api/chat/{sessionId}/to-recipe` → ExtractionResult;
+`/api/chat/:id/usage` falls existiert) prüfen.
+**Test-Strategie:** Backend-Endpoint-Bug + Frontend-UX-Bug, zwei-
+schichtig:
+- `chatApi.test.ts`: vitest + msw mock `POST /api/chat` that returns
+  `{ assistant_message: "Hallo" }` → assert
+  `sendChatTurn(…)`-Rückgabe hat `{ assistantMessage: "Hallo" }`.
+- `ChatPage.test.tsx`: Integration — user typt 1. msg, mocked response
+  returns `{ assistant_message: "Ja gerne" }`, assert dass Assistant-
+  Bubble "Ja gerne" rendert. Dann 2. User-Nachricht senden → assert
+  POST-Body enthält `[{role:"user",content:"Hi"},{role:"assistant",
+  content:"Ja gerne"},{role:"user",content:"..."}]` mit **keinem**
+  undefined-content-Eintrag.
+- `ChatEndpointsTests.cs`: Integration-Test verifiziert dass bei
+  wohlgeformter Python-response (snake_case mit `assistant_message`)
+  der Proxy den camelCase nicht ändert aber die Validierung
+  downstream trotzdem durchgeht. (Falls Fix-Option 1 gewählt — dieser
+  Test bleibt genau so grün; falls Option 2 gewählt → Test-Assertion
+  auf camelCase-Body-Roundtrip.)
+- **Regression-Grep-Gate:** Test dass in `chatApi.ts` der Wire-Type
+  `assistant_message` explizit deklariert ist (verhindert spätere
+  Regression durch "type assertion nur" ohne Mapper).
