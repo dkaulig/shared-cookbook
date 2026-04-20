@@ -141,10 +141,14 @@ def test_extraction_result_shape() -> None:
             "nutrition_estimate": None,
         },
         "confidence": {"overall": "medium", "notes": ["Keine Mengen erkannt"]},
+        "recipe_empty": False,
+        "empty_reason": None,
     }
     assert result["recipe"]["title"] == "Kaiserschmarrn"
     assert result["confidence"]["overall"] == "medium"
     assert result["confidence"]["notes"] == ["Keine Mengen erkannt"]
+    assert result["recipe_empty"] is False
+    assert result["empty_reason"] is None
 
 
 def test_extraction_confidence_shape() -> None:
