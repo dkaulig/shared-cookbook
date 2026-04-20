@@ -2094,7 +2094,7 @@ ist das die bottom bar sauber unten an den rand dockt wenn die browser
 bar unten verschwindet dazu gerne mal ordentlich recherchieren um da
 auch ne finale lösung zu finden [...] ich hab das thema aber auch mit
 chrome gerade")
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — 3 Schichten: (1) interactive-widget=resizes-content viewport-meta für Chrome/FF Out-of-the-box-Support; (2) max(vvHeight)-Baseline-Tracking ersetzt innerHeight-vvHeight (robust gegen Mobile-innerHeight-Quirks); (3) window resize-Listener als Belt-and-Suspenders neben visualViewport-Listener. 2 neue/umgeschriebene AppLayout-Tests + neues viewport-meta grep-gate. iOS-26-WebKit-Bug #297779 bleibt Apple-seitig.)
 **Severity:** medium (visual — bar bleibt klickbar + Gap darunter stört
 den "native PWA"-Eindruck; nicht funktions-brechend)
 
