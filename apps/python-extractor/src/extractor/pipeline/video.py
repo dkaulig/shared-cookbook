@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,11 +87,17 @@ class VideoAssets:
     thumbnail_url: str | None
 
 
-ProgressHook = Callable[[int, int], None]
+ProgressHook = Callable[..., None]
 """Signature for intra-phase progress callbacks from downloader /
-transcriber stages. Called with ``(done, total)`` where ``total`` may
-be ``0`` when the stage can't compute it (e.g. unknown segment count
-from a lazy iterator). The pipeline wraps this into a
+transcriber stages. Called with ``(done, total)`` plus an optional
+``percent_override`` keyword (0..100). ``total`` may be ``0`` when the
+stage can't compute it (e.g. unknown segment count from a lazy
+iterator). When ``percent_override`` is set, the pipeline-side wrapper
+uses it as ``phase_progress`` instead of computing ``done/total`` —
+this lets the yt-dlp wrapper apply richer heuristics (HLS
+fragment-index ratio, elapsed-time ramp) when ``total`` is unknown.
+
+The pipeline wraps this into a
 :class:`extractor.progress.ProgressEvent` before forwarding to the
 .NET side.
 
@@ -192,7 +199,7 @@ class StubDownloader:
             )
         if on_progress is not None:
             for done, total in self._progress_ticks:
-                on_progress(done, total)
+                on_progress(done, total, percent_override=None)
         return self._assets
 
 
@@ -225,7 +232,7 @@ class StubTranscriber:
     ) -> str:
         if on_segment is not None:
             for done, total in self._segment_ticks:
-                on_segment(done, total)
+                on_segment(done, total, percent_override=None)
         return self._transcript
 
 
@@ -316,6 +323,8 @@ class YtDlpDownloader:
 
 def _make_ytdlp_progress_wrapper(
     on_progress: ProgressHook,
+    *,
+    start_time: float | None = None,
 ) -> Callable[[dict[str, Any]], None]:
     """Wrap a simple ``(done, total)`` hook into yt-dlp's dict-shape API.
 
@@ -323,28 +332,78 @@ def _make_ytdlp_progress_wrapper(
     ``{"status": "downloading", "downloaded_bytes": 123,
     "total_bytes": 456}``. We only forward ``downloading`` events;
     ``finished`` + ``error`` are surfaced via the sync download's
-    return value / raise path. Missing total → falls back to
-    ``total_bytes_estimate`` then to 0 (sentinel for unknown).
+    return value / raise path.
+
+    Progress-source priority (BUG-027 — fragmented HLS / m3u8 sources
+    such as Facebook / Instagram / TikTok give ``total_bytes=0`` for
+    the entire download, so the byte-count fallback alone leaves the
+    UI stuck at 0 % for 30-90 s):
+
+    1. If yt-dlp surfaces ``fragment_index`` + ``fragment_count`` (HLS
+       segment streams), use ``fragment_index / fragment_count`` —
+       authoritative real progress.
+    2. Else if ``total_bytes`` is known, use ``downloaded_bytes /
+       total_bytes`` (classic mp4 path).
+    3. Else if ``total_bytes_estimate`` is known, same ratio against
+       the estimate.
+    4. Else (total truly unknown): fall back to an elapsed-time ramp:
+       ``min(95, int(elapsed_s * 3))`` so the UI sees ~3 % per
+       second up to a 95 % cap. The cap means the phase never
+       "completes" by itself — only the real download-finished
+       transition flips to ``transcribing``.
+
+    ``start_time`` defaults to ``time.monotonic()`` at factory-call
+    time so the elapsed-ramp is measured from the moment we started
+    waiting, not the first hook tick.
+
+    Even when total is unknown the raw ``downloaded_bytes`` is still
+    forwarded as ``done`` so the frontend's ``PhaseDetailCard`` can
+    surface the byte counter (it already tolerates a null total).
     """
+    ramp_start = start_time if start_time is not None else time.monotonic()
 
     def _hook(info: dict[str, Any]) -> None:
         if info.get("status") != "downloading":
             return
         done_raw = info.get("downloaded_bytes") or 0
         total_raw = info.get("total_bytes") or info.get("total_bytes_estimate") or 0
+        frag_index_raw = info.get("fragment_index") or 0
+        frag_count_raw = info.get("fragment_count") or 0
         try:
             done = int(done_raw)
             total = int(total_raw)
+            frag_index = int(frag_index_raw)
+            frag_count = int(frag_count_raw)
         except (TypeError, ValueError):
             # yt-dlp rarely hands non-numeric values; guard anyway —
             # one bad hook call shouldn't abort the download.
             return
+
+        percent_override: int | None
+        if frag_index > 0 and frag_count > 0:
+            # HLS fragment progress is the most accurate signal we have
+            # for FB / IG / TikTok streams.
+            percent_override = max(0, min(100, int(frag_index / frag_count * 100)))
+        elif total > 0:
+            # Classic byte ratio — downstream _safe_percent will compute
+            # this same value, but pre-computing here keeps the wrapper
+            # the single source of truth for "what percent should the UI
+            # show?".
+            percent_override = max(0, min(100, int(done / total * 100)))
+        else:
+            # Total is genuinely unknown (fragmented stream without
+            # fragment_count). Use an elapsed-time ramp capped at 95 %
+            # so the phase never auto-completes — only the real
+            # transition to transcribing flips it to 100 %.
+            elapsed = max(0.0, time.monotonic() - ramp_start)
+            percent_override = min(95, int(elapsed * 3))
+
         # The pipeline's wrapper is sync + non-raising by construction
         # (it schedules async work onto the event loop, swallowing
         # RuntimeError if the loop has gone away). If a caller hands us
         # a hook that raises, yt-dlp's own error handling takes over —
         # we deliberately do NOT broaden to ``except Exception`` here.
-        on_progress(done, total)
+        on_progress(done, total, percent_override=percent_override)
 
     return _hook
 
@@ -457,7 +516,7 @@ class FasterWhisperTranscriber:
         parts: list[str] = []
         for i, seg in enumerate(segments, start=1):
             if on_segment is not None:
-                on_segment(i, total)
+                on_segment(i, total, percent_override=None)
             if seg.text:
                 parts.append(seg.text.strip())
         return " ".join(parts).strip()

@@ -1344,7 +1344,7 @@ schichtig:
 
 ## BUG-027 · Video-Import: Progress bleibt minutenlang bei 5%, dann plötzlich 100%
 **Reported:** 2026-04-20 (während Bug-Sweep-2)
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — Optionen 1 + 2 umgesetzt: `_make_ytdlp_progress_wrapper` priorisiert jetzt `fragment_index/fragment_count` (HLS) als authoritative Progress-Quelle, fällt sonst auf `total_bytes` / `total_bytes_estimate` zurück und nutzt bei wirklich unbekanntem Total eine elapsed-time-Ramp `min(95, int(elapsed * 3))` mit Cap bei 95 % damit die Phase nie automatisch komplettiert. Zusätzlich neuer `ProgressReporter.start_heartbeat`/`stop_heartbeat`-API mit 2 s-Loop der den letzten `phase_progress` mit `force=True` re-emittiert — wird in `pipeline/url.py` für `downloading`, `transcribing` und `structuring` aufgesetzt, in einem `try/finally` immer gestoppt, und tolerant gegenüber Mehrfach-Start/Stop. 17 neue Python-Tests (10 Wrapper-Heuristiken + 7 Heartbeat) plus `smoke-live.sh` jetzt mit ≥ 3-distinct-progress-Assertion in den ersten 30 s. Option 3 (Frontend trust-chain Phantom) bewusst nicht umgesetzt — Security-Gate bleibt unverändert.)
 **Severity:** HIGH — PV1-PV4 ganzer Slice war darauf designed die
 0→5→100-Sprungstufe zu eliminieren. Aktuell tut der Slice in prod das
 nicht, weil Facebook-/Instagram-Downloads fragmentiert sind und

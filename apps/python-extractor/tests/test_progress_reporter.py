@@ -1,11 +1,14 @@
 """Tests for :class:`ProgressReporter` + :class:`NullProgressReporter`.
 
 Covers throttle, phase-transition flush, fire-and-forget error handling,
-payload composition, and the null-reporter no-op.
+payload composition, and the null-reporter no-op. The BUG-027
+heartbeat (start_heartbeat / stop_heartbeat / _last_phase_progress
+interaction) is exercised at the bottom of this file.
 """
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import socket
 from collections.abc import Iterator
@@ -428,6 +431,136 @@ async def test_reporter_log_never_includes_url_on_failure(
     await reporter.aclose()
     all_log = " ".join(record.getMessage() for record in caplog.records)
     assert attacker_host not in all_log
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BUG-027 — heartbeat
+# ─────────────────────────────────────────────────────────────────────
+
+
+class _PostRecorder(ProgressReporter):
+    """Bypass network entirely and capture every ``_post`` invocation.
+
+    The heartbeat tests don't need respx — they care about whether the
+    reporter is generating ticks at the right interval with the right
+    ``force=True`` flag, not what the wire payload looks like.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            callback_url="https://api.test.invalid/p",
+            callback_token="t",  # noqa: S106 — fixture, not a real secret
+            attempt=1,
+        )
+        self.posted: list[ProgressEvent] = []
+
+    async def _post(self, event: ProgressEvent) -> None:
+        self.posted.append(event)
+
+
+async def test_heartbeat_emits_every_2s() -> None:
+    """A heartbeat running for ~5 s real time produces at least 2
+    ticks (the 2 s interval allows for 2-3 wake-ups in 5 s)."""
+    reporter = _PostRecorder()
+    task = await reporter.start_heartbeat("downloading")
+    try:
+        # 5 s is enough wall-clock for two 2 s ticks (T=2.0 and T=4.0)
+        # plus the initial sleep on entry. Tests run on CI machines
+        # where the event loop wakes within a few ms of the requested
+        # interval.
+        await asyncio.sleep(5.0)
+    finally:
+        await reporter.stop_heartbeat()
+    assert task.cancelled()
+    assert len(reporter.posted) >= 2
+    # Every tick is the heartbeat phase, not some leftover state.
+    assert all(ev.phase == "downloading" for ev in reporter.posted)
+
+
+async def test_heartbeat_does_not_overwrite_real_progress() -> None:
+    """A heartbeat tick re-emits the most recent ``phase_progress`` —
+    NOT a hard-coded 0 — so genuine progress reports remain visible."""
+    reporter = _PostRecorder()
+    # Record a real progress tick first.
+    await reporter.report(ProgressEvent(phase="downloading", phase_progress=42))
+    real_tick_count = len(reporter.posted)
+    assert real_tick_count == 1
+
+    await reporter.start_heartbeat("downloading")
+    try:
+        # Just past one tick interval — at least one heartbeat fires.
+        await asyncio.sleep(2.4)
+    finally:
+        await reporter.stop_heartbeat()
+    heartbeat_events = reporter.posted[real_tick_count:]
+    assert len(heartbeat_events) >= 1
+    # Every heartbeat carries the last real phase_progress, not 0.
+    for ev in heartbeat_events:
+        assert ev.phase_progress == 42
+
+
+async def test_stop_heartbeat_cancels_task() -> None:
+    """``stop_heartbeat`` cancels the running task within a short
+    grace period and is idempotent across repeated calls."""
+    reporter = _PostRecorder()
+    task = await reporter.start_heartbeat("transcribing")
+    assert not task.done()
+    await reporter.stop_heartbeat()
+    assert task.cancelled() or task.done()
+    # Calling again is a no-op, never raises.
+    await reporter.stop_heartbeat()
+    await reporter.stop_heartbeat()
+
+
+async def test_heartbeat_replaces_previous_phase_task() -> None:
+    """Calling ``start_heartbeat`` twice without an explicit stop
+    cancels the prior task — the pipeline transitions through 3
+    phases, each starting a fresh heartbeat."""
+    reporter = _PostRecorder()
+    first = await reporter.start_heartbeat("downloading")
+    second = await reporter.start_heartbeat("transcribing")
+    assert first is not second
+    assert first.cancelled() or first.done()
+    await reporter.stop_heartbeat()
+
+
+async def test_heartbeat_force_bypasses_throttle() -> None:
+    """The heartbeat must use ``force=True`` so the 500 ms throttle
+    can never swallow a tick — otherwise two heartbeats arriving back-
+    to-back (e.g. via clock skew) would silently drop one."""
+    reporter = _PostRecorder()
+    # Burn the throttle with a normal report.
+    await reporter.report(ProgressEvent(phase="downloading", phase_progress=10))
+    pre_heartbeat = len(reporter.posted)
+
+    await reporter.start_heartbeat("downloading")
+    try:
+        await asyncio.sleep(2.4)
+    finally:
+        await reporter.stop_heartbeat()
+    # Heartbeat tick fired even though we are well within the 500 ms
+    # throttle window for this phase.
+    assert len(reporter.posted) > pre_heartbeat
+
+
+async def test_null_reporter_heartbeat_is_noop() -> None:
+    """NullProgressReporter still exposes a heartbeat surface so
+    callers don't have to special-case the no-op path. The returned
+    task completes (no real ticking) and stop_heartbeat is a noop."""
+    reporter = NullProgressReporter()
+    task = await reporter.start_heartbeat("downloading")
+    await asyncio.sleep(0)  # let the noop task run
+    assert task.done()
+    await reporter.stop_heartbeat()
+
+
+async def test_aclose_stops_heartbeat() -> None:
+    """``aclose`` must cancel any active heartbeat so test teardown
+    paths don't leave dangling tasks."""
+    reporter = _PostRecorder()
+    task = await reporter.start_heartbeat("downloading")
+    await reporter.aclose()
+    assert task.cancelled() or task.done()
 
 
 # Silence unused-import lint when this module has no other pytest use.

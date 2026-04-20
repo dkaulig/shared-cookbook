@@ -32,6 +32,8 @@ Design constraints (see ``docs/plans/2026-04-19-video-import-progress-design.md`
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
 from dataclasses import dataclass
@@ -52,6 +54,13 @@ _TIMEOUT_S: Final[float] = 2.0
 """httpx client timeout — callbacks are best-effort; 2 s is plenty for
 a local-network POST, short enough that a stuck .NET side doesn't
 stall the extraction worker."""
+
+_HEARTBEAT_INTERVAL_S: Final[float] = 2.0
+"""Seconds between heartbeat ticks emitted by
+:meth:`ProgressReporter.start_heartbeat`. Matches the .NET-side
+``StaleBanner`` 30 s idle threshold with comfortable headroom — even if
+several heartbeats are dropped (callback failures), the banner does not
+fire spuriously."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +147,16 @@ class ProgressReporter:
         self._import_id = import_id
         self._last_sent_at_ms: float = 0.0
         self._last_phase: str | None = None
+        # Tracks the most recent intra-phase percent so the heartbeat
+        # can re-emit it without stomping real progress (see
+        # :meth:`start_heartbeat`). Updated on every non-heartbeat
+        # ``report()`` call.
+        self._last_phase_progress: int = 0
+        # Active heartbeat task, if any. ``None`` when no phase is
+        # currently being heartbeated. Tolerates start/stop sequences
+        # across multiple phases (downloading → transcribing →
+        # structuring) within a single import.
+        self._heartbeat_task: asyncio.Task[None] | None = None
         # Lazy-created so a NullProgressReporter never constructs an
         # AsyncClient — constructor-time was wasteful for the no-op
         # path. Populated on first ``_post`` call.
@@ -154,8 +173,17 @@ class ProgressReporter:
         end-of-phase "final tick" events that the UI must always see
         (e.g. the photo pipeline fires a 95% ``vision_analysis`` event
         right before transitioning to ``post_processing``; without
-        ``force=True`` a <500 ms-apart fire would be dropped).
+        ``force=True`` a <500 ms-apart fire would be dropped). The
+        heartbeat loop (BUG-027) also uses ``force=True`` to refresh
+        the .NET ``last_progress_at`` without overwriting real
+        progress — it re-emits the most recent ``phase_progress``.
         """
+        # Always remember the latest phase_progress so the heartbeat
+        # has a value to re-emit. This is independent of throttling /
+        # no-op mode: even a NullProgressReporter caller may want to
+        # observe the field for tests.
+        self._last_phase_progress = event.phase_progress
+
         if not self._url or not self._token:
             return  # no-op mode
 
@@ -169,6 +197,88 @@ class ProgressReporter:
         self._last_phase = event.phase
         self._last_sent_at_ms = now_ms
         await self._post(event)
+
+    async def start_heartbeat(self, phase: str) -> asyncio.Task[None]:
+        """Spawn a background task that re-emits the last known progress
+        every :data:`_HEARTBEAT_INTERVAL_S` seconds (BUG-027).
+
+        Why this exists: video downloads from fragmented HLS sources
+        (Facebook / Instagram / TikTok) may run for 30-90 s without
+        yt-dlp surfacing a meaningful progress tick. Without periodic
+        callbacks the .NET ``last_progress_at`` field stagnates and
+        the frontend's ``StaleBanner`` fires at the 30 s threshold,
+        falsely warning the user that the import is stuck. The
+        heartbeat re-POSTs the most recent state with ``force=True``
+        so the throttle does not swallow it — the .NET handler updates
+        ``last_progress_at`` even though the percentage hasn't moved.
+
+        Idempotency: if a heartbeat is already running for any phase,
+        it is cancelled first. Callers transitioning between phases
+        (downloading → transcribing → structuring) should call
+        :meth:`start_heartbeat` again with the new phase name; the
+        previous task is replaced.
+
+        Returns the :class:`asyncio.Task` so callers can also cancel
+        it directly if they need to.
+        """
+        await self.stop_heartbeat()
+        task = asyncio.create_task(self._heartbeat_loop(phase))
+        self._heartbeat_task = task
+        return task
+
+    async def stop_heartbeat(self) -> None:
+        """Cancel the active heartbeat task (if any) and await its exit.
+
+        Safe to call multiple times; safe to call even when no
+        heartbeat was ever started. Any :class:`asyncio.CancelledError`
+        raised by the loop on shutdown is consumed here so the caller
+        does not have to wrap the call in its own ``try`` block.
+        """
+        task = self._heartbeat_task
+        if task is None:
+            return
+        self._heartbeat_task = None
+        task.cancel()
+        # Expected on graceful shutdown — swallow so callers (typically
+        # a try/finally in the pipeline endpoint) don't have to
+        # special-case this.
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    async def _heartbeat_loop(self, phase: str) -> None:
+        """Internal loop body — re-emit the last phase_progress every tick.
+
+        Wakes every :data:`_HEARTBEAT_INTERVAL_S` seconds. On each
+        wake-up calls :meth:`report` with ``force=True`` so the
+        throttle does not swallow the heartbeat. Network failures
+        inside ``report`` are already swallowed at the ``_post``
+        layer; any leftover :class:`httpx.HTTPError` that bubbles up
+        is logged at DEBUG (heartbeats are noisy by design and a
+        single failure is meaningless).
+        """
+        while True:
+            try:
+                await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+                await self.report(
+                    ProgressEvent(phase=phase, phase_progress=self._last_phase_progress),
+                    force=True,
+                )
+            except asyncio.CancelledError:
+                # Cooperative shutdown — re-raise so :meth:`stop_heartbeat`
+                # sees the task as cancelled.
+                raise
+            except httpx.HTTPError as exc:
+                # _post already catches httpx errors; this branch only
+                # runs if a future refactor re-raises. Either way the
+                # heartbeat must keep ticking. DEBUG only — a flaky
+                # callback over a 60 s download would otherwise spam
+                # 30 WARN lines.
+                logger.debug(
+                    "progress heartbeat tick failed import_id=%s phase=%s error=%s",
+                    self._import_id,
+                    phase,
+                    type(exc).__name__,
+                )
 
     async def flush(self) -> None:
         """No-op placeholder for future batched sends.
@@ -187,7 +297,13 @@ class ProgressReporter:
         lazy-creates a fresh client on the next :meth:`report`, which
         keeps test helpers (e.g. ``_CapturingReporter``) that never
         instantiate a real client working.
+
+        Also stops any active heartbeat task — pipeline shutdown
+        paths usually call ``stop_heartbeat`` explicitly inside a
+        ``try/finally``, but doing it again here is cheap and prevents
+        an orphaned task on direct ``aclose`` calls (tests).
         """
+        await self.stop_heartbeat()
         if self._client is not None:
             try:
                 await self._client.aclose()
@@ -322,6 +438,22 @@ class NullProgressReporter(ProgressReporter):
         super().__init__(callback_url=None, callback_token=None, attempt=1)
 
     async def report(self, event: ProgressEvent, *, force: bool = False) -> None:
+        return
+
+    async def start_heartbeat(self, phase: str) -> asyncio.Task[None]:
+        """Return a noop completed task — null reporter has nothing to heartbeat.
+
+        Returning a task (rather than ``None``) keeps the public
+        signature intact so callers can ``await reporter.start_heartbeat(...)``
+        and bind the result without special-casing the null path.
+        """
+
+        async def _noop() -> None:
+            return
+
+        return asyncio.create_task(_noop())
+
+    async def stop_heartbeat(self) -> None:
         return
 
 

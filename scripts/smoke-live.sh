@@ -217,6 +217,7 @@ if [[ -n "$IMPORT_URL" ]]; then
   # by also translating each poll's progress into a bucket-label.
   info 5 "Poll import progress (≥3 distinct phases, 10-min timeout)"
   POLL_DEADLINE=$(( $(date +%s) + 600 ))
+  POLL_START=$(date +%s)
   LAST_STATUS=""
   LAST_PROGRESS=-1
   LAST_BODY=""
@@ -225,6 +226,14 @@ if [[ -n "$IMPORT_URL" ]]; then
   # see it, preserving observation order.
   OBSERVED_PHASES=""
   OBSERVED_COUNT=0
+  # BUG-027 — track distinct integer progress values seen within the
+  # first 30 s. The fragmented-HLS fix (elapsed-time ramp + 2 s
+  # heartbeat) should produce a steady ladder of values during the
+  # downloading phase; if we observe < 3 distinct progress values in
+  # the first 30 s, the fix has regressed.
+  EARLY_PROGRESS_VALUES=""
+  EARLY_PROGRESS_COUNT=0
+  EARLY_WINDOW_S=30
   phase_for_progress() {
     local p="$1"
     if   [[ "$p" -ge 100 ]]; then printf 'done'
@@ -280,6 +289,24 @@ if [[ -n "$IMPORT_URL" ]]; then
     PHASE_LABEL="$(phase_for_progress "$LAST_PROGRESS")"
     record_phase "$PHASE_LABEL"
 
+    # BUG-027 — within the early window, also collect distinct
+    # progress values so we can assert the download phase is no
+    # longer stuck at a single number.
+    NOW_S="$(date +%s)"
+    if [[ $((NOW_S - POLL_START)) -le "$EARLY_WINDOW_S" ]]; then
+      case " $EARLY_PROGRESS_VALUES " in
+        *" $LAST_PROGRESS "*) ;;
+        *)
+          if [[ -z "$EARLY_PROGRESS_VALUES" ]]; then
+            EARLY_PROGRESS_VALUES="$LAST_PROGRESS"
+          else
+            EARLY_PROGRESS_VALUES="$EARLY_PROGRESS_VALUES $LAST_PROGRESS"
+          fi
+          EARLY_PROGRESS_COUNT=$((EARLY_PROGRESS_COUNT + 1))
+          ;;
+      esac
+    fi
+
     # Status string is TitleCase on the wire ("Done" / "Error").
     LAST_STATUS_LOWER="$(printf '%s' "$LAST_STATUS" | tr '[:upper:]' '[:lower:]')"
     if [[ "$LAST_STATUS_LOWER" == "error" ]]; then
@@ -302,6 +329,14 @@ if [[ -n "$IMPORT_URL" ]]; then
     fail_step 5 "only observed ${OBSERVED_COUNT} distinct phases (need ≥3): [${OBSERVED_PHASES}]"
   fi
   ok "Observed ${OBSERVED_COUNT} distinct phases: [${OBSERVED_PHASES}]"
+
+  # BUG-027 — assert ≥3 distinct progress integers in the first 30 s.
+  # The fragmented-HLS heuristic + 2 s heartbeat must produce
+  # a steady ladder, never a single static value.
+  if [[ "$EARLY_PROGRESS_COUNT" -lt 3 ]]; then
+    fail_step 5 "only observed ${EARLY_PROGRESS_COUNT} distinct progress values in first ${EARLY_WINDOW_S}s (need ≥3 — BUG-027 regression?): [${EARLY_PROGRESS_VALUES}]"
+  fi
+  ok "Observed ${EARLY_PROGRESS_COUNT} distinct progress values in first ${EARLY_WINDOW_S}s: [${EARLY_PROGRESS_VALUES}]"
 
   # ── Step 6: Verify extraction result ──────────────────────────────────
   info 6 "Verify extraction result (title + ≥1 ingredient)"

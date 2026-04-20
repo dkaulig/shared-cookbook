@@ -339,60 +339,73 @@ async def extract_from_url(
     notes: list[str] = []
     blog_text_untrusted: bool = False
 
-    if kind == "video":
-        (transcript, caption, thumbnail_url) = await _run_video_path(
-            url=url,
-            downloader=downloader,
-            transcriber=transcriber,
-            reporter=active_reporter,
+    # BUG-027: wrap the rest of the pipeline in a try/finally so the
+    # heartbeat task is always cancelled even on failure. Each phase
+    # (downloading / transcribing / structuring) re-starts the
+    # heartbeat with the new phase name; ``start_heartbeat`` cancels
+    # the previous task internally so we don't leak.
+    try:
+        if kind == "video":
+            (transcript, caption, thumbnail_url) = await _run_video_path(
+                url=url,
+                downloader=downloader,
+                transcriber=transcriber,
+                reporter=active_reporter,
+            )
+            # P2-2.1 — if the caption references an external recipe blog,
+            # fetch it once and attach its flattened text as another source
+            # for the LLM. Ingredient quantities often live only on the
+            # blog, never in the spoken audio.
+            external_url = _find_first_external_url(caption, source_url=url)
+            if external_url is not None:
+                (blog_text, caption_thumbnail, caption_notes) = await _run_blog_path(
+                    external_url, untrusted=True
+                )
+                notes.extend(caption_notes)
+                if thumbnail_url is None and caption_thumbnail is not None:
+                    thumbnail_url = caption_thumbnail
+                # Caption-linked blog text is attacker-controlled → wrap it in
+                # delimiter tags so the system prompt's anti-injection rule
+                # applies.
+                blog_text_untrusted = blog_text is not None
+                logger.info(
+                    "caption_blog_fetched src=%s linked=%s has_text=%s",
+                    _redact_host(url),
+                    _redact_host(external_url),
+                    blog_text is not None,
+                )
+        else:
+            (blog_text, thumbnail_url, notes) = await _run_blog_path(url, untrusted=False)
+
+        # Structuring phase — an async LLM call that yields no in-flight
+        # granularity, so a single "phase starts" event is enough. The
+        # reporter throttle handles any no-op state if we were already in
+        # this phase. Heartbeat keeps the .NET ``last_progress_at``
+        # ticking during the (potentially 10-20 s) Azure call.
+        await active_reporter.report(ProgressEvent(phase="structuring", phase_progress=0))
+        await active_reporter.start_heartbeat("structuring")
+        llm_output, usage = await _run_llm_structuring(
+            provider=provider,
+            transcript=transcript,
+            caption=caption,
+            blog_text=blog_text,
+            thumbnail_url=thumbnail_url,
+            blog_text_untrusted=blog_text_untrusted,
         )
-        # P2-2.1 — if the caption references an external recipe blog,
-        # fetch it once and attach its flattened text as another source
-        # for the LLM. Ingredient quantities often live only on the
-        # blog, never in the spoken audio.
-        external_url = _find_first_external_url(caption, source_url=url)
-        if external_url is not None:
-            (blog_text, caption_thumbnail, caption_notes) = await _run_blog_path(
-                external_url, untrusted=True
-            )
-            notes.extend(caption_notes)
-            if thumbnail_url is None and caption_thumbnail is not None:
-                thumbnail_url = caption_thumbnail
-            # Caption-linked blog text is attacker-controlled → wrap it in
-            # delimiter tags so the system prompt's anti-injection rule
-            # applies.
-            blog_text_untrusted = blog_text is not None
-            logger.info(
-                "caption_blog_fetched src=%s linked=%s has_text=%s",
-                _redact_host(url),
-                _redact_host(external_url),
-                blog_text is not None,
-            )
-    else:
-        (blog_text, thumbnail_url, notes) = await _run_blog_path(url, untrusted=False)
 
-    # Structuring phase — an async LLM call that yields no in-flight
-    # granularity, so a single "phase starts" event is enough. The
-    # reporter throttle handles any no-op state if we were already in
-    # this phase.
-    await active_reporter.report(ProgressEvent(phase="structuring", phase_progress=0))
-    llm_output, usage = await _run_llm_structuring(
-        provider=provider,
-        transcript=transcript,
-        caption=caption,
-        blog_text=blog_text,
-        thumbnail_url=thumbnail_url,
-        blog_text_untrusted=blog_text_untrusted,
-    )
-
-    await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
-    return post_process(
-        llm_output,
-        original_url=url,
-        fallback_thumbnail=thumbnail_url,
-        extra_notes=notes,
-        usage=usage,
-    )
+        await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
+        return post_process(
+            llm_output,
+            original_url=url,
+            fallback_thumbnail=thumbnail_url,
+            extra_notes=notes,
+            usage=usage,
+        )
+    finally:
+        # Always tear down the heartbeat — even on exception — so a
+        # failed import does not leave a dangling 2 s timer running
+        # against a since-completed pipeline.
+        await active_reporter.stop_heartbeat()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -432,6 +445,10 @@ async def _run_video_path(
     with tempfile.TemporaryDirectory(prefix="extractor-video-") as tmp:
         workdir = Path(tmp)
         await reporter.report(ProgressEvent(phase="downloading", phase_progress=0))
+        # BUG-027: heartbeat keeps the .NET-side ``last_progress_at``
+        # field alive during fragmented HLS downloads where yt-dlp may
+        # not emit a tick for tens of seconds.
+        await reporter.start_heartbeat("downloading")
         download_hook = _make_progress_hook(
             reporter,
             phase="downloading",
@@ -448,6 +465,10 @@ async def _run_video_path(
         )
 
         await reporter.report(ProgressEvent(phase="transcribing", phase_progress=0))
+        # Restart the heartbeat with the new phase name — the previous
+        # ``downloading`` heartbeat is implicitly cancelled by
+        # :meth:`start_heartbeat`.
+        await reporter.start_heartbeat("transcribing")
         transcribe_hook = _make_progress_hook(
             reporter,
             phase="transcribing",
@@ -467,8 +488,9 @@ def _make_progress_hook(
     phase: str,
     kind: _HookKind,
     loop: asyncio.AbstractEventLoop,
-) -> Callable[[int, int], None]:
-    """Build a sync ``(done, total)`` hook that schedules async reports.
+) -> Callable[..., None]:
+    """Build a sync ``(done, total, *, percent_override=None)`` hook
+    that schedules async reports.
 
     yt-dlp + faster-whisper call progress hooks from a worker thread;
     we bridge back to the event loop via
@@ -482,10 +504,19 @@ def _make_progress_hook(
     pair to ``segments_done``/``segments_total``. The rest of the
     wiring is identical for both phases — collapsing the previous two
     hook factories into one builder keeps the surface small.
+
+    ``percent_override`` (BUG-027) lets the upstream wrapper hand the
+    pipeline an already-computed phase percentage — used by the yt-dlp
+    wrapper to apply HLS-fragment / elapsed-time heuristics when raw
+    byte totals are unknown. When unset, falls back to the classic
+    ``_safe_percent(done, total)`` ratio.
     """
 
-    def _hook(done: int, total: int) -> None:
-        phase_progress = _safe_percent(done, total)
+    def _hook(done: int, total: int, *, percent_override: int | None = None) -> None:
+        if percent_override is not None:
+            phase_progress = max(0, min(100, percent_override))
+        else:
+            phase_progress = _safe_percent(done, total)
         value = done if done > 0 else None
         total_value = total if total > 0 else None
         if kind == "bytes":
