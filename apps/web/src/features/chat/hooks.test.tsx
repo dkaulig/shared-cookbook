@@ -64,7 +64,7 @@ describe('useChatTurn', () => {
 describe('useConvertChatToRecipe', () => {
   it('POSTs the messages to the session-scoped URL and returns the ExtractionResult', async () => {
     server.use(
-      http.post('/api/chat/:sessionId/to-recipe', async () =>
+      http.post('/api/chat/sessions/:sessionId/to-recipe', async () =>
         HttpResponse.json({
           recipe: {
             title: 'Omelette',

@@ -88,10 +88,19 @@ export type {
   StepConfidenceLevel,
 } from './imports.ts'
 export type {
-  ChatMessage,
+  ChatMessageDto,
   ChatRole,
-  ChatTurnRequest,
-  ChatTurnResponse,
+  ChatRoleWire,
+  ChatSessionListItem,
+  CreateSessionResponse,
+  RenameSessionRequest,
+  SseChunk,
+  SseDoneData,
+  SseErrorData,
+  SseMessageStartedData,
+  SseTokenData,
+  SseUsageData,
+  TurnRequest,
 } from './chat.ts'
 export type {
   AiUsageGroupBy,
