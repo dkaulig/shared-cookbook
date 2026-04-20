@@ -1630,3 +1630,45 @@ Prompt-Runde.
   "tbsp" mit Umrechnung enthält.
 - Frontend: kein Test nötig — Dropdown-Unit-Liste muss nur eines der
   übersetzten deutschen Werte enthalten können (ist sie alle schon).
+
+---
+
+## BUG-031 · Video-Progress bleibt bei 5% auch nach BUG-027-Fix (Ramp im falschen Layer)
+**Reported:** 2026-04-20 (nach v0.8.0-Deploy, User: "hängt nach wie vor bei 5%")
+**Status:** `[ ] open`
+**Severity:** HIGH — Regression-Fix für BUG-027.
+**Where:**
+- `apps/python-extractor/src/extractor/pipeline/video.py:317-399` —
+  `_make_ytdlp_progress_wrapper` enthält die elapsed-time-Ramp
+  `min(95, int(elapsed * 3))`. Läuft **nur wenn yt-dlp den
+  `progress_hook` aufruft**. Bei FB-Reels mit single-blob-download
+  (kein HLS-Fragment-Ticken) ruft yt-dlp den Hook **nie** auf → Ramp
+  fired nie → `_last_phase_progress` bleibt 0.
+- `apps/python-extractor/src/extractor/progress.py:248-283` —
+  `_heartbeat_loop` feuert alle 2 s mit `force=True`, aber re-emittiert
+  nur `self._last_phase_progress`. Bei 0 bleibt's bei 0.
+**Root cause:** Elapsed-Time-Ramp im falschen Layer. Reactive an
+yt-dlp-Hook-Calls statt proactive im Timer. Bei stillen Downloads
+(yt-dlp-Hook-Silence) greift sie nie.
+**Fix — empfohlen:** Ramp-Logik in den Heartbeat-Loop verschieben.
+- `start_heartbeat(phase)` merkt sich `_phase_start_monotonic = time.monotonic()`.
+- `_heartbeat_loop`: wenn `phase in {"downloading","transcribing","structuring"}`:
+  ```python
+  elapsed = time.monotonic() - self._phase_start_monotonic
+  ramped = min(95, int(elapsed * 3))
+  effective = max(self._last_phase_progress, ramped)
+  await self.report(ProgressEvent(phase=phase, phase_progress=effective), force=True)
+  ```
+- `max(last, ramped)` — echte yt-dlp-Werte overriden Ramp wenn höher.
+- `_make_ytdlp_progress_wrapper` verliert die Ramp-Logik (DRY,
+  Heartbeat ist single-source). Fragment-count + byte-total-Priorität
+  bleibt erhalten.
+**Test-Strategie:** Unit-Tests im Progress-Reporter:
+- `test_heartbeat_ramps_when_yt_dlp_silent`: nach 4 s fast-forward →
+  phase_progress ≈ 12.
+- `test_heartbeat_respects_real_progress`: `report(50)` bei 2 s,
+  nächster Tick bei 4 s → `max(50, 12) = 50`.
+- `test_heartbeat_caps_at_95`: nach 40 s → 95.
+- `test_pipeline_video`: bestehende fragment-count + byte-Tests
+  bleiben; elapsed-Tests wandern auf Heartbeat-Seite.
+**Rollback-Risiko:** gering — Python-only, keine Schema-Änderung.
