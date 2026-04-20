@@ -273,4 +273,32 @@ describe('<GroupDetailPage />', () => {
     // would slide back over the back-arrow + settings cog.
     expect(subnav.className).not.toContain('z-[9]')
   })
+
+  // BUG-020 regression — the page used to render TWO links/buttons whose
+  // accessible name matched /einstellungen/i: the top-bar cog (which
+  // confusingly went to the tags page) and the GroupDetailHeader pill
+  // (which goes to the actual settings page). The cog has been removed;
+  // the pill is now the sole "Einstellungen" entry point.
+  it('renders exactly one "Einstellungen" link (BUG-020)', async () => {
+    render(withProviders('/groups/g1'))
+    // Wait until the header has finished mounting (the pill is admin-only
+    // and only shows after `useGroup` resolves).
+    await screen.findByRole('heading', { level: 1, name: 'Familie Müller' })
+    const matches = screen.getAllByRole('link', { name: /einstellungen/i })
+    expect(matches).toHaveLength(1)
+    // The remaining link is the GroupDetailHeader pill, which routes to
+    // `/groups/:id/settings` (NOT `/groups/:id/tags`).
+    expect(matches[0]).toHaveAttribute('href', '/groups/g1/settings')
+  })
+
+  it('top-bar sub-nav no longer contains a cog/settings link (BUG-020)', async () => {
+    render(withProviders('/groups/g1'))
+    const subnav = await screen.findByRole('navigation', { name: /gruppen-navigation/i })
+    // The cog used to live inside the sub-nav — assert it's gone, both by
+    // accessible name and by href to the now-redirected `/tags` path.
+    const cogByLabel = subnav.querySelector('a[aria-label="Einstellungen"]')
+    expect(cogByLabel).toBeNull()
+    const cogByHref = subnav.querySelector('a[href="/groups/g1/tags"]')
+    expect(cogByHref).toBeNull()
+  })
 })

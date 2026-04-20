@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, ChevronUp, ListOrdered, Plus, Settings, Users } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, ListOrdered, Plus, Users } from 'lucide-react'
 import type { ApiError, RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -164,9 +164,14 @@ export function GroupDetailPage() {
           global TopNav above this — this is the page-scoped sub-nav. */}
       {/* Sticky page sub-nav. z-20 so it sits ABOVE the GroupDetailHeader
           avatar (z-10) when the page scrolls — otherwise the avatar slid
-          on top of the back-arrow + settings cog (BUG-005). Same scale as
-          the global TopNav (also z-20); they sit stacked vertically so
-          equal z is fine. */}
+          on top of the back-arrow (BUG-005). Same scale as the global
+          TopNav (also z-20); they sit stacked vertically so equal z is
+          fine.
+          BUG-020 — the trailing cog button used to live here and pointed
+          at `/groups/:id/tags`, but its `aria-label="Einstellungen"`
+          collided with the same-named pill in `GroupDetailHeader` (which
+          actually leads to settings). The pill is now the sole entry to
+          settings; tag management is a section of that page. */}
       <nav
         className={cn(
           'sticky top-[56px] z-20 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
@@ -197,13 +202,6 @@ export function GroupDetailPage() {
             <span>{roleLabel}</span>
           </span>
         </div>
-        <Link
-          to={`/groups/${groupId}/tags`}
-          aria-label="Einstellungen"
-          className="grid h-10 w-10 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground"
-        >
-          <Settings className="h-[18px] w-[18px]" aria-hidden="true" />
-        </Link>
       </nav>
 
       <GroupDetailHeader group={group} recipeCount={totalRecipes} />

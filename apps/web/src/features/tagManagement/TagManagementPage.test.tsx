@@ -1,110 +1,66 @@
 import { describe, expect, it } from 'vitest'
-import { http, HttpResponse } from 'msw'
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import type { ReactNode } from 'react'
-import { server } from '@/test/msw/server'
-import { useAuthStore } from '@/features/auth/authStore'
+import { render, screen } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { TagManagementPage } from './TagManagementPage'
 
-beforeEach(() => {
-  useAuthStore.setState({
-    accessToken: 't',
-    user: { id: 'u1', email: 'u1@ex.com', displayName: 'U', role: 'User' },
-  })
-})
+/**
+ * BUG-020 — `TagManagementPage` is now a Navigate-style redirect into
+ * `/groups/:groupId/settings#tags`. The actual tag-CRUD UI lives in
+ * `<GroupTagsPanel />`, mounted as the last section of the settings
+ * page (covered by `GroupSettingsPage.test.tsx`).
+ */
 
-function renderPage(opts: { myRole: 'Admin' | 'Member' } = { myRole: 'Admin' }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  server.use(
-    http.get('/api/groups/g1', () =>
-      HttpResponse.json({
-        id: 'g1', name: 'Testfamilie', description: null, coverImageUrl: null,
-        defaultServings: 4, isPrivateCollection: false, myRole: opts.myRole,
-        members: [{ userId: 'u1', displayName: 'U', role: opts.myRole, joinedAt: '2026-01-01T00:00:00Z' }],
-      }),
-    ),
-    http.get('/api/groups/g1/tags', () =>
-      HttpResponse.json([
-        { id: 't-global', name: 'schnell', category: 'Aufwand', isGlobal: true, groupId: null, createdByUserId: null },
-        { id: 't-custom', name: 'Omas Hit', category: 'Custom', isGlobal: false, groupId: 'g1', createdByUserId: 'u1' },
-      ]),
-    ),
+function LocationProbe() {
+  const loc = useLocation()
+  return (
+    <div data-testid="location-probe">
+      {loc.pathname}
+      {loc.hash}
+    </div>
   )
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <MemoryRouter initialEntries={['/groups/g1/tags']}>
-      <QueryClientProvider client={client}>
-        <Routes>
-          <Route path="/groups/:groupId/tags" element={children as React.ReactElement} />
-        </Routes>
-      </QueryClientProvider>
-    </MemoryRouter>
-  )
-  return render(<TagManagementPage />, { wrapper })
 }
 
-describe('TagManagementPage', () => {
-  it('admin sees delete buttons for custom tags and global badge for global ones', async () => {
-    renderPage({ myRole: 'Admin' })
-    await waitFor(() => expect(screen.getByText(/Omas Hit/i)).toBeInTheDocument())
+function renderRoute(initial: string) {
+  return render(
+    <MemoryRouter initialEntries={[initial]}>
+      <Routes>
+        <Route path="/groups/:groupId/tags" element={<TagManagementPage />} />
+        <Route
+          path="/groups/:groupId/settings"
+          element={
+            <>
+              <div data-testid="settings-page">settings</div>
+              <LocationProbe />
+            </>
+          }
+        />
+        <Route
+          path="/groups"
+          element={
+            <>
+              <div data-testid="groups-list">groups</div>
+              <LocationProbe />
+            </>
+          }
+        />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
 
-    // Global tag: badge, no delete button for it.
-    expect(screen.getByText(/Global, nicht löschbar/i)).toBeInTheDocument()
-    // Custom tag: delete button present.
-    expect(screen.getByRole('button', { name: /Omas Hit.*löschen/i })).toBeInTheDocument()
+describe('TagManagementPage redirect (BUG-020)', () => {
+  it('redirects /groups/:id/tags to /groups/:id/settings#tags', () => {
+    renderRoute('/groups/g1/tags')
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument()
+    expect(screen.getByTestId('location-probe')).toHaveTextContent(
+      '/groups/g1/settings#tags',
+    )
   })
 
-  it('non-admin member sees read-only banner and no delete buttons', async () => {
-    renderPage({ myRole: 'Member' })
-    await waitFor(() => expect(screen.getByText(/Nur Admins/i)).toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: /löschen/i })).not.toBeInTheDocument()
-  })
-
-  it('admin deletes a custom tag via DELETE after confirming in the modal', async () => {
-    let called = false
-    server.use(
-      http.delete('/api/groups/g1/tags/t-custom', () => {
-        called = true
-        return new HttpResponse(null, { status: 204 })
-      }),
-    )
-    // BUG-004 — delete now flows through <ConfirmDialog /> instead of
-    // the native `window.confirm`. Clicking the row's Löschen button
-    // opens the dialog; the real DELETE fires only after "Löschen" in
-    // the dialog footer.
-    renderPage({ myRole: 'Admin' })
-    await waitFor(() => expect(screen.getByText(/Omas Hit/i)).toBeInTheDocument())
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /Omas Hit.*löschen/i }))
-    // Dialog is open, request hasn't fired yet.
-    expect(called).toBe(false)
-    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
-    await user.click(
-      screen.getByRole('button', { name: /^Löschen$/i }),
-    )
-    await waitFor(() => expect(called).toBe(true))
-  })
-
-  it('admin cancelling the confirm dialog does NOT fire DELETE', async () => {
-    let called = false
-    server.use(
-      http.delete('/api/groups/g1/tags/t-custom', () => {
-        called = true
-        return new HttpResponse(null, { status: 204 })
-      }),
-    )
-    renderPage({ myRole: 'Admin' })
-    await waitFor(() => expect(screen.getByText(/Omas Hit/i)).toBeInTheDocument())
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /Omas Hit.*löschen/i }))
-    await user.click(screen.getByRole('button', { name: /^Abbrechen$/i }))
-    expect(called).toBe(false)
-    await waitFor(() =>
-      expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument(),
+  it('encodes the groupId path-param verbatim into the redirect target', () => {
+    renderRoute('/groups/abc-123/tags')
+    expect(screen.getByTestId('location-probe')).toHaveTextContent(
+      '/groups/abc-123/settings#tags',
     )
   })
 })
