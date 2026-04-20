@@ -58,15 +58,15 @@ import { TypingIndicator } from './TypingIndicator'
  *      call-to-action slides in.
  *   3. Sticky bottom input area: textarea + send/abort button.
  *
- * BUG-001 — viewport sizing on mobile. `100dvh` (dynamic viewport
- * height) instead of `100vh` so the chat container shrinks/grows in
- * lock-step with the iOS Safari URL-bar / Chrome-Android address-bar
- * retraction animation. We additionally subtract the height of the
- * AppLayout chrome — TopNav (64px mobile, 72px desktop) AND the mobile
- * BottomNav (88px) plus `env(safe-area-inset-bottom,0px)` for the iOS
- * home-indicator zone — so the input footer stays above both the app
- * BottomNav and the browser bottom-bar. The input footer also keeps
- * its own `pb-[env(safe-area-inset-bottom,0px)]` as defence-in-depth.
+ * BUG-001 + BUG-039 — viewport sizing on mobile. Under the hoppr-style
+ * flex-column layout in `AppLayout`, `<main>` is `flex-1 min-h-0
+ * overflow-y-auto` — it already has the right height for us to live
+ * inside. The chat shell just fills its parent with `h-full`; no more
+ * dynamic-viewport-unit math subtracting TopNav + BottomNav + safe-
+ * area. The input footer keeps `pb-[calc(16px+env(safe-area-inset-
+ * bottom,0px))]` as a defence-in-depth safe-area clearance, which
+ * also shields against keyboard overlap when the on-screen keyboard
+ * opens.
  *
  * CR4 streaming model:
  * - The session id comes from the URL (`/chat/:sessionId`); the
@@ -513,7 +513,7 @@ export function ChatPage() {
     isStreaming || input.trim().length === 0 || turnCap === 'blocked'
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-64px-88px-env(safe-area-inset-bottom,0px))] w-full max-w-3xl flex-col px-4 md:h-[calc(100dvh-72px)] md:px-6">
+    <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 md:px-6">
       <ChatTopBar
         title={session?.title ?? null}
         onBack={() => navigate(-1)}

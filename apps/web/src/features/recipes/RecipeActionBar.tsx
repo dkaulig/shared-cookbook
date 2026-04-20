@@ -125,10 +125,14 @@ export function RecipeActionBar({
         <div
           className={cn(
             'pointer-events-none fixed inset-x-0 z-50 flex justify-center px-3',
-            // Track the rendered BottomNav height + visual-viewport
-            // offset so the toast floats just above the unified Bottom-
-            // Zone without its own positioning math per row count.
-            'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px)+var(--viewport-bottom-offset,0px)+12px)]',
+            // BUG-039 — under the hoppr-style flex-column layout the
+            // BottomNav is a flex sibling of `<main>`, not a fixed
+            // overlay. The toast is still `fixed` relative to the
+            // document viewport (same as any modal), so we anchor it
+            // above the home-indicator safe-area with a small buffer
+            // instead of chaining `--bottom-nav-height` /
+            // `--viewport-bottom-offset` tokens that no longer exist.
+            'bottom-[calc(env(safe-area-inset-bottom,0px)+88px)]',
           )}
         >
           {status && (

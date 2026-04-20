@@ -4,23 +4,23 @@ import { dirname, resolve, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * BUG-036 regression gate — once the Bottom-Zone slot pattern landed,
- * the only components allowed to hand-position themselves at the
- * bottom of the viewport are:
+ * BUG-036 + BUG-039 regression gate.
  *
- *   - `src/components/layout/BottomNav.tsx` — the sole `fixed`
- *     container that owns the shared bottom chrome.
- *   - `src/pwa/PwaUpdatePrompt.tsx` — infra-layer update banner
- *     (scope-guard per BUG-036 design: explicitly OUT of the slot
- *     pattern because it's a system-update surface, not page content).
+ * Under BUG-036 the unified Bottom-Zone made BottomNav the single source
+ * of truth for bottom-edge chrome — but BottomNav still used
+ * `fixed bottom-[calc(…)]` itself, so the gate carried a small allowlist.
  *
- * Any OTHER file that matches:
- *   - className string `fixed .*bottom-\[calc(…)\]` (arbitrary-value
- *     Tailwind bottom-anchor on a `fixed` element), OR
- *   - inline style `bottom: calc(…)` (JSX `style={{ bottom: 'calc(' }}`),
- * has likely re-introduced a parallel bottom-edge overlay. The test
- * prints the file + snippet so the reviewer can see exactly what
- * slipped through.
+ * BUG-039 went one step further: with the hoppr-style flex-column
+ * layout, BottomNav is a flex sibling of `<main>` inside a
+ * `fixed inset-0 flex flex-col overflow-hidden` root. Nothing in the app
+ * should need `fixed bottom-[calc(…)]` anymore except genuine transient
+ * overlays (e.g. PwaUpdatePrompt, RecipeActionBar's inline success/error
+ * toast) that sit above BOTH the nav and the scroll content.
+ *
+ * The gate still scans for the two historical anti-patterns:
+ *   - className string `fixed .*bottom-\[calc(…)\]`
+ *   - inline style `bottom: 'calc(…)'`
+ * And the allowlist is narrow and intentional — see below.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -58,17 +58,27 @@ const FIXED_BOTTOM_CALC_CLASSNAME_RE =
 // JSDoc should not be matched.
 const INLINE_BOTTOM_CALC_RE = /bottom:\s*['"]calc\(/g
 
-// Files that are allowed to carry these patterns by design.
+// Files allowed to carry these patterns by design:
+//   - `pwa/PwaUpdatePrompt.tsx` — system-infra update banner, lives
+//     outside the routed app shell entirely (mounted in `main.tsx`),
+//     so it MUST position itself against the document viewport.
+//   - `features/recipes/RecipeActionBar.tsx` — the 1-2s success/error
+//     toast above the 2-button action row; genuine transient overlay
+//     that needs to float above every surface including the BottomNav.
+//     The `bottom-[calc(env(safe-area-inset-bottom,0px)+88px)]` math
+//     doesn't chain any of the removed `--bottom-nav-height` /
+//     `--viewport-bottom-offset` tokens — it's a single literal +
+//     safe-area inset, which is deliberately outside the gate's scope.
 const ALLOWLIST = new Set<string>([
-  'components/layout/BottomNav.tsx',
   'pwa/PwaUpdatePrompt.tsx',
+  'features/recipes/RecipeActionBar.tsx',
 ])
 
 function toRel(full: string): string {
   return full.slice(SRC_ROOT.length + 1)
 }
 
-describe('BUG-036 — unified Bottom-Zone gate', () => {
+describe('BUG-036 + BUG-039 — unified Bottom-Zone gate', () => {
   const files = walk(SRC_ROOT)
 
   it('no .tsx outside the allowlist mixes `fixed` with `bottom-[calc(`', () => {
@@ -105,5 +115,12 @@ describe('BUG-036 — unified Bottom-Zone gate', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+
+  it('BottomNav.tsx is NO LONGER in the allowlist (BUG-039 — nav is flex-shrink-0, not fixed)', () => {
+    // Regression guard: if a future refactor puts BottomNav back on
+    // `fixed bottom-[calc(…)]`, someone would have to re-add it to the
+    // allowlist. The test below makes that regression loud.
+    expect(ALLOWLIST.has('components/layout/BottomNav.tsx')).toBe(false)
   })
 })

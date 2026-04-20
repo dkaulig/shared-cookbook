@@ -649,11 +649,14 @@ describe('<ChatPage /> — navigation chrome', () => {
 // Silence a potential "unused" lint on this helper — referenced above.
 void within
 
-describe('<ChatPage /> — BUG-001 regression: mobile viewport sizing', () => {
+describe('<ChatPage /> — BUG-001 + BUG-039 regression: mobile viewport sizing', () => {
   const source = readFileSync(resolve(__dirname, './ChatPage.tsx'), 'utf8')
 
-  it('uses dynamic viewport height units (100dvh), not static 100vh', () => {
-    expect(source).toMatch(/100dvh/)
+  it('no longer does 100dvh math — BUG-039 makes <main> the viewport-aware parent', () => {
+    // Under the hoppr-style layout in AppLayout the chat shell inherits
+    // the right height from its `flex-1 min-h-0 overflow-y-auto` parent
+    // (`<main>`). The old `h-[calc(100dvh-64px-88px-…)]` math is gone.
+    expect(source).not.toMatch(/100dvh/)
     expect(source).not.toMatch(/100vh[)\]\s;,]/)
   })
 
