@@ -1,3 +1,4 @@
+using FamilienKochbuch.Domain.Common;
 using FamilienKochbuch.Domain.MealPlanning;
 using Xunit;
 
@@ -61,5 +62,19 @@ public class MealPlanTests
         plan.BumpVersion(DateTimeOffset.UtcNow);
 
         Assert.Equal(3, plan.Version);
+    }
+
+    [Fact]
+    public void Implements_IVersionedEntity_Interface()
+    {
+        // OFF3: MealPlan adopts the cross-cutting IVersionedEntity
+        // contract alongside its existing timestamped BumpVersion
+        // overload. The parameterless form must bump the same counter.
+        var plan = new MealPlan(Guid.NewGuid(), Monday, DateTimeOffset.UtcNow);
+        IVersionedEntity versioned = plan;
+
+        versioned.BumpVersion();
+
+        Assert.Equal(1, plan.Version);
     }
 }

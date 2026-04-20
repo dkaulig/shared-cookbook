@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using FamilienKochbuch.Api.Http;
 using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
@@ -40,6 +41,9 @@ public static class ShoppingListEndpoints
     public record ShoppingListDto(
         Guid Id,
         Guid MealPlanId,
+        // OFF3: client mirrors this into the ETag for subsequent
+        // mutations. Starts at 0, bumps on every list-level change.
+        int Version,
         DateTimeOffset CreatedAt,
         DateTimeOffset UpdatedAt,
         DateTimeOffset LastGeneratedAt,
@@ -137,6 +141,62 @@ public static class ShoppingListEndpoints
         return (plan, null);
     }
 
+    /// <summary>
+    /// OFF3: checks the <c>If-Match</c> header on <paramref name="request"/>
+    /// against the list's <see cref="ShoppingList.Version"/>. Returns
+    /// <c>null</c> when there's no header (backward-compat) or the
+    /// versions match; otherwise a 409 Conflict with the current list
+    /// DTO so the client can reconcile without a follow-up GET.
+    /// </summary>
+    private static async Task<IResult?> BuildListConflictIfMismatchAsync(
+        HttpRequest request, ShoppingList list, AppDbContext db, CancellationToken ct)
+    {
+        if (!request.Headers.TryGetValue("If-Match", out var raw)) return null;
+        var parsed = ETagHelper.TryParse(raw.ToString());
+        if (parsed is null) return null;
+
+        var (expectedId, expectedVersion) = parsed.Value;
+        if (expectedId == list.Id && expectedVersion == list.Version) return null;
+
+        var items = await db.ShoppingListItems
+            .Where(i => i.ShoppingListId == list.Id)
+            .ToListAsync(ct);
+        return FamilienResults.Conflict(
+            "version_mismatch",
+            "Der Eintrag wurde zwischenzeitlich geändert.",
+            (object?)ToDto(list, items));
+    }
+
+    /// <summary>
+    /// OFF3: projects the list's authoritative current state after an
+    /// EF <see cref="DbUpdateConcurrencyException"/> into a 409 body.
+    /// Mirrors the shape a GET returns so the caller's reconciliation
+    /// logic handles both pre-save mismatches and TOCTOU races the
+    /// same way.
+    /// </summary>
+    private static async Task<IResult> BuildListConcurrencyConflictAsync(
+        ShoppingList list, AppDbContext db, CancellationToken ct)
+    {
+        var fresh = await db.ShoppingLists.AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == list.Id, ct);
+        ShoppingListDto currentDto;
+        if (fresh is null)
+        {
+            currentDto = ToDto(list, Array.Empty<ShoppingListItem>());
+        }
+        else
+        {
+            var items = await db.ShoppingListItems.AsNoTracking()
+                .Where(i => i.ShoppingListId == fresh.Id)
+                .ToListAsync(ct);
+            currentDto = ToDto(fresh, items);
+        }
+        return FamilienResults.Conflict(
+            "version_mismatch",
+            "Der Eintrag wurde zwischenzeitlich geändert.",
+            (object?)currentDto);
+    }
+
     private static async Task<(ShoppingList? List, MealPlan? Plan, IResult? Error)> LoadListWithMembershipAsync(
         AppDbContext db, Guid listId, Guid userId, CancellationToken ct)
     {
@@ -170,7 +230,8 @@ public static class ShoppingListEndpoints
             .Select(ToDto)
             .ToArray();
         return new ShoppingListDto(
-            list.Id, list.MealPlanId, list.CreatedAt, list.UpdatedAt,
+            list.Id, list.MealPlanId, list.Version,
+            list.CreatedAt, list.UpdatedAt,
             list.LastGeneratedAt, ordered);
     }
 
@@ -196,7 +257,7 @@ public static class ShoppingListEndpoints
         var items = await db.ShoppingListItems
             .Where(i => i.ShoppingListId == list.Id)
             .ToListAsync(ct);
-        return Results.Ok(ToDto(list, items));
+        return ETagHelper.Ok(ToDto(list, items), list.Id, list.Version);
     }
 
     // ── POST /api/mealplans/{planId}/shopping-list/generate ─────────
@@ -419,6 +480,7 @@ public static class ShoppingListEndpoints
     private static async Task<IResult> AddItemAsync(
         Guid listId,
         AddItemRequest body,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
@@ -429,6 +491,10 @@ public static class ShoppingListEndpoints
 
         var (list, plan, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
         if (err is not null) return err;
+
+        // OFF3: list.Version is the concurrency token for manual-add.
+        var listConflict = await BuildListConflictIfMismatchAsync(httpRequest, list!, db, ct);
+        if (listConflict is not null) return listConflict;
 
         // Reject out-of-range enum values: System.Text.Json happily
         // deserializes any int into an enum, so `{ "category": 9999 }`
@@ -470,7 +536,14 @@ public static class ShoppingListEndpoints
 
         db.ShoppingListItems.Add(item);
         list!.Touch(now);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return await BuildListConcurrencyConflictAsync(list, db, ct);
+        }
 
         await liveSync.ShoppingListItemChangedAsync(
             groupId: plan!.GroupId,
@@ -501,6 +574,12 @@ public static class ShoppingListEndpoints
 
         var (list, plan, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
         if (err is not null) return err;
+
+        // OFF3: PATCH targets a single item but we bump list.Version on
+        // every mutation. Match against the list so the client's single
+        // ETag per shopping-list query stays the authoritative token.
+        var listConflict = await BuildListConflictIfMismatchAsync(request, list!, db, ct);
+        if (listConflict is not null) return listConflict;
 
         var item = await db.ShoppingListItems
             .FirstOrDefaultAsync(i => i.Id == itemId, ct);
@@ -546,7 +625,14 @@ public static class ShoppingListEndpoints
         }
 
         list!.Touch(now);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return await BuildListConcurrencyConflictAsync(list, db, ct);
+        }
 
         await liveSync.ShoppingListItemChangedAsync(
             groupId: plan!.GroupId,
@@ -564,6 +650,7 @@ public static class ShoppingListEndpoints
     private static async Task<IResult> DeleteItemAsync(
         Guid listId,
         Guid itemId,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
@@ -575,6 +662,10 @@ public static class ShoppingListEndpoints
         var (list, plan, err) = await LoadListWithMembershipAsync(db, listId, userId, ct);
         if (err is not null) return err;
 
+        // OFF3: list.Version is the concurrency token.
+        var listConflict = await BuildListConflictIfMismatchAsync(httpRequest, list!, db, ct);
+        if (listConflict is not null) return listConflict;
+
         var item = await db.ShoppingListItems
             .FirstOrDefaultAsync(i => i.Id == itemId, ct);
         if (item is null || item.ShoppingListId != list!.Id)
@@ -583,7 +674,14 @@ public static class ShoppingListEndpoints
 
         db.ShoppingListItems.Remove(item);
         list!.Touch(clock.GetUtcNow());
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return await BuildListConcurrencyConflictAsync(list, db, ct);
+        }
 
         await liveSync.ShoppingListItemChangedAsync(
             groupId: plan!.GroupId,

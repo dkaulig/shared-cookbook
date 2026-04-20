@@ -1675,4 +1675,151 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         throw new Xunit.Sdk.XunitException(
             $"Timed out waiting for {description} (waited {timeout})");
     }
+
+    // ── OFF3 ETag + If-Match ─────────────────────────────────────────
+
+    [Fact]
+    public async Task GET_Recipe_Returns_ETag_Header_With_Version_Zero()
+    {
+        var (_, token) = await SignupAndLoginAsync("etag-recipe@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var created = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("ETag-Rezept"));
+        created.EnsureSuccessStatusCode();
+        var dto = (await created.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var res = await _client.GetAsync($"/api/recipes/{dto.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.True(res.Headers.Contains("ETag"));
+        var etag = res.Headers.GetValues("ETag").Single();
+        Assert.Equal($"W/\"{dto.Id:D}-0\"", etag);
+    }
+
+    [Fact]
+    public async Task PUT_Recipe_With_Correct_IfMatch_Succeeds_And_Bumps_Version()
+    {
+        var (_, token) = await SignupAndLoginAsync("ifmatch-ok@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var created = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Org"));
+        var dto = (await created.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var update = new RecipeEndpoints.UpdateRecipeRequest(
+            Title: "Geändert",
+            Description: dto.Description,
+            DefaultServings: dto.DefaultServings,
+            PrepTimeMinutes: dto.PrepTimeMinutes,
+            Difficulty: dto.Difficulty,
+            SourceUrl: dto.SourceUrl,
+            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            Steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+            TagIds: Array.Empty<Guid>());
+        using var req = new HttpRequestMessage(HttpMethod.Put, $"/api/recipes/{dto.Id}")
+        {
+            Content = JsonContent.Create(update),
+        };
+        req.Headers.TryAddWithoutValidation("If-Match", $"W/\"{dto.Id:D}-{dto.Version}\"");
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var updated = (await res.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Equal(dto.Version + 1, updated.Version);
+        Assert.True(res.Headers.Contains("ETag"));
+    }
+
+    [Fact]
+    public async Task PUT_Recipe_With_Stale_IfMatch_Returns_409_With_Current_Dto()
+    {
+        var (_, token) = await SignupAndLoginAsync("ifmatch-stale-r@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var created = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Erst"));
+        var dto = (await created.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        var staleVersion = dto.Version; // 0
+
+        // Move the server forward with a no-If-Match PUT.
+        var intermediate = new RecipeEndpoints.UpdateRecipeRequest(
+            Title: "Zwischenstand",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            Steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+            TagIds: Array.Empty<Guid>());
+        var firstPut = await _client.PutAsJsonAsync($"/api/recipes/{dto.Id}", intermediate);
+        firstPut.EnsureSuccessStatusCode();
+
+        // Attempt second PUT with the stale (original) ETag.
+        var second = intermediate with { Title = "Zweit" };
+        using var req = new HttpRequestMessage(HttpMethod.Put, $"/api/recipes/{dto.Id}")
+        {
+            Content = JsonContent.Create(second),
+        };
+        req.Headers.TryAddWithoutValidation("If-Match", $"W/\"{dto.Id:D}-{staleVersion}\"");
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<ConflictBodyDto>();
+        Assert.NotNull(body);
+        Assert.Equal("version_mismatch", body!.Code);
+        Assert.NotNull(body.Current);
+        Assert.Equal(staleVersion + 1, body.Current!.Value.GetProperty("version").GetInt32());
+    }
+
+    [Fact]
+    public async Task PUT_Recipe_Without_IfMatch_Succeeds_For_Backcompat()
+    {
+        var (_, token) = await SignupAndLoginAsync("ifmatch-none-r@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var created = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("ohne-ifmatch"));
+        var dto = (await created.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var update = new RecipeEndpoints.UpdateRecipeRequest(
+            Title: "ohne-ifmatch-neu",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            Steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+            TagIds: Array.Empty<Guid>());
+        var res = await _client.PutAsJsonAsync($"/api/recipes/{dto.Id}", update);
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task GET_After_Multiple_PUTs_Has_Incrementing_Version_In_ETag()
+    {
+        var (_, token) = await SignupAndLoginAsync("mult-r@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var created = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Mehrfach"));
+        var dto = (await created.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var update = new RecipeEndpoints.UpdateRecipeRequest(
+            Title: "A", Description: null, DefaultServings: 2,
+            PrepTimeMinutes: null, Difficulty: 1, SourceUrl: null,
+            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            Steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+            TagIds: Array.Empty<Guid>());
+        (await _client.PutAsJsonAsync($"/api/recipes/{dto.Id}", update)).EnsureSuccessStatusCode();
+        (await _client.PutAsJsonAsync($"/api/recipes/{dto.Id}", update with { Title = "B" })).EnsureSuccessStatusCode();
+
+        var res = await _client.GetAsync($"/api/recipes/{dto.Id}");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal($"W/\"{dto.Id:D}-2\"", res.Headers.GetValues("ETag").Single());
+    }
+
+    private sealed record ConflictBodyDto(string Code, string Message, System.Text.Json.JsonElement? Current);
 }

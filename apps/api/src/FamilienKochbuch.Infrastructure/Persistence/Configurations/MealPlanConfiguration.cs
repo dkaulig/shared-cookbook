@@ -22,7 +22,14 @@ internal sealed class MealPlanConfiguration : IEntityTypeConfiguration<MealPlan>
 
         e.Property(p => p.GroupId).IsRequired();
         e.Property(p => p.WeekStart).IsRequired();
-        e.Property(p => p.Version).IsRequired();
+        // OFF3: Version is both an API-level optimistic-concurrency token
+        // (weak ETag payload) AND an EF concurrency token — if two
+        // requests read the same row + write back in parallel, EF throws
+        // DbUpdateConcurrencyException so the later writer can be mapped
+        // to a 409 Conflict. The API-level If-Match check fires earlier
+        // for the common case; IsConcurrencyToken is the defense-in-depth
+        // layer for the TOCTOU race between read + SaveChanges.
+        e.Property(p => p.Version).IsRequired().IsConcurrencyToken();
         e.Property(p => p.CreatedAt).IsRequired();
         e.Property(p => p.UpdatedAt).IsRequired();
 

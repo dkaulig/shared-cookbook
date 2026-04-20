@@ -40,6 +40,7 @@ function groupSummary(over: Partial<GroupSummary>): GroupSummary {
     isPrivateCollection: false,
     memberCount: 4,
     myRole: 'Admin',
+    version: 0,
     ...over,
   }
 }
@@ -135,6 +136,7 @@ describe('<HomePage />', () => {
             name: 'WG-Donnerstage',
             memberCount: 3,
             myRole: 'Member',
+            version: 0,
             isPrivateCollection: false,
           }),
         ]),

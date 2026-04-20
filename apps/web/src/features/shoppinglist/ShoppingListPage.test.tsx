@@ -47,6 +47,7 @@ function makeList(items: ShoppingListItemDto[]): ShoppingListDto {
   return {
     id: LIST_ID,
     mealPlanId: PLAN_ID,
+    version: 0,
     createdAt: '2026-04-19T00:00:00Z',
     updatedAt: '2026-04-19T00:00:00Z',
     lastGeneratedAt: '2026-04-19T00:00:00Z',

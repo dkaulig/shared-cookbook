@@ -16,6 +16,13 @@ export interface GroupSummary {
   isPrivateCollection: boolean
   memberCount: number
   myRole: GroupRole
+  /**
+   * OFF3 optimistic-concurrency counter — mirrors `Group.Version`.
+   * Starts at 0 on a freshly-created group; bumps by one on every
+   * metadata edit / soft-delete. Client echoes as
+   * `If-Match: W/"<id>-<version>"` on subsequent PUT/DELETE.
+   */
+  version: number
 }
 
 export interface GroupMember {

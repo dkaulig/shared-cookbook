@@ -1089,6 +1089,131 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
         Assert.Equal("copy.target_not_empty", body!.Code);
     }
 
+    // ── OFF3 ETag + If-Match ─────────────────────────────────────────
+
+    [Fact]
+    public async Task GET_MealPlan_Returns_ETag_Header()
+    {
+        var (_, token) = await SignupAndLoginAsync("etag-get@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+
+        var res = await _client.GetAsync(
+            $"/api/groups/{groupId}/mealplans/{CurrentMonday:yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.True(res.Headers.Contains("ETag"),
+            "Expected ETag header on entity GET per OFF3.");
+        var etag = res.Headers.GetValues("ETag").Single();
+        Assert.Equal($"W/\"{plan.Id:D}-0\"", etag);
+        // Cache-Control enables browser-conditional GET, per OFF3.
+        Assert.True(res.Headers.Contains("Cache-Control") ||
+                     res.Content.Headers.Contains("Cache-Control"));
+    }
+
+    [Fact]
+    public async Task PatchSlot_With_Correct_IfMatch_Succeeds()
+    {
+        var (userId, token) = await SignupAndLoginAsync("if-match-ok@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var slot = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+        // AddSlot bumped plan.Version to 1 — use that in If-Match.
+        var afterAdd = await FetchPlanAsync(_client, groupId, CurrentMonday);
+
+        using var req = new HttpRequestMessage(HttpMethod.Patch,
+            $"/api/mealplans/{plan.Id}/slots/{slot.Id}")
+        {
+            Content = new StringContent("""{"servings": 4}""", Encoding.UTF8, "application/json"),
+        };
+        req.Headers.TryAddWithoutValidation("If-Match", $"W/\"{plan.Id:D}-{afterAdd.Version}\"");
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var updated = await FetchPlanAsync(_client, groupId, CurrentMonday);
+        Assert.Equal(afterAdd.Version + 1, updated.Version);
+    }
+
+    [Fact]
+    public async Task PatchSlot_With_Stale_IfMatch_Returns_409_With_Current_Dto()
+    {
+        var (userId, token) = await SignupAndLoginAsync("if-match-stale@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var slot = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+        // First PATCH bumps to version 2; we'll attempt a second PATCH
+        // with the stale pre-patch ETag = version 1.
+        var stale = await FetchPlanAsync(_client, groupId, CurrentMonday);
+        var firstPatch = await _client.PatchAsync(
+            $"/api/mealplans/{plan.Id}/slots/{slot.Id}",
+            new StringContent("""{"servings": 3}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, firstPatch.StatusCode);
+
+        using var req = new HttpRequestMessage(HttpMethod.Patch,
+            $"/api/mealplans/{plan.Id}/slots/{slot.Id}")
+        {
+            Content = new StringContent("""{"servings": 5}""", Encoding.UTF8, "application/json"),
+        };
+        req.Headers.TryAddWithoutValidation("If-Match", $"W/\"{plan.Id:D}-{stale.Version}\"");
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<ConflictBodyDto>();
+        Assert.NotNull(body);
+        Assert.Equal("version_mismatch", body!.Code);
+        Assert.NotNull(body.Current);
+        // `current` mirrors the normal GET shape: carries the newly
+        // bumped version so the client can reconcile without a GET.
+        Assert.Equal(stale.Version + 1, body.Current!.Value.GetProperty("version").GetInt32());
+    }
+
+    [Fact]
+    public async Task PatchSlot_Without_IfMatch_Succeeds_For_Backcompat()
+    {
+        var (userId, token) = await SignupAndLoginAsync("if-match-none@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var slot = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+
+        var res = await _client.PatchAsync(
+            $"/api/mealplans/{plan.Id}/slots/{slot.Id}",
+            new StringContent("""{"servings": 4}""", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task GET_After_Multiple_Mutations_Has_Incrementing_Version_In_ETag()
+    {
+        var (userId, token) = await SignupAndLoginAsync("multimut@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+        await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Abend, 2, null);
+
+        var res = await _client.GetAsync(
+            $"/api/groups/{groupId}/mealplans/{CurrentMonday:yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var etag = res.Headers.GetValues("ETag").Single();
+        Assert.Equal($"W/\"{plan.Id:D}-2\"", etag);
+    }
+
+    /// <summary>
+    /// Wire shape for the OFF3 409 body — <c>current</c> is the full
+    /// DTO the client should replace its local state with.
+    /// </summary>
+    private sealed record ConflictBodyDto(string Code, string Message, System.Text.Json.JsonElement? Current);
+
     // ── helpers ─────────────────────────────────────────────────────
 
     private async Task<MealPlanEndpoints.MealPlanDto> FetchPlanAsync(

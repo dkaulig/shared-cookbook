@@ -14,6 +14,7 @@ function group(over: Partial<GroupSummary>): GroupSummary {
     isPrivateCollection: false,
     memberCount: 4,
     myRole: 'Admin',
+    version: 0,
     ...over,
   }
 }

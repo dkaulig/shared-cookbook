@@ -17,6 +17,11 @@ internal sealed class ShoppingListConfiguration : IEntityTypeConfiguration<Shopp
         e.HasKey(l => l.Id);
 
         e.Property(l => l.MealPlanId).IsRequired();
+        // OFF3: Version is the ETag payload + If-Match token for the
+        // shopping-list mutation endpoints; IsConcurrencyToken turns it
+        // into an EF optimistic-concurrency check so parallel writers
+        // surface as DbUpdateConcurrencyException → 409 Conflict.
+        e.Property(l => l.Version).IsRequired().IsConcurrencyToken();
         e.Property(l => l.CreatedAt).IsRequired();
         e.Property(l => l.UpdatedAt).IsRequired();
         e.Property(l => l.LastGeneratedAt).IsRequired();

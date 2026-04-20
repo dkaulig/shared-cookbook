@@ -105,6 +105,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.Property(g => g.Description).HasMaxLength(Group.DescriptionMaxLength);
             e.Property(g => g.CoverImageUrl).HasMaxLength(500);
             e.Property(g => g.DefaultServings).HasColumnType("numeric(10,2)");
+            // OFF3: Version is both the ETag payload + If-Match token AND
+            // the EF concurrency token so parallel writers surface as
+            // DbUpdateConcurrencyException → 409 Conflict.
+            e.Property(g => g.Version).IsRequired().IsConcurrencyToken();
             e.HasIndex(g => g.CreatedAt);
         });
 
@@ -162,6 +166,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.Property(r => r.Description).HasMaxLength(Recipe.DescriptionMaxLength);
             e.Property(r => r.SourceUrl).HasMaxLength(Recipe.SourceUrlMaxLength);
             e.Property(r => r.SourceType).HasConversion<int>();
+            // OFF3: Version powers the weak ETag (W/"<id>-<version>") on
+            // GET and the If-Match check on PUT/DELETE/PATCH/POST /cook/
+            // /fork/ /nutrition. IsConcurrencyToken hardens SaveChanges
+            // against the read-read-write-write race the If-Match check
+            // can't cover.
+            e.Property(r => r.Version).IsRequired().IsConcurrencyToken();
 
             // Photos are stored as a JSON array in a single column. Works on
             // both Postgres (jsonb-friendly text) and SQLite, no provider-

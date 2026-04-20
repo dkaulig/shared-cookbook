@@ -47,6 +47,7 @@ describe('groupsApi', () => {
             isPrivateCollection: false,
             memberCount: 1,
             myRole: 'Admin',
+            version: 0,
           },
         ]),
       ),
@@ -72,6 +73,7 @@ describe('groupsApi', () => {
             isPrivateCollection: false,
             memberCount: 1,
             myRole: 'Admin',
+            version: 0,
           },
           { status: 201 },
         )
@@ -111,6 +113,7 @@ describe('groupsApi', () => {
           isPrivateCollection: false,
           memberCount: 2,
           myRole: 'Admin',
+          version: 0,
           members: [
             { userId: 'u1', displayName: 'Ich', role: 'Admin', joinedAt: '2026-04-17' },
           ],
@@ -134,6 +137,7 @@ describe('groupsApi', () => {
           isPrivateCollection: false,
           memberCount: 1,
           myRole: 'Admin',
+          version: 0,
         }),
       ),
     )

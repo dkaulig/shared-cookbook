@@ -1,3 +1,4 @@
+using FamilienKochbuch.Domain.Common;
 using FamilienKochbuch.Domain.Enums;
 
 namespace FamilienKochbuch.Domain.MealPlanning;
@@ -17,7 +18,7 @@ namespace FamilienKochbuch.Domain.MealPlanning;
 ///   <item>Note max 500 chars (null allowed).</item>
 /// </list>
 /// </summary>
-public sealed class ShoppingListItem
+public sealed class ShoppingListItem : IVersionedEntity
 {
     public const int NameMaxLength = 200;
     public const int QuantityMaxLength = 50;
@@ -58,6 +59,7 @@ public sealed class ShoppingListItem
         SortOrder = sortOrder;
         IsChecked = false;
         CarriedOverFromPreviousWeek = carriedOverFromPreviousWeek;
+        Version = 0;
         CreatedAt = createdAt;
         UpdatedAt = createdAt;
     }
@@ -76,11 +78,24 @@ public sealed class ShoppingListItem
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    /// <summary>
+    /// OFF3 optimistic-concurrency token. Bumped on every mutation
+    /// (toggle-check, edit note, reorder, re-categorize). Starts at 0.
+    /// </summary>
+    public int Version { get; private set; }
+
+    /// <summary>
+    /// <see cref="IVersionedEntity.BumpVersion"/>. Each public mutation
+    /// invokes this exactly once per state change.
+    /// </summary>
+    public void BumpVersion() => Version++;
+
     /// <summary>Toggles the checked flag and refreshes <see cref="UpdatedAt"/>.</summary>
     public void SetChecked(bool isChecked, DateTimeOffset at)
     {
         IsChecked = isChecked;
         UpdatedAt = at;
+        BumpVersion();
     }
 
     /// <summary>Replaces the quantity string. Null clears it.</summary>
@@ -88,6 +103,7 @@ public sealed class ShoppingListItem
     {
         Quantity = ValidateOptionalString(quantity, QuantityMaxLength, nameof(quantity));
         UpdatedAt = at;
+        BumpVersion();
     }
 
     /// <summary>Replaces the unit string. Null clears it.</summary>
@@ -95,6 +111,7 @@ public sealed class ShoppingListItem
     {
         Unit = ValidateOptionalString(unit, UnitMaxLength, nameof(unit));
         UpdatedAt = at;
+        BumpVersion();
     }
 
     /// <summary>Replaces the free-text note. Null clears it.</summary>
@@ -102,6 +119,7 @@ public sealed class ShoppingListItem
     {
         Note = ValidateOptionalString(note, NoteMaxLength, nameof(note));
         UpdatedAt = at;
+        BumpVersion();
     }
 
     /// <summary>Reassigns the within-category ordering hint.</summary>
@@ -109,6 +127,7 @@ public sealed class ShoppingListItem
     {
         SortOrder = sortOrder;
         UpdatedAt = at;
+        BumpVersion();
     }
 
     /// <summary>Switches the category bucket — used by P3-6's categorizer.</summary>
@@ -116,6 +135,7 @@ public sealed class ShoppingListItem
     {
         Category = category;
         UpdatedAt = at;
+        BumpVersion();
     }
 
     // ── Validation helpers ──────────────────────────────────────────

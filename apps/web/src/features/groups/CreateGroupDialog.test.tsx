@@ -65,6 +65,7 @@ describe('<CreateGroupDialog />', () => {
             isPrivateCollection: false,
             memberCount: 1,
             myRole: 'Admin',
+            version: 0,
           },
           { status: 201 },
         )

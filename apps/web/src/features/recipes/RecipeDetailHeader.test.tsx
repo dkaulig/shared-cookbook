@@ -22,6 +22,7 @@ const RECIPE: RecipeDetailDto = {
   lastCookedAt: null,
   createdAt: '2026-04-18T00:00:00Z',
   updatedAt: '2026-04-18T00:00:00Z',
+  version: 0,
   ingredients: [],
   steps: [],
   tags: [

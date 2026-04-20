@@ -76,6 +76,33 @@ public static class FamilienResults
         => Results.Json(new ErrorResponse(code, message, details), JsonOptions,
             statusCode: StatusCodes.Status409Conflict);
 
+    /// <summary>
+    /// 409 Conflict with a <c>{ code, message, current }</c> body.
+    /// OFF3 mutation endpoints return the caller's current view of the
+    /// entity under <c>current</c> so the conflict-resolution UI can
+    /// render "this is what the server has now" without an extra GET.
+    /// When <paramref name="current"/> is <c>null</c> the field is
+    /// omitted from the body (same convention as <c>details</c> on the
+    /// standard <see cref="ErrorResponse"/>).
+    /// </summary>
+    public static IResult Conflict(
+        string code,
+        string message,
+        object? current)
+        => Results.Json(new ConflictWithCurrent(code, message, current), JsonOptions,
+            statusCode: StatusCodes.Status409Conflict);
+
+    /// <summary>
+    /// Wire shape for <see cref="Conflict(string, string, object?)"/>. The
+    /// <c>current</c> field holds the server's authoritative projection of
+    /// the entity at the moment the conflict was detected.
+    /// </summary>
+    private sealed record ConflictWithCurrent(
+        string Code,
+        string Message,
+        [property: JsonPropertyName("current"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        object? Current);
+
     /// <summary>401 Unauthorized with a <see cref="ErrorResponse"/> body.</summary>
     public static IResult Unauthorized(
         string code,

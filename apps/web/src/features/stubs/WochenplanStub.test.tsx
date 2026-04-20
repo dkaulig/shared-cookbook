@@ -72,6 +72,7 @@ function makeGroup(id: string, name: string) {
     isPrivateCollection: false,
     memberCount: 1,
     myRole: 'Admin' as const,
+    version: 0,
   }
 }
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Json;
+using FamilienKochbuch.Api.Http;
 using FamilienKochbuch.Api.Hubs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.MealPlanning;
@@ -208,6 +209,36 @@ public static class MealPlanEndpoints
     }
 
     /// <summary>
+    /// OFF3: reads <c>If-Match</c> off <paramref name="request"/> and
+    /// compares against the plan's <see cref="MealPlan.Version"/>. When
+    /// the versions don't match (client is stale), returns a 409
+    /// Conflict carrying the plan's current DTO — so the frontend can
+    /// surface the server state without a follow-up GET. Returns
+    /// <c>null</c> when there is no If-Match header (backward-compat)
+    /// or when it matches.
+    /// </summary>
+    private static async Task<IResult?> BuildPlanConflictIfMismatchAsync(
+        HttpRequest request, MealPlan plan, AppDbContext db, CancellationToken ct)
+    {
+        if (!request.Headers.TryGetValue("If-Match", out var raw)) return null;
+        var parsed = ETagHelper.TryParse(raw.ToString());
+        if (parsed is null) return null;
+
+        var (expectedId, expectedVersion) = parsed.Value;
+        if (expectedId == plan.Id && expectedVersion == plan.Version) return null;
+
+        // Project current state once so the 409 body matches the shape a
+        // normal GET returns.
+        var slots = await db.MealPlanSlots
+            .Where(s => s.MealPlanId == plan.Id)
+            .ToListAsync(ct);
+        return FamilienResults.Conflict(
+            "version_mismatch",
+            "Der Eintrag wurde zwischenzeitlich geändert.",
+            (object?)ToDto(plan, slots));
+    }
+
+    /// <summary>
     /// Walks <paramref name="candidateId"/>'s ancestor chain via
     /// repeated DB lookups and returns every visited ID (including
     /// the candidate itself). Used by the parent-attach guard so we
@@ -322,7 +353,7 @@ public static class MealPlanEndpoints
         var slots = await db.MealPlanSlots
             .Where(s => s.MealPlanId == plan.Id)
             .ToListAsync(ct);
-        return Results.Ok(ToDto(plan, slots));
+        return ETagHelper.Ok(ToDto(plan, slots), plan.Id, plan.Version);
     }
 
     // ── POST /api/groups/{groupId}/mealplans ────────────────────────
@@ -394,6 +425,7 @@ public static class MealPlanEndpoints
     private static async Task<IResult> AddSlotAsync(
         Guid planId,
         AddSlotRequest body,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
@@ -404,6 +436,12 @@ public static class MealPlanEndpoints
 
         var (plan, err) = await LoadPlanWithMembershipAsync(db, planId, userId, ct);
         if (err is not null) return err;
+
+        // OFF3: adding a slot mutates the plan aggregate (Version
+        // bumps), so the If-Match check is on MealPlan.Version. Absent
+        // If-Match = pre-OFF3 client, proceed unchanged.
+        var planConflict = await BuildPlanConflictIfMismatchAsync(httpRequest, plan!, db, ct);
+        if (planConflict is not null) return planConflict;
 
         // If a RecipeId is supplied, it must belong to the same group.
         if (body.RecipeId is { } recipeId)
@@ -448,7 +486,14 @@ public static class MealPlanEndpoints
 
         db.MealPlanSlots.Add(slot);
         plan!.BumpVersion(now);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return await BuildPlanConcurrencyConflictAsync(plan, db, ct);
+        }
 
         await PublishSlotAndPlanChangedAsync(
             liveSync, plan, slot.Id, LiveSyncAction.Created, LiveSyncAction.Updated, ct);
@@ -514,6 +559,11 @@ public static class MealPlanEndpoints
 
         var (plan, err) = await LoadPlanWithMembershipAsync(db, planId, userId, ct);
         if (err is not null) return err;
+
+        // OFF3: If-Match compares against MealPlan.Version since every
+        // slot change bumps the plan's version.
+        var planConflict = await BuildPlanConflictIfMismatchAsync(request, plan!, db, ct);
+        if (planConflict is not null) return planConflict;
 
         var slot = await db.MealPlanSlots
             .FirstOrDefaultAsync(s => s.Id == slotId, ct);
@@ -589,7 +639,14 @@ public static class MealPlanEndpoints
         }
 
         plan!.BumpVersion(now);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return await BuildPlanConcurrencyConflictAsync(plan, db, ct);
+        }
 
         await PublishSlotAndPlanChangedAsync(
             liveSync, plan, slot.Id, LiveSyncAction.Updated, LiveSyncAction.Updated, ct);
@@ -602,6 +659,7 @@ public static class MealPlanEndpoints
     private static async Task<IResult> DeleteSlotAsync(
         Guid planId,
         Guid slotId,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
@@ -612,6 +670,11 @@ public static class MealPlanEndpoints
 
         var (plan, err) = await LoadPlanWithMembershipAsync(db, planId, userId, ct);
         if (err is not null) return err;
+
+        // OFF3: the plan's Version is the concurrency token the client
+        // holds when deleting a slot.
+        var planConflict = await BuildPlanConflictIfMismatchAsync(httpRequest, plan!, db, ct);
+        if (planConflict is not null) return planConflict;
 
         var slot = await db.MealPlanSlots
             .FirstOrDefaultAsync(s => s.Id == slotId, ct);
@@ -635,7 +698,14 @@ public static class MealPlanEndpoints
 
         db.MealPlanSlots.Remove(slot);
         plan!.BumpVersion(now);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return await BuildPlanConcurrencyConflictAsync(plan, db, ct);
+        }
 
         await PublishSlotAndPlanChangedAsync(
             liveSync, plan, slotId, LiveSyncAction.Deleted, LiveSyncAction.Updated, ct);
@@ -648,6 +718,7 @@ public static class MealPlanEndpoints
     private static async Task<IResult> CopyFromAsync(
         Guid planId,
         string sourceWeekStart,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
         TimeProvider clock,
@@ -665,6 +736,11 @@ public static class MealPlanEndpoints
 
         var (targetPlan, err) = await LoadPlanWithMembershipAsync(db, planId, userId, ct);
         if (err is not null) return err;
+
+        // OFF3: copy-from bumps the target plan's version (it's the
+        // mutated aggregate), so the If-Match check is against it.
+        var planConflict = await BuildPlanConflictIfMismatchAsync(httpRequest, targetPlan!, db, ct);
+        if (planConflict is not null) return planConflict;
 
         // P3-9 empty-target guard. A rapid double-click (or two open tabs)
         // would otherwise fire two POSTs and end up with 2× slots, because
@@ -736,7 +812,14 @@ public static class MealPlanEndpoints
         }
 
         targetPlan.BumpVersion(now);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return await BuildPlanConcurrencyConflictAsync(targetPlan, db, ct);
+        }
 
         await liveSync.MealPlanChangedAsync(
             groupId: targetPlan.GroupId,
@@ -749,6 +832,44 @@ public static class MealPlanEndpoints
             .Where(s => s.MealPlanId == targetPlan.Id)
             .ToListAsync(ct);
         return Results.Ok(ToDto(targetPlan, refreshed));
+    }
+
+    /// <summary>
+    /// OFF3: builds a 409 response after an EF
+    /// <see cref="DbUpdateConcurrencyException"/>. Reloads the plan's
+    /// current state from the DB (the tracked entity is in an unknown
+    /// state after the failed save) and projects it into a MealPlanDto
+    /// that mirrors a normal GET's body shape. Used by every plan-
+    /// mutation endpoint so concurrent writers get the same conflict
+    /// wire-shape regardless of which slot-level call raced first.
+    /// </summary>
+    private static async Task<IResult> BuildPlanConcurrencyConflictAsync(
+        MealPlan plan, AppDbContext db, CancellationToken ct)
+    {
+        // The entity in the change tracker is in a failed-save limbo
+        // state; fetch a fresh AsNoTracking copy so projecting the DTO
+        // reflects the winning writer's state.
+        var fresh = await db.MealPlans.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == plan.Id, ct);
+        MealPlanDto currentDto;
+        if (fresh is null)
+        {
+            // Extremely unlikely — the plan was deleted between the read
+            // and the concurrency exception. Fall back to the stale
+            // in-memory entity so the client still sees *something*.
+            currentDto = ToDto(plan, Array.Empty<MealPlanSlot>());
+        }
+        else
+        {
+            var slots = await db.MealPlanSlots.AsNoTracking()
+                .Where(s => s.MealPlanId == fresh.Id)
+                .ToListAsync(ct);
+            currentDto = ToDto(fresh, slots);
+        }
+        return FamilienResults.Conflict(
+            "version_mismatch",
+            "Der Eintrag wurde zwischenzeitlich geändert.",
+            (object?)currentDto);
     }
 
     // ── Partial-update helpers ──────────────────────────────────────
