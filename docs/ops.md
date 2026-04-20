@@ -181,6 +181,31 @@ Fehler deuten:
 
 ---
 
+## 6.2 Chat-Smoke (optional, manuell)
+
+Nach jedem Deploy den CR2/CR4 Chat-Flow gegen Prod verifizieren — der
+Python-`/chat`-Turn-Endpoint ist nach CR5 weg, chat läuft nativ über
+.NET + Azure OpenAI SSE streaming. `scripts/smoke-chat.sh` (optional,
+nicht in CI):
+
+1. `POST /api/auth/login` → Bearer-Token.
+2. `POST /api/chat/sessions` → `sessionId`.
+3. `POST /api/chat/sessions/{id}/turn` mit `{ "content": "Hallo" }` —
+   Stream als Text lesen bis zur ersten `event: done`-Zeile.
+4. `GET /api/chat/sessions/{id}/messages` → assert `count == 2`
+   (ein User-Turn + ein Assistant-Turn mit aufgebautem Inhalt).
+5. `DELETE /api/chat/sessions/{id}` → 204.
+
+Bei Step 3 länger als ~15 s ohne Token → Azure-Quota oder Caddy
+buffert (`X-Accel-Buffering: no` muss durchgereicht sein). Bei Step 4
+leerer Assistant-Turn → Server hat den Stream abgebrochen ohne das
+Teil-Delta zu persistieren; Api-Logs nach `Turn_Stream_Ending` grep'en.
+
+`/chat/{session_id}/to-recipe` wird weiterhin Python-proxied und
+separat über die "Als Rezept speichern"-Button-Flow im UI getestet.
+
+---
+
 ## 7. SignalR / Live-Sync Hub
 
 Der `/api/hubs/live` Hub pusht Meal-Plan- und Einkaufslisten-Änderungen

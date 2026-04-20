@@ -1,43 +1,21 @@
-"""Tests for the AI-chat prompt library (P2-4).
+"""Tests for the chat-to-recipe prompt library.
 
-Pins the German chat system prompt + the "verdichte Dialog" to-recipe
-prompt so accidental edits break loudly. Also confirms the to-recipe
-module re-exports :data:`RECIPE_SCHEMA` from P2-2 so the structuring
-call shares the exact same schema (single source of truth — no parallel
-schema drift).
+Pins the German "verdichte Dialog" to-recipe prompt so accidental edits
+break loudly. Also confirms the module re-exports :data:`RECIPE_SCHEMA`
+from P2-2 so the structuring call shares the exact same schema (single
+source of truth — no parallel schema drift).
+
+CR5 removed the conversational system prompt — chat turns are served
+by the .NET API now. Only the to-recipe prompt remains here.
 """
 
 from __future__ import annotations
 
 from extractor.prompts.chat import (
-    CHAT_SYSTEM_PROMPT_DE,
     RECIPE_SCHEMA,
     TO_RECIPE_SYSTEM_PROMPT_DE,
 )
 from extractor.prompts.recipe_extraction import RECIPE_SCHEMA as CANONICAL_RECIPE_SCHEMA
-
-
-def test_chat_system_prompt_is_non_empty_german() -> None:
-    """Chat system prompt exists and names the koch-assistent role in German."""
-    assert isinstance(CHAT_SYSTEM_PROMPT_DE, str)
-    assert len(CHAT_SYSTEM_PROMPT_DE) > 50
-    lowered = CHAT_SYSTEM_PROMPT_DE.lower()
-    # Role framing + short-reply rule + clarifying-questions hint.
-    assert "koch" in lowered
-    # The prompt should mention the clarifying-question categories from
-    # the plan. Covers allergies, portions, time.
-    assert "allerg" in lowered
-    assert "portion" in lowered
-    assert "zeit" in lowered
-
-
-def test_chat_system_prompt_avoids_json_instruction() -> None:
-    """Chat turn is a conversation — JSON structuring is a separate step.
-
-    The prompt must NOT tell the model to reply in JSON; otherwise the
-    user sees raw JSON in the chat bubble instead of prose.
-    """
-    assert "JSON" not in CHAT_SYSTEM_PROMPT_DE
 
 
 def test_to_recipe_system_prompt_is_non_empty_german() -> None:

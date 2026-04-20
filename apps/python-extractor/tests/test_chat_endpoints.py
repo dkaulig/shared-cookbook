@@ -1,4 +1,8 @@
-"""Tests for ``POST /chat`` and ``POST /chat/{session_id}/to-recipe``.
+"""Tests for ``POST /chat/{session_id}/to-recipe``.
+
+CR5 removed the former ``POST /chat`` turn endpoint (native .NET owns
+chat turns now); only the to-recipe conversion proxy lives in Python
+because it reuses the ExtractionResult schema + post-process pipeline.
 
 All tests override the ``LLMProvider`` dependency with a fake — no
 Azure calls. Happy-path, validation (400 / 413), and provider-outage
@@ -50,19 +54,16 @@ def _stub_usage() -> TokenUsage:
 
 
 class _FakeProvider(LLMProvider):
-    """Records chat / extract calls + returns canned replies."""
+    """Records extract calls + returns a canned reply."""
 
     def __init__(
         self,
         *,
-        chat_reply: str = "Hallo aus dem Koch-Assistent!",
         extract_reply: dict[str, Any] | None = None,
         usage: TokenUsage | None = None,
     ) -> None:
-        self.chat_reply = chat_reply
         self.extract_reply = extract_reply or _canonical_recipe_payload()
         self.usage: TokenUsage = usage if usage is not None else _stub_usage()
-        self.chat_calls: list[tuple[str, list[ChatMessage]]] = []
         self.extract_calls: list[tuple[str, list[ChatMessage], dict[str, Any]]] = []
 
     async def extract_structured(
@@ -77,8 +78,7 @@ class _FakeProvider(LLMProvider):
     async def chat(
         self, system_prompt: str, messages: Sequence[ChatMessage]
     ) -> tuple[str, TokenUsage]:
-        self.chat_calls.append((system_prompt, list(messages)))
-        return self.chat_reply, self.usage
+        raise NotImplementedError
 
     async def vision_extract(
         self,
@@ -121,151 +121,6 @@ def _client_with_provider(provider: LLMProvider) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_llm_provider] = lambda: provider
     return TestClient(app)
-
-
-# ─────────────────────────────────────────────────────────────────────
-# POST /chat
-# ─────────────────────────────────────────────────────────────────────
-
-
-def test_post_chat_returns_200_for_single_user_turn() -> None:
-    """One-message dialogue → 200 + the provider's canned reply."""
-    provider = _FakeProvider(chat_reply="Klar, welche Ernährung?")
-    client = _client_with_provider(provider)
-
-    response = client.post(
-        "/chat",
-        json={
-            "session_id": "sess-abc",
-            "messages": [{"role": "user", "content": "Ich hab Kartoffeln, Quark, Lauch"}],
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"assistant_message": "Klar, welche Ernährung?"}
-    # PF2 response headers carry the token counts for the .NET side.
-    assert response.headers["x-extractor-prompt-tokens"] == "250"
-    assert response.headers["x-extractor-completion-tokens"] == "80"
-    assert response.headers["x-extractor-cached-tokens"] == "30"
-    assert response.headers["x-extractor-model"] == "gpt-5.1-chat"
-    assert len(provider.chat_calls) == 1
-    (_, forwarded) = provider.chat_calls[0]
-    assert forwarded == [{"role": "user", "content": "Ich hab Kartoffeln, Quark, Lauch"}]
-
-
-def test_post_chat_forwards_all_five_turns_in_order() -> None:
-    """5-turn dialogue — provider sees every turn in the submitted order."""
-    provider = _FakeProvider(chat_reply="Ok")
-    client = _client_with_provider(provider)
-
-    history = [
-        {"role": "user", "content": "Kartoffeln, Quark, Lauch"},
-        {"role": "assistant", "content": "Welche Ernährung?"},
-        {"role": "user", "content": "Vegan"},
-        {"role": "assistant", "content": "Wie viele Portionen?"},
-        {"role": "user", "content": "4"},
-    ]
-    response = client.post(
-        "/chat",
-        json={"session_id": "sess-xyz", "messages": history},
-    )
-
-    assert response.status_code == 200
-    assert len(provider.chat_calls) == 1
-    (_, forwarded) = provider.chat_calls[0]
-    assert forwarded == history
-
-
-def test_post_chat_rejects_empty_messages_with_400() -> None:
-    """Empty ``messages`` → HTTP 400 with a German message."""
-    provider = _FakeProvider()
-    client = _client_with_provider(provider)
-
-    response = client.post(
-        "/chat",
-        json={"session_id": "sess", "messages": []},
-    )
-
-    assert response.status_code == 400
-    assert provider.chat_calls == []
-
-
-def test_post_chat_rejects_over_max_length_with_413() -> None:
-    """31-turn history → HTTP 413 ("zu lang")."""
-    provider = _FakeProvider()
-    client = _client_with_provider(provider)
-
-    history = [{"role": "user", "content": f"m{i}"} for i in range(31)]
-    response = client.post(
-        "/chat",
-        json={"session_id": "sess", "messages": history},
-    )
-
-    assert response.status_code == 413
-    assert "zu lang" in response.json()["detail"].lower()
-    assert provider.chat_calls == []
-
-
-def test_post_chat_returns_503_on_provider_unavailable() -> None:
-    """Azure outage → LLMProviderError(provider_unavailable) → HTTP 503."""
-    provider = _FailingProvider(LLMProviderError("down", code="provider_unavailable"))
-    client = _client_with_provider(provider)
-
-    response = client.post(
-        "/chat",
-        json={
-            "session_id": "sess",
-            "messages": [{"role": "user", "content": "Hi"}],
-        },
-    )
-
-    assert response.status_code == 503
-    assert "KI-Service" in response.json()["detail"]
-
-
-def test_post_chat_returns_500_on_auth_failure() -> None:
-    """Bad API key → LLMProviderError(auth_failure) → HTTP 500 (service misconfig)."""
-    provider = _FailingProvider(LLMProviderError("bad key", code="auth_failure"))
-    client = _client_with_provider(provider)
-
-    response = client.post(
-        "/chat",
-        json={
-            "session_id": "sess",
-            "messages": [{"role": "user", "content": "Hi"}],
-        },
-    )
-
-    assert response.status_code == 500
-
-
-def test_post_chat_rejects_unknown_role_at_schema_layer() -> None:
-    """A message with an invalid role → pydantic 422 (schema validation)."""
-    provider = _FakeProvider()
-    client = _client_with_provider(provider)
-
-    response = client.post(
-        "/chat",
-        json={
-            "session_id": "sess",
-            "messages": [{"role": "system-override", "content": "Hi"}],
-        },
-    )
-
-    assert response.status_code == 422
-
-
-def test_post_chat_rejects_missing_session_id() -> None:
-    """Body must carry ``session_id`` — schema 422 when absent."""
-    provider = _FakeProvider()
-    client = _client_with_provider(provider)
-
-    response = client.post(
-        "/chat",
-        json={"messages": [{"role": "user", "content": "Hi"}]},
-    )
-
-    assert response.status_code == 422
 
 
 # ─────────────────────────────────────────────────────────────────────

@@ -8,9 +8,12 @@ Exposes:
 - ``POST /extract/photos`` — accepts 1..10 signed photo URLs + caller
   hint, runs the Vision-LLM pipeline, returns the same structured
   recipe shape (P2-3).
-- ``POST /chat`` — one conversational turn with the koch-assistent.
 - ``POST /chat/{session_id}/to-recipe`` — verdichte den Dialog zu
-  einem strukturierten Rezept.
+  einem strukturierten Rezept. (CR5: the former ``POST /chat`` turn
+  endpoint is gone; chat turns are served natively by the .NET API
+  with Azure OpenAI SSE streaming. Only the to-recipe conversion
+  proxy remains here because it reuses the ExtractionResult schema
+  + post-process pipeline.)
 
 Dependencies are injected via FastAPI's ``Depends`` so tests can
 override the LLM provider and the video stack (downloader +
@@ -36,7 +39,6 @@ from extractor.pipeline.chat import (
     EmptyMessagesError,
     MessagesTooLongError,
     chat_to_recipe,
-    chat_turn,
 )
 from extractor.pipeline.photo import extract_from_photos
 from extractor.pipeline.types import ExtractionResult
@@ -253,27 +255,6 @@ class ChatMessageModel(BaseModel):
 
     role: Literal["system", "user", "assistant"]
     content: str = Field(min_length=1, max_length=8000)
-
-    model_config = {"extra": "forbid"}
-
-
-class ChatRequest(BaseModel):
-    """Body of ``POST /chat``."""
-
-    session_id: str = Field(min_length=1, max_length=200)
-    messages: list[ChatMessageModel]
-
-    model_config = {"extra": "forbid"}
-
-
-class ChatResponse(BaseModel):
-    """Response model for ``POST /chat``.
-
-    Single field for now; an SSE streaming variant (v1.1) keeps this
-    shape for the non-streaming path.
-    """
-
-    assistant_message: str
 
     model_config = {"extra": "forbid"}
 
@@ -602,43 +583,6 @@ def create_app() -> FastAPI:
         if usage is not None:
             _apply_usage_headers(response, usage)
         return result
-
-    @application.post("/chat", response_model=ChatResponse, tags=["chat"])
-    async def chat_endpoint(
-        request: ChatRequest,
-        response: Response,
-        provider: Annotated[LLMProvider, Depends(get_llm_provider)],
-    ) -> ChatResponse:
-        """Run one conversational turn.
-
-        - ``EmptyMessagesError`` → 400.
-        - ``MessagesTooLongError`` → 413.
-        - :class:`LLMProviderError` → 503 (provider_unavailable /
-          rate_limited) or 500 otherwise.
-
-        Note: user content is *not* logged at INFO — only the turn
-        count + session_id is, so the server logs don't become an
-        accidental transcript archive.
-
-        On success the four ``X-Extractor-*`` headers carry the
-        token-usage numbers for the .NET side to persist.
-        """
-        logger.info(
-            "chat request session_id=%s turns=%d",
-            request.session_id,
-            len(request.messages),
-        )
-        messages = _as_chat_messages(request.messages)
-        try:
-            reply, usage = await chat_turn(messages, provider)
-        except EmptyMessagesError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except MessagesTooLongError as exc:
-            raise HTTPException(status_code=413, detail=str(exc)) from exc
-        except LLMProviderError as exc:
-            raise _http_from_llm_error(exc) from exc
-        _apply_usage_headers(response, usage)
-        return ChatResponse(assistant_message=reply)
 
     @application.post("/chat/{session_id}/to-recipe", tags=["chat"])
     async def chat_to_recipe_endpoint(
