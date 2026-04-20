@@ -1,5 +1,6 @@
 import { Dices, Search, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useIsMobile } from '@/lib/useIsMobile'
 
 /**
  * DS4 filter bar — pure presentational component.
@@ -32,6 +33,16 @@ export function GroupFilterBar({
   onRandomPick,
   isRandomPending,
 }: GroupFilterBarProps) {
+  // BUG-019: the full placeholder "Rezept oder Zutat suchen…" overflows the
+  // shrunk search input on narrow viewports (~375 px). The BUG-006 fix made
+  // the search item `flex-1 min-w-0` so it can shrink below content width
+  // (keeping Filter + Zufall visible), which is functionally correct but
+  // causes the placeholder to be clipped. Swap to a short "Suchen…" label
+  // below the md breakpoint; desktop keeps the self-explanatory copy. The
+  // accessible name stays `aria-label="Suche"` regardless — screen-reader
+  // users always get the canonical short label.
+  const isMobile = useIsMobile()
+  const placeholder = isMobile ? 'Suchen…' : 'Rezept oder Zutat suchen…'
   return (
     <div className="flex items-stretch gap-2.5">
       {/* Search field — `min-w-0` is REQUIRED on this flex item: without it
@@ -54,7 +65,7 @@ export function GroupFilterBar({
         <input
           type="search"
           aria-label="Suche"
-          placeholder="Rezept oder Zutat suchen…"
+          placeholder={placeholder}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           className="flex-1 border-0 bg-transparent py-2.5 text-base text-foreground outline-none placeholder:text-[hsl(var(--muted-foreground))]"
