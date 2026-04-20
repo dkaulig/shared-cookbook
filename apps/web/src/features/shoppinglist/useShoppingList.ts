@@ -13,6 +13,7 @@ import {
   generateShoppingList,
   patchShoppingListItem,
 } from './shoppingListApi'
+import { buildIfMatch } from '@/features/_shared/ifMatch'
 
 // TODO(P3-UI-consolidation): factor optimistic-mutation boilerplate
 // (onMutate/onError/onSettled snapshot+rollback) into a shared
@@ -92,7 +93,16 @@ export function useGenerateShoppingList(planId: string) {
   })
 }
 
-type PatchVariables = { itemId: string; patch: PatchShoppingListItemRequest }
+type PatchVariables = {
+  itemId: string
+  patch: PatchShoppingListItemRequest
+  /**
+   * OFF4 — when present, overrides the cached list-version for this
+   * call's `If-Match`. The conflict resolver uses this to retry
+   * against the server's current version after a 409.
+   */
+  expectedVersion?: number
+}
 type MutationContext = { previous: ShoppingListDto | null | undefined }
 
 /**
@@ -115,8 +125,18 @@ export function usePatchShoppingListItem(planId: string, listId: string) {
     // it — keeps an unmounted-mid-flight mutation from persisting a
     // half-applied optimistic snapshot into an unrelated route's cache.
     gcTime: 0,
-    mutationFn: ({ itemId, patch }) =>
-      patchShoppingListItem(listId, itemId, patch),
+    mutationFn: ({ itemId, patch, expectedVersion }) => {
+      // OFF4 — backend concurrency check uses the list's Version (an
+      // item PATCH bumps the list). Source it from cache or honour an
+      // override (keep-local retry).
+      const cached = client.getQueryData<ShoppingListDto | null>(queryKey)
+      const version = expectedVersion ?? cached?.version
+      const ifMatch =
+        listId && typeof version === 'number'
+          ? buildIfMatch(listId, version)
+          : undefined
+      return patchShoppingListItem(listId, itemId, patch, { ifMatch })
+    },
     onMutate: async (variables) => {
       await client.cancelQueries({ queryKey })
       const previous = client.getQueryData<ShoppingListDto | null>(queryKey)

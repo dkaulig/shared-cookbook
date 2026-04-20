@@ -27,6 +27,7 @@ import {
 import { fetchRecipeRevision, fetchRecipeRevisions } from './revisionsApi'
 import { recipeQueryKeys } from './queryKeys'
 import { groupQueryKeys } from '@/features/groups/queryKeys'
+import { buildIfMatch } from '@/features/_shared/ifMatch'
 
 /** List of recipes in a group (paginated). */
 export function useGroupRecipes(groupId: string | undefined, page = 1, pageSize = 20) {
@@ -70,10 +71,35 @@ export function useCreateRecipe(groupId: string) {
   })
 }
 
+/**
+ * OFF4 — `useUpdateRecipe` reads the cached recipe's `version` and
+ * sends it as `If-Match: W/"<id>-<version>"` so the backend can reject
+ * stale writes with a 409. Callers can also override the
+ * expected-version (plan-mandated Keep-Local retry path: the conflict
+ * resolver bumps to the server's current version + re-dispatches the
+ * same patch).
+ */
 export function useUpdateRecipe(id: string, groupId?: string) {
   const client = useQueryClient()
-  return useMutation<RecipeDetailDto, Error, UpdateRecipeRequest>({
-    mutationFn: (body) => updateRecipe(id, body),
+  return useMutation<
+    RecipeDetailDto,
+    Error,
+    UpdateRecipeRequest | { body: UpdateRecipeRequest; expectedVersion: number }
+  >({
+    mutationFn: (input) => {
+      // Two call shapes so existing callers (the form) don't change:
+      // pass a plain UpdateRecipeRequest → the hook reads `version`
+      // from cache. Resolver retries pass `{ body, expectedVersion }`
+      // to force a specific If-Match after a 409.
+      const isWrapped = typeof input === 'object' && input !== null && 'body' in input && 'expectedVersion' in input
+      const body = isWrapped ? input.body : input
+      const expected = isWrapped
+        ? input.expectedVersion
+        : client.getQueryData<RecipeDetailDto>(recipeQueryKeys.detail(id))?.version
+      const ifMatch =
+        typeof expected === 'number' ? buildIfMatch(id, expected) : undefined
+      return updateRecipe(id, body, { ifMatch })
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: recipeQueryKeys.detail(id) })
       // S6: any successful PUT may have appended a new revision; refresh

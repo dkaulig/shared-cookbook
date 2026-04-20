@@ -5,9 +5,10 @@ import type {
   MealPlanDto,
   MealPlanSlotDto,
   PatchSlotRequest,
+  VersionMismatchError as VersionMismatchErrorBody,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
-import { ApiErrorBase } from '@/features/_shared/apiError'
+import { ApiErrorBase, VersionMismatchError } from '@/features/_shared/apiError'
 import { stripUndefined } from '@/features/_shared/mergePatch'
 
 /**
@@ -34,7 +35,7 @@ export class MealPlanApiError extends ApiErrorBase {
 
 async function request<T>(
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init?: import('@/features/auth/apiClient').ApiClientInit,
   emptyResult?: T,
 ): Promise<T> {
   const response = await apiClient(input, init)
@@ -56,6 +57,14 @@ async function throwApiError(response: Response): Promise<never> {
   }
   const code = payload?.code ?? `http_${response.status}`
   const message = payload?.message ?? response.statusText
+  // OFF4 — 409 version_mismatch surfaces as a typed VersionMismatchError
+  // so the conflict resolver hook can narrow via `instanceof`. The
+  // feature-scoped MealPlanApiError path still covers every other
+  // failure.
+  if (response.status === 409 && code === 'version_mismatch') {
+    const body = payload as unknown as VersionMismatchErrorBody | null
+    throw new VersionMismatchError(message, body?.current ?? null)
+  }
   throw new MealPlanApiError(code, message, response.status)
 }
 
@@ -100,6 +109,7 @@ export async function patchSlot(
   planId: string,
   slotId: string,
   patch: PatchSlotRequest,
+  options?: { ifMatch?: string },
 ): Promise<MealPlanSlotDto> {
   return request<MealPlanSlotDto>(
     `/api/mealplans/${encodeURIComponent(planId)}/slots/${encodeURIComponent(slotId)}`,
@@ -107,6 +117,7 @@ export async function patchSlot(
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(stripUndefined(patch)),
+      ifMatch: options?.ifMatch,
     },
   )
 }

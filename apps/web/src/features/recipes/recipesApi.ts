@@ -7,8 +7,10 @@ import type {
   RecipeSummaryListDto,
   TagDto,
   UpdateRecipeRequest,
+  VersionMismatchError as VersionMismatchErrorBody,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
+import { VersionMismatchError } from '@/features/_shared/apiError'
 
 // UX1-PU — the low-level multipart upload helper lives in its own module
 // now so the create-mode form-submit orchestration can share it with the
@@ -23,7 +25,11 @@ export { uploadRecipePhoto } from './recipePhotoApi'
  * `ApiError`-shaped object.
  */
 
-async function request<T>(input: RequestInfo | URL, init?: RequestInit, emptyResult?: T): Promise<T> {
+async function request<T>(
+  input: RequestInfo | URL,
+  init?: import('@/features/auth/apiClient').ApiClientInit,
+  emptyResult?: T,
+): Promise<T> {
   const response = await apiClient(input, init)
   if (!response.ok) {
     await throwApiError(response)
@@ -43,6 +49,13 @@ async function throwApiError(response: Response): Promise<never> {
   }
   const code = payload?.code ?? `http_${response.status}`
   const message = payload?.message ?? response.statusText
+  // OFF4 — 409 version_mismatch surfaces as a typed `VersionMismatchError`
+  // so the UI resolver can narrow via `instanceof` without duplicating
+  // status+code sniffing at every call site.
+  if (response.status === 409 && code === 'version_mismatch') {
+    const body = payload as unknown as VersionMismatchErrorBody | null
+    throw new VersionMismatchError(message, body?.current ?? null)
+  }
   const err = new Error(`${code}: ${message}`) as Error & ApiError
   err.code = code
   err.message = message
@@ -74,11 +87,16 @@ export async function createRecipe(groupId: string, body: CreateRecipeRequest): 
   })
 }
 
-export async function updateRecipe(id: string, body: UpdateRecipeRequest): Promise<RecipeDetailDto> {
+export async function updateRecipe(
+  id: string,
+  body: UpdateRecipeRequest,
+  options?: { ifMatch?: string },
+): Promise<RecipeDetailDto> {
   return request<RecipeDetailDto>(`/api/recipes/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    ifMatch: options?.ifMatch,
   })
 }
 

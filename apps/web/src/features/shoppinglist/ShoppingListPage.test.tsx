@@ -471,4 +471,66 @@ describe('<ShoppingListPage />', () => {
     expect(checkbox.className).toMatch(/min-h-\[44px\]/)
     expect(checkbox.className).toMatch(/min-w-\[44px\]/)
   })
+
+  it('OFF4 — opens the conflict dialog when PATCH returns 409; Keep-Local retries with new If-Match', async () => {
+    const ITEM_ID = 'item-42'
+    const item = makeItem({
+      id: ITEM_ID,
+      name: 'Milch',
+      category: 'Molkerei',
+    })
+    let patchCallCount = 0
+    const ifMatchHeaders: Array<string | null> = []
+
+    server.use(
+      respondWithPlan(),
+      respondWithList([item]),
+      http.patch(
+        `/api/shopping-lists/${LIST_ID}/items/${ITEM_ID}`,
+        async ({ request }) => {
+          patchCallCount++
+          ifMatchHeaders.push(request.headers.get('If-Match'))
+          if (patchCallCount === 1) {
+            // First call → 409 with the updated server list (version 7).
+            const serverList = makeList([
+              { ...item, isChecked: false },
+            ])
+            serverList.version = 7
+            return HttpResponse.json(
+              {
+                code: 'version_mismatch',
+                message: 'Der Eintrag wurde zwischenzeitlich geändert.',
+                current: serverList,
+              },
+              { status: 409 },
+            )
+          }
+          // Retry succeeds.
+          return HttpResponse.json({ ...item, isChecked: true })
+        },
+      ),
+    )
+    render(withProviders())
+
+    const user = userEvent.setup()
+    const checkbox = await screen.findByRole('checkbox', {
+      name: /Milch abhaken$/i,
+    })
+    await user.click(checkbox)
+
+    // Dialog opens.
+    const dialog = await screen.findByRole('dialog', {
+      name: /Konflikt in der Einkaufsliste/,
+    })
+    expect(dialog).toBeInTheDocument()
+
+    // Keep-Local retries.
+    await user.click(
+      within(dialog).getByRole('button', { name: /Lokal behalten/i }),
+    )
+
+    await waitFor(() => expect(patchCallCount).toBe(2))
+    // Second call must carry an If-Match against the new server version 7.
+    expect(ifMatchHeaders[1]).toMatch(/W\/"[^"]+-7"/)
+  })
 })

@@ -11,6 +11,7 @@ import type {
   StepConfidenceLevel,
   TagCategory,
   TagDto,
+  UpdateRecipeRequest,
 } from '@familien-kochbuch/shared'
 import {
   DndContext,
@@ -66,6 +67,15 @@ import { FormIntro } from './FormIntro'
 import { PhotoUploadGrid } from './PhotoUploadGrid'
 import { uploadRecipePhoto } from './recipePhotoApi'
 import { RecipeFormTopNav } from './RecipeFormTopNav'
+import { RecipeConflictBody } from './RecipeConflictBody'
+import type { RecipeConflictShape } from './RecipeConflictBody'
+import {
+  ConflictDialog,
+  useConflictResolver,
+} from '@/features/_shared/ConflictDialog'
+import { VersionMismatchError } from '@/features/_shared/apiError'
+import { useQueryClient } from '@tanstack/react-query'
+import { recipeQueryKeys } from './queryKeys'
 
 const UNITS = [
   'g',
@@ -397,6 +407,34 @@ function RecipeFormInner({
   const tagsQuery = useGroupTags(groupId)
   const createMutation = useCreateRecipe(groupId)
   const updateMutation = useUpdateRecipe(recipeId, groupId)
+  const queryClient = useQueryClient()
+
+  // OFF4 — conflict resolver for the recipe PUT. `pendingPayload`
+  // stashes the most-recent submit payload so keep-local retries can
+  // re-dispatch against the server's current version without asking the
+  // user to re-type anything.
+  const pendingPayloadRef = useRef<UpdateRecipeRequest | null>(null)
+  const conflict = useConflictResolver<RecipeConflictShape>({
+    onKeepLocal: async (expectedVersion) => {
+      const body = pendingPayloadRef.current
+      if (!body) return
+      // Re-dispatch the same payload, forcing the new expectedVersion
+      // onto the If-Match header so the retry lands against the
+      // server's latest state.
+      await updateMutation.mutateAsync({ body, expectedVersion })
+      navigate(`/groups/${groupId}/recipes/${recipeId}`)
+    },
+    onKeepServer: () => {
+      // Abort local change — re-fetch the server version so the form
+      // reflects truth. We also clear the form-level error + navigate
+      // back to the recipe detail where the user can re-edit.
+      void queryClient.invalidateQueries({
+        queryKey: recipeQueryKeys.detail(recipeId),
+      })
+    },
+  })
+  const [mergeEditorOpen, setMergeEditorOpen] = useState(false)
+  const mergedRef = useRef<RecipeConflictShape | null>(null)
 
   // Initial state resolution order: edit DTO > import prefill > blank.
   // We intentionally keep `initial` and `prefill` mutually exclusive —
@@ -687,6 +725,11 @@ function RecipeFormInner({
 
     try {
       setSubmitPhase('saving')
+      // OFF4 — stash the payload so the conflict resolver's keep-local
+      // retry can re-dispatch without asking the user to re-type
+      // anything. Only relevant on edit-mode; create has no If-Match
+      // surface.
+      if (mode === 'edit') pendingPayloadRef.current = payload
       const result =
         mode === 'create'
           ? await createMutation.mutateAsync(payload)
@@ -750,6 +793,26 @@ function RecipeFormInner({
       navigate(`/groups/${groupId}/recipes/${result.id}`)
     } catch (err) {
       setSubmitPhase('idle')
+      // OFF4 — a 409 VersionMismatchError surfaces the conflict dialog
+      // rather than a generic error banner. `current` on the error is
+      // the server's RecipeDetailDto at the time of the 409; we
+      // project the local form state onto the same shape so the body
+      // can diff the two sides.
+      if (err instanceof VersionMismatchError && mode === 'edit') {
+        const localShape: RecipeConflictShape = {
+          id: recipeId,
+          title: payload.title,
+          description: payload.description ?? null,
+          ingredients: payload.ingredients,
+          steps: payload.steps,
+          version:
+            (queryClient.getQueryData<RecipeDetailDto>(
+              recipeQueryKeys.detail(recipeId),
+            )?.version ?? 0) as number,
+        }
+        conflict.captureFrom409(localShape, err)
+        return
+      }
       const apiErr = err as ApiError
       setError(apiErr.message || 'Rezept konnte nicht gespeichert werden.')
     }
@@ -1112,6 +1175,61 @@ function RecipeFormInner({
 
         {createTagOpen && (
           <CreateTagDialog groupId={groupId} onClose={() => setCreateTagOpen(false)} />
+        )}
+
+        {conflict.state && (
+          <ConflictDialog<RecipeConflictShape>
+            open={conflict.state.open}
+            onClose={() => {
+              setMergeEditorOpen(false)
+              conflict.close()
+            }}
+            title="Konflikt im Rezept"
+            subtitle="Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll."
+            currentServer={conflict.state.serverCurrent}
+            localPending={conflict.state.localPending}
+            renderDiff={({ current, local }) => (
+              <RecipeConflictBody
+                current={current}
+                local={local}
+                mergeEditorOpen={mergeEditorOpen}
+                onMergeChange={(merged) => {
+                  mergedRef.current = merged
+                }}
+              />
+            )}
+            onKeepLocal={conflict.resolveKeepLocal}
+            onKeepServer={conflict.resolveKeepServer}
+            onManualMerge={async () => {
+              if (!mergeEditorOpen) {
+                // First click reveals the editor — user tweaks the
+                // fields and clicks again to submit. We throw a
+                // sentinel so the shared ConflictDialog's `handle`
+                // helper treats this as "stay open" — it catches the
+                // error and skips the auto-close.
+                setMergeEditorOpen(true)
+                throw new Error('open-merge-editor')
+              }
+              const merged = mergedRef.current ?? conflict.state!.localPending
+              const prev = pendingPayloadRef.current
+              if (!prev) return
+              const body: UpdateRecipeRequest = {
+                ...prev,
+                title: merged.title,
+                description: merged.description ?? undefined,
+              }
+              pendingPayloadRef.current = body
+              setMergeEditorOpen(false)
+              await updateMutation.mutateAsync({
+                body,
+                expectedVersion: conflict.state!.serverCurrent.version,
+              })
+              conflict.close()
+              navigate(`/groups/${groupId}/recipes/${recipeId}`)
+            }}
+            isLoading={updateMutation.isPending}
+            mergeLabel={mergeEditorOpen ? 'Zusammenführung übernehmen' : 'Manuell zusammenführen'}
+          />
         )}
       </main>
 
