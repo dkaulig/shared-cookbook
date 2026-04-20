@@ -96,6 +96,16 @@ SYSTEM_PROMPT_DE: Final[str] = (
     'setze `confidence="uncertain"` UND ordne die Menge trotzdem zu einer '
     'Zutat zu. NIEMALS Portionszahl ("2 Personen") als Zutatenmenge '
     "interpretieren — das gehört in `servings`. "
+    "Alle Mengenangaben MÜSSEN metrisch und auf Deutsch sein. Erlaubte "
+    "Einheiten: g, kg, ml, l, EL, TL, Stück, Prise, Bund, Tasse, Becher, "
+    "Scheibe, Zehe. Rechne imperial-Einheiten aktiv um: "
+    "1 oz = 28 g, 1 lb = 454 g; "
+    "1 cup = 240 ml, 1 tbsp = 15 ml, 1 tsp = 5 ml, 1 fl oz = 30 ml; "
+    "1 clove = 1 Zehe, 1 stick (Butter) = 113 g; "
+    "1 pinch = 1 Prise, 1 slice = 1 Scheibe, 1 bunch = 1 Bund, "
+    "1 piece = 1 Stück. "
+    'Gib ausschließlich die umgerechnete Einheit zurück — niemals "oz", '
+    '"cup", "tbsp" etc. im Output. '
     "Schätze pro Portion die Nährwerte (kcal, protein_g, carbs_g, "
     "fat_g) als ganze Zahlen und gib sie im Feld `nutrition_estimate` "
     "zurück. Die Werte beziehen sich auf EINE Portion. Wenn du Mengen "

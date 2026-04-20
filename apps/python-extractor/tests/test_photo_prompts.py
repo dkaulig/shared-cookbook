@@ -324,6 +324,23 @@ def test_system_prompt_calls_description_a_summary() -> None:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────
+# BUG-030 — imperial → metric / German prompt directive (mirror of the
+# URL-prompt assertion in test_recipe_prompts.py).
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_system_prompt_includes_imperial_to_metric_conversion() -> None:
+    """BUG-030: the photo prompt must also name the metric-only rule AND
+    list the imperial tokens alongside their German targets. Same
+    paragraph verbatim as the URL-prompt — see
+    ``test_recipe_prompts.test_system_prompt_includes_imperial_to_metric_conversion``
+    for the rationale."""
+    assert "metrisch" in SYSTEM_PROMPT_DE
+    for token in ("oz", "cup", "tbsp", "tsp", "clove", "Zehe"):
+        assert token in SYSTEM_PROMPT_DE, f"prompt missing token {token!r}"
+
+
 def test_photo_recipe_schema_does_not_mutate_base_recipe_schema() -> None:
     """Extending the base schema by reference would corrupt the URL
     pipeline's confidence enum for the rest of the process. Guard

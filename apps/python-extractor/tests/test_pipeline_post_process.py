@@ -12,7 +12,13 @@ defensive — keeps us honest even if the LLM mis-behaves:
 
 from __future__ import annotations
 
-from extractor.pipeline.post_process import post_process
+import pytest
+
+from extractor.pipeline.post_process import (
+    _normalise_ingredient,
+    _translate_unit,
+    post_process,
+)
 
 
 def _base_recipe_dict() -> dict[str, object]:
@@ -465,6 +471,147 @@ def test_bug028_skips_guard_when_description_was_deduped() -> None:
     # Ingredient gets the standard `_normalise_ingredient` treatment
     # (null quantity → "missing"), NOT the BUG-028 downgrade to "low".
     assert result["recipe"]["ingredients"][0]["confidence"] == "missing"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BUG-030 — imperial / English units → metric / German
+# ─────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("unit_in", "qty_in", "expected_unit", "expected_qty"),
+    [
+        # Mass
+        ("oz", "16", "g", "454"),  # 16 oz * 28.35 ≈ 453.6 → 454
+        ("lb", "2", "g", "907"),
+        ("OZ", "4", "g", "113"),  # case-insensitive
+        ("  oz ", "1", "g", "28"),  # trimmed
+        # Volume
+        ("cup", "2", "ml", "480"),
+        ("tbsp", "3", "ml", "45"),
+        ("tsp", "1", "ml", "5"),
+        ("fl oz", "1", "ml", "30"),
+        # Count-like — factor 1, only label changes
+        ("cloves", "4", "Zehe", "4"),
+        ("stick", "1", "g", "113"),
+        ("pinch", "1", "Prise", "1"),
+        ("slice", "2", "Scheibe", "2"),
+        # Pass-through on already-German units
+        ("g", "500", "g", "500"),
+        ("EL", "2", "EL", "2"),
+        # Non-numeric quantity — only the unit translates, quantity verbatim
+        ("oz", "1/2", "g", "1/2"),  # fraction passes through
+        ("cup", "nach Geschmack", "ml", "nach Geschmack"),
+        # Unknown unit — full pass-through
+        ("blurbs", "7", "blurbs", "7"),
+    ],
+)
+def test_translate_unit_cases(
+    unit_in: str, qty_in: str, expected_unit: str, expected_qty: str
+) -> None:
+    """Theory-style sweep of the imperial → metric translation table.
+
+    Covers the three input families:
+    - numeric quantity + imperial unit → scaled metric quantity
+    - non-numeric quantity + imperial unit → label-only translation
+    - already-German or unknown unit → full pass-through
+    """
+    unit, qty, _ = _translate_unit(unit_in, qty_in)
+    assert unit == expected_unit
+    assert qty == expected_qty
+
+
+def test_translate_unit_none_inputs_pass_through() -> None:
+    """Defensive: ``unit=None`` is a valid ExtractedIngredient shape
+    (quantity-less free-text ingredients like "Salz nach Geschmack")
+    and must not crash the helper."""
+    unit, qty, was = _translate_unit(None, "123")
+    assert unit is None
+    assert qty == "123"
+    assert was is False
+
+
+def test_translate_unit_none_quantity_on_imperial_unit() -> None:
+    """Imperial unit with ``quantity=None`` — unit translates, quantity
+    stays ``None``. Happens when the LLM found an ingredient line like
+    'cloves garlic' without a count."""
+    unit, qty, was = _translate_unit("cloves", None)
+    assert unit == "Zehe"
+    assert qty is None
+    assert was is True
+
+
+def test_translate_unit_decimal_comma_quantity() -> None:
+    """German decimal comma ('1,5 oz') must round-trip correctly to the
+    metric equivalent — both decimal separators are accepted."""
+    unit, qty, _ = _translate_unit("oz", "1,5")
+    assert unit == "g"
+    assert qty == "43"  # 1.5 * 28.35 = 42.525 → rounds to 43
+
+
+def test_normalise_ingredient_converts_imperial() -> None:
+    """End-to-end: an imperial raw dict from Azure lands as metric/German
+    on the normalised ingredient. Integration guard so a regression in
+    either the table or the wiring shows up."""
+    raw = {
+        "name": "Hackfleisch",
+        "quantity": "16",
+        "unit": "oz",
+        "note": "",
+        "confidence": "high",
+    }
+    out = _normalise_ingredient(raw)
+    assert out is not None
+    assert out["quantity"] == "454"
+    assert out["unit"] == "g"
+    assert out["name"] == "Hackfleisch"
+    # confidence + name + note pass-through still works.
+    assert out["confidence"] == "high"
+
+
+def test_normalise_ingredient_preserves_already_german() -> None:
+    """A German-metric raw dict must round-trip unchanged — the BUG-030
+    translation is strictly additive, never a corruption of good data."""
+    raw = {
+        "name": "Mehl",
+        "quantity": "250",
+        "unit": "g",
+        "note": None,
+        "confidence": "high",
+    }
+    out = _normalise_ingredient(raw)
+    assert out is not None
+    assert out["quantity"] == "250"
+    assert out["unit"] == "g"
+
+
+def test_post_process_imperial_ingredient_converted_end_to_end() -> None:
+    """Integration through the full ``post_process`` entry point — the
+    headline BUG-030 user story: '16 oz Hackfleisch' from an American
+    recipe blog lands as '454 g Hackfleisch' in the pipeline output."""
+    data = _base_recipe_dict()
+    data["ingredients"] = [
+        {
+            "name": "Hackfleisch",
+            "quantity": "16",
+            "unit": "oz",
+            "note": None,
+            "confidence": "high",
+        },
+        {
+            "name": "Knoblauch",
+            "quantity": "4",
+            "unit": "cloves",
+            "note": None,
+            "confidence": "high",
+        },
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    ingredients = result["recipe"]["ingredients"]
+    assert ingredients[0]["quantity"] == "454"
+    assert ingredients[0]["unit"] == "g"
+    assert ingredients[1]["quantity"] == "4"
+    assert ingredients[1]["unit"] == "Zehe"
 
 
 def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
