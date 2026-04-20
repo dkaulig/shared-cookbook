@@ -390,11 +390,17 @@ export function MealPlanPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1280px]">
-      {/* Sticky page sub-nav. z-20 keeps it above page-level avatars +
-          stacked content (BUG-005 standardised z-scale). */}
+      {/* Sticky page sub-nav.
+          BUG-032: switched from hard-coded `top-[56px] z-20` to
+          `top-[var(--topnav-height)] z-10`. Anchoring `top` to the
+          shared `--topnav-height` token means the sub-nav clips
+          flush beneath the global TopNav even if its height ever
+          changes. Dropping z-20→z-10 gives the TopNav (z-20) a clear
+          win on any y-overlap during iOS/Chrome toolbar retraction
+          (the user report: "schieben dich übereinander"). */}
       <nav
         className={cn(
-          'sticky top-[56px] z-20 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-[var(--topnav-height)] z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Wochenplan-Navigation"

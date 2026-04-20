@@ -1,4 +1,7 @@
 import type { ReactNode } from 'react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -532,5 +535,24 @@ describe('<ShoppingListPage />', () => {
     await waitFor(() => expect(patchCallCount).toBe(2))
     // Second call must carry an If-Match against the new server version 7.
     expect(ifMatchHeaders[1]).toMatch(/W\/"[^"]+-7"/)
+  })
+})
+
+// BUG-032 — source-level grep gate. See MealPlanPage.test.tsx for the
+// full rationale; the ShoppingList sub-nav shares the same anchor and
+// z-index pattern.
+describe('ShoppingListPage sticky sub-nav (BUG-032)', () => {
+  const HERE = dirname(fileURLToPath(import.meta.url))
+  const SOURCE = readFileSync(resolve(HERE, 'ShoppingListPage.tsx'), 'utf8')
+
+  it('uses sticky top-[var(--topnav-height)] — no hard-coded sticky top-[56px]', () => {
+    expect(SOURCE).toContain('sticky top-[var(--topnav-height)]')
+    // See MealPlanPage's gate test for why we match the sticky-classname
+    // pattern rather than substring-search for `top-[56px]` alone.
+    expect(SOURCE).not.toMatch(/sticky\s+top-\[56px\]/)
+  })
+
+  it('sub-nav nav element sits below TopNav (z-10, not z-20)', () => {
+    expect(SOURCE).toMatch(/sticky top-\[var\(--topnav-height\)\] z-10/)
   })
 })

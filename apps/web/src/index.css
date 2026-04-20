@@ -108,6 +108,19 @@
    * instead of leaving a transparent gap.
    */
   --viewport-bottom-offset: 0px;
+
+  /*
+   * BUG-032 — single source of truth for the shared TopNav height, used
+   * by page-scoped sticky sub-navs (GroupDetail, GroupSettings, MealPlan,
+   * ShoppingList) as their `top` anchor so they clip directly below the
+   * TopNav instead of hard-coding a duplicate literal per file.
+   *
+   * 56px matches the TopNav's visual baseline used since DS3 (also the
+   * same value the BottomNav uses for its row). If TopNav.tsx ever
+   * grows an explicit `min-h-[…]` or its `py-3 / h-9/h-10` content
+   * changes, update this value accordingly so sub-navs stay flush.
+   */
+  --topnav-height: 56px;
 }
 
 .dark {

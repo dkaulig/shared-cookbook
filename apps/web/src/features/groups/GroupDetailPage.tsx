@@ -174,7 +174,11 @@ export function GroupDetailPage() {
           settings; tag management is a section of that page. */}
       <nav
         className={cn(
-          'sticky top-[56px] z-20 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          // BUG-032: anchor the sub-nav's sticky `top` to the shared
+          // `--topnav-height` CSS var (was hard-coded `top-[56px]`).
+          // z-10 keeps the global TopNav (z-20) on top on any y-overlap
+          // during iOS/Chrome toolbar retraction.
+          'sticky top-[var(--topnav-height)] z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Gruppen-Navigation"
@@ -326,17 +330,31 @@ export function GroupDetailPage() {
       {/* FAB — fixed bottom-right. The BottomNav's own centre FAB goes
           to /groups (the group-picker); this one is contextual (creates
           inside THIS group). Sits above BottomNav on mobile via bottom
-          inset math. */}
+          inset math.
+          BUG-032: was `z-20` (same stacking context as BottomNav's
+          `z-30`) and hard-coded `96px` + `env(safe-area-inset-bottom)`.
+          That meant the BottomNav could hide the FAB on overlap and
+          the FAB did NOT follow iOS/Chrome's retracting toolbar (only
+          BottomNav did via `--viewport-bottom-offset`), which let the
+          FAB slide under the nav mid-scroll. Switched to `z-40` (above
+          BottomNav, below shadcn dialogs at z-50) and anchored to the
+          `--bottom-nav-height` + `--viewport-bottom-offset` tokens so
+          it tracks the BottomNav's real baseline. `+ 20px` is the
+          visual gap between the BottomNav's top edge and the FAB's
+          bottom edge. */}
       <Link
         to={`/groups/${groupId}/recipes/new`}
         aria-label="Neues Rezept anlegen"
         className={cn(
-          'fixed right-4 z-20 grid h-[56px] w-[56px] place-items-center rounded-full bg-primary text-primary-foreground',
+          'fixed right-4 z-40 grid h-[56px] w-[56px] place-items-center rounded-full bg-primary text-primary-foreground',
           'shadow-[0_8px_24px_-6px_rgba(180,83,9,0.55),0_2px_6px_rgba(0,0,0,0.08)]',
           'transition-[background-color,transform] duration-150 hover:bg-[hsl(var(--primary-hover))] active:scale-95',
           'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[hsl(var(--primary)/0.3)]',
         )}
-        style={{ bottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}
+        style={{
+          bottom:
+            'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + var(--viewport-bottom-offset, 0px) + 20px)',
+        }}
       >
         <Plus className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
       </Link>

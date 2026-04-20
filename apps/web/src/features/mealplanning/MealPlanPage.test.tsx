@@ -1,4 +1,7 @@
 import type { ReactNode } from 'react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -956,5 +959,28 @@ describe('<MealPlanPage />', () => {
     await waitFor(() => expect(patchCallCount).toBe(2))
     // Retry carries If-Match with the new version 9.
     expect(ifMatchHeaders[1]).toMatch(/W\/"[^"]+-9"/)
+  })
+})
+
+// BUG-032 — source-level grep gate. The page's sticky sub-nav used to be
+// anchored at `top-[56px] z-20`, which (a) duplicated a magic pixel
+// value that must match the TopNav height and (b) equalled the TopNav's
+// own z-index so any y-overlap during iOS/Chrome toolbar retract was a
+// coin-flip. We now drive the anchor from the shared `--topnav-height`
+// CSS var and sit one tier below the TopNav so it wins on overlap.
+describe('MealPlanPage sticky sub-nav (BUG-032)', () => {
+  const HERE = dirname(fileURLToPath(import.meta.url))
+  const SOURCE = readFileSync(resolve(HERE, 'MealPlanPage.tsx'), 'utf8')
+
+  it('uses sticky top-[var(--topnav-height)] — no hard-coded sticky top-[56px]', () => {
+    expect(SOURCE).toContain('sticky top-[var(--topnav-height)]')
+    // The literal `top-[56px]` can still appear in comments (they
+    // document what we migrated away FROM), but MUST NOT show up on a
+    // sticky-positioned element again.
+    expect(SOURCE).not.toMatch(/sticky\s+top-\[56px\]/)
+  })
+
+  it('sub-nav nav element sits below TopNav (z-10, not z-20)', () => {
+    expect(SOURCE).toMatch(/sticky top-\[var\(--topnav-height\)\] z-10/)
   })
 })
