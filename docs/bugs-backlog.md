@@ -1496,3 +1496,95 @@ ist größer.
 - `test_photo_prompts.py` / `test_url_prompts.py`: grep-style assert
   dass SYSTEM_PROMPT_DE die Wörter "quantity", "description" und
   "NIEMALS" im gleichen Absatz enthält (prompt-regression-gate).
+
+---
+
+## BUG-029 · Video-Import: Zutaten ohne Namen / leere Ingredient-Liste
+**Reported:** 2026-04-20 (URL: `facebook.com/share/r/18Ue6Nh8Xp/?mibextid=wwXIfr`)
+**Status:** `[ ] open`
+**Severity:** HIGH — Import-Ergebnis unbrauchbar; User muss komplett
+manuell pflegen. Tritt nach BUG-028-Fix weiterhin auf → tieferer
+Pipeline-Defekt als "Prompt schärfen" allein lösen kann.
+**Where (verdächtig, nicht verifiziert an dieser URL):**
+- `apps/python-extractor/src/extractor/pipeline/url.py` — Whisper-
+  Transkript-Qualität: bei FB-Reels mit Musik-only oder sehr leiser
+  Stimme liefert Whisper entweder Leerstring oder Musik-Text-Artefakte.
+  Azure bekommt keinen brauchbaren Input.
+- `apps/python-extractor/src/extractor/prompts/recipe_extraction.py:35-43`
+  — `_INGREDIENT_SCHEMA` hat `name: {minLength: 1}`. Azure KANN also
+  kein leeres `name` liefern — muss mind. 1 Zeichen sein. Platzhalter
+  wie `"-"`, `"?"`, `"Zutat"` kommen aber durch.
+- `apps/python-extractor/src/extractor/pipeline/post_process.py:182-215`
+  — `_normalise_ingredient` droppt Ingredients mit blankem/fehlendem
+  `name` (`name.strip()` → empty → skip). Wenn ALLE Namen blank sind
+  → leere Liste.
+**Symptom:** User sieht im Rezept-Formular nach Video-Import entweder
+- eine **leere Zutatenliste** (alle gedropped weil namen blank waren), oder
+- Zutatenzeilen mit Mengen + Einheiten aber **Platzhalter-Namen**
+  (`"-"`, `"?"`, `"Zutat"`, `"Zutat 1"`).
+**Root-cause-Hypothesen (mehrere, die kombiniert wirken könnten):**
+1. **Whisper-Leertranskript** bei Videos ohne gesprochenen Kommentar
+   (reines B-Roll mit Musik). Azure halluziniert generische Zutaten
+   ohne echte Namen.
+2. **Azure interpretiert visuelle Zutaten-Beschriftungen NICHT** —
+   die Video-Inhaltsbeschreibung kommt NUR über Whisper-Audio, nicht
+   über Frame-Analyse. Wenn im Video ein Zutaten-Overlay "500g Mehl"
+   eingeblendet ist, aber akustisch nichts gesagt wird, landet das
+   nirgendwo.
+3. **Schema-Schwelle zu lax**: `name: minLength: 1` erlaubt 1-Zeichen-
+   Platzhalter. Kein Regex der "echter" Name-Pattern prüft.
+4. **Kein LLM-Self-Check "bist du dir sicher dass ein Rezept
+   extrahierbar war?"** — bei fehlendem Transkript sollte der LLM
+   sagen "kein Rezept extrahierbar" statt halluzinieren.
+**Likely fix — 4 Optionen, stackable:**
+1. **Transkript-Minimum-Gate** (Python, defense-in-depth): in
+   `pipeline/url.py` prüfen nach Whisper: wenn `transcript.strip()`
+   kürzer als z.B. 40 Zeichen → nicht an Azure schicken, Import sofort
+   als `error` mit Code `empty_transcript` und User-Message "Aus
+   diesem Video konnte kein Text extrahiert werden (nur Musik oder
+   stumm)". Verhindert dass Azure überhaupt halluzinieren muss.
+2. **Schema-Verschärfung** (`_INGREDIENT_SCHEMA`): `name: minLength: 2`
+   + Pattern `^[\p{L}\p{M}].*` (muss mit Buchstabe oder diakritischem
+   Mark starten, nicht mit `-`/`?`/Zahl/Punkt). Filtert die 1-Zeichen-
+   Platzhalter aus. **Downside**: könnte legitime ultra-kurze Namen
+   wie "Öl" blocken (2 Zeichen, passt). "O" als Einzelzutat kommt
+   praktisch nie vor.
+3. **Post-Process "result-quality-gate"**: in `post_process.py` nach
+   `_normalise_ingredient`-Loop: wenn `len(ingredients) == 0` ODER
+   wenn >= 50% der Namen gedroppt wurden → Result als `confidence:
+   "low"` markieren + neue Top-level-Flag `requires_manual_review:
+   true`. Frontend zeigt dann eine Warn-Banner "Dieses Rezept braucht
+   manuellen Feinschliff" statt silent-empty-form.
+4. **Prompt-Härtung** (`recipe_extraction.py:SYSTEM_PROMPT_DE`):
+   Zusatzsatz *"Wenn du im Transkript KEINE konkreten Zutaten mit
+   Namen erkennst (nur generische Kategorien wie 'Gemüse' ohne
+   Spezifika), gib eine LEERE `ingredients`-Liste zurück. Erfinde
+   keine Platzhalter-Namen wie 'Zutat 1'. Leere Liste ist ehrlicher
+   als erfundene Zutaten."*. Kombinierbar mit Option 3 als UI-Signal.
+**Empfohlener Plan**: Alle 4 kombiniert. (1) + (2) sind billig, (3)
+gibt dem User Transparenz, (4) weist den LLM in die richtige Richtung.
+**Priority:** HIGH — nach BUG-028-Fix war die Erwartung dass Video-
+Import jetzt gut genug funktioniert; dass JETZT ein neuer Failure-
+Mode auftaucht zeigt dass Quality-Gates fehlen. Bundle-Kandidat in
+nächster Fix-Welle.
+**Test-Strategie:** Domain-Logic-Bug → Unit + Integration:
+- `test_pipeline_url.py`: neuer Test — mock Whisper returnt `""` (leer) →
+  assert der Job setzt `error_message = "empty_transcript"`, Azure
+  wird NICHT aufgerufen.
+- `test_pipeline_post_process.py`: Theory mit 4 Cases:
+  - Alle Zutaten haben valide Namen → unchanged.
+  - Hälfte der Zutaten haben blanke/1-Zeichen-Namen → `_normalise_ingredient`
+    droppt sie (heute schon) + `requires_manual_review=true` Flag.
+  - Komplett leere Liste nach Normalize → `confidence="low"` +
+    `requires_manual_review=true`.
+  - Valide Liste mit 5 Zutaten → `requires_manual_review=false`.
+- `test_ingredient_schema.py`: mit neuer `name`-Regel — `"-"`, `"?"`,
+  `"."`, `"1"` werden Schema-rejected; `"Öl"`, `"Butter"`, `"Mehl"`
+  akzeptiert.
+- `test_recipe_prompts.py`: grep-style — SYSTEM_PROMPT_DE enthält
+  "LEERE" und "Platzhalter" im gleichen Absatz.
+- Frontend: `RecipeFormPage.test.tsx` — render mit prefill wo
+  `requires_manual_review=true` → assert Warn-Banner visible.
+- Ops: `smoke-live.sh --import-url=<url>` assertion dass bei known-
+  good Video die Zutatenliste >= 3 valide Namen hat (nightly
+  regression-gate gegen prompt-drift).
