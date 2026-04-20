@@ -251,11 +251,14 @@ function ShoppingListView({
 
   return (
     <div className="mx-auto w-full max-w-[1024px]">
-      {/* Sticky page sub-nav. z-20 keeps it above page-level avatars +
-          stacked content (BUG-005 standardised z-scale). */}
+      {/* Sticky page sub-nav.
+          BUG-032: switched from hard-coded `top-[56px] z-20` to
+          `top-[var(--topnav-height)] z-10`. Same reasoning as on
+          MealPlanPage — sub-nav follows the shared TopNav token and
+          the TopNav (z-20) clearly wins on any y-overlap. */}
       <nav
         className={cn(
-          'sticky top-[56px] z-20 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-[var(--topnav-height)] z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Einkaufsliste-Navigation"

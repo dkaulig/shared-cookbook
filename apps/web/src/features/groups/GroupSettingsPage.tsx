@@ -191,10 +191,13 @@ export function GroupSettingsPage() {
   return (
     <div className="mx-auto w-full max-w-[800px]">
       {/* Sub-top-nav with back arrow + page title. Same pattern as
-          GroupDetailPage so the visual rhythm carries over. */}
+          GroupDetailPage so the visual rhythm carries over.
+          BUG-032: migrated from `top-[56px] z-20` to
+          `top-[var(--topnav-height)] z-10` alongside the other
+          sticky sub-navs. */}
       <nav
         className={cn(
-          'sticky top-[56px] z-20 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-[var(--topnav-height)] z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Einstellungen-Navigation"

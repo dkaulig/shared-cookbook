@@ -1679,7 +1679,19 @@ yt-dlp-Hook-Calls statt proactive im Timer. Bei stillen Downloads
 **Reported:** 2026-04-20 (User: "die menüs bzw bottom menüs wie tab bar
 und in wochenplan oder so schieben dich teilweise immer noch übereinander
 oder untereinander")
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — GroupDetailPage FAB z-20→z-40 +
+bottom now follows `var(--bottom-nav-height)` + `var(--viewport-bottom-offset)`
+so it tracks BottomNav on iOS/Chrome toolbar retract; new
+`--topnav-height: 56px` CSS var in `apps/web/src/index.css`;
+sticky sub-navs in MealPlanPage, ShoppingListPage, GroupDetailPage
+and GroupSettingsPage migrated from `top-[56px] z-20` to
+`top-[var(--topnav-height)] z-10` so the global TopNav at z-20 wins
+any y-overlap; new grep-gate `test/tokens/bottom-anchors.test.ts`
+regression-catches sticky `top-[NNpx]` and inline
+`bottom: 'calc(NNpx…)'`; Suspect 3 (ChatPage sticky) already
+clean — the scrollable container height already carves out the
+BottomNav strip so the sticky bottom-0 inside it cannot reach the
+BottomNav.)
 **Severity:** medium (UX — visual chaos auf Mobile-Scroll; teilweise
 Buttons unklickbar hinter anderen Bars)
 **Recherche-Ergebnis:**

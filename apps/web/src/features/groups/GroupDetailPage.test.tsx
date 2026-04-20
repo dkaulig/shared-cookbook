@@ -260,19 +260,47 @@ describe('<GroupDetailPage />', () => {
 
   // BUG-005 regression — the page sub-nav (back arrow + settings cog)
   // used to be `z-[9]`, which lost the stacking fight against the
-  // `GroupDetailHeader` avatar (`z-10`). The avatar then overlapped the
-  // back/settings tap-targets while scrolling. We standardise sub-navs
-  // to `z-20` (same as the global TopNav) so they sit above any in-flow
-  // avatars on the page.
-  it('sticky sub-nav uses z-20 so it stays above page avatars (BUG-005)', async () => {
+  // `GroupDetailHeader` avatar (`z-10`). We now anchor sub-navs at
+  // `z-10` (BUG-032 dropped from `z-20` so the global TopNav at `z-20`
+  // clearly wins on any y-overlap during iOS/Chrome toolbar retract).
+  // `z-10` still beats the old `z-[9]` avatar token.
+  // BUG-032 — sub-nav's sticky `top` follows the shared
+  // `--topnav-height` CSS var (was hard-coded `top-[56px]`).
+  it('sticky sub-nav uses top-[var(--topnav-height)] + z-10 (BUG-032)', async () => {
     render(withProviders('/groups/g1'))
     const subnav = await screen.findByRole('navigation', { name: /gruppen-navigation/i })
     expect(subnav.className).toContain('sticky')
-    expect(subnav.className).toContain('top-[56px]')
-    expect(subnav.className).toContain('z-20')
+    expect(subnav.className).toContain('top-[var(--topnav-height)]')
+    expect(subnav.className).toContain('z-10')
+    // The hard-coded literal is gone — both to keep the page in step
+    // with the CSS token and to avoid reintroducing the BUG-032 overlap.
+    expect(subnav.className).not.toContain('top-[56px]')
     // Belt-and-braces: the old z-[9] token is gone — otherwise the avatar
     // would slide back over the back-arrow + settings cog.
     expect(subnav.className).not.toContain('z-[9]')
+  })
+
+  // BUG-032 — the page FAB ("Neues Rezept") used to sit at `z-20` with
+  // a hard-coded `bottom: calc(96px + env(safe-area-inset-bottom))`.
+  // That left it at the same stacking level as some page sub-navs and,
+  // more damagingly, it did NOT follow `--viewport-bottom-offset` the
+  // way BottomNav does — so on iOS/Chrome toolbar retract the FAB slid
+  // underneath the BottomNav. We now use `z-40` (above BottomNav z-30,
+  // below shadcn dialogs at z-50) and anchor `bottom` to both
+  // `--bottom-nav-height` and `--viewport-bottom-offset`.
+  it('FAB uses z-40 and anchors bottom to --bottom-nav-height + --viewport-bottom-offset (BUG-032)', async () => {
+    render(withProviders('/groups/g1'))
+    const fab = await screen.findByRole('link', { name: /Neues Rezept/i })
+    expect(fab.className).toContain('z-40')
+    // Should NOT carry the old `z-20`.
+    expect(fab.className).not.toMatch(/\bz-20\b/)
+    // Inline-style bottom must reference BOTH runtime tokens — otherwise
+    // the FAB stops tracking BottomNav on chrome retract.
+    const bottom = (fab as HTMLElement).style.bottom
+    expect(bottom).toContain('var(--bottom-nav-height)')
+    expect(bottom).toContain('var(--viewport-bottom-offset')
+    // And no more hard-coded `96px` literal.
+    expect(bottom).not.toMatch(/\b96px\b/)
   })
 
   // BUG-020 regression — the page used to render TWO links/buttons whose
