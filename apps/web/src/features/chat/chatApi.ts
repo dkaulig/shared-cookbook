@@ -16,12 +16,18 @@ import { apiClient } from '@/features/auth/apiClient'
  * recipe) all live at `/api/chat/sessions/...` and the previous
  * `POST /api/chat` single-turn call no longer exists.
  *
- * CR3 — adds the REST half of the sessions surface (list/create/rename/
- * delete/messages). The streaming consumer (`POST …/turn`) lands in CR4.
+ * CR4 — removed the last legacy compat shim:
+ *   - `sendChatTurn` (POST /api/chat with the snake→camel mapper) is gone;
+ *     the streaming consumer in {@link file://./sseChatStream.ts} owns
+ *     turn submission via SSE.
+ *   - `LegacyChatMessage` / `LegacyChatTurnRequest` / `LegacyChatTurnResponse`
+ *     local placeholders are gone with it.
  *
- * The {@link sendChatTurn} legacy helper stays as a compat shim so the
- * pre-CR4 ChatPage keeps sending turns via the soon-to-be-removed
- * `POST /api/chat` path while CR3 focuses on the list + resume flow.
+ * What remains in this file is the REST half of the CR2 surface:
+ * sessions (list / create / rename / delete), message history, and the
+ * to-recipe proxy. The streaming POST stays out of here intentionally —
+ * `fetch().body.getReader()` is structurally different from a JSON
+ * round-trip and lives next to its parser.
  */
 
 async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
@@ -51,57 +57,11 @@ async function throwApiError(response: Response): Promise<never> {
 }
 
 /**
- * Local placeholder type — the old shared `ChatTurnResponse` is gone
- * after CR2. Kept here so the existing `ChatPage.tsx` + its tests can
- * reference a camelCase envelope; CR4 deletes both the helper and the
- * consumer in one commit.
- */
-export interface LegacyChatTurnResponse {
-  assistantMessage: string
-}
-
-/**
- * Local placeholder role union — the shared `ChatMessage` type was
- * renamed to `ChatMessageDto` in CR2. `ChatPage` still speaks in the
- * legacy role/content pair until CR4.
- */
-export interface LegacyChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-/**
- * Legacy body of the removed `POST /api/chat`.
- */
-export interface LegacyChatTurnRequest {
-  sessionId: string
-  messages: LegacyChatMessage[]
-}
-
-/**
- * @deprecated CR2 removed `POST /api/chat`. CR4 replaces the whole
- * chat UI with an SSE-streaming consumer against the new
- * `/api/chat/sessions/{id}/turn` endpoint. This function is retained
- * only so the pre-CR4 `ChatPage.tsx` + its tests keep compiling; it
- * will 404 at runtime against a CR2 backend.
- */
-export async function sendChatTurn(
-  body: LegacyChatTurnRequest,
-): Promise<LegacyChatTurnResponse> {
-  const wire = await request<{ assistant_message: string }>('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return { assistantMessage: wire.assistant_message }
-}
-
-/**
  * Condense the current dialogue into a structured recipe. CR2 moved
  * the message-source from the request body to DB-side load — the
  * frontend only passes the `sessionId` now. Response still reuses
  * {@link ExtractionResult} so the P2-9 handoff into `RecipeFormPage`
- * keeps working once CR4 lands.
+ * keeps working.
  */
 export async function convertChatToRecipe(
   sessionId: string,

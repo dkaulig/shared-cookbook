@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import type {
   ApiError,
   GroupSummary,
 } from '@familien-kochbuch/shared'
-// CR2 — shared `ChatMessage` has been renamed to `ChatMessageDto`
-// (different shape). The pre-CR4 ChatPage still speaks in the legacy
-// role/content pair for the send-turn path; CR4 rewrites the page
-// against the SSE surface.
-import type { LegacyChatMessage as ChatMessage } from './chatApi'
 import {
   AlertTriangle,
   ArrowDown,
@@ -18,14 +14,20 @@ import {
   RotateCcw,
   Send,
   Sparkles,
+  Square,
   Utensils,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useMyGroups } from '@/features/groups/useMyGroups'
 import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
-import { useChatTurn, useConvertChatToRecipe } from './hooks'
-import { useChatMessages, useChatSessions, useRenameChatSession } from './useChatSessions'
+import { useConvertChatToRecipe } from './hooks'
+import {
+  chatQueryKeys,
+  useChatMessages,
+  useChatSessions,
+  useRenameChatSession,
+} from './useChatSessions'
 import { RenameSessionDialog } from './RenameSessionDialog'
 import {
   SCROLL_STICKY_THRESHOLD_PX,
@@ -38,17 +40,23 @@ import {
   safeRemoveItem,
   safeSetItem,
 } from '@/features/_shared/safeStorage'
+import {
+  streamChatTurn,
+  type SseChatStreamError,
+} from './sseChatStream'
+import { TypingIndicator } from './TypingIndicator'
 
 /**
- * `/chat/:sessionId` — the CR3 conversational recipe-creation surface.
+ * `/chat/:sessionId` — the CR4 conversational recipe-creation surface.
  *
  * Full-height flex column:
  *   1. Sticky top bar: back button + session title (click to rename).
  *   2. Scrollable message list (flex-1) with user + assistant bubbles.
- *      Once the assistant has sent ≥ 2 replies, the "In Rezept
- *      umwandeln" call-to-action slides in at the top of the list's
- *      footer so the user can convert without scrolling.
- *   3. Sticky bottom input area: textarea + send button.
+ *      The active assistant bubble is filled token-by-token via SSE
+ *      while a three-dot typing indicator sits below it. Once the
+ *      assistant has sent ≥ 2 replies, the "In Rezept umwandeln"
+ *      call-to-action slides in.
+ *   3. Sticky bottom input area: textarea + send/abort button.
  *
  * BUG-001 — viewport sizing on mobile. `100dvh` (dynamic viewport
  * height) instead of `100vh` so the chat container shrinks/grows in
@@ -60,35 +68,54 @@ import {
  * BottomNav and the browser bottom-bar. The input footer also keeps
  * its own `pb-[env(safe-area-inset-bottom,0px)]` as defence-in-depth.
  *
- * CR3 session lifecycle:
- * - The session id comes from the URL (`/chat/:sessionId`). The
- *   redirect-at-`/chat` picks the newest session on entry so the URL
- *   is always populated by the time this page mounts.
- * - Message history is pulled from the server via {@link useChatMessages}
- *   so a reload resumes the thread instead of starting fresh.
- * - The optimistic outgoing buffer (user text + pending assistant
- *   reply from the legacy JSON turn endpoint) lives in component state
- *   until the next server refetch; it is layered on top of the
- *   fetched history for display.
- * - Input drafts are keyed by sessionId in `sessionStorage` so
- *   switching sessions preserves half-typed prompts without leaking
- *   them across other tabs / users.
- *
- * NOTE: CR3 keeps the legacy non-streaming `sendChatTurn` path —
- * append the user bubble, POST, append the assistant reply. CR4
- * swaps this block out for the SSE streaming consumer.
+ * CR4 streaming model:
+ * - The session id comes from the URL (`/chat/:sessionId`); the
+ *   redirect-at-`/chat` picks the newest session on entry.
+ * - Persisted message history is the source-of-truth via
+ *   {@link useChatMessages}.
+ * - On submit we optimistically append a user bubble + an empty
+ *   assistant bubble flagged `streaming: true`, then iterate
+ *   {@link streamChatTurn}. Each `token` event appends to the
+ *   assistant bubble; `done` flips the streaming flag and we
+ *   invalidate the messages query so the server-side row replaces
+ *   the optimistic one on the next refetch.
+ * - The send button morphs into "Abbrechen" while streaming. Aborting
+ *   triggers the AbortController on the fetch; the backend persists
+ *   whatever was streamed so far, and we refetch to surface that
+ *   partial as the canonical row.
+ * - On stream error we keep the partial bubble visible with a red
+ *   outline + "Antwort unterbrochen" label and an "Erneut versuchen"
+ *   button. The retry deletes the partial bubble locally and
+ *   re-submits the same user text — note this creates a SECOND user
+ *   message in the DB history. That's intentional for v1 (a
+ *   server-side "retry" endpoint would be scope-creep); the user
+ *   sees one duplicated user bubble after the partial succeeds.
+ * - Unmount + session-switch abort the in-flight stream.
  */
 const draftKey = (sessionId: string) => `fk-chat-draft:${sessionId}`
+
+/**
+ * Local mirror of {@link ChatMessageDto} with two transient flags the
+ * UI uses while a turn is mid-flight. Stripped before persistence —
+ * the server-side row is canonical once `done` lands.
+ */
+interface LocalMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+  streaming?: boolean
+  errored?: boolean
+}
+
+const localId = () => `local-${crypto.randomUUID()}`
 
 export function ChatPage() {
   const { sessionId: routeSessionId } = useParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   // ── Session id (from URL) ──────────────────────────────────────────
-  // ChatRouteOutlet guarantees we only mount under `/chat/:sessionId`
-  // so routeSessionId should always be defined; fall back to empty
-  // string (disables queries + mutations) so component tests can
-  // still mount the page outside a real router.
   const sessionId = routeSessionId ?? ''
   const sessionIdRef = useRef(sessionId)
   useEffect(() => {
@@ -117,28 +144,53 @@ export function ChatPage() {
     }
   }, [sessionId, sessionsQuery.isSuccess, sessionsQuery.data, navigate])
 
-  // ── Optimistic layer ───────────────────────────────────────────────
-  // The legacy turn endpoint returns a single JSON payload, not a
-  // stream; hold the optimistic user bubble + the assistant reply in
-  // local state until the next messages refetch syncs them in.
-  const [optimistic, setOptimistic] = useState<ChatMessage[]>([])
-  // Reset the optimistic buffer when the session id changes (switching
-  // conversations must not leak in-flight bubbles across threads). A
-  // direct setState in-effect here is intentional — the reset is an
-  // external-event handoff (URL param change), not a derived value.
+  // ── Optimistic / streaming layer ───────────────────────────────────
+  // While a turn is in flight we hold (a) the user bubble we just
+  // appended and (b) the assistant bubble being filled token-by-
+  // token. After `done`, we invalidate the messages query and clear
+  // the local layer so the server copy renders.
+  const [optimistic, setOptimistic] = useState<LocalMessage[]>([])
+  const [isStreaming, setIsStreaming] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+  const lastSubmittedRef = useRef<string>('')
+  // Reset the optimistic buffer + abort any in-flight stream when the
+  // session id changes (switching conversations must not leak in-
+  // flight bubbles or zombie connections across threads).
   useEffect(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot URL→state reset on session switch
     setOptimistic([])
+    setIsStreaming(false)
   }, [sessionId])
 
-  const messages: ChatMessage[] = useMemo(() => {
-    const persisted: ChatMessage[] = (messagesQuery.data ?? [])
+  // Abort on unmount — guarantees no zombie SSE connections survive a
+  // navigation away from /chat.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+      abortRef.current = null
+    }
+  }, [])
+
+  const messages: LocalMessage[] = useMemo(() => {
+    const persisted: LocalMessage[] = (messagesQuery.data ?? [])
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({
+        id: m.id,
         role: m.role === 'assistant' ? 'assistant' : 'user',
         content: m.content,
+        createdAt: m.createdAt,
       }))
-    return [...persisted, ...optimistic]
+    // Dedupe: if a server message and a local optimistic message share
+    // an id (assistant bubble id is rewritten to the server-issued
+    // messageId on `message-started`), prefer the persisted copy.
+    const persistedIds = new Set(persisted.map((m) => m.id))
+    const merged = [
+      ...persisted,
+      ...optimistic.filter((m) => !persistedIds.has(m.id)),
+    ]
+    return merged
   }, [messagesQuery.data, optimistic])
 
   const messagesRef = useRef(messages)
@@ -151,8 +203,6 @@ export function ChatPage() {
     sessionId ? safeGetItem(draftKey(sessionId)) ?? '' : '',
   )
   // Re-hydrate whenever the sessionId changes (draft-per-session).
-  // The setState-in-effect is intentional: we're reading from an
-  // external store (sessionStorage) in response to a route change.
   useEffect(() => {
     if (!sessionId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot URL→state reset when session id is cleared
@@ -173,15 +223,9 @@ export function ChatPage() {
   }, [sessionId, input])
 
   // ── Network mutations ──────────────────────────────────────────────
-  const turnMutation = useChatTurn()
   const convertMutation = useConvertChatToRecipe()
-  const sendingRef = useRef(false)
-  useEffect(() => {
-    sendingRef.current = turnMutation.isPending
-  }, [turnMutation.isPending])
 
-  // ── Error state (distinct from the mutation error so we can clear
-  //     it when the retry fires without hacking the mutation state) ──
+  // ── Error state (distinct so the retry can clear it) ───────────────
   const [error, setError] = useState<string | null>(null)
   const [convertError, setConvertError] = useState<string | null>(null)
 
@@ -262,55 +306,148 @@ export function ChatPage() {
   const groups = useMyGroups()
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  // ── Send handler ───────────────────────────────────────────────────
+  // ── Send handler — full SSE streaming ──────────────────────────────
   const sendWithContent = useCallback(
     async (content: string) => {
-      if (sendingRef.current) return
-      if (!sessionIdRef.current) return
+      if (isStreaming) return
+      const sid = sessionIdRef.current
+      if (!sid) return
       const trimmed = content.trim()
       if (trimmed.length === 0) return
       if (classifyTurnCap(messagesRef.current.length) === 'blocked') return
 
-      const userMsg: ChatMessage = { role: 'user', content: trimmed }
-      // Optimistic append (local buffer) + clear input + wipe any
-      // previous error in the same render tick.
-      const prevOptimistic = optimistic
-      const nextMessages = [...messagesRef.current, userMsg]
-      setOptimistic((prev) => [...prev, userMsg])
+      const userMsg: LocalMessage = {
+        id: localId(),
+        role: 'user',
+        content: trimmed,
+        createdAt: new Date().toISOString(),
+      }
+      const assistantMsgId = localId()
+      const assistantMsg: LocalMessage = {
+        id: assistantMsgId,
+        role: 'assistant',
+        content: '',
+        createdAt: new Date().toISOString(),
+        streaming: true,
+      }
+      setOptimistic((prev) => [...prev, userMsg, assistantMsg])
       setInput('')
       setError(null)
+      setIsStreaming(true)
+      lastSubmittedRef.current = trimmed
+
+      const controller = new AbortController()
+      abortRef.current = controller
 
       try {
-        const res = await turnMutation.mutateAsync({
-          sessionId: sessionIdRef.current,
-          messages: nextMessages,
-        })
-        setOptimistic((prev) => [
-          ...prev,
-          { role: 'assistant', content: res.assistantMessage },
-        ])
-      } catch (err) {
-        const apiErr = err as ApiError
-        // Rollback the optimistic bubble + preserve the user's text in
-        // the input so "Erneut senden" can resubmit without retyping.
-        setOptimistic(prevOptimistic)
-        setInput(trimmed)
-        setError(
-          apiErr.message ||
-            'Senden fehlgeschlagen. Bitte versuche es erneut.',
+        const stream = streamChatTurn(sid, trimmed, controller.signal)
+        while (true) {
+          const next = await stream.next()
+          if (next.done) {
+            break
+          }
+          const ev = next.value
+          if (ev.type === 'message-started') {
+            const data = ev.data as { messageId?: string }
+            if (data?.messageId) {
+              setOptimistic((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId ? { ...m, id: data.messageId! } : m,
+                ),
+              )
+            }
+          } else if (ev.type === 'token') {
+            const data = ev.data as { text?: string }
+            if (data?.text) {
+              setOptimistic((prev) =>
+                prev.map((m) =>
+                  m.role === 'assistant' && m.streaming
+                    ? { ...m, content: m.content + data.text }
+                    : m,
+                ),
+              )
+            }
+          }
+          // 'usage' / 'heartbeat' ignored; 'done' arrives via `next.done`.
+          // 'error' surfaces via the generator throwing; handled below.
+        }
+
+        // Finalise streaming locally — drop the streaming flag so the
+        // typing indicator hides. Optimistic content stays visible
+        // until the refetch dedupes it via id-match (the server-side
+        // assistant message id was patched in on `message-started`,
+        // so the persisted row replaces the optimistic one in the
+        // merge memo).
+        setOptimistic((prev) =>
+          prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
         )
+        await queryClient.invalidateQueries({
+          queryKey: chatQueryKeys.messages(sid),
+        })
+        // Bump the sessions list too so updatedAt + messageCount refresh.
+        void queryClient.invalidateQueries({
+          queryKey: ['chat', 'sessions'],
+        })
+      } catch (err) {
+        // Distinguish abort vs server-side error; either way keep the
+        // partial assistant content visible with the "interrupted"
+        // affordance. AbortError + SseChatStreamError both land here.
+        const isAbort =
+          (err as { name?: string })?.name === 'AbortError' ||
+          controller.signal.aborted
+        setOptimistic((prev) =>
+          prev.map((m) =>
+            m.role === 'assistant' && m.streaming
+              ? { ...m, streaming: false, errored: true }
+              : m,
+          ),
+        )
+        if (isAbort) {
+          // The backend persisted whatever it streamed before our
+          // disconnect — refetch so the canonical partial replaces our
+          // optimistic copy via the id-match dedupe in the merge memo.
+          await queryClient.invalidateQueries({
+            queryKey: chatQueryKeys.messages(sid),
+          })
+          setError(null)
+        } else {
+          const apiErr = err as ApiError | SseChatStreamError
+          setError(
+            apiErr?.message ||
+              'Antwort unterbrochen. Bitte erneut versuchen.',
+          )
+        }
+      } finally {
+        abortRef.current = null
+        setIsStreaming(false)
       }
     },
-    [turnMutation, optimistic],
+    [isStreaming, queryClient],
   )
 
   const handleSendClick = useCallback(() => {
     void sendWithContent(input)
   }, [input, sendWithContent])
 
+  const handleAbortClick = useCallback(() => {
+    abortRef.current?.abort()
+  }, [])
+
+  /**
+   * Retry after a stream error: drop the errored partial assistant
+   * bubble locally + the user bubble paired with it, then re-submit
+   * the same user content. The server-side history grows by one
+   * additional user+assistant pair (the partial stays in the DB so
+   * future refetches still show it next to the retry — documented in
+   * the page-header comment).
+   */
   const handleRetry = useCallback(() => {
-    void sendWithContent(input)
-  }, [input, sendWithContent])
+    setOptimistic((prev) =>
+      prev.filter((m) => !(m.role === 'assistant' && m.errored)),
+    )
+    setError(null)
+    void sendWithContent(lastSubmittedRef.current)
+  }, [sendWithContent])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -329,7 +466,6 @@ export function ChatPage() {
       try {
         const result = await convertMutation.mutateAsync({
           sessionId: sessionIdRef.current,
-          messages: messagesRef.current,
         })
         const chatImportId = crypto.randomUUID()
         stashChatImport(chatImportId, { groupId, result })
@@ -374,7 +510,7 @@ export function ChatPage() {
 
   // ── Render ─────────────────────────────────────────────────────────
   const sendDisabled =
-    turnMutation.isPending || input.trim().length === 0 || turnCap === 'blocked'
+    isStreaming || input.trim().length === 0 || turnCap === 'blocked'
 
   return (
     <div className="mx-auto flex h-[calc(100dvh-64px-88px-env(safe-area-inset-bottom,0px))] w-full max-w-3xl flex-col px-4 md:h-[calc(100dvh-72px)] md:px-6">
@@ -400,9 +536,14 @@ export function ChatPage() {
           <ChatEmptyState />
         ) : (
           <ul className="flex flex-col gap-3 pb-2">
-            {messages.map((msg, idx) => (
-              <ChatBubble key={idx} message={msg} />
+            {messages.map((msg) => (
+              <ChatBubble key={msg.id} message={msg} onRetry={handleRetry} />
             ))}
+            {isStreaming && (
+              <li className="flex w-full justify-start">
+                <TypingIndicator />
+              </li>
+            )}
           </ul>
         )}
 
@@ -424,7 +565,7 @@ export function ChatPage() {
                   className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline"
                 >
                   <RotateCcw className="h-3 w-3" aria-hidden="true" />
-                  Erneut senden
+                  Erneut versuchen
                 </button>
               </div>
             </div>
@@ -472,19 +613,32 @@ export function ChatPage() {
             rows={1}
             placeholder="Was möchtest du kochen?"
             aria-label="Nachricht"
-            disabled={turnCap === 'blocked'}
+            disabled={turnCap === 'blocked' || isStreaming}
             className="min-h-[44px] max-h-40 flex-1 resize-none rounded-[14px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
           />
-          <Button
-            type="button"
-            onClick={handleSendClick}
-            disabled={sendDisabled}
-            aria-label="Senden"
-            className="h-11 gap-1.5 px-4"
-          >
-            <Send className="h-4 w-4" aria-hidden="true" />
-            Senden
-          </Button>
+          {isStreaming ? (
+            <Button
+              type="button"
+              onClick={handleAbortClick}
+              variant="outline"
+              aria-label="Abbrechen"
+              className="h-11 gap-1.5 px-4"
+            >
+              <Square className="h-4 w-4" aria-hidden="true" />
+              Abbrechen
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              onClick={handleSendClick}
+              disabled={sendDisabled}
+              aria-label="Senden"
+              className="h-11 gap-1.5 px-4"
+            >
+              <Send className="h-4 w-4" aria-hidden="true" />
+              Senden
+            </Button>
+          )}
         </div>
       </div>
 
@@ -585,8 +739,22 @@ function ChatEmptyState() {
   )
 }
 
-function ChatBubble({ message }: { message: ChatMessage }) {
+function ChatBubble({
+  message,
+  onRetry,
+}: {
+  message: LocalMessage
+  onRetry: () => void
+}) {
   const isUser = message.role === 'user'
+  const isErrored = !!message.errored
+  // Don't render an empty pre-stream assistant bubble — the typing
+  // indicator below carries the "thinking" affordance until the first
+  // token lands. This avoids an empty white box flickering above the
+  // dots in the < 100 ms window before the first token.
+  if (!isUser && message.content.length === 0 && message.streaming) {
+    return null
+  }
   return (
     <li
       className={cn(
@@ -594,17 +762,37 @@ function ChatBubble({ message }: { message: ChatMessage }) {
         isUser ? 'justify-end' : 'justify-start',
       )}
     >
-      <div
-        className={cn(
-          'max-w-[80%] rounded-[18px] px-4 py-2.5 shadow-[0_1px_2px_rgba(28,25,23,0.04)]',
-          isUser
-            ? 'rounded-tr-[6px] border border-primary bg-primary text-primary-foreground'
-            : 'rounded-tl-[6px] border border-border bg-card text-foreground',
+      <div className="flex max-w-[80%] flex-col gap-1">
+        <div
+          className={cn(
+            'rounded-[18px] px-4 py-2.5 shadow-[0_1px_2px_rgba(28,25,23,0.04)]',
+            isUser
+              ? 'rounded-tr-[6px] border border-primary bg-primary text-primary-foreground'
+              : cn(
+                  'rounded-tl-[6px] bg-card text-foreground',
+                  isErrored
+                    ? 'border-2 border-[hsl(var(--destructive))]'
+                    : 'border border-border',
+                ),
+          )}
+        >
+          <p className="whitespace-pre-wrap text-[14.5px] leading-[1.5]">
+            {message.content}
+          </p>
+        </div>
+        {isErrored && (
+          <div className="flex items-center gap-2 px-1 text-[12px] text-[hsl(var(--destructive))]">
+            <span className="font-semibold">Antwort unterbrochen</span>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+            >
+              <RotateCcw className="h-3 w-3" aria-hidden="true" />
+              Erneut versuchen
+            </button>
+          </div>
         )}
-      >
-        <p className="whitespace-pre-wrap text-[14.5px] leading-[1.5]">
-          {message.content}
-        </p>
       </div>
     </li>
   )
@@ -681,3 +869,4 @@ function ConvertToRecipeBar({
     </div>
   )
 }
+
