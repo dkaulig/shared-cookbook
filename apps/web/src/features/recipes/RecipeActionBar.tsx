@@ -77,11 +77,15 @@ export function RecipeActionBar({
     <>
       <div
         className={cn(
-          'pointer-events-none fixed inset-x-0 z-[8] flex justify-center px-3',
-          // Clear both the BottomNav (only shown on < md) and the iOS home
-          // indicator. The BottomNav itself sits fully below this bar at
-          // md+ because it is already display:none there.
-          'bottom-[calc(env(safe-area-inset-bottom,0px)+72px)] md:bottom-[env(safe-area-inset-bottom,0px)]',
+          // BUG-021: must stack above BottomNav (z-30) so it stays tap-
+          // reachable during iOS Safari toolbar retraction scroll events.
+          'pointer-events-none fixed inset-x-0 z-40 flex justify-center px-3',
+          // Offset = full BottomNav footprint (--bottom-nav-height already
+          // includes the safe-area inset because BUG-014 double-applies the
+          // inset on BottomNav) + an extra inset so the bar also clears the
+          // iOS home indicator. On md+ BottomNav is `display:none`, so only
+          // the safe-area inset is needed.
+          'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px))] md:bottom-[env(safe-area-inset-bottom,0px)]',
         )}
       >
         <div
@@ -130,8 +134,8 @@ export function RecipeActionBar({
       {(status || error) && (
         <div
           className={cn(
-            'pointer-events-none fixed inset-x-0 z-[9] flex justify-center px-3',
-            'bottom-[calc(env(safe-area-inset-bottom,0px)+140px)] md:bottom-[calc(env(safe-area-inset-bottom,0px)+80px)]',
+            'pointer-events-none fixed inset-x-0 z-[41] flex justify-center px-3',
+            'bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px)+68px)] md:bottom-[calc(env(safe-area-inset-bottom,0px)+80px)]',
           )}
         >
           {status && (

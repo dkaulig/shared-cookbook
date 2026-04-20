@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
@@ -234,5 +237,15 @@ describe('<BottomNav />', () => {
     // padding so a future refactor can't silently regress one of them.
     expect(nav.className).toMatch(/bottom-\[env\(safe-area-inset-bottom,0px\)\]/)
     expect(nav.className).toMatch(/pb-\[env\(safe-area-inset-bottom,0px\)\]/)
+  })
+
+  // ───────── BUG-021 regression ─────────
+
+  it('exposes a --bottom-nav-height custom property in index.css so overlays can clear the nav', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(resolve(here, '../../index.css'), 'utf8')
+    // RecipeActionBar's bottom-offset depends on this token. Guard against
+    // accidental removal that would silently re-introduce BUG-021.
+    expect(css).toMatch(/--bottom-nav-height\s*:/)
   })
 })

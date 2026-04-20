@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -105,5 +108,34 @@ describe('RecipeActionBar', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(/offline/i)
     })
+  })
+
+  // ───────── BUG-021 regression ─────────
+
+  it('stacks the action bar above BottomNav (z >= 30)', () => {
+    const { container } = renderBar()
+    // The ActionBar wrapper is the first fixed div. jsdom does not expand
+    // Tailwind arbitrary values via getComputedStyle, so fall back to a
+    // grep-style className assertion (documented in the BUG-021 backlog
+    // entry test-strategy).
+    const fixedBar = container.querySelector('div.fixed')
+    expect(fixedBar).not.toBeNull()
+    expect(fixedBar!.className).toMatch(/\bz-40\b/)
+  })
+
+  it('does not use a z-index below 30 anywhere in RecipeActionBar.tsx', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(resolve(here, './RecipeActionBar.tsx'), 'utf8')
+    // `z-[N]` where N is a single digit would sit well below BottomNav's
+    // z-30. The bar previously had `z-[8]`; guard against any regression
+    // that re-introduces a single-digit arbitrary z.
+    expect(source).not.toMatch(/z-\[[0-9]\]/)
+  })
+
+  it('pins the bottom offset to the --bottom-nav-height token (not a hard-coded 72px)', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(resolve(here, './RecipeActionBar.tsx'), 'utf8')
+    expect(source).toMatch(/--bottom-nav-height/)
+    expect(source).not.toMatch(/env\(safe-area-inset-bottom,0px\)\+72px/)
   })
 })

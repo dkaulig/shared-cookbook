@@ -864,7 +864,7 @@ Settings-Seiten-Sektionierung (Collapsible-Sections analog
 
 ## BUG-021 · RecipeActionBar rutscht beim Scrollen unter die BottomNav
 **Reported:** 2026-04-20
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-20 — Option 1 umgesetzt: neuer CSS-Token `--bottom-nav-height` in `index.css` bündelt `env(safe-area-inset-bottom)+56px` als Single-Source-of-Truth für den BottomNav-Footprint. `RecipeActionBar` bekommt `z-40` (über BottomNavs `z-30`) und offset `calc(var(--bottom-nav-height)+env(safe-area-inset-bottom,0px))`, wodurch das BUG-014-Double-Safe-Area jetzt sauber mitberechnet wird. Notifier analog auf `z-[41]` + gleichen Offset-Stamm gehoben. Regressions-Gates: Component-Test prüft `z-40` im Klassen-String, zwei Grep-Tests verbieten wiedereingeführtes `z-\[[0-9]\]` bzw. das alte `72px`-Literal in `RecipeActionBar.tsx`, und ein Grep-Test in `BottomNav.test.tsx` gatet den `--bottom-nav-height`-Token in `index.css` gegen versehentliches Entfernen.)
 **Severity:** HIGH — blockiert "Jetzt gekocht" + "In Wochenplan" CTAs auf
 Mobile. Das sind die primären Aktionen der Rezept-Detail-Seite.
 **Where:** `apps/web/src/features/recipes/RecipeActionBar.tsx:76-119`
