@@ -56,8 +56,17 @@ public class Argon2idPasswordHasherTests
     public void VerifyHashedPassword_Fails_On_Tampered_Hash()
     {
         var hash = _hasher.HashPassword(_user, "correct horse battery staple");
-        // Flip one character in the encoded hash to simulate tampering.
-        var tampered = hash.Substring(0, hash.Length - 1) + (hash[^1] == 'A' ? 'B' : 'A');
+        // Mutate a character deep inside the hash-bytes segment (after
+        // the last `$`) so the change always lands on meaningful
+        // base64-encoded hash payload. Flipping the last char used to
+        // sometimes hit a padding-equivalent position, producing a
+        // "tampered" hash Argon2 still verified successfully (flaky CI).
+        var lastDollar = hash.LastIndexOf('$');
+        var hashStart = lastDollar + 1;
+        var pivot = hashStart + (hash.Length - hashStart) / 2;
+        var original = hash[pivot];
+        var swap = original == 'A' ? 'B' : 'A';
+        var tampered = hash[..pivot] + swap + hash[(pivot + 1)..];
 
         var result = _hasher.VerifyHashedPassword(_user, tampered, "correct horse battery staple");
 
