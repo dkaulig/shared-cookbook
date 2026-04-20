@@ -1,7 +1,13 @@
 # Phase 5 — Offline-Modus + Sync (Architecture)
 
 **Date:** 2026-04-20
-**Status:** Active — 5 slices (OFF1..OFF5), sequential
+**Status:** ✅ Complete — all 5 slices landed 2026-04-20 (OFF1 TanStack
+persister + IndexedDB, OFF2 Workbox mutation queue + NetworkIndicator,
+OFF3 Backend ETag + Version + 409, OFF4 ConflictDialog + per-resource
+diff, OFF5 Playwright offline smoke + NetworkIndicator "synchronisiert"
+polish + ops.md §9). The PWA survives a WLAN-Loch at the stove: reads
+render from the persisted query cache, supported mutations queue in the
+SW and replay on reconnect, 409 conflicts open a resolution dialog.
 **Priority over Phase 4:** confirmed by user 2026-04-19 ("PWA am Herd mit
 WLAN-Loch hobby-wertvoller als mehr AI")
 

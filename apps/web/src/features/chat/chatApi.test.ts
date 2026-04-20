@@ -6,9 +6,10 @@ import type { ExtractionResult } from '@familien-kochbuch/shared'
 import { convertChatToRecipe } from './chatApi'
 
 /**
- * CR4 — chatApi.ts no longer carries the legacy snake→camel
- * `sendChatTurn` shim (CR2 had marked it `@deprecated`; CR4 deletes
- * it). Tests focus on the surviving REST endpoints.
+ * Tests focus on the surviving REST surface of `chatApi.ts` — session
+ * list / create / rename / delete / messages + the `to-recipe`
+ * conversion proxy. Turn submission is SSE and lives in
+ * `sseChatStream.ts` with its own test file.
  */
 
 beforeEach(() => {

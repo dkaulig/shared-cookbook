@@ -8,26 +8,18 @@ import type {
 import { apiClient } from '@/features/auth/apiClient'
 
 /**
- * Thin HTTP layer for the AI chat feature.
+ * Thin HTTP layer for the AI chat feature — the REST half of the
+ * session-aware .NET surface.
  *
- * CR2 — the .NET side swapped from a Python-proxy POST /api/chat to a
- * full session-aware surface with SSE streaming. The new endpoints
- * (session list / create / rename / delete / load-messages / turn / to-
- * recipe) all live at `/api/chat/sessions/...` and the previous
- * `POST /api/chat` single-turn call no longer exists.
+ * Exports:
+ *   - session list / create / rename / delete
+ *   - message history (`fetchChatMessages`)
+ *   - `convertChatToRecipe` — to-recipe proxy at
+ *     `/api/chat/sessions/:id/to-recipe`.
  *
- * CR4 — removed the last legacy compat shim:
- *   - `sendChatTurn` (POST /api/chat with the snake→camel mapper) is gone;
- *     the streaming consumer in {@link file://./sseChatStream.ts} owns
- *     turn submission via SSE.
- *   - `LegacyChatMessage` / `LegacyChatTurnRequest` / `LegacyChatTurnResponse`
- *     local placeholders are gone with it.
- *
- * What remains in this file is the REST half of the CR2 surface:
- * sessions (list / create / rename / delete), message history, and the
- * to-recipe proxy. The streaming POST stays out of here intentionally —
- * `fetch().body.getReader()` is structurally different from a JSON
- * round-trip and lives next to its parser.
+ * Turn submission is SSE and lives next to its parser in
+ * {@link file://./sseChatStream.ts} because `fetch().body.getReader()`
+ * is structurally different from a JSON round-trip.
  */
 
 async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {

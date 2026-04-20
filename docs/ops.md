@@ -344,3 +344,90 @@ SMOKE_BOT_PASSWORD="$ORCHESTRATOR_PASSWORD" \
 Erwartete Ausgabe am Ende: `Observed N distinct phases: [queued downloading transcribing structuring post_processing done]`
 mit `N ≥ 3`. Weniger Phasen → der Progress-Callback ist stummgeschaltet
 (siehe Troubleshooting oben).
+
+---
+
+## 9. Offline-Verhalten (Phase 5)
+
+Der Client ist eine PWA mit Workbox-Service-Worker + TanStack-Query-
+Persistierung in IndexedDB. Auf dem Küchen-Tablet mit WLAN-Loch bleibt
+die App nutzbar, Mutationen werden gequeued und nach Reconnect
+automatisch repliziert.
+
+**Welche GETs überleben offline** (Workbox `runtimeCaching` in
+`apps/web/vite.config.ts`):
+
+- `/api/recipes/*`, `/api/groups/*` — NetworkFirst mit 2 s Timeout,
+  dann Cache (`fk-recipes`, 100 Entries, 7 Tage TTL).
+- `/api/photos/*` — CacheFirst (`fk-photos`, 50 Entries, 14 Tage
+  TTL), damit gesehene Rezept-Fotos offline erhalten bleiben.
+- Andere Endpoints (`/api/mealplans/*`, `/api/shopping-lists/*`,
+  `/api/chat/sessions`) cachen NICHT via Workbox, überleben aber
+  trotzdem offline — der TanStack-Query-Persister hydratisiert den
+  gesamten Query-Cache aus IDB (Key `fk-query-cache`), sodass ein
+  Reload im Offline-Zustand die zuletzt gesehene Liste ohne
+  Netzwerk-Roundtrip rendert. Ephemere Keys (`['chat', 'messages', …]`,
+  `['imports', …]`, `['stagedPhotos', …]`) sind per
+  `shouldDehydrateQuery`-Predicate in `src/lib/queryPersister.ts`
+  explizit ausgeschlossen.
+
+**Welche Mutationen queuen** (Workbox `BackgroundSyncPlugin` mit Queue
+`fk-mutation-queue`, 24 h Retention):
+
+- `PATCH /api/recipes/*`
+- `PATCH/POST/DELETE /api/mealplans/*/slots*`
+- `PATCH/POST/DELETE /api/shopping-lists/*/items*`
+- `POST /api/ratings`
+
+**Was der Nutzer sieht** (`NetworkIndicator` Pill in der Top-Nav,
+`apps/web/src/components/layout/NetworkIndicator.tsx`):
+
+- Online + leere Queue → unsichtbar (nur `sr-only` live region).
+- Offline → **amber „Offline"**-Pill.
+- Online + Queue > 0 → **sky „N wartend"**-Pill mit rotierendem Icon.
+- Nach erfolgreichem Replay 2 s lang **grüne „N synchronisiert"**-Pill,
+  dann zurück auf idle.
+
+**Was beim Reconnect passiert:** Browser feuert `online`-Event → SW
+dreht die BackgroundSync-Queue durch, ruft jeden gequeueten Request
+nacheinander auf. Server-Antwort (beliebiger Status) = Eintrag fertig,
+Fetch-Reject = Retry. Nach Drain postet der SW
+`fk-mutation-replayed` an alle Clients; `useBackgroundSyncMessage`
+invalidiert die Query-Prefixes `['recipes']` / `['mealplan']` /
+`['shoppinglist']` / `['ratings']` → frischer GET.
+
+**Wie 409 Konflikte ankommen** (OFF3 Backend + OFF4 UI): Jeder
+Mutation-Endpoint akzeptiert `If-Match: W/"<id>-<version>"`. Bei
+Mismatch → 409 mit Body `{ code: "version_mismatch", currentVersion, current: <dto> }`.
+`ConflictDialog` (`apps/web/src/features/_shared/ConflictDialog.tsx`)
+bietet „Lokale Version behalten" / „Server-Version übernehmen" /
+(nur Rezept) „Manuell zusammenführen" — das sieht der Nutzer nur,
+wenn er online ist und gleichzeitig jemand anders denselben Datensatz
+geändert hat.
+
+### Bekannte Grenzen
+
+- **Rezept-Create offline blockiert** — staged-Photo-Upload braucht
+  Netz (SeaweedFS kann nicht gequeued werden).
+- **Chat offline blockiert** — SSE braucht Live-Verbindung, die
+  Sessions-Liste bleibt aber aus dem Persister sichtbar.
+- **Shared-Device cross-user**: Logout leert die SW-Mutation-Queue
+  NICHT. Ein User A, der offline queued, dann sich ausloggt, dann User
+  B sich einloggt, würde beim Reconnect A's Mutationen gegen B's
+  Session replayen. Mitigation: Logout-Clear-Queue ist als Offline-v2
+  Follow-up geplant (siehe `apps/web/vite.config.ts` FOLLOW-UP-
+  Kommentar).
+
+### Debug-Hilfen
+
+- **Offline-Simulation**: Chrome DevTools → Application → Service
+  Workers → Checkbox „Offline". (Für E2E-Assertions → Playwright-
+  Smoke unter `apps/web/e2e/offline.spec.ts`, lokal mit
+  `pnpm -C apps/web test:e2e`.)
+- **Persistierter Query-Cache inspizieren**: DevTools → Application →
+  IndexedDB → `fk-query-cache` (ein Key pro Query-Hash, Wert ist das
+  dehydrierte Query-Result).
+- **Gequeuete Mutationen inspizieren**: DevTools → Application →
+  IndexedDB → `workbox-background-sync` → `fk-mutation-queue`. Jeder
+  Request liegt als serialisiertes `Request`-Objekt mit Headers +
+  Body.
