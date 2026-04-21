@@ -17,11 +17,19 @@ export interface MiseEnPlaceListProps {
   onToggle: (key: string) => void
   /**
    * COOK-2 — when set, the matching ingredient row is scrolled into
-   * view + briefly ring-highlighted (1.5 s). The parent clears the
-   * state after the flash; this component keeps the ring local for the
-   * duration so jitter from upstream re-renders doesn't cut the flash.
+   * view + briefly ring-highlighted (1.5 s). The list owns the full
+   * fade-out lifecycle locally — the parent just sets the prop and
+   * never clears it. A repeat-tap on the same ingredient re-triggers
+   * the flash via `highlightNonce` (see below).
    */
   highlightedIngredientId?: string | null
+  /**
+   * COOK-2 — monotonically increasing counter that the parent bumps on
+   * every ingredient-chip tap, even when `highlightedIngredientId`
+   * doesn't change. Drives the fade-out effect so re-tapping the same
+   * ingredient restarts the ring without the id flipping through null.
+   */
+  highlightNonce?: number
 }
 
 /**
@@ -50,6 +58,7 @@ export function MiseEnPlaceList({
   checked,
   onToggle,
   highlightedIngredientId = null,
+  highlightNonce = 0,
 }: MiseEnPlaceListProps) {
   const scaled = useMemo<ScaledIngredient[]>(() => {
     if (sessionServings <= 0 || defaultServings <= 0) return []
@@ -65,14 +74,16 @@ export function MiseEnPlaceList({
     )
   }, [ingredients, defaultServings, sessionServings])
 
-  // Flash-ring state. The ring is ON whenever the `flashOnFor` id
-  // matches the ingredient's id. We derive the initial value from the
-  // prop so the ring is visible on the VERY FIRST render after the
-  // parent sets `highlightedIngredientId`. The effect below is only
-  // responsible for the FADE-OUT (1.5 s later) — it never turns the
-  // ring ON from within an effect, which keeps `react-hooks/
+  // Flash-ring state. The ring is ON whenever `highlightedIngredientId`
+  // is set AND the fade-out timer for the CURRENT `highlightNonce`
+  // hasn't fired yet. Tracking the nonce (not the id) as the "already
+  // faded" marker lets a repeat-tap on the same id restart the flash —
+  // each activation comes with a fresh nonce from the parent, so the
+  // "faded" check fails for the new tap and the ring lights up again.
+  // The effect is only responsible for SCHEDULING the fade; it never
+  // flips the ring ON from within, which keeps `react-hooks/
   // set-state-in-effect` happy.
-  const [flashOffFor, setFlashOffFor] = useState<string | null>(null)
+  const [fadedNonce, setFadedNonce] = useState<number | null>(null)
   const rowRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map())
 
   useEffect(() => {
@@ -80,15 +91,15 @@ export function MiseEnPlaceList({
     const target = rowRefs.current.get(highlightedIngredientId)
     target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     const clearHandle = setTimeout(() => {
-      setFlashOffFor(highlightedIngredientId)
+      setFadedNonce(highlightNonce)
     }, 1500)
     return () => clearTimeout(clearHandle)
-  }, [highlightedIngredientId])
+  }, [highlightedIngredientId, highlightNonce])
 
-  // The ring is ON if the prop names a non-null id AND the fade-out
-  // timer for THAT SAME id hasn't fired yet.
-  const flashId =
-    highlightedIngredientId != null && flashOffFor !== highlightedIngredientId
+  // The ring is ON when the prop names a non-null id AND the fade-out
+  // timer for THIS activation (nonce) hasn't fired yet.
+  const activeFlashId =
+    highlightedIngredientId != null && fadedNonce !== highlightNonce
       ? highlightedIngredientId
       : null
 
@@ -114,7 +125,8 @@ export function MiseEnPlaceList({
           const key = rowKey(ingredient, index)
           const display = scaled[index]
           const isChecked = checked.has(key)
-          const isHighlighted = flashId != null && flashId === ingredient.id
+          const isHighlighted =
+            activeFlashId != null && activeFlashId === ingredient.id
           return (
             <li key={key}>
               <IngredientRow

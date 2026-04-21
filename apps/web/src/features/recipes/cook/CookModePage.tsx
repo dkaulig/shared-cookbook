@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { useMarkAsCooked, useRecipe } from '../hooks'
 import { CookBottomBar } from './CookBottomBar'
@@ -40,10 +40,15 @@ import { useWakeLock } from './useWakeLock'
  * quantity math + unit formatting stay identical to the detail page.
  */
 export function CookModePage() {
-  const params = useParams<{ groupId: string; recipeId: string }>()
+  // Route `/groups/:groupId/recipes/:recipeId/cook` guarantees both
+  // params are present — React Router wouldn't match otherwise, so we
+  // assert rather than guard + fall through a `?? ''` placeholder that
+  // would poison the downstream queries if it ever fired.
+  const { groupId, recipeId } = useParams() as {
+    groupId: string
+    recipeId: string
+  }
   const navigate = useNavigate()
-  const groupId = params.groupId ?? ''
-  const recipeId = params.recipeId ?? ''
 
   const detail = useRecipe(recipeId)
   const markCooked = useMarkAsCooked(recipeId)
@@ -59,12 +64,14 @@ export function CookModePage() {
   const [timerStates, setTimerStates] = useState<Map<string, TimerChipState>>(
     () => new Map(),
   )
-  // COOK-2 — ingredient-highlight state. When the user taps an
+  // COOK-2 — ingredient-highlight trigger. When the user taps an
   // ingredient chip inside a step we navigate back to mise-en-place
-  // (step 0) and let MiseEnPlaceList flash the matching row. Cleared
-  // after 1.5 s so re-tapping the same chip re-triggers the flash.
-  const [highlightedIngredientId, setHighlightedIngredientId] = useState<
-    string | null
+  // (step 0) and MiseEnPlaceList flashes the matching row for 1.5 s.
+  // The `nonce` lets a repeat-tap on the SAME ingredient re-trigger the
+  // flash — MiseEnPlaceList's effect depends on it so identical-id
+  // updates still restart its fade-out timer.
+  const [highlight, setHighlight] = useState<
+    { id: string; nonce: number } | null
   >(null)
 
   // COOK-1 — keep the screen on while the user is actually cooking.
@@ -76,6 +83,23 @@ export function CookModePage() {
   const sortedSteps = useMemo(() => {
     if (!detail.data) return []
     return detail.data.steps.slice().sort((a, b) => a.position - b.position)
+  }, [detail.data])
+
+  // COOK-2 — narrow the recipe ingredients to the `{id, name}` shape
+  // CookStepCard needs, memoised on the underlying list so we don't
+  // allocate a fresh array on every render (which would bust the
+  // `tokens` useMemo inside CookStepCard). Server DTOs always carry an
+  // id at runtime — the shared type marks it optional only because
+  // create-payloads omit it, never recipe-detail reads — so we filter
+  // out the impossible-in-practice no-id case instead of inventing a
+  // fallback that would diverge from the mise-en-place row keys.
+  const stepIngredients = useMemo<Array<{ id: string; name: string }>>(() => {
+    if (!detail.data) return []
+    const out: Array<{ id: string; name: string }> = []
+    for (const ing of detail.data.ingredients) {
+      if (ing.id) out.push({ id: ing.id, name: ing.name })
+    }
+    return out
   }, [detail.data])
 
   const handleTimerStateChange = useCallback(
@@ -90,23 +114,15 @@ export function CookModePage() {
   )
 
   // COOK-2 — Option A: ingredient tap navigates back to mise-en-place
-  // with the highlight primed. User can Zurück to continue the step.
+  // with the highlight primed. MiseEnPlaceList owns the 1.5 s fade-out
+  // locally; we just bump the nonce so repeat-taps re-trigger the flash.
   const handleIngredientActivate = useCallback((ingredientId: string) => {
-    setHighlightedIngredientId(ingredientId)
+    setHighlight((prev) => ({
+      id: ingredientId,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }))
     setStep(0)
   }, [])
-
-  // Clear the highlight after the MiseEnPlaceList's flash duration
-  // (1.5 s) so re-tapping the same ingredient retriggers the flash.
-  useEffect(() => {
-    if (highlightedIngredientId == null) return
-    const timeout = setTimeout(() => {
-      setHighlightedIngredientId(null)
-    }, 1500)
-    return () => clearTimeout(timeout)
-  }, [highlightedIngredientId])
-
-  if (!recipeId) return <Navigate to={`/groups/${groupId}`} replace />
 
   if (detail.isLoading) {
     return (
@@ -179,10 +195,10 @@ export function CookModePage() {
   }
 
   function handleNext() {
-    // Mise → first step; step n → step n+1 or finish.
-    if (step >= 0 && step <= totalSteps) {
-      setStep((s) => s + 1)
-    }
+    // Mise → first step; step n → step n+1 or finish. The bottom bar
+    // that calls this is only rendered when `step` is in `[0, totalSteps]`,
+    // so no bounds-check is needed here.
+    setStep((s) => s + 1)
   }
 
   function handleMarkedCooked() {
@@ -225,7 +241,8 @@ export function CookModePage() {
             sessionServings={portions}
             checked={checkedIngredientIds}
             onToggle={toggleChecked}
-            highlightedIngredientId={highlightedIngredientId}
+            highlightedIngredientId={highlight?.id ?? null}
+            highlightNonce={highlight?.nonce ?? 0}
           />
         )}
 
@@ -236,10 +253,7 @@ export function CookModePage() {
             totalSteps={totalSteps}
             timerStates={timerStates}
             onTimerStateChange={handleTimerStateChange}
-            ingredients={recipe.ingredients.map((i) => ({
-              id: i.id ?? `pos-${i.position}`,
-              name: i.name,
-            }))}
+            ingredients={stepIngredients}
             onIngredientActivate={handleIngredientActivate}
           />
         )}
@@ -286,15 +300,10 @@ export function CookModePage() {
   )
 }
 
-/**
- * Maps the internal `step` counter onto the user-facing label shown in
- * the top bar. Kept as a plain function so the mapping stays testable
- * + trivially greppable when COOK-1/COOK-2 add new states.
- */
+/** Maps the internal `step` counter onto the top-bar label. */
 function computeStepLabel(step: number, totalSteps: number): string | null {
   if (step === -1) return 'Portionen wählen'
   if (step === 0) return 'Mise en Place'
   if (step >= 1 && step <= totalSteps) return `Schritt ${step}/${totalSteps}`
-  if (step === totalSteps + 1) return null
   return null
 }
