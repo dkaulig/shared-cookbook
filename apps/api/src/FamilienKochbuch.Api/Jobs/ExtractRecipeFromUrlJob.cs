@@ -159,8 +159,10 @@ public class ExtractRecipeFromUrlJob
     /// REIMPORT-0 — parses the extractor's ResultJson and overwrites
     /// the target recipe's mutable body in place. Ingredients / steps /
     /// AI-tags replaced; Custom tags preserved by the domain method;
-    /// photos preserved; a thumbnail URL on the fresh result attaches
-    /// only when the recipe doesn't already carry that same URL.
+    /// existing photos preserved. BUG-048: a thumbnail URL on the fresh
+    /// result is downloaded, staged, and promoted onto the recipe's
+    /// Photos unless a previous reimport already promoted a StagedPhoto
+    /// with the same SourceUrl to this recipe (dedupe-by-origin).
     /// </summary>
     private async Task ApplyReimportAsync(
         RecipeImport import, Recipe target, CancellationToken ct)
