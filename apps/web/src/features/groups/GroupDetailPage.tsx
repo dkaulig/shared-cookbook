@@ -61,16 +61,16 @@ import { useIsMobile } from '@/lib/useIsMobile'
  * design doc: default first, then by how likely the user is to reach
  * for each option.
  *
- * The backend (PAGE-0) may cut one of `cook_count_desc` / `rating_desc`
- * depending on column availability. We ship all five optimistically;
- * an unsupported pick surfaces as a 400 `invalid_sort` via the standard
- * list-load-error toast.
+ * PAGE-0 cut `cook_count_desc` because neither a `TimesCooked` column
+ * nor a `CookHistory` aggregation table exists yet. A follow-up slice
+ * can re-introduce the option once the schema supports it; the shared
+ * `SearchSort` union still carries the value so frontend + backend can
+ * wire it in without a breaking-type churn.
  */
 const SORT_OPTIONS: Array<{ value: SearchSort; label: string }> = [
   { value: 'updated_desc', label: 'Zuletzt aktualisiert' },
   { value: 'cooked_desc', label: 'Zuletzt gekocht' },
   { value: 'title_asc', label: 'Titel A-Z' },
-  { value: 'cook_count_desc', label: 'Am häufigsten gekocht' },
   { value: 'rating_desc', label: 'Beste Bewertung' },
 ]
 

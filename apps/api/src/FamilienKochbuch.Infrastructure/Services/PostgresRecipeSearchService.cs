@@ -197,11 +197,18 @@ public class PostgresRecipeSearchService(AppDbContext db) : IRecipeSearchService
     {
         SearchSort.BestRated => query
             .OrderByDescending(x => x.AvgRating ?? -1.0)
-            .ThenByDescending(x => x.Recipe.UpdatedAt),
+            .ThenByDescending(x => x.Recipe.UpdatedAt)
+            .ThenBy(x => x.Recipe.Id),
         SearchSort.LastCooked => query
             .OrderByDescending(x => x.Recipe.LastCookedAt ?? DateTimeOffset.MinValue)
-            .ThenByDescending(x => x.Recipe.UpdatedAt),
-        _ => query.OrderByDescending(x => x.Recipe.CreatedAt),
+            .ThenByDescending(x => x.Recipe.UpdatedAt)
+            .ThenBy(x => x.Recipe.Id),
+        SearchSort.TitleAsc => query
+            .OrderBy(x => x.Recipe.Title)
+            .ThenBy(x => x.Recipe.Id),
+        _ => query
+            .OrderByDescending(x => x.Recipe.CreatedAt)
+            .ThenBy(x => x.Recipe.Id),
     };
 
     private static IEnumerable<ProjectedRow> ApplySortInMemory(
@@ -209,11 +216,18 @@ public class PostgresRecipeSearchService(AppDbContext db) : IRecipeSearchService
     {
         SearchSort.BestRated => rows
             .OrderByDescending(x => x.AvgRating ?? -1.0)
-            .ThenByDescending(x => x.Recipe.UpdatedAt),
+            .ThenByDescending(x => x.Recipe.UpdatedAt)
+            .ThenBy(x => x.Recipe.Id),
         SearchSort.LastCooked => rows
             .OrderByDescending(x => x.Recipe.LastCookedAt ?? DateTimeOffset.MinValue)
-            .ThenByDescending(x => x.Recipe.UpdatedAt),
-        _ => rows.OrderByDescending(x => x.Recipe.CreatedAt),
+            .ThenByDescending(x => x.Recipe.UpdatedAt)
+            .ThenBy(x => x.Recipe.Id),
+        SearchSort.TitleAsc => rows
+            .OrderBy(x => x.Recipe.Title, StringComparer.Ordinal)
+            .ThenBy(x => x.Recipe.Id),
+        _ => rows
+            .OrderByDescending(x => x.Recipe.CreatedAt)
+            .ThenBy(x => x.Recipe.Id),
     };
 
     private sealed class ProjectedRow

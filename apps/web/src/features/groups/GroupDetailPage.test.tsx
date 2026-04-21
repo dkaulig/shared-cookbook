@@ -276,7 +276,11 @@ describe('<GroupDetailPage />', () => {
 
   // ─────────── PAGE-1 — Pagination + Sort ───────────
 
-  it('renders the sort <Select> with 5 German labels (PAGE-1)', async () => {
+  it('renders the sort <Select> with the 4 supported German labels (PAGE-1)', async () => {
+    // `cook_count_desc` was cut by PAGE-0 because neither a `TimesCooked`
+    // column nor a `CookHistory` aggregation table exists yet; the
+    // Select reflects that reality. Re-introduce the option when the
+    // schema supports it.
     render(withProviders('/groups/g1'))
     const select = await screen.findByRole('combobox', { name: /sortierung/i })
     expect(select).toBeInTheDocument()
@@ -289,10 +293,10 @@ describe('<GroupDetailPage />', () => {
         'Zuletzt aktualisiert',
         'Zuletzt gekocht',
         'Titel A-Z',
-        'Am häufigsten gekocht',
         'Beste Bewertung',
       ]),
     )
+    expect(options).not.toContain('Am häufigsten gekocht')
   })
 
   it('picking a sort writes ?sort=title_asc&page=1 to the URL (PAGE-1)', async () => {

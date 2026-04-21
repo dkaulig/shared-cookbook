@@ -65,10 +65,19 @@ public static class SearchEndpoints
                 .Distinct()
                 .ToArray();
 
+        // Accepts both legacy 3-value set (`newest|best_rated|last_cooked`)
+        // and the PAGE-0/1 list-endpoint set (`updated_desc|rating_desc|
+        // cooked_desc|title_asc`). `updated_desc` maps to `Newest` because
+        // the search endpoint tracks "most recently created" and the list
+        // endpoint tracks "most recently updated" — close enough that we
+        // fold them together until the Cross-Group-Search slice reworks
+        // filters proper. `cook_count_desc` was cut from PAGE-0 and is NOT
+        // accepted here — unknown values fall through to the default.
         var sortKind = sort?.ToLowerInvariant() switch
         {
-            "best_rated" => SearchSort.BestRated,
-            "last_cooked" => SearchSort.LastCooked,
+            "best_rated" or "rating_desc" => SearchSort.BestRated,
+            "last_cooked" or "cooked_desc" => SearchSort.LastCooked,
+            "title_asc" => SearchSort.TitleAsc,
             _ => SearchSort.Newest,
         };
 
