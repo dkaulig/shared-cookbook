@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RecipeStepDto } from '@familien-kochbuch/shared'
 import { CookStepCard } from './CookStepCard'
 import { CookBottomBar } from './CookBottomBar'
+import type { TimerChipState } from './TimerChip'
 
 const STEP: RecipeStepDto = {
   id: 's1',
@@ -71,5 +73,109 @@ describe('CookStepCard — bottom-bar integration', () => {
     )
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     expect(onNext).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CookStepCard — inline timer chips', () => {
+  it('renders a TimerChip for "5-7 Minuten köcheln"', () => {
+    render(
+      <CookStepCard
+        step={{ id: 's2', position: 1, content: '5-7 Minuten köcheln lassen.' }}
+        stepNumber={2}
+        totalSteps={3}
+      />,
+    )
+    expect(screen.getByTestId('timer-chip')).toBeInTheDocument()
+    // Chip label echoes the upper bound form from the regex match.
+    expect(screen.getByRole('button', { name: /5-7 Minuten/ })).toBeInTheDocument()
+  })
+
+  it('does not render a chip when there is no numeric time expression', () => {
+    render(
+      <CookStepCard
+        step={{ id: 's3', position: 2, content: 'Nach Geschmack würzen.' }}
+        stepNumber={3}
+        totalSteps={3}
+      />,
+    )
+    expect(screen.queryByTestId('timer-chip')).not.toBeInTheDocument()
+  })
+})
+
+describe('CookStepCard — timer state survives step transitions', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /**
+   * Minimal harness that mimics how CookModePage will own the timer-state
+   * map: a parent state-holder swaps between two steps while threading
+   * the same `Map<string, TimerChipState>` through both CookStepCards.
+   */
+  function Harness() {
+    const [stepIdx, setStepIdx] = useState(0)
+    const [timerStates, setTimerStates] = useState<Map<string, TimerChipState>>(
+      () => new Map(),
+    )
+    const steps: RecipeStepDto[] = [
+      { id: 's1', position: 0, content: '10 Minuten ziehen lassen.' },
+      { id: 's2', position: 1, content: 'Danach servieren.' },
+    ]
+    const current = steps[stepIdx]!
+    function setTimerState(key: string, next: TimerChipState) {
+      setTimerStates((prev) => {
+        const copy = new Map(prev)
+        copy.set(key, next)
+        return copy
+      })
+    }
+    return (
+      <div>
+        <button type="button" onClick={() => setStepIdx((i) => (i === 0 ? 1 : 0))}>
+          toggle
+        </button>
+        <CookStepCard
+          step={current}
+          stepNumber={stepIdx + 1}
+          totalSteps={2}
+          timerStates={timerStates}
+          onTimerStateChange={setTimerState}
+        />
+      </div>
+    )
+  }
+
+  it('running timer survives a navigation away + back', () => {
+    render(<Harness />)
+    // Start the timer on step 1.
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /10 Minuten/ }))
+    })
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+    expect(screen.getByTestId('timer-chip')).toHaveAttribute('data-status', 'running')
+    expect(screen.getByRole('button', { name: /pausieren/i })).toHaveTextContent('09:57')
+
+    // Navigate away (step 2 has no chip) then back.
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /toggle/ }))
+    })
+    expect(screen.queryByTestId('timer-chip')).not.toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /toggle/ }))
+    })
+
+    // Back on step 1 — timer state preserved (the interval itself
+    // doesn't tick while the chip is unmounted, but the lifted state
+    // carries the remaining value faithfully).
+    expect(screen.getByTestId('timer-chip')).toHaveAttribute('data-status', 'running')
+    expect(screen.getByRole('button', { name: /pausieren/i })).toHaveTextContent('09:57')
   })
 })
