@@ -575,9 +575,7 @@ async def extract_from_url(
             # it's substantive. A 3-char "Hi" is Whisper noise and the
             # user shouldn't be told "we transcribed your video" when
             # we really got one word.
-            had_transcript = bool(
-                transcript and len(transcript.strip()) >= _MIN_TRANSCRIPT_CHARS
-            )
+            had_transcript = bool(transcript and len(transcript.strip()) >= _MIN_TRANSCRIPT_CHARS)
             # P2-2.1 — if the caption references an external recipe blog,
             # fetch it once and attach its flattened text as another source
             # for the LLM. Ingredient quantities often live only on the

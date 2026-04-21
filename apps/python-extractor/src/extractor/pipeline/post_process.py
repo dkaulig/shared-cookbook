@@ -268,11 +268,15 @@ def post_process(
     #
     # ``empty_transcript`` / ``extractor_error`` remain reserved for
     # pipeline-level gates ABOVE post-process.
-    effective_signals: ExtractionSignals = signals if signals is not None else {
-        "had_caption_url": False,
-        "had_blog_source": False,
-        "had_transcript": False,
-    }
+    effective_signals: ExtractionSignals = (
+        signals
+        if signals is not None
+        else {
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": False,
+        }
+    )
     recipe_empty: bool = len(ingredients) == 0 and len(steps) == 0
     empty_reason: EmptyReason | None
     if not recipe_empty:
