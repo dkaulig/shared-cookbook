@@ -135,6 +135,12 @@ services:
       AZURE_OPENAI_DEPLOYMENT_CHAT: "${AZURE_OPENAI_DEPLOYMENT_CHAT:-gpt-5.1-chat}"
       # HMAC shared secret for the .NET ↔ Python bridge (P2-6).
       EXTRACTOR_SHARED_SECRET: "${EXTRACTOR_SHARED_SECRET:-dev-only-shared-secret}"
+      # CFG-1 — the extractor pulls its hot-configurable settings
+      # (prompts / temperature / model / feature flags / thresholds)
+      # from the .NET API's internal endpoint. Docker-internal hostname
+      # `api` on its ASPNETCORE_URLS port (5000). Empty value would
+      # disable the fetch entirely; we want it on in dev + prod.
+      EXTRACTOR_CONFIG_API_BASE: "${EXTRACTOR_CONFIG_API_BASE:-http://api:5000}"
       # OPS — HuggingFace cache lives on the named volume below so the
       # large-v3 weights survive image redeploys. faster-whisper +
       # huggingface_hub honour HF_HOME for all on-disk lookups.

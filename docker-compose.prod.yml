@@ -122,6 +122,10 @@ services:
       AZURE_OPENAI_DEPLOYMENT_STRUCTURING: ${AZURE_OPENAI_DEPLOYMENT_STRUCTURING:-gpt-4.1-mini}
       AZURE_OPENAI_DEPLOYMENT_CHAT: ${AZURE_OPENAI_DEPLOYMENT_CHAT:-gpt-5.1-chat}
       EXTRACTOR_SHARED_SECRET: ${EXTRACTOR_SHARED_SECRET}
+      # CFG-1 — hot-configurable settings endpoint on the .NET API
+      # (internal-docker-network only). Empty value disables the fetch;
+      # we want it on in prod so the admin UI takes effect.
+      EXTRACTOR_CONFIG_API_BASE: ${EXTRACTOR_CONFIG_API_BASE:-http://api:5000}
       # OPS — HuggingFace cache lives on the named volume below so the
       # large-v3 weights survive image redeploys. faster-whisper +
       # huggingface_hub honour HF_HOME for all on-disk lookups.
