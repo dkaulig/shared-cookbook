@@ -206,6 +206,38 @@ public class RecipeReimportTests : IClassFixture<FamilienKochbuchWebApplicationF
         Assert.Equal("photo_import_reimport_not_supported", body!.Code);
     }
 
+    // REIMPORT-0 hardening — the stored SourceUrl flows straight into the
+    // Hangfire-enqueued Python extraction. The initial import endpoint
+    // uses `TryNormalizeHttpUrl` to reject non-http(s) schemes, but the
+    // PUT /api/recipes/{id} path currently validates only length on the
+    // URL column, so a caller with edit rights could have persisted a
+    // `file://` / `javascript:` / `gopher://` URL before triggering
+    // reimport. Defence-in-depth: refuse non-http(s) at the reimport
+    // enqueue point so a drifted DB value cannot redirect the extractor
+    // at an internal / exotic target.
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("gopher://127.0.0.1:25/xSMTP%20HELO%20attacker.example")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("ftp://example.com/rezept")]
+    public async Task Reimport_400_When_Stored_SourceUrl_Has_Non_Http_Scheme(string storedUrl)
+    {
+        var (userId, token) = await SignupAsync($"badscheme-{Guid.NewGuid():N}@ex.com", "B");
+        var (recipeId, _, _) = await SeedRecipeAsync(userId, sourceUrl: storedUrl);
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.PostAsync($"/api/recipes/{recipeId}/reimport", content: null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ErrorBodyDto>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_source_url", body!.Code);
+
+        // No job was enqueued — the guard rejects before Hangfire is asked
+        // to run the Python extractor against the suspicious URL.
+        Assert.Empty(_factory.Jobs.Created);
+    }
+
     [Fact]
     public async Task Reimport_409_On_Stale_If_Match()
     {

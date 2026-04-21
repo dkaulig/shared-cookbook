@@ -1434,6 +1434,25 @@ public static class RecipeEndpoints
                 "Reimport ist für Foto-Imports nicht möglich — es gibt keine URL zum erneuten Abrufen.");
         }
 
+        // REIMPORT-0 hardening — defence-in-depth scheme guard. The
+        // initial URL-import endpoint enforces http(s) via
+        // `TryNormalizeHttpUrl`, but the PUT /api/recipes/{id} path only
+        // validates length on the SourceUrl column, so a member with
+        // edit rights could have persisted a non-http scheme between
+        // the original import and this reimport. Refuse to hand a
+        // `file://` / `gopher://` / `javascript:` URL to the Python
+        // extractor — the Python side has its own SSRF guards, but
+        // this boundary catches it at the API edge where we still have
+        // a clean user-facing error to render.
+        if (!Uri.TryCreate(recipe.SourceUrl, UriKind.Absolute, out var storedUri)
+            || (storedUri.Scheme != Uri.UriSchemeHttp
+                && storedUri.Scheme != Uri.UriSchemeHttps))
+        {
+            return FamilienResults.BadRequest(
+                "invalid_source_url",
+                "Die gespeicherte Quell-URL ist ungültig — Reimport ist nur für http(s)-URLs möglich.");
+        }
+
         // OFF3 If-Match guard. The existing helper short-circuits when
         // no header is supplied (backward-compat) and returns a ready-
         // made 409 with the current DTO when a stale value arrives.
