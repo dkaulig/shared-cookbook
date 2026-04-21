@@ -43,17 +43,22 @@ def _build_photo_recipe_schema() -> dict[str, Any]:
     the URL-path schema. The test
     ``test_photo_recipe_schema_does_not_mutate_base_recipe_schema``
     pins that invariant.
+
+    COMP-1: ingredients + steps live inside each ``components`` entry,
+    so we reach through the component item schema instead of the old
+    top-level arrays.
     """
     schema = copy.deepcopy(RECIPE_SCHEMA)
 
-    ingredients_items = schema["properties"]["ingredients"]["items"]
+    component_items = schema["properties"]["components"]["items"]
+    ingredients_items = component_items["properties"]["ingredients"]["items"]
     ingredient_confidence = ingredients_items["properties"]["confidence"]
     ingredient_confidence["enum"] = [
         *ingredient_confidence["enum"],
         "handwritten_uncertain",
     ]
 
-    steps_items = schema["properties"]["steps"]["items"]
+    steps_items = component_items["properties"]["steps"]["items"]
     step_confidence = steps_items["properties"]["confidence"]
     step_confidence["enum"] = [
         *step_confidence["enum"],

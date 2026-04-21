@@ -62,7 +62,12 @@ def _fake_public_dns() -> Iterator[None]:
 
 
 def _canonical_llm_response() -> dict[str, Any]:
-    """A clean LLM reply matching RECIPE_SCHEMA."""
+    """A clean LLM reply matching RECIPE_SCHEMA.
+
+    COMP-1: ingredients + steps live inside a single default component
+    (``label=None``); the bulk of recipes are single-part so this is the
+    happy shape.
+    """
     return {
         "title": "Testrezept",
         "description": "Ein Test.",
@@ -70,16 +75,24 @@ def _canonical_llm_response() -> dict[str, Any]:
         "difficulty": 2,
         "prep_minutes": 10,
         "cook_minutes": 20,
-        "ingredients": [
+        "components": [
             {
-                "name": "Mehl",
-                "quantity": "250",
-                "unit": "g",
-                "note": None,
-                "confidence": "high",
+                "label": None,
+                "position": 0,
+                "ingredients": [
+                    {
+                        "name": "Mehl",
+                        "quantity": "250",
+                        "unit": "g",
+                        "note": None,
+                        "confidence": "high",
+                    }
+                ],
+                "steps": [
+                    {"position": 1, "content": "Mehl abwiegen.", "confidence": "high"},
+                ],
             }
         ],
-        "steps": [{"position": 1, "content": "Mehl abwiegen.", "confidence": "high"}],
         "tags": ["test"],
         "source_url": "https://llm.example/bogus",
         "thumbnail_url": None,
@@ -322,7 +335,8 @@ async def test_extract_flags_missing_quantities_end_to_end(tmp_path: Path) -> No
     transcriber = StubTranscriber(transcript="x")
 
     response = _canonical_llm_response()
-    response["ingredients"] = [
+    # COMP-1: ingredients live inside the default component.
+    response["components"][0]["ingredients"] = [
         {
             "name": "Prise Salz",
             "quantity": None,
@@ -345,7 +359,8 @@ async def test_extract_flags_missing_quantities_end_to_end(tmp_path: Path) -> No
         downloader=downloader,
         transcriber=transcriber,
     )
-    assert result["recipe"]["ingredients"][0]["confidence"] == "missing"
+    all_ingredients = [ing for c in result["recipe"]["components"] for ing in c["ingredients"]]
+    assert all_ingredients[0]["confidence"] == "missing"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1287,8 +1302,9 @@ class TestExtractFromUrlSignals:
 
         # Empty-recipe response triggers the empty gate.
         empty_response = _canonical_llm_response()
-        empty_response["ingredients"] = []
-        empty_response["steps"] = []
+        # COMP-1: empty the default component's ingredients + steps.
+        empty_response["components"][0]["ingredients"] = []
+        empty_response["components"][0]["steps"] = []
         mock = _AnyCallMock(empty_response)
         result = await extract_from_url(
             "https://youtu.be/x",
@@ -1368,8 +1384,9 @@ class TestExtractFromUrlSignals:
         transcriber = StubTranscriber(transcript="")
 
         empty_response = _canonical_llm_response()
-        empty_response["ingredients"] = []
-        empty_response["steps"] = []
+        # COMP-1: empty the default component's ingredients + steps.
+        empty_response["components"][0]["ingredients"] = []
+        empty_response["components"][0]["steps"] = []
         mock = _AnyCallMock(empty_response)
         result = await extract_from_url(
             "https://www.facebook.com/share/r/xyz",
@@ -1401,8 +1418,9 @@ class TestExtractFromUrlSignals:
         transcriber = StubTranscriber(transcript="Hallo Welt")
 
         empty_response = _canonical_llm_response()
-        empty_response["ingredients"] = []
-        empty_response["steps"] = []
+        # COMP-1: empty the default component's ingredients + steps.
+        empty_response["components"][0]["ingredients"] = []
+        empty_response["components"][0]["steps"] = []
         mock = _AnyCallMock(empty_response)
         result = await extract_from_url(
             "https://youtu.be/x",

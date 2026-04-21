@@ -16,6 +16,7 @@ from extractor.pipeline.types import (
     STEP_CONFIDENCE_LEVELS,
     ConfidenceLevel,
     EmptyReason,
+    ExtractedComponent,
     ExtractedIngredient,
     ExtractedRecipe,
     ExtractedStep,
@@ -97,6 +98,44 @@ def test_extracted_step_shape() -> None:
     assert step["confidence"] == "high"
 
 
+def test_extracted_component_shape() -> None:
+    """Component groups a label + position with its own ingredients + steps.
+
+    COMP-1 — the nested sub-recipe unit. Every recipe carries at least
+    one component; simple recipes get a single default with
+    ``label=None``.
+    """
+    component: ExtractedComponent = {
+        "label": "Sauce",
+        "position": 0,
+        "ingredients": [
+            {
+                "name": "Ketchup",
+                "quantity": "100",
+                "unit": "ml",
+                "note": None,
+                "confidence": "high",
+            }
+        ],
+        "steps": [{"position": 1, "content": "Verrühren.", "confidence": "high"}],
+    }
+    assert component["label"] == "Sauce"
+    assert component["position"] == 0
+    assert len(component["ingredients"]) == 1
+    assert len(component["steps"]) == 1
+
+
+def test_extracted_component_accepts_null_label() -> None:
+    """COMP-1 — the default single-component variant has ``label=None``."""
+    component: ExtractedComponent = {
+        "label": None,
+        "position": 0,
+        "ingredients": [],
+        "steps": [],
+    }
+    assert component["label"] is None
+
+
 def test_extracted_recipe_shape() -> None:
     """Recipe is the full structured payload matching the plan's response."""
     recipe: ExtractedRecipe = {
@@ -106,24 +145,71 @@ def test_extracted_recipe_shape() -> None:
         "difficulty": 2,
         "prep_minutes": 10,
         "cook_minutes": 30,
-        "ingredients": [
+        "components": [
             {
-                "name": "Nudeln",
-                "quantity": "500",
-                "unit": "g",
-                "note": None,
-                "confidence": "high",
+                "label": None,
+                "position": 0,
+                "ingredients": [
+                    {
+                        "name": "Nudeln",
+                        "quantity": "500",
+                        "unit": "g",
+                        "note": None,
+                        "confidence": "high",
+                    }
+                ],
+                "steps": [{"position": 1, "content": "Wasser aufsetzen.", "confidence": "high"}],
             }
         ],
-        "steps": [{"position": 1, "content": "Wasser aufsetzen.", "confidence": "high"}],
         "tags": ["warm", "familie"],
         "source_url": "https://example.com/nudeln",
         "thumbnail_url": "https://example.com/nudeln.jpg",
         "nutrition_estimate": None,
     }
     assert recipe["title"] == "Nudelauflauf"
-    assert len(recipe["ingredients"]) == 1
-    assert len(recipe["steps"]) == 1
+    assert len(recipe["components"]) == 1
+    assert len(recipe["components"][0]["ingredients"]) == 1
+    assert len(recipe["components"][0]["steps"]) == 1
+
+
+def test_extracted_recipe_supports_multiple_components() -> None:
+    """COMP-1 — multi-part recipes carry multiple components.
+
+    Quesadilla + Chipotle Sauce is the headline user story: the two
+    sub-recipes live as separate entries in ``components`` with distinct
+    labels and positions.
+    """
+    recipe: ExtractedRecipe = {
+        "title": "Honey Chipotle Chicken Quesadillas",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "components": [
+            {
+                "label": "Chipotle Sauce",
+                "position": 0,
+                "ingredients": [],
+                "steps": [],
+            },
+            {
+                "label": "Quesadilla",
+                "position": 1,
+                "ingredients": [],
+                "steps": [],
+            },
+        ],
+        "tags": [],
+        "source_url": "https://example.com/q",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    assert [c["label"] for c in recipe["components"]] == [
+        "Chipotle Sauce",
+        "Quesadilla",
+    ]
+    assert [c["position"] for c in recipe["components"]] == [0, 1]
 
 
 def test_extraction_result_shape() -> None:
@@ -136,8 +222,7 @@ def test_extraction_result_shape() -> None:
             "difficulty": None,
             "prep_minutes": None,
             "cook_minutes": None,
-            "ingredients": [],
-            "steps": [],
+            "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
             "tags": [],
             "source_url": "https://example.com/kaiserschmarrn",
             "thumbnail_url": None,
@@ -189,8 +274,7 @@ def test_extracted_recipe_accepts_nutrition_estimate() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
@@ -251,8 +335,7 @@ def test_extraction_result_carries_signals() -> None:
             "difficulty": None,
             "prep_minutes": None,
             "cook_minutes": None,
-            "ingredients": [],
-            "steps": [],
+            "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
             "tags": [],
             "source_url": "https://x",
             "thumbnail_url": None,
@@ -282,8 +365,7 @@ def test_extracted_recipe_accepts_null_nutrition_estimate() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
