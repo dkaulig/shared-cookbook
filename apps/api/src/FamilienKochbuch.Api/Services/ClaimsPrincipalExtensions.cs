@@ -25,4 +25,21 @@ public static class ClaimsPrincipalExtensions
             AdminOnlyAuthorizationFilter.AdminRoleClaimValue,
             StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Reads the caller's user-id off the <c>sub</c> / <c>nameid</c>
+    /// claim. Returns <c>null</c> for anonymous principals or malformed
+    /// claims — callers that strictly require a user (e.g. the admin-
+    /// edit endpoints) pass the result into the entity's
+    /// <c>UpdatedBy</c> slot, which accepts <c>null</c> to distinguish
+    /// "system / seed" from "admin edit".
+    /// </summary>
+    public static Guid? GetUserId(this ClaimsPrincipal? user)
+    {
+        if (user?.Identity is null || !user.Identity.IsAuthenticated)
+            return null;
+        var sub = user.FindFirstValue("sub")
+                  ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(sub, out var id) && id != Guid.Empty ? id : null;
+    }
 }

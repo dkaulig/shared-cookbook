@@ -41,6 +41,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<MealPlanSlot> MealPlanSlots => Set<MealPlanSlot>();
     public DbSet<ShoppingList> ShoppingLists => Set<ShoppingList>();
     public DbSet<ShoppingListItem> ShoppingListItems => Set<ShoppingListItem>();
+    // CFG-0 — hot-configurable extractor knobs (prompt / temperature /
+    // feature-flag / threshold). Single table keyed by a dotted string;
+    // see <see cref="ExtractorConfigConfiguration"/> for the storage
+    // layout. History table is written atomically on every admin edit.
+    public DbSet<ExtractorConfig> ExtractorConfigs => Set<ExtractorConfig>();
+    public DbSet<ExtractorConfigHistory> ExtractorConfigHistories => Set<ExtractorConfigHistory>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -58,6 +64,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.ApplyConfiguration(new MealPlanSlotConfiguration());
         builder.ApplyConfiguration(new ShoppingListConfiguration());
         builder.ApplyConfiguration(new ShoppingListItemConfiguration());
+        builder.ApplyConfiguration(new ExtractorConfigConfiguration());
+        builder.ApplyConfiguration(new ExtractorConfigHistoryConfiguration());
 
         builder.Entity<User>(e =>
         {
