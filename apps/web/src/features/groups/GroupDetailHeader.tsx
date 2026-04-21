@@ -69,9 +69,10 @@ export function GroupDetailHeader({
         }}
       />
 
-      {/* Overlapping avatar — relative + z-10 wins the stacking fight
-          against the cover when shadows or sibling overlays get added. */}
-      <div className="relative z-10 -mt-[36px] pl-1.5">
+      {/* Overlapping avatar — z-[5] beats the cover (no z) but stays
+          BELOW the sticky sub-nav (z-10) so it slides behind the bar
+          on scroll-up instead of overlapping it (BUG-043). */}
+      <div className="relative z-[5] -mt-[36px] pl-1.5">
         <span
           data-testid="group-avatar-big"
           aria-hidden="true"
