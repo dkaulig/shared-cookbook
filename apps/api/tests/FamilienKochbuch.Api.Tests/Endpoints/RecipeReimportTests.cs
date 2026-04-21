@@ -102,8 +102,17 @@ public class RecipeReimportTests : IClassFixture<FamilienKochbuchWebApplicationF
     /// Seeds a recipe owned by <paramref name="userId"/> in a freshly
     /// created group. Optional <paramref name="sourceUrl"/> lets tests
     /// pick between URL-imported (non-null) and manually-created (null)
-    /// rows; the photo-sentinel test uses the <c>photos://upload</c>
-    /// string verbatim.
+    /// rows.
+    ///
+    /// <para>
+    /// REIMPORT-0 hardening — the <see cref="Recipe"/> aggregate now
+    /// rejects non-http(s) schemes at every write path. To simulate a
+    /// corrupted-DB scenario (photo sentinel, <c>file://</c>,
+    /// <c>javascript:</c>, …) the helper first persists the recipe with
+    /// a valid placeholder URL and then issues a raw UPDATE to overwrite
+    /// the column — mirroring the real drift that motivated the
+    /// endpoint-level defence-in-depth guard.
+    /// </para>
     /// </summary>
     private async Task<(Guid RecipeId, Guid GroupId, int Version)> SeedRecipeAsync(
         Guid userId,
@@ -117,6 +126,16 @@ public class RecipeReimportTests : IClassFixture<FamilienKochbuchWebApplicationF
         await db.SaveChangesAsync();
         db.GroupMemberships.Add(new GroupMembership(userId, group.Id, GroupRole.Admin, DateTimeOffset.UtcNow));
 
+        // Construct with a valid URL (or null) first. If the caller
+        // wants to simulate a drifted DB state, we rewrite the column
+        // via raw UPDATE below — the domain ctor would (correctly)
+        // reject the bad scheme.
+        var needsColumnRewrite =
+            sourceUrl is not null
+            && (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var parsed)
+                || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps));
+        var ctorSourceUrl = needsColumnRewrite ? "https://placeholder.invalid/x" : sourceUrl;
+
         var recipe = new Recipe(
             groupId: group.Id,
             createdByUserId: userId,
@@ -125,12 +144,20 @@ public class RecipeReimportTests : IClassFixture<FamilienKochbuchWebApplicationF
             defaultServings: 2,
             prepTimeMinutes: null,
             difficulty: 1,
-            sourceUrl: sourceUrl,
+            sourceUrl: ctorSourceUrl,
             sourceType: sourceType,
             forkOfRecipeId: null,
             createdAt: DateTimeOffset.UtcNow);
         db.Recipes.Add(recipe);
         await db.SaveChangesAsync();
+
+        if (needsColumnRewrite)
+        {
+            await db.Recipes
+                .Where(r => r.Id == recipe.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.SourceUrl, sourceUrl));
+        }
+
         return (recipe.Id, group.Id, recipe.Version);
     }
 

@@ -205,6 +205,102 @@ public class RecipeTests
             createdAt: DateTimeOffset.UtcNow));
     }
 
+    // REIMPORT-0 hardening — the stored SourceUrl flows straight into
+    // the Hangfire-enqueued Python extractor on reimport. The initial
+    // URL-import endpoint rejects non-http(s) schemes via
+    // `TryNormalizeHttpUrl`, but PUT /api/recipes/{id} only length-
+    // checked the URL column, so a group member with edit rights could
+    // persist `file://` / `gopher://` / `javascript:` / `ftp://` into
+    // the column. Defence-in-depth: the domain entity rejects the bad
+    // scheme at every write path (ctor + UpdateMetadata) so no SQL
+    // column state can ever carry a non-http(s) URL that the reimport
+    // endpoint's edge guard would need to catch after-the-fact.
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("gopher://127.0.0.1:25/xSMTP%20HELO%20attacker.example")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("ftp://example.com/rezept")]
+    [InlineData("photos://upload")]
+    public void Constructor_Rejects_Non_Http_SourceUrl_Scheme(string invalidUrl)
+    {
+        Assert.Throws<ArgumentException>(() => new Recipe(
+            groupId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid(),
+            title: "ok",
+            description: null,
+            defaultServings: 4,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: invalidUrl,
+            sourceType: RecipeSourceType.Video,
+            forkOfRecipeId: null,
+            createdAt: DateTimeOffset.UtcNow));
+    }
+
+    [Theory]
+    [InlineData("https://example.com/rezept")]
+    [InlineData("http://example.com/rezept")]
+    [InlineData("HTTPS://EXAMPLE.COM/X")]
+    public void Constructor_Accepts_Http_And_Https_SourceUrl(string validUrl)
+    {
+        var recipe = new Recipe(
+            groupId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid(),
+            title: "ok",
+            description: null,
+            defaultServings: 4,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: validUrl,
+            sourceType: RecipeSourceType.Video,
+            forkOfRecipeId: null,
+            createdAt: DateTimeOffset.UtcNow);
+
+        Assert.Equal(validUrl.Trim(), recipe.SourceUrl);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Constructor_Accepts_Null_Or_Blank_SourceUrl(string? blank)
+    {
+        var recipe = new Recipe(
+            groupId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid(),
+            title: "ok",
+            description: null,
+            defaultServings: 4,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: blank,
+            sourceType: RecipeSourceType.Manual,
+            forkOfRecipeId: null,
+            createdAt: DateTimeOffset.UtcNow);
+
+        Assert.Null(recipe.SourceUrl);
+    }
+
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("gopher://127.0.0.1:25/xSMTP%20HELO%20attacker.example")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("ftp://example.com/rezept")]
+    [InlineData("photos://upload")]
+    public void UpdateMetadata_Rejects_Non_Http_SourceUrl_Scheme(string invalidUrl)
+    {
+        var recipe = NewRecipe();
+        Assert.Throws<ArgumentException>(() => recipe.UpdateMetadata(
+            title: "ok",
+            description: null,
+            defaultServings: 4,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: invalidUrl,
+            sourceType: RecipeSourceType.Video,
+            updatedAt: DateTimeOffset.UtcNow));
+    }
+
     [Fact]
     public void AddPhoto_Appends_Url()
     {

@@ -394,6 +394,25 @@ public class Recipe : IVersionedEntity
         if (trimmed.Length > SourceUrlMaxLength)
             throw new ArgumentException(
                 $"Source URL must be at most {SourceUrlMaxLength} characters.", nameof(sourceUrl));
+
+        // REIMPORT-0 hardening — defence-in-depth scheme guard at the
+        // aggregate boundary. The import endpoint's `TryNormalizeHttpUrl`
+        // already rejects non-http(s) at intake, and the reimport
+        // endpoint re-checks before handing the value to the Python
+        // extractor. But PUT /api/recipes/{id} / POST /api/recipes used
+        // to accept any 2000-char string, which let a malicious group
+        // member pivot the column to `file://` / `gopher://` /
+        // `javascript:` / `ftp://` between the import and the reimport.
+        // Rejecting the scheme here guarantees every write path leaves
+        // the column http(s)-only, so the column cannot carry a value
+        // that redirects the extractor at an internal or exotic target.
+        // `null` / blank stays legitimate (manually-created recipes).
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new ArgumentException(
+                "Source URL must use the http or https scheme.", nameof(sourceUrl));
+        }
         return trimmed;
     }
 }
