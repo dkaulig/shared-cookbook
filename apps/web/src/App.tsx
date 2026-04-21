@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { NotFoundPage } from '@/components/NotFoundPage'
 import { AppLayout } from '@/components/layout/AppLayout'
@@ -13,6 +13,7 @@ import { GroupsPage } from '@/features/groups/GroupsPage'
 import { GroupDetailPage } from '@/features/groups/GroupDetailPage'
 import { GroupSettingsPage } from '@/features/groups/GroupSettingsPage'
 import { RecipeDetailPage } from '@/features/recipes/RecipeDetailPage'
+import { CookModePage } from '@/features/recipes/cook/CookModePage'
 import { RecipeFormPage } from '@/features/recipes/RecipeFormPage'
 import { ImportListPage } from '@/features/imports/ImportListPage'
 import { ImportUrlPage } from '@/features/imports/ImportUrlPage'
@@ -107,6 +108,27 @@ export default function App() {
             </Route>
             <Route path="/wochenplan" element={<WochenplanStub />} />
             <Route path="/profil" element={<ProfilStub />} />
+          </Route>
+
+          {/*
+            COOK-0 — "Jetzt kochen"-Modus lives OUTSIDE <AppLayout /> so
+            the shared TopNav + BottomNav don't render on top of the
+            immersive cook stage. The page still needs auth + group
+            membership, so we wrap it in <ProtectedRoute> directly. The
+            CookModePage provides its own `fixed inset-0 flex flex-col`
+            scaffold.
+          */}
+          <Route
+            element={
+              <ProtectedRoute>
+                <Outlet />
+              </ProtectedRoute>
+            }
+          >
+            <Route
+              path="/groups/:groupId/recipes/:recipeId/cook"
+              element={<CookModePage />}
+            />
           </Route>
 
           {/*

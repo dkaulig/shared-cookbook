@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Check } from 'lucide-react'
+import { Calendar, ChefHat, Check } from 'lucide-react'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { toMondayIso } from '@/features/mealplanning/weekGrid'
 import { cn } from '@/lib/utils'
@@ -37,6 +37,11 @@ export interface RecipeActionBarProps {
  *  - Primary amber "Jetzt gekocht" button — fires the parent-provided
  *    mutation, then shows a success status on resolve or an alert on
  *    reject. Disables while pending.
+ *  - COOK-0 Primary "Jetzt kochen" button — navigates to the immersive
+ *    Cook-Now mode (`/groups/:groupId/recipes/:recipeId/cook`) where the
+ *    user steps through the recipe fullscreen. Introduces a third
+ *    button to the row; the row accepts the tighter layout on mobile
+ *    because the three actions stay short enough under 400 px widths.
  *
  * BUG-036 — previously rendered with its own `fixed bottom-[calc(--
  * bottom-nav-height…)]` wrapper. Now renders as a plain 2-button row;
@@ -80,6 +85,12 @@ export function RecipeActionBar({
     )
   }
 
+  function handleCookNowClick() {
+    setError(null)
+    setStatus(null)
+    navigate(`/groups/${groupId}/recipes/${recipeId}/cook`)
+  }
+
   return (
     <>
       <button
@@ -106,6 +117,19 @@ export function RecipeActionBar({
       >
         <Check className="h-[18px] w-[18px]" strokeWidth={2.4} aria-hidden="true" />
         {markCookedPending ? 'Speichere…' : 'Jetzt gekocht'}
+      </button>
+      <button
+        type="button"
+        aria-label="Jetzt kochen"
+        onClick={handleCookNowClick}
+        className={cn(
+          'inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--primary))] bg-[hsl(var(--primary))] px-4 py-[11px] text-[15px] font-semibold text-[hsl(var(--primary-foreground))]',
+          'shadow-[0_4px_12px_-4px_rgba(180,83,9,0.45)] transition-colors hover:bg-[hsl(var(--primary-hover,var(--primary)))] active:scale-[0.99]',
+          'flex-[1.3]',
+        )}
+      >
+        <ChefHat className="h-[18px] w-[18px]" strokeWidth={2.2} aria-hidden="true" />
+        Jetzt kochen
       </button>
 
       {/* Lightweight inline notifier — avoids pulling in a toast library.
