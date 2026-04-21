@@ -44,6 +44,10 @@ function renderBar(
           path="/groups/:groupId/mealplan/:weekStart"
           element={<div>mealplan-page</div>}
         />
+        <Route
+          path="/groups/:groupId/recipes/:recipeId/cook"
+          element={<div>cook-mode-page</div>}
+        />
       </Routes>
     </MemoryRouter>,
   )
@@ -54,6 +58,18 @@ describe('RecipeActionBar', () => {
     renderBar()
     expect(screen.getByRole('button', { name: /In Wochenplan/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Jetzt gekocht/i })).toBeInTheDocument()
+  })
+
+  it('COOK-0: renders a "Jetzt kochen" button that navigates to the cook route', async () => {
+    const user = userEvent.setup()
+    renderBar({ groupId: 'g1', recipeId: 'r1' })
+    const cookBtn = screen.getByRole('button', { name: /Jetzt kochen/i })
+    expect(cookBtn).toBeInTheDocument()
+    await user.click(cookBtn)
+    await waitFor(() => {
+      expect(screen.getByTestId('loc')).toHaveTextContent('/groups/g1/recipes/r1/cook')
+    })
+    expect(screen.getByText('cook-mode-page')).toBeInTheDocument()
   })
 
   it('fires onMarkCooked when the primary button is clicked', async () => {

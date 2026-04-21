@@ -374,6 +374,13 @@ describe('RecipeDetailPage', () => {
     expect(deleted).toBe(true)
   })
 
+  it('COOK-0: renders a "Jetzt kochen" entry button that links to the cook route', async () => {
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    const cookBtn = screen.getByRole('button', { name: /^Jetzt kochen$/i })
+    expect(cookBtn).toBeInTheDocument()
+  })
+
   it('fires the mark-as-cooked mutation when the sticky "Jetzt gekocht" button is tapped', async () => {
     const user = userEvent.setup()
     let cookedAt: string | null = null
