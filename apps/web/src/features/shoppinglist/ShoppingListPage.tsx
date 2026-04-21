@@ -258,7 +258,7 @@ function ShoppingListView({
           the TopNav (z-20) clearly wins on any y-overlap. */}
       <nav
         className={cn(
-          'sticky top-[var(--topnav-height)] z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Einkaufsliste-Navigation"

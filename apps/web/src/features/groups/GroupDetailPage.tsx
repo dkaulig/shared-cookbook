@@ -201,7 +201,7 @@ export function GroupDetailPage() {
           // `--topnav-height` CSS var (was hard-coded `top-[56px]`).
           // z-10 keeps the global TopNav (z-20) on top on any y-overlap
           // during iOS/Chrome toolbar retraction.
-          'sticky top-[var(--topnav-height)] z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Gruppen-Navigation"
