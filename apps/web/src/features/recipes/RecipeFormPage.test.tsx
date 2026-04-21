@@ -1044,6 +1044,71 @@ describe('RecipeFormPage (create)', () => {
     expect(screen.getByLabelText(/^Schritt 1$/i)).toHaveValue('Teig kneten.')
   })
 
+  // BUG-045 — pre-select the AI-extracted tags in the tag picker so the
+  // user doesn't have to re-click them. The extractor emits tag names
+  // (lowercase, German); the form must resolve them against the group's
+  // loaded tag catalogue by case-insensitive name match and flip the
+  // corresponding TagChips into aria-pressed=true.
+  it('pre-selects AI-extracted tags in the tag picker on import prefill', async () => {
+    server.use(
+      http.get('/api/imports/imp-tags', () =>
+        HttpResponse.json({
+          id: 'imp-tags',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://www.instagram.com/reel/abc',
+          result: JSON.stringify({
+            recipe: {
+              title: 'Gemüsepfanne',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [
+                {
+                  name: 'Zucchini',
+                  quantity: '1',
+                  unit: 'Stück',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [
+                { position: 1, content: 'Anbraten.', confidence: 'high' },
+              ],
+              // Extractor emitted lowercase German tag names; catalogue
+              // has 'vegan' + 'schnell' (case-insensitive match expected).
+              tags: ['vegan', 'schnell'],
+              source_url: 'https://www.instagram.com/reel/abc',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-18T00:00:00Z',
+          completedAt: '2026-04-18T00:01:00Z',
+        }),
+      ),
+    )
+    render(withProvidersAndImport('/groups/g1/recipes/new?importId=imp-tags', ''))
+
+    // Wait for the form to mount + tags to load.
+    await screen.findByDisplayValue('Gemüsepfanne')
+
+    // Catalogue tags 'vegan' + 'schnell' must come back pre-selected
+    // (aria-pressed=true) because the extractor returned those names.
+    const veganChip = await screen.findByRole('button', { name: /^vegan$/i })
+    const schnellChip = await screen.findByRole('button', { name: /^schnell$/i })
+    expect(veganChip).toHaveAttribute('aria-pressed', 'true')
+    expect(schnellChip).toHaveAttribute('aria-pressed', 'true')
+
+    // A catalogue tag the extractor didn't emit stays unselected.
+    const pizzaChip = screen.getByRole('button', { name: /^Pizzateig$/i })
+    expect(pizzaChip).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('renders the AI-Vorschlag banner with the (truncated) source URL on prefill, which is dismissible', async () => {
     const user = userEvent.setup()
     const longUrl = 'https://www.chefkoch.de/rezepte/12345/omas-apfelkuchen-mit-streuseln.html'
