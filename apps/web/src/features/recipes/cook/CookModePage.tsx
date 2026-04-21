@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import type {
+  RecipeComponentDto,
+  RecipeStepDto,
+} from '@familien-kochbuch/shared'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { useMediaQuery } from '@/lib/useIsMobile'
 import { useMarkAsCooked, useRecipe } from '../hooks'
@@ -11,6 +15,17 @@ import { MiseEnPlaceList } from './MiseEnPlaceList'
 import { PortionsPickerOverlay } from './PortionsPickerOverlay'
 import type { TimerChipState } from './TimerChip'
 import { useWakeLock } from './useWakeLock'
+
+/**
+ * COMP-2 — flattened view of a component's step plus the component
+ * itself so the step pane can render "Step N of M" across the whole
+ * recipe while still knowing which component the step belongs to (for
+ * the optional chip above multi-component steps).
+ */
+interface FlatStep {
+  step: RecipeStepDto
+  component: RecipeComponentDto
+}
 
 /**
  * TABLET-4 — the Cook-Now stage switches to a two-pane layout on tablet
@@ -98,10 +113,46 @@ export function CookModePage() {
   // TABLET-4 — render two panes when the tablet is in landscape.
   const isLandscape = useMediaQuery(COOK_LANDSCAPE_QUERY)
 
-  const sortedSteps = useMemo(() => {
+  // COMP-2 — components ordered by position. Derive-once so downstream
+  // memos can re-use the same reference (stable when recipe.components
+  // is stable).
+  const orderedComponents = useMemo<RecipeComponentDto[]>(() => {
     if (!detail.data) return []
-    return detail.data.steps.slice().sort((a, b) => a.position - b.position)
+    return detail.data.components
+      .slice()
+      .sort((a, b) => a.position - b.position)
   }, [detail.data])
+
+  // COMP-2 — mise-en-place groups by component. Each group carries the
+  // component's ingredients (already position-sorted by the server) plus
+  // a display label ("Hauptgericht" fallback when a multi-component
+  // recipe has a null-labelled entry). Single-default recipes collapse
+  // to a single group which the list component renders without a
+  // sub-header.
+  const ingredientGroups = useMemo(() => {
+    return orderedComponents.map((component) => ({
+      component,
+      label: component.label ?? 'Hauptgericht',
+      ingredients: component.ingredients,
+    }))
+  }, [orderedComponents])
+
+  // COMP-2 — flattened step list. Steps are sequential across all
+  // components in component-order + intra-component position order,
+  // carrying a back-reference to the owning component for the optional
+  // "component chip" above the current step.
+  const sortedSteps = useMemo<FlatStep[]>(() => {
+    const out: FlatStep[] = []
+    for (const component of orderedComponents) {
+      const steps = component.steps
+        .slice()
+        .sort((a, b) => a.position - b.position)
+      for (const step of steps) {
+        out.push({ step, component })
+      }
+    }
+    return out
+  }, [orderedComponents])
 
   // COOK-2 — narrow the recipe ingredients to the `{id, name}` shape
   // CookStepCard needs, memoised on the underlying list so we don't
@@ -112,13 +163,14 @@ export function CookModePage() {
   // out the impossible-in-practice no-id case instead of inventing a
   // fallback that would diverge from the mise-en-place row keys.
   const stepIngredients = useMemo<Array<{ id: string; name: string }>>(() => {
-    if (!detail.data) return []
     const out: Array<{ id: string; name: string }> = []
-    for (const ing of detail.data.ingredients) {
-      if (ing.id) out.push({ id: ing.id, name: ing.name })
+    for (const component of orderedComponents) {
+      for (const ing of component.ingredients) {
+        if (ing.id) out.push({ id: ing.id, name: ing.name })
+      }
     }
     return out
-  }, [detail.data])
+  }, [orderedComponents])
 
   const handleTimerStateChange = useCallback(
     (key: string, next: TimerChipState) => {
@@ -324,7 +376,7 @@ export function CookModePage() {
                 className={showTwoPane ? 'h-full overflow-y-auto py-6' : ''}
               >
                 <MiseEnPlaceList
-                  ingredients={recipe.ingredients}
+                  groups={ingredientGroups}
                   defaultServings={recipe.defaultServings}
                   sessionServings={portions}
                   checked={checkedIngredientIds}
@@ -340,8 +392,25 @@ export function CookModePage() {
                 data-testid="cook-pane-step"
                 className={showTwoPane ? 'h-full overflow-y-auto py-6' : ''}
               >
+                {/*
+                  COMP-2 — when the recipe is multi-component, surface
+                  the current step's owning component as a small chip
+                  above the card so the cook knows which sub-recipe
+                  they're on. Suppressed on single-default recipes
+                  where the chip would just repeat "Hauptgericht".
+                */}
+                {orderedComponents.length > 1 && (
+                  <div className="mx-auto mb-3 w-full max-w-2xl px-6 md:px-12">
+                    <span
+                      data-testid="cook-step-component-chip"
+                      className="inline-flex items-center rounded-full bg-[hsl(var(--primary)/0.1)] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[hsl(var(--primary))]"
+                    >
+                      {sortedSteps[step - 1]!.component.label ?? 'Hauptgericht'}
+                    </span>
+                  </div>
+                )}
                 <CookStepCard
-                  step={sortedSteps[step - 1]!}
+                  step={sortedSteps[step - 1]!.step}
                   stepNumber={step}
                   totalSteps={totalSteps}
                   timerStates={timerStates}

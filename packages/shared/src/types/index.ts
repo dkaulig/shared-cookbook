@@ -37,6 +37,7 @@ export type {
   IngredientDto,
   NutritionEstimate,
   RecipeChangeType,
+  RecipeComponentDto,
   RecipeDetailDto,
   RecipeListSort,
   RecipeRevisionChangedBy,
@@ -84,6 +85,7 @@ export {
 export type {
   ConfidenceLevel,
   EmptyReason,
+  ExtractedComponent,
   ExtractedIngredient,
   ExtractedNutritionEstimate,
   ExtractedRecipe,

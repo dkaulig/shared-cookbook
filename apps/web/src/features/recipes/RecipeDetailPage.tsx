@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ApiError, RecipeDetailDto, RecipeSnapshot } from '@familien-kochbuch/shared'
+import type {
+  ApiError,
+  IngredientDto,
+  RecipeComponentDto,
+  RecipeDetailDto,
+  RecipeSnapshot,
+  RecipeStepDto,
+} from '@familien-kochbuch/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { VersionMismatchError } from '@/features/_shared/apiError'
@@ -157,6 +164,17 @@ export function RecipeDetailPage() {
   const currentServings = servings ?? recipe.defaultServings
   const aggregate = ratings.data?.aggregate
 
+  // COMP-2 — single-default recipes render exactly like today (no
+  // component header chrome, flat ingredient + step lists). Multi-
+  // component recipes get per-component <h2> sections. The "null label
+  // in a multi-component recipe" case falls through to the German
+  // fallback "Hauptgericht" (design-doc §Detail page).
+  const orderedComponents = [...recipe.components].sort(
+    (a, b) => a.position - b.position,
+  )
+  const isSingleDefault =
+    orderedComponents.length === 1 && orderedComponents[0]?.label == null
+
   async function handleConfirmDelete() {
     setDeleteError(null)
     try {
@@ -309,11 +327,31 @@ export function RecipeDetailPage() {
                   Abhaken was du schon hast
                 </span>
               </h2>
-              <IngredientChecklist
-                ingredients={recipe.ingredients}
-                defaultServings={recipe.defaultServings}
-                servings={currentServings}
-              />
+              {isSingleDefault ? (
+                <IngredientChecklist
+                  ingredients={orderedComponents[0]!.ingredients}
+                  defaultServings={recipe.defaultServings}
+                  servings={currentServings}
+                />
+              ) : (
+                <div className="flex flex-col gap-5">
+                  {orderedComponents.map((component) => (
+                    <div key={component.id ?? `pos-${component.position}`}>
+                      <h3
+                        data-testid="recipe-detail-component-heading"
+                        className="mb-2 font-serif text-[18px] font-semibold tracking-[-0.005em] text-foreground"
+                      >
+                        {componentDisplayLabel(component)}
+                      </h3>
+                      <IngredientChecklist
+                        ingredients={component.ingredients}
+                        defaultServings={recipe.defaultServings}
+                        servings={currentServings}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <NutritionSection
@@ -337,7 +375,23 @@ export function RecipeDetailPage() {
               <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
                 Zubereitung
               </h2>
-              <StepList steps={recipe.steps} />
+              {isSingleDefault ? (
+                <StepList steps={orderedComponents[0]!.steps} />
+              ) : (
+                <div className="flex flex-col gap-6">
+                  {orderedComponents.map((component) => (
+                    <div key={component.id ?? `pos-${component.position}`}>
+                      <h3
+                        data-testid="recipe-detail-component-heading"
+                        className="mb-2 font-serif text-[18px] font-semibold tracking-[-0.005em] text-foreground"
+                      >
+                        {componentDisplayLabel(component)}
+                      </h3>
+                      <StepList steps={component.steps} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {recipe.sourceUrl && (
@@ -419,8 +473,23 @@ export function RecipeDetailPage() {
  * + diff modal consume. Mirrors the .NET `RecipeRevisionService.RecipeSnapshot`
  * contract — keeps the comparison apples-to-apples regardless of how the
  * detail DTO evolves.
+ *
+ * COMP-2 — ingredients + steps flow across all components in component-
+ * order, preserving their per-component `position` (so the snapshot
+ * retains the original positions). The snapshot shape itself is still
+ * flat on purpose: the revision diff doesn't surface components today,
+ * and re-introducing them here would widen the server contract.
  */
 function toSnapshot(recipe: RecipeDetailDto): RecipeSnapshot {
+  const orderedComponents = [...recipe.components].sort(
+    (a, b) => a.position - b.position,
+  )
+  const ingredients = orderedComponents.flatMap(
+    (c): IngredientDto[] => c.ingredients,
+  )
+  const steps = orderedComponents.flatMap(
+    (c): RecipeStepDto[] => c.steps,
+  )
   return {
     title: recipe.title,
     description: recipe.description ?? null,
@@ -428,24 +497,29 @@ function toSnapshot(recipe: RecipeDetailDto): RecipeSnapshot {
     prepTimeMinutes: recipe.prepTimeMinutes ?? null,
     difficulty: recipe.difficulty as 1 | 2 | 3,
     sourceUrl: recipe.sourceUrl ?? null,
-    ingredients: recipe.ingredients
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .map((i) => ({
-        position: i.position,
-        quantity: i.quantity ?? null,
-        unit: i.unit,
-        name: i.name,
-        note: i.note ?? null,
-        scalable: i.scalable,
-      })),
-    steps: recipe.steps
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .map((s) => ({ position: s.position, content: s.content })),
+    ingredients: ingredients.map((i) => ({
+      position: i.position,
+      quantity: i.quantity ?? null,
+      unit: i.unit,
+      name: i.name,
+      note: i.note ?? null,
+      scalable: i.scalable,
+    })),
+    steps: steps.map((s) => ({ position: s.position, content: s.content })),
     tagIds: recipe.tags
       .map((t) => t.id)
       .slice()
       .sort(),
   }
+}
+
+/**
+ * COMP-2 — resolves the label copy for a component in multi-component
+ * render. Non-null labels render verbatim; null labels inside a multi-
+ * component recipe fall back to the German "Hauptgericht" placeholder.
+ * Single-default recipes never reach this helper (the detail page
+ * suppresses component chrome entirely in that case).
+ */
+function componentDisplayLabel(component: RecipeComponentDto): string {
+  return component.label ?? 'Hauptgericht'
 }

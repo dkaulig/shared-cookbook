@@ -94,7 +94,7 @@ describe('imports.ts DTOs', () => {
     expect(step.position).toBe(1)
   })
 
-  it('ExtractedRecipe carries ingredients, steps, tags, source_url, thumbnail_url', () => {
+  it('ExtractedRecipe carries components, tags, source_url, thumbnail_url', () => {
     const recipe: ExtractedRecipe = {
       title: 'Omas Apfelkuchen',
       description: null,
@@ -102,13 +102,15 @@ describe('imports.ts DTOs', () => {
       difficulty: null,
       prep_minutes: null,
       cook_minutes: null,
-      ingredients: [],
-      steps: [],
+      components: [
+        { label: null, position: 0, ingredients: [], steps: [] },
+      ],
       tags: ['backen'],
       source_url: 'https://example.com/apfelkuchen',
       thumbnail_url: null,
     }
     expect(recipe.tags).toContain('backen')
+    expect(recipe.components).toHaveLength(1)
   })
 
   it('ExtractionResult wraps recipe + confidence + empty-gate fields', () => {
@@ -121,8 +123,9 @@ describe('imports.ts DTOs', () => {
         difficulty: null,
         prep_minutes: null,
         cook_minutes: null,
-        ingredients: [],
-        steps: [],
+        components: [
+          { label: null, position: 0, ingredients: [], steps: [] },
+        ],
         tags: [],
         source_url: 'https://example.com',
         thumbnail_url: null,
@@ -162,8 +165,9 @@ describe('imports.ts DTOs', () => {
         difficulty: null,
         prep_minutes: null,
         cook_minutes: null,
-        ingredients: [],
-        steps: [],
+        components: [
+          { label: null, position: 0, ingredients: [], steps: [] },
+        ],
         tags: [],
         source_url: 'https://facebook.com/share/r/xyz',
         thumbnail_url: null,
@@ -181,8 +185,9 @@ describe('imports.ts DTOs', () => {
     const parsed = JSON.parse(wire) as ExtractionResult
     expect(parsed.recipe_empty).toBe(true)
     expect(parsed.empty_reason).toBe('no_recipe_detected')
-    expect(parsed.recipe.ingredients).toEqual([])
-    expect(parsed.recipe.steps).toEqual([])
+    expect(parsed.recipe.components).toHaveLength(1)
+    expect(parsed.recipe.components[0]?.ingredients).toEqual([])
+    expect(parsed.recipe.components[0]?.steps).toEqual([])
     expect(parsed.signals.had_transcript).toBe(true)
     expect(parsed.signals.had_caption_url).toBe(false)
     expect(parsed.signals.had_blog_source).toBe(false)

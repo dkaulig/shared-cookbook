@@ -33,6 +33,33 @@ export interface RecipeStepDto {
   content: string
 }
 
+/**
+ * COMP-0/2 — one sub-recipe group inside a recipe. Simple recipes carry
+ * exactly one component with `label === null` and `position === 0`; the
+ * frontend renders that case identically to the pre-COMP-0 flat
+ * ingredient/step layout. Multi-part recipes (e.g. "Chipotle Sauce" +
+ * "Main") surface multiple components in emit-order with user- or
+ * LLM-supplied labels.
+ *
+ * Per-component `ingredients` and `steps` are already scoped and
+ * ordered by their own `position` fields — callers don't need to
+ * re-filter on `ComponentId`.
+ */
+export interface RecipeComponentDto {
+  /** Present on DTOs coming back from the API; omitted on creates. */
+  id?: string
+  /** 0-based, unique within the recipe. */
+  position: number
+  /**
+   * User- or LLM-supplied label (e.g. "Chipotle Sauce"). `null` marks
+   * the single-default component the backend seeds on simple recipes —
+   * the detail page suppresses header chrome in that case.
+   */
+  label: string | null
+  ingredients: IngredientDto[]
+  steps: RecipeStepDto[]
+}
+
 export interface TagDto {
   id: string
   name: string
@@ -129,8 +156,16 @@ export interface RecipeDetailDto {
    * subsequent PUT/POST/DELETE/PATCH to detect conflicts.
    */
   version: number
-  ingredients: IngredientDto[]
-  steps: RecipeStepDto[]
+  /**
+   * COMP-0/2 — nested sub-recipe groups. Every recipe has ≥1 component.
+   * Single-default recipes surface as
+   * `[{ label: null, position: 0, ingredients: [...], steps: [...] }]`;
+   * the detail page renders that case identically to the pre-COMP-0
+   * flat layout. Multi-component recipes render one `<h2>` section
+   * per component (label OR the German fallback "Hauptgericht" when
+   * a multi-component recipe still has a null-labelled entry).
+   */
+  components: RecipeComponentDto[]
   tags: TagDto[]
   /** P2-10: optional per-portion nutrition estimate. `null` = no estimate. */
   nutritionEstimate: NutritionEstimate | null
@@ -162,8 +197,12 @@ export interface CreateRecipeRequest {
   prepTimeMinutes?: number
   difficulty: number
   sourceUrl?: string
-  ingredients: IngredientDto[]
-  steps: RecipeStepDto[]
+  /**
+   * COMP-0/2 — nested component payload. At least one entry required.
+   * Single-default form state maps to
+   * `[{ position: 0, label: null, ingredients: [...], steps: [...] }]`.
+   */
+  components: RecipeComponentDto[]
   tagIds: string[]
   /**
    * P2-10: optional per-portion nutrition estimate flowed through from

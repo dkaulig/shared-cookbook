@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { RecipeDetailDto } from '@familien-kochbuch/shared'
+import type { IngredientDto, RecipeStepDto } from '@familien-kochbuch/shared'
 
 /**
  * OFF4 — Recipe-scoped diff body for `<ConflictDialog />`.
@@ -19,11 +19,22 @@ import type { RecipeDetailDto } from '@familien-kochbuch/shared'
  * enough that a proper merge UI is a dedicated polish slice); the
  * user keeps the local ingredient / step arrays when they choose the
  * manual-merge path.
+ *
+ * COMP-2 — ingredient + step arrays are flattened across all
+ * components so the count-delta UI stays identical to the pre-COMP-2
+ * single-component world. Per-component diff surfacing is a future
+ * follow-up.
  */
-export type RecipeConflictShape = Pick<
-  RecipeDetailDto,
-  'id' | 'title' | 'description' | 'ingredients' | 'steps' | 'version'
->
+export interface RecipeConflictShape {
+  id: string
+  title: string
+  description?: string | null
+  /** Flattened across all components for the count-delta summary. */
+  ingredients: IngredientDto[]
+  /** Flattened across all components; position may repeat per component. */
+  steps: RecipeStepDto[]
+  version: number
+}
 
 export function RecipeConflictBody({
   current,

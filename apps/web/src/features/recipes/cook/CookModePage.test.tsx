@@ -28,14 +28,23 @@ const recipe: RecipeDetailDto = {
   createdAt: '2026-04-18T00:00:00Z',
   updatedAt: '2026-04-18T00:00:00Z',
   version: 0,
-  ingredients: [
-    { id: 'i1', position: 0, quantity: 500, unit: 'g', name: 'Mehl', note: null, scalable: true },
-    { id: 'i2', position: 1, quantity: 2, unit: 'Stück', name: 'Eier', note: null, scalable: true },
-  ],
-  steps: [
-    { id: 's1', position: 0, content: 'Mehl in eine Schüssel geben.' },
-    { id: 's2', position: 1, content: 'Eier hinzufügen.' },
-    { id: 's3', position: 2, content: 'Alles verrühren.' },
+  // COMP-2 — single-default component nests the pre-COMP-2 fixture's
+  // flat ingredient+step arrays so the cook page renders identically.
+  components: [
+    {
+      id: 'c1',
+      position: 0,
+      label: null,
+      ingredients: [
+        { id: 'i1', position: 0, quantity: 500, unit: 'g', name: 'Mehl', note: null, scalable: true },
+        { id: 'i2', position: 1, quantity: 2, unit: 'Stück', name: 'Eier', note: null, scalable: true },
+      ],
+      steps: [
+        { id: 's1', position: 0, content: 'Mehl in eine Schüssel geben.' },
+        { id: 's2', position: 1, content: 'Eier hinzufügen.' },
+        { id: 's3', position: 2, content: 'Alles verrühren.' },
+      ],
+    },
   ],
   tags: [],
   nutritionEstimate: null,
@@ -265,12 +274,19 @@ describe('CookModePage — ingredient-chip navigation (COOK-2)', () => {
   })
 
   it('tapping an ingredient chip from a step navigates back to mise-en-place with highlight', async () => {
+    // COMP-2 — keep the single-default component but swap out its
+    // steps to the "Mehl einrühren" one so the chip surfaces on step 2.
     const recipeWithIngredientInStep: RecipeDetailDto = {
       ...recipe,
-      steps: [
-        { id: 's1', position: 0, content: 'Vorbereitung.' },
-        { id: 's2', position: 1, content: 'Mehl einrühren.' },
-        { id: 's3', position: 2, content: 'Fertigstellen.' },
+      components: [
+        {
+          ...recipe.components[0]!,
+          steps: [
+            { id: 's1', position: 0, content: 'Vorbereitung.' },
+            { id: 's2', position: 1, content: 'Mehl einrühren.' },
+            { id: 's3', position: 2, content: 'Fertigstellen.' },
+          ],
+        },
       ],
     }
     server.use(
@@ -603,5 +619,113 @@ describe('CookModePage — tablet landscape two-pane layout (TABLET-4)', () => {
 
     // Left pane collapses on the finish screen so the celebration is full-width.
     expect(screen.queryByTestId('cook-mise-en-place')).not.toBeInTheDocument()
+  })
+})
+
+// ── COMP-2 — component grouping in Cook-Now ─────────────────────────
+
+describe('CookModePage — COMP-2 component grouping', () => {
+  const multiComponentRecipe: RecipeDetailDto = {
+    ...recipe,
+    components: [
+      {
+        id: 'c-sauce',
+        position: 0,
+        label: 'Chipotle Sauce',
+        ingredients: [
+          { id: 'i-s1', position: 0, quantity: 2, unit: 'EL', name: 'Honig', note: null, scalable: true },
+          { id: 'i-s2', position: 1, quantity: 1, unit: 'TL', name: 'Chipotle', note: null, scalable: true },
+        ],
+        steps: [
+          { id: 'st-s1', position: 0, content: 'Sauce mischen.' },
+        ],
+      },
+      {
+        id: 'c-main',
+        position: 1,
+        label: null,
+        ingredients: [
+          { id: 'i-m1', position: 0, quantity: 2, unit: 'Stück', name: 'Tortilla', note: null, scalable: true },
+        ],
+        steps: [
+          { id: 'st-m1', position: 0, content: 'Tortilla anbraten.' },
+          { id: 'st-m2', position: 1, content: 'Sauce dazugeben.' },
+        ],
+      },
+    ],
+  }
+
+  it('mise-en-place pane groups ingredients by component with sub-headers (Chipotle Sauce + Hauptgericht)', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json(multiComponentRecipe),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    // Two group containers surface in the DOM.
+    const groups = screen.getAllByTestId('cook-mise-en-place-group')
+    expect(groups.length).toBe(2)
+    // Sub-headers carry the component label and the German fallback.
+    const subheaders = screen.getAllByTestId('cook-mise-en-place-subheader')
+    const labels = subheaders.map((h) => h.textContent)
+    expect(labels).toContain('Chipotle Sauce')
+    expect(labels).toContain('Hauptgericht')
+  })
+
+  it('mise-en-place pane suppresses sub-headers on a single-default recipe', async () => {
+    // Default-recipe fixture has label:null + one component → no
+    // sub-header chrome.
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    expect(
+      screen.queryAllByTestId('cook-mise-en-place-subheader'),
+    ).toHaveLength(0)
+  })
+
+  it('step pane shows a component chip above the current step when the recipe is multi-component', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json(multiComponentRecipe),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    // Advance to step 1 — which belongs to the Chipotle Sauce component.
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByTestId('cook-step-card')
+    const chip = screen.getByTestId('cook-step-component-chip')
+    expect(chip).toHaveTextContent(/Chipotle Sauce/i)
+
+    // Advance to step 2 — still Chipotle Sauce? No — recipe has 1 step
+    // in sauce, so step 2 jumps to main (null label → Hauptgericht).
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    expect(screen.getByTestId('cook-step-component-chip')).toHaveTextContent(
+      /Hauptgericht/i,
+    )
+  })
+
+  it('step pane suppresses the component chip on a single-default recipe', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByTestId('cook-step-card')
+    expect(
+      screen.queryByTestId('cook-step-component-chip'),
+    ).not.toBeInTheDocument()
   })
 })

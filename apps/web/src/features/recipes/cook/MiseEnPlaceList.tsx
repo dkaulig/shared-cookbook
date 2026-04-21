@@ -4,9 +4,32 @@ import type { IngredientDto, ScaledIngredient } from '@familien-kochbuch/shared'
 import { scaleIngredients } from '@familien-kochbuch/shared'
 import { cn } from '@/lib/utils'
 
-export interface MiseEnPlaceListProps {
-  /** Raw ingredients from the recipe detail DTO. */
+/**
+ * COMP-2 — one component's slice of the mise-en-place list. The cook
+ * page materialises these from the `RecipeDetailDto.components` array
+ * and hands them to {@link MiseEnPlaceList}, which renders one sticky
+ * sub-header per entry (suppressed on single-default recipes).
+ */
+export interface MiseEnPlaceGroup {
+  /** Stable key for the group — reused as React key + component id hint. */
+  key: string
+  /** German-ready label. Null labels get resolved to "Hauptgericht" upstream. */
+  label: string
+  /** Ingredients scoped to this component, ordered by position. */
   ingredients: IngredientDto[]
+}
+
+export interface MiseEnPlaceListProps {
+  /**
+   * COMP-2 — ingredient groups, one per component. Single-default
+   * recipes pass a single group; the sticky sub-header is suppressed
+   * in that case so the UX matches the pre-COMP-2 flat list.
+   */
+  groups: Array<{
+    component: { id?: string; position: number; label: string | null }
+    label: string
+    ingredients: IngredientDto[]
+  }>
   /** Recipe's own default-servings count — "from" side of the scaling ratio. */
   defaultServings: number
   /** Session portions chosen in the picker — "to" side of the scaling ratio. */
@@ -52,7 +75,7 @@ export interface MiseEnPlaceListProps {
  * doesn't depend on the scaled value.
  */
 export function MiseEnPlaceList({
-  ingredients,
+  groups,
   defaultServings,
   sessionServings,
   checked,
@@ -60,10 +83,15 @@ export function MiseEnPlaceList({
   highlightedIngredientId = null,
   highlightNonce = 0,
 }: MiseEnPlaceListProps) {
+  // COMP-2 — scale all groups in one pass so the rendering code below
+  // can zip group.ingredients × scaledFlat in index-order. The scaler
+  // doesn't care about component boundaries; it just maps each input
+  // row to a scaled output row in the same order.
   const scaled = useMemo<ScaledIngredient[]>(() => {
     if (sessionServings <= 0 || defaultServings <= 0) return []
+    const flat = groups.flatMap((g) => g.ingredients)
     return scaleIngredients(
-      ingredients.map((i) => ({
+      flat.map((i) => ({
         quantity: i.quantity ?? null,
         unit: i.unit,
         name: i.name,
@@ -72,7 +100,7 @@ export function MiseEnPlaceList({
       defaultServings,
       sessionServings,
     )
-  }, [ingredients, defaultServings, sessionServings])
+  }, [groups, defaultServings, sessionServings])
 
   // Flash-ring state. The ring is ON whenever `highlightedIngredientId`
   // is set AND the fade-out timer for the CURRENT `highlightNonce`
@@ -107,6 +135,24 @@ export function MiseEnPlaceList({
     return ingredient.id ?? `pos-${ingredient.position}-${index}`
   }
 
+  // Suppress sub-headers on the single-default case so the UX is
+  // byte-identical to pre-COMP-2.
+  const showSubHeaders =
+    groups.length > 1 ||
+    (groups[0] && groups[0].component.label !== null)
+
+  // Pre-compute the cumulative offset into `scaled` for each group so
+  // the inner render map doesn't need a mutable counter (the react-
+  // hooks/immutability lint rule forbids in-render reassignment).
+  const groupOffsets: number[] = []
+  {
+    let running = 0
+    for (const g of groups) {
+      groupOffsets.push(running)
+      running += g.ingredients.length
+    }
+  }
+
   return (
     <div
       data-testid="cook-mise-en-place"
@@ -120,30 +166,51 @@ export function MiseEnPlaceList({
         ist.
       </p>
 
-      <ul className="overflow-hidden rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)]">
-        {ingredients.map((ingredient, index) => {
-          const key = rowKey(ingredient, index)
-          const display = scaled[index]
-          const isChecked = checked.has(key)
-          const isHighlighted =
-            activeFlashId != null && activeFlashId === ingredient.id
-          return (
-            <li key={key}>
-              <IngredientRow
-                ingredient={ingredient}
-                display={display}
-                isChecked={isChecked}
-                isHighlighted={isHighlighted}
-                onToggle={() => onToggle(key)}
-                isLast={index === ingredients.length - 1}
-                registerRef={(el) => {
-                  if (ingredient.id) rowRefs.current.set(ingredient.id, el)
-                }}
-              />
-            </li>
-          )
-        })}
-      </ul>
+      {groups.map((group, gIdx) => {
+        const groupKey =
+          group.component.id ??
+          `comp-${group.component.position}-${gIdx}`
+        return (
+          <div
+            key={groupKey}
+            data-testid="cook-mise-en-place-group"
+            className={gIdx > 0 ? 'mt-4' : ''}
+          >
+            {showSubHeaders && (
+              <h3
+                data-testid="cook-mise-en-place-subheader"
+                className="sticky top-0 z-10 -mx-6 mb-2 bg-background/95 px-6 pb-2 pt-1 text-[14px] font-semibold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))] backdrop-blur-sm md:-mx-12 md:px-12"
+              >
+                {group.label}
+              </h3>
+            )}
+            <ul className="overflow-hidden rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)]">
+              {group.ingredients.map((ingredient, index) => {
+                const key = rowKey(ingredient, index)
+                const display = scaled[groupOffsets[gIdx]! + index]
+                const isChecked = checked.has(key)
+                const isHighlighted =
+                  activeFlashId != null && activeFlashId === ingredient.id
+                return (
+                  <li key={key}>
+                    <IngredientRow
+                      ingredient={ingredient}
+                      display={display}
+                      isChecked={isChecked}
+                      isHighlighted={isHighlighted}
+                      onToggle={() => onToggle(key)}
+                      isLast={index === group.ingredients.length - 1}
+                      registerRef={(el) => {
+                        if (ingredient.id) rowRefs.current.set(ingredient.id, el)
+                      }}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )
+      })}
     </div>
   )
 }
