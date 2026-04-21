@@ -179,4 +179,57 @@ describe('RecipeFilterPanel', () => {
       expect(loc).toContain('tags=t5')
     })
   })
+
+  // ─────────── Tag autocomplete / live-filter (2026-04-21) ───────────
+
+  it('renders a tag search input above the tag chip grid', async () => {
+    renderPanel()
+    await screen.findByRole('button', { name: /schnell/i })
+    expect(
+      screen.getByRole('textbox', { name: /tag suchen/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('typing in the tag search filters displayed chips to matches (case-insensitive)', async () => {
+    renderPanel()
+    await screen.findByRole('button', { name: /schnell/i })
+    const search = screen.getByRole('textbox', { name: /tag suchen/i })
+    const user = userEvent.setup()
+    await user.type(search, 'veg')
+
+    // Matches: vegan, vegetarisch
+    expect(screen.getByRole('button', { name: /^vegan$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^vegetarisch$/i })).toBeInTheDocument()
+    // Non-matches are gone from the DOM
+    expect(screen.queryByRole('button', { name: /^schnell$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^warm$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Teig$/i })).not.toBeInTheDocument()
+  })
+
+  it('selected tags remain visible even when they do not match the filter', async () => {
+    renderPanel('/groups/g1?tags=t1') // t1 = schnell
+    await screen.findByRole('button', { name: /schnell/i })
+    const search = screen.getByRole('textbox', { name: /tag suchen/i })
+    const user = userEvent.setup()
+    await user.type(search, 'xyz-no-match')
+
+    // Nothing matches "xyz-no-match" — but `schnell` stays because it's selected.
+    const schnellChip = screen.getByRole('button', { name: /^schnell$/i })
+    expect(schnellChip).toBeInTheDocument()
+    expect(schnellChip).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('hides empty category headers when the filter narrows results', async () => {
+    renderPanel()
+    await screen.findByRole('button', { name: /schnell/i })
+    const search = screen.getByRole('textbox', { name: /tag suchen/i })
+    const user = userEvent.setup()
+    await user.type(search, 'veg')
+
+    // "Diät" still shown (vegan + vegetarisch). "Aufwand", "Gericht", "Komponente" must hide.
+    expect(screen.getByText('Diät')).toBeInTheDocument()
+    expect(screen.queryByText('Aufwand')).not.toBeInTheDocument()
+    expect(screen.queryByText('Gericht')).not.toBeInTheDocument()
+    expect(screen.queryByText('Komponente')).not.toBeInTheDocument()
+  })
 })
