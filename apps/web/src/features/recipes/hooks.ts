@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   CreateRecipeRequest,
   ForkRecipeRequest,
+  ImportEnqueueResponse,
   NutritionEstimate,
   RecipeDetailDto,
   RecipeRevisionDetail,
@@ -21,6 +22,7 @@ import {
   forkRecipe,
   markRecipeAsCooked,
   patchRecipeNutrition,
+  reimportRecipe,
   updateRecipe,
   uploadRecipePhoto,
 } from './recipesApi'
@@ -193,6 +195,33 @@ export function useRemoveRecipePhoto(id: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: recipeQueryKeys.detail(id) })
     },
+  })
+}
+
+// ── REIMPORT-1: Reimport an existing recipe from its saved source URL ─
+
+/**
+ * REIMPORT-1 — fire a fresh extractor run against the recipe's saved
+ * `sourceUrl`. The mutation accepts the caller's last-known `version`
+ * as its `mutate` argument so the built `If-Match` header carries the
+ * correct ETag (`W/"{id}-{version}"`); passing a stale version yields
+ * a typed `VersionMismatchError` for the conflict-resolver UX.
+ *
+ * Returns `{ importId }` so the caller can navigate to
+ * `/rezepte/import/{importId}` — the existing `ImportProgressPage` owns
+ * the polling + terminal-state redirect, branching on the wire's
+ * `targetRecipeId` to hop back to the recipe detail page on Done.
+ *
+ * `groupId` is accepted for symmetry with the other detail-page
+ * mutations; it's reserved for future list-cache invalidations once
+ * the recipe has been updated in-place.
+ */
+export function useReimportRecipe(recipeId: string, _groupId: string) {
+  return useMutation<ImportEnqueueResponse, Error, number>({
+    mutationFn: (currentVersion) =>
+      reimportRecipe(recipeId, {
+        ifMatch: buildIfMatch(recipeId, currentVersion),
+      }),
   })
 }
 

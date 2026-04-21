@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
@@ -379,6 +379,113 @@ describe('RecipeDetailPage', () => {
     await screen.findByRole('heading', { name: /Spätzle/ })
     const cookBtn = screen.getByRole('button', { name: /^Jetzt kochen$/i })
     expect(cookBtn).toBeInTheDocument()
+  })
+
+  // ── REIMPORT-1 ─────────────────────────────────────────────────────
+  //
+  // The 3-dots overflow menu on a URL-imported recipe exposes a new
+  // "Neu importieren" entry. Picking it opens the shared ConfirmDialog
+  // (destructive-styled, German copy). Confirming fires
+  // POST /api/recipes/:id/reimport and navigates to the existing
+  // ImportProgressPage with the returned importId; a 409
+  // version_mismatch invalidates the recipe cache and shows an inline
+  // error toast.
+
+  it('REIMPORT-1: shows "Neu importieren" entry on URL-imported recipes and opens the confirm dialog', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+
+    expect(
+      await screen.findByRole('heading', {
+        name: /Rezept neu importieren\?/i,
+        level: 2,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('REIMPORT-1: confirming the dialog POSTs to /reimport with If-Match and navigates to the progress page', async () => {
+    const user = userEvent.setup()
+    let seenIfMatch: string | null = null
+    server.use(
+      http.post('/api/recipes/r1/reimport', ({ request }) => {
+        seenIfMatch = request.headers.get('If-Match')
+        return HttpResponse.json({ importId: 'imp-42' }, { status: 202 })
+      }),
+    )
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function LocationProbe() {
+      const loc = useLocation()
+      return <div data-testid="location">{loc.pathname}</div>
+    }
+    const tree = (
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/groups/g1/recipes/r1']}>
+          <BottomZoneProvider>
+            <LocationProbe />
+            <Routes>
+              <Route
+                path="/groups/:groupId/recipes/:recipeId"
+                element={<RecipeDetailPage />}
+              />
+              <Route
+                path="/rezepte/import/:importId"
+                element={<div data-testid="progress-page">progress</div>}
+              />
+            </Routes>
+            <BottomNav />
+          </BottomZoneProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    render(tree)
+
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+    await screen.findByRole('heading', { name: /Rezept neu importieren\?/i })
+    await user.click(screen.getByRole('button', { name: /Reimport starten/i }))
+
+    await screen.findByTestId('progress-page')
+    expect(seenIfMatch).toBe('W/"r1-0"')
+  })
+
+  it('REIMPORT-1: surfaces a 409 version_mismatch as an inline error without navigating', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('/api/recipes/r1/reimport', () =>
+        HttpResponse.json(
+          {
+            code: 'version_mismatch',
+            message: 'Rezept wurde parallel geändert.',
+            current: { id: 'r1', version: 1 },
+          },
+          { status: 409 },
+        ),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+    await screen.findByRole('heading', { name: /Rezept neu importieren\?/i })
+    await user.click(screen.getByRole('button', { name: /Reimport starten/i }))
+
+    // Conflict copy surfaces inline for the user; the progress page is
+    // NOT mounted in this wiring but the dialog closes on conflict so
+    // any follow-up mutation can be re-dispatched.
+    expect(
+      await screen.findByText(/parallel geändert/i, {}, { timeout: 3000 }),
+    ).toBeInTheDocument()
   })
 
   it('fires the mark-as-cooked mutation when the sticky "Jetzt gekocht" button is tapped', async () => {

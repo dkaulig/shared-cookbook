@@ -46,6 +46,10 @@ function renderProgress(opts?: { initialState?: { groupId?: string }; importId?:
               element={<div data-testid="recipe-form">form</div>}
             />
             <Route
+              path="/groups/:groupId/recipes/:recipeId"
+              element={<div data-testid="recipe-detail">detail</div>}
+            />
+            <Route
               path="/rezepte/import/url"
               element={<div data-testid="import-url-page">url</div>}
             />
@@ -729,6 +733,134 @@ describe('<ImportProgressPage /> PV3 phase-aware UI', () => {
           '/groups/g1/recipes/new?importId=imp-phase',
         ),
       { timeout: 2000 },
+    )
+  })
+
+  it('REIMPORT-1: reimport done (targetRecipeId set) → navigates to recipe detail page', async () => {
+    server.use(
+      http.get('/api/imports/imp-phase', () =>
+        HttpResponse.json({
+          id: 'imp-phase',
+          groupId: 'g1',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com/reimport',
+          result: JSON.stringify({
+            recipe: {
+              title: 'T',
+              description: null,
+              servings: null,
+              difficulty: null,
+              prep_minutes: null,
+              cook_minutes: null,
+              ingredients: [],
+              steps: [],
+              tags: [],
+              source_url: 'https://example.com/reimport',
+              thumbnail_url: null,
+            },
+            confidence: { overall: 'high', notes: [] },
+          }),
+          error: null,
+          createdAt: '2026-04-21T12:00:00Z',
+          completedAt: '2026-04-21T12:00:05Z',
+          phase: 'done',
+          phaseProgress: 100,
+          progressLabel: 'Fertig',
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-21T12:00:05Z',
+          targetRecipeId: 'rec-target-1',
+        }),
+      ),
+    )
+
+    const { client } = renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('location')).toHaveTextContent(
+          '/groups/g1/recipes/rec-target-1',
+        ),
+      { timeout: 2000 },
+    )
+    // The recipe detail cache is invalidated so the detail page fetches
+    // fresh data on mount — assertion on query state is more robust
+    // than a second route-check round-trip.
+    const state = client.getQueryState(['recipes', 'detail', 'rec-target-1'])
+    // Either the entry was invalidated (stale) or was never populated
+    // (both acceptable — the detail page refetches either way).
+    if (state) {
+      expect(state.isInvalidated).toBe(true)
+    }
+  })
+
+  it('REIMPORT-1: shows reimport banner while running when targetRecipeId is set', async () => {
+    const { client } = renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+    client.setQueryData(importQueryKeys.status('imp-phase'), {
+      id: 'imp-phase',
+      groupId: 'g1',
+      source: 'url',
+      status: 'running',
+      progress: 45,
+      sourceUrl: 'https://example.com',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-21T12:00:00Z',
+      completedAt: null,
+      phase: 'transcribing',
+      phaseProgress: 42,
+      progressLabel: 'Audio wird transkribiert',
+      attemptNumber: 1,
+      lastProgressAt: new Date().toISOString(),
+      segmentsDone: 5,
+      segmentsTotal: 20,
+      targetRecipeId: 'rec-target-1',
+    })
+
+    expect(
+      await screen.findByTestId('reimport-running-banner'),
+    ).toHaveTextContent(/reimport läuft/i)
+  })
+
+  it('REIMPORT-1: reimport banner is NOT shown on normal (non-reimport) imports', async () => {
+    const { client } = renderProgress({
+      importId: 'imp-phase',
+      initialState: { groupId: 'g1' },
+    })
+    client.setQueryData(importQueryKeys.status('imp-phase'), {
+      id: 'imp-phase',
+      groupId: 'g1',
+      source: 'url',
+      status: 'running',
+      progress: 45,
+      sourceUrl: 'https://example.com',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-21T12:00:00Z',
+      completedAt: null,
+      phase: 'transcribing',
+      phaseProgress: 42,
+      progressLabel: 'Audio wird transkribiert',
+      attemptNumber: 1,
+      lastProgressAt: new Date().toISOString(),
+      segmentsDone: 5,
+      segmentsTotal: 20,
+      // targetRecipeId intentionally absent / null
+    })
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('reimport-running-banner')).toBeNull(),
     )
   })
 

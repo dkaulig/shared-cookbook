@@ -2,6 +2,7 @@ import type {
   ApiError,
   CreateRecipeRequest,
   ForkRecipeRequest,
+  ImportEnqueueResponse,
   NutritionEstimate,
   RecipeDetailDto,
   RecipeSummaryListDto,
@@ -161,6 +162,30 @@ export async function patchRecipeNutrition(
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    },
+  )
+}
+
+// ── Reimport (REIMPORT-1) ─────────────────────────────────────────
+
+/**
+ * REIMPORT-1 — enqueue a fresh extractor run against the recipe's saved
+ * `sourceUrl`. The request body is intentionally empty: the server reads
+ * the URL from the DB row so a caller can't redirect the extractor at
+ * another host. The caller must pass an `If-Match` header derived from
+ * the cached recipe `version` so a stale write fails with 409; typed
+ * `VersionMismatchError` surfaces for the conflict-resolver UX (reload
+ * + retry).
+ */
+export async function reimportRecipe(
+  id: string,
+  options?: { ifMatch?: string },
+): Promise<ImportEnqueueResponse> {
+  return request<ImportEnqueueResponse>(
+    `/api/recipes/${encodeURIComponent(id)}/reimport`,
+    {
+      method: 'POST',
+      ifMatch: options?.ifMatch,
     },
   )
 }

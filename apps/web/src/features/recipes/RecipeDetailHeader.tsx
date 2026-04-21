@@ -13,6 +13,7 @@ import {
 import type { RecipeDetailDto } from '@familien-kochbuch/shared'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { isPhotoImportSource } from '@/features/imports/importPrefill'
 import { RecipeForkBanner } from './RecipeForkBanner'
 import { recipePhotoGradient } from './recipePhotoGradient'
 
@@ -32,10 +33,21 @@ export interface RecipeDetailHeaderProps {
   ratingCount: number
   /** Name of the source group when this recipe is a fork. */
   sourceGroupName: string | null
+  /**
+   * REIMPORT-1 — mirrors the edit-right gate the "Bearbeiten" entry
+   * uses. The header renders the "Neu importieren" menu entry only when
+   * this is true AND `recipe.sourceUrl` is a real URL (not null and not
+   * the photo-import sentinel). The caller is the detail page; it
+   * already owns the edit-right check for "Bearbeiten" — pass the same
+   * flag through.
+   */
+  canReimport: boolean
   onBack: () => void
   onFork: () => void
   onEdit: () => void
   onDelete: () => void
+  /** REIMPORT-1 — fired when the user picks the "Neu importieren" entry. */
+  onReimport: () => void
 }
 
 /**
@@ -61,10 +73,12 @@ export function RecipeDetailHeader({
   avgRating,
   ratingCount,
   sourceGroupName,
+  canReimport,
   onBack,
   onFork,
   onEdit,
   onDelete,
+  onReimport,
 }: RecipeDetailHeaderProps) {
   const heroRef = useRef<HTMLDivElement>(null)
   const [scrolled, setScrolled] = useState(false)
@@ -89,6 +103,17 @@ export function RecipeDetailHeader({
     target.addEventListener('scroll', onScroll, { passive: true })
     return () => target.removeEventListener('scroll', onScroll)
   }, [])
+
+  // REIMPORT-1 — three-gate visibility for the "Neu importieren" entry:
+  // (1) recipe carries a sourceUrl at all (manual-create recipes have
+  // none), (2) the URL is NOT the photo-import sentinel (the Python
+  // pipeline has no URL to refetch for those), (3) the caller has edit
+  // rights (same rule as "Bearbeiten"). If any gate fails the entry
+  // stays hidden entirely — no disabled state, no explanatory tooltip.
+  const showReimportEntry =
+    canReimport &&
+    recipe.sourceUrl != null &&
+    !isPhotoImportSource(recipe.sourceUrl)
 
   const firstPhoto = recipe.photos[0] ?? null
   const totalPhotos = recipe.photos.length
@@ -161,6 +186,16 @@ export function RecipeDetailHeader({
                 >
                   Bearbeiten
                 </MenuItem>
+                {showReimportEntry && (
+                  <MenuItem
+                    onClick={() => {
+                      setMenuOpen(false)
+                      onReimport()
+                    }}
+                  >
+                    Neu importieren
+                  </MenuItem>
+                )}
                 <MenuItem
                   destructive
                   onClick={() => {
