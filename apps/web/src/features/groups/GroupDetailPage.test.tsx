@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { GroupDetail, RecipeSummaryDto } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
@@ -47,6 +47,21 @@ function LocationProbe() {
   return <div data-testid="location-probe">{loc.pathname}{loc.search}</div>
 }
 
+/**
+ * TABLET-1 — the recipe-detail routes are now nested children of
+ * `/groups/:id`, so the test harness mirrors the real App.tsx route
+ * tree: `GroupDetailPage` is the parent element, and the new/detail
+ * routes render via its `<Outlet />`. Tests that want to probe the
+ * post-navigation state just look at `LocationProbe` (outside the
+ * parent) or the nested element's testid (inside the outlet).
+ */
+function RecipeDetailStub() {
+  const params = useParams()
+  return (
+    <div data-testid="recipe-detail-page">detail {params.recipeId}</div>
+  )
+}
+
 function withProviders(path: string): ReactNode {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: 0 } },
@@ -67,21 +82,14 @@ function withProviders(path: string): ReactNode {
                   <LocationProbe />
                 </>
               }
-            />
+            >
+              <Route path="recipes/:recipeId" element={<RecipeDetailStub />} />
+            </Route>
             <Route
               path="/groups/:groupId/recipes/new"
               element={
                 <>
                   <div data-testid="recipe-new-page">new</div>
-                  <LocationProbe />
-                </>
-              }
-            />
-            <Route
-              path="/groups/:groupId/recipes/:recipeId"
-              element={
-                <>
-                  <div data-testid="recipe-detail-page">detail</div>
                   <LocationProbe />
                 </>
               }
@@ -337,5 +345,91 @@ describe('<GroupDetailPage />', () => {
     expect(cogByLabel).toBeNull()
     const cogByHref = subnav.querySelector('a[href="/groups/g1/tags"]')
     expect(cogByHref).toBeNull()
+  })
+
+  // ─────────── TABLET-1 — SplitPane adoption ───────────
+
+  /**
+   * At `md:+` the page layers its contents into a <SplitPane />: the
+   * existing recipe list on the LEFT, an `<Outlet />` on the RIGHT.
+   * The presence of both landmark regions (from <SplitPane />) plus
+   * the unchanged list header is the contract.
+   */
+  it('renders the SplitPane landmark regions (Rezept-Liste + Rezept-Detail)', async () => {
+    render(withProviders('/groups/g1'))
+    await screen.findByRole('heading', { level: 1, name: 'Familie Müller' })
+    // Right pane is `hidden md:block` so jsdom keeps it in the DOM but
+    // hidden from the a11y tree; pass `hidden: true` to find it anyway.
+    expect(screen.getByRole('region', { name: /rezept-liste/i })).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: /rezept-detail/i, hidden: true }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows an empty-state prompt in the detail slot when no recipe is selected', async () => {
+    render(withProviders('/groups/g1'))
+    await screen.findByRole('heading', { level: 1, name: 'Familie Müller' })
+    const detailSlot = screen.getByRole('region', { name: /rezept-detail/i, hidden: true })
+    // German copy — verified per feedback_tdd_default.md + project
+    // language convention.
+    expect(detailSlot.textContent ?? '').toMatch(
+      /W(?:ä|ae)hle ein Rezept/i,
+    )
+  })
+
+  it('renders the nested <Outlet /> inside the detail slot when a recipe route matches', async () => {
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [schnitzel], total: 1, page: 1, pageSize: 20 }),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    const detailSlot = await screen.findByRole('region', {
+      name: /rezept-detail/i,
+      hidden: true,
+    })
+    const stub = await screen.findByTestId('recipe-detail-page')
+    expect(detailSlot.contains(stub)).toBe(true)
+    // Empty state should be gone once the outlet has content.
+    expect(detailSlot.textContent ?? '').not.toMatch(/W(?:ä|ae)hle ein Rezept/i)
+  })
+
+  /**
+   * Mobile fallback: when `useIsMobile()` reports true (viewport < md),
+   * the page drops the SplitPane entirely so the nested outlet takes
+   * over `<main>` as in the pre-TABLET-1 flow. The list is not rendered
+   * alongside (would double-mount RecipeDetailPage and re-fetch data).
+   */
+  it('at < md (matchMedia reports mobile) the outlet replaces <main>, no SplitPane', async () => {
+    const originalMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes('max-width: 767px'),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    })
+    try {
+      render(withProviders('/groups/g1/recipes/r1'))
+      expect(await screen.findByTestId('recipe-detail-page')).toBeInTheDocument()
+      // SplitPane regions are absent in mobile mode.
+      expect(screen.queryByRole('region', { name: /rezept-liste/i })).toBeNull()
+      expect(
+        screen.queryByRole('region', { name: /rezept-detail/i, hidden: true }),
+      ).toBeNull()
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      })
+    }
   })
 })

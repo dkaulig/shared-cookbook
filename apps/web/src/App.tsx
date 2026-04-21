@@ -61,7 +61,21 @@ export default function App() {
           >
             <Route path="/" element={<HomePage />} />
             <Route path="/groups" element={<GroupsPage />} />
-            <Route path="/groups/:id" element={<GroupDetailPage />} />
+            {/*
+              TABLET-1 — `GroupDetailPage` now owns the nested
+              recipes/:recipeId child route so the detail view can
+              render inside its split-pane right column at `md:+`.
+              The `/recipes/new` and `/recipes/:recipeId/edit` flows
+              stay as flat sibling routes because those are full-page
+              forms with their own top bar — they should replace
+              `<main>` entirely, not dock inside the split.
+            */}
+            <Route path="/groups/:id" element={<GroupDetailPage />}>
+              <Route
+                path="recipes/:recipeId"
+                element={<RecipeDetailPage />}
+              />
+            </Route>
             <Route path="/groups/:groupId/settings" element={<GroupSettingsPage />} />
             <Route path="/groups/:groupId/tags" element={<TagManagementPage />} />
             <Route
@@ -76,10 +90,6 @@ export default function App() {
             <Route
               path="/groups/:groupId/recipes/new"
               element={<RecipeFormPage mode="create" />}
-            />
-            <Route
-              path="/groups/:groupId/recipes/:recipeId"
-              element={<RecipeDetailPage />}
             />
             <Route
               path="/groups/:groupId/recipes/:recipeId/edit"
