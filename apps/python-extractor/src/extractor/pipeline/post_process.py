@@ -28,6 +28,7 @@ from extractor.llm.provider import TokenUsage
 from extractor.pipeline.types import (
     ConfidenceLevel,
     EmptyReason,
+    ExtractedComponent,
     ExtractedIngredient,
     ExtractedRecipe,
     ExtractedStep,
@@ -38,6 +39,13 @@ from extractor.pipeline.types import (
     NutritionEstimate,
     StepConfidenceLevel,
 )
+
+# COMP-1 — component label cap. The label renders on the detail page so
+# a hostile LLM must not be able to emit a long free-form string that
+# pokes at the frontend renderer. 50 chars mirrors the tag-name cap and
+# the JSON schema's component.label.maxLength — keeping the three
+# numbers aligned guards against drift.
+_COMPONENT_LABEL_MAX: int = 50
 
 _SERVINGS_MIN: int = 1
 _SERVINGS_MAX: int = 20
@@ -191,29 +199,34 @@ def post_process(
     raw_servings = llm_output.get("servings")
     servings = _clamp_servings(raw_servings)
 
-    ingredients: list[ExtractedIngredient] = []
-    for raw in llm_output.get("ingredients") or []:
-        if not isinstance(raw, dict):
-            continue
-        ingredient = _normalise_ingredient(raw)
-        if ingredient is not None:
-            ingredients.append(ingredient)
+    # COMP-1 — normalise the nested components array. The helper
+    # - drops malformed entries,
+    # - renumbers positions to [0, 1, 2, ...] in LLM-emitted position order,
+    # - dedupes by trimmed label (first-position wins; nulls stay
+    #   independent so two unlabelled sub-recipes survive),
+    # - normalises each component's own ingredients + steps (incl. the
+    #   per-component step-position renumbering that the pre-COMP-1
+    #   code did globally),
+    # - substitutes a single default ``{label: None, position: 0,
+    #   ingredients: [], steps: []}`` when the LLM emitted zero so the
+    #   .NET side's COMP-0 domain invariant (≥1 component per recipe)
+    #   is satisfied.
+    components = _normalise_components(llm_output.get("components"))
 
-    steps: list[ExtractedStep] = []
-    for raw in llm_output.get("steps") or []:
-        if not isinstance(raw, dict):
-            continue
-        step = _normalise_step(raw)
-        if step is not None:
-            steps.append(step)
-    # Reviewer-mandated normalisation: positions must be 1..N in input
-    # order even when the LLM returns gaps ([1, 3, 5]) or mis-ordered
-    # values ([3, 1, 2]). The frontend uses `position` as a React key
-    # and a display label; gaps produce missing "Schritt 2" headers and
-    # duplicates collide in keyed lists. Input order is authoritative —
-    # the LLM's position field is advisory only.
-    for index, step in enumerate(steps, start=1):
-        step["position"] = index
+    # BUG-022 + BUG-028 — the description guards compare against the
+    # first step's content and scan for mass leaks. Components scope
+    # both: the pre-COMP-1 code used ``steps[0]`` / ``ingredients`` at
+    # the top level. For COMP-1 we use the FIRST step across components
+    # (in component order) as the "first step" analogue, and the flat
+    # union of all components' ingredients for the mass-leak scan.
+    all_steps = [step for c in components for step in c["steps"]]
+    all_ingredients = [ing for c in components for ing in c["ingredients"]]
+    description = _normalise_description(_optional_str(llm_output.get("description")), all_steps)
+    # Mass-leak guard may downgrade confidence on ingredients in any
+    # component. Re-distribute the flagged flat list back into the
+    # component structure in input order.
+    flagged = _flag_mass_leak_in_description(description, all_ingredients)
+    components = _redistribute_ingredients(components, flagged)
 
     tags = _normalise_tags(llm_output.get("tags") or [])
 
@@ -224,13 +237,6 @@ def post_process(
 
     nutrition_estimate = _normalise_nutrition_estimate(llm_output.get("nutrition_estimate"))
 
-    # BUG-022 + BUG-028 — two defensive guards on the description field
-    # plus the surrounding ingredients. The dedupe (BUG-022) runs first so
-    # the mass-leak scan (BUG-028) never re-acts to a description that's
-    # about to be dropped anyway.
-    description = _normalise_description(_optional_str(llm_output.get("description")), steps)
-    ingredients = _flag_mass_leak_in_description(description, ingredients)
-
     recipe: ExtractedRecipe = {
         "title": str(llm_output.get("title") or "Unbenanntes Rezept"),
         "description": description,
@@ -238,8 +244,7 @@ def post_process(
         "difficulty": _optional_int(llm_output.get("difficulty")),
         "prep_minutes": _optional_int(llm_output.get("prep_minutes")),
         "cook_minutes": _optional_int(llm_output.get("cook_minutes")),
-        "ingredients": ingredients,
-        "steps": steps,
+        "components": components,
         "tags": tags,
         "source_url": original_url,
         "thumbnail_url": thumbnail_url,
@@ -247,8 +252,10 @@ def post_process(
     }
 
     notes: list[str] = list(extra_notes) if extra_notes else []
+    all_steps_after_flag = [step for c in components for step in c["steps"]]
+    all_ingredients_after_flag = [ing for c in components for ing in c["ingredients"]]
     confidence: ExtractionConfidence = {
-        "overall": _aggregate_confidence(ingredients, steps),
+        "overall": _aggregate_confidence(all_ingredients_after_flag, all_steps_after_flag),
         "notes": notes,
     }
 
@@ -277,7 +284,13 @@ def post_process(
             "had_transcript": False,
         }
     )
-    recipe_empty: bool = len(ingredients) == 0 and len(steps) == 0
+    # COMP-1: the gate fires when ALL components have 0 ingredients
+    # AND 0 steps. The single-default (synthesised) component is empty
+    # by construction, so a zero-recipe LLM output still lands in the
+    # empty branch.
+    recipe_empty: bool = all(
+        len(c["ingredients"]) == 0 and len(c["steps"]) == 0 for c in components
+    )
     empty_reason: EmptyReason | None
     if not recipe_empty:
         empty_reason = None
@@ -307,6 +320,159 @@ def post_process(
 # ─────────────────────────────────────────────────────────────────────
 # helpers
 # ─────────────────────────────────────────────────────────────────────
+
+
+def _default_component() -> ExtractedComponent:
+    """COMP-1 — the synthesised single-default component.
+
+    Used when the LLM's payload has no ``components`` key or emits an
+    empty list. Carries ``label=None`` so the frontend renders the
+    detail page exactly as it did pre-COMP-1 (no component header).
+    """
+    return {
+        "label": None,
+        "position": 0,
+        "ingredients": [],
+        "steps": [],
+    }
+
+
+def _normalise_component_label(raw: Any) -> str | None:
+    """Trim + length-cap a component label.
+
+    - Non-strings and whitespace-only strings → ``None`` (the frontend
+      uses ``None`` as the "suppress the header" sentinel).
+    - Valid strings get ``.strip()``'d and hard-truncated to
+      :data:`_COMPONENT_LABEL_MAX` (50 chars, matches the tag-name cap).
+      Truncation is a defensive guard against a hostile LLM emitting
+      long free-form text; the JSON schema caps at the same length so
+      well-behaved LLMs never get their output rewritten.
+    """
+    if not isinstance(raw, str):
+        return None
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    if len(stripped) > _COMPONENT_LABEL_MAX:
+        return stripped[:_COMPONENT_LABEL_MAX]
+    return stripped
+
+
+def _normalise_components(raw_components: Any) -> list[ExtractedComponent]:
+    """Normalise the LLM's ``components`` array to a trustable shape.
+
+    Rules (in order):
+
+    1. Drop non-dict entries silently.
+    2. Sort by emitted ``position`` (ties stable — preserves input
+       order so the LLM's first emission wins).
+    3. Dedupe entries with the same trimmed non-null label — keep the
+       first, drop subsequent duplicates. ``label=None`` entries are
+       NOT deduped because two unlabelled components represent two
+       distinct sub-recipes.
+    4. Normalise each component's ingredients + steps using the same
+       helpers as the pre-COMP-1 flat code (drop malformed rows,
+       flag missing quantities, renumber steps 1..N within the
+       component).
+    5. Renumber positions to a contiguous 0-based sequence so the
+       backend can trust the ordering. Emitted-``position`` only
+       informs the sort; the returned values are 0, 1, 2, ….
+    6. Substitute a single default component when the result would
+       otherwise be empty (invariant: ≥1 component on every recipe).
+    """
+    entries: list[tuple[int, dict[str, Any]]] = []
+    if isinstance(raw_components, list):
+        for raw in raw_components:
+            if not isinstance(raw, dict):
+                continue
+            emitted_position = raw.get("position")
+            # Non-int positions fall to the end (sorted-stable); a bool
+            # masquerading as an int would slip through ``isinstance``
+            # so reject it explicitly.
+            if isinstance(emitted_position, int) and not isinstance(emitted_position, bool):
+                sort_key = emitted_position
+            else:
+                sort_key = 10**9  # large sentinel → sorts last
+            entries.append((sort_key, raw))
+
+    entries.sort(key=lambda pair: pair[0])
+
+    seen_labels: set[str] = set()
+    normalised: list[ExtractedComponent] = []
+    for _, raw in entries:
+        label = _normalise_component_label(raw.get("label"))
+        if label is not None:
+            if label in seen_labels:
+                # Duplicate label — drop the higher-position entry.
+                continue
+            seen_labels.add(label)
+
+        ingredients: list[ExtractedIngredient] = []
+        for raw_ing in raw.get("ingredients") or []:
+            if not isinstance(raw_ing, dict):
+                continue
+            ingredient = _normalise_ingredient(raw_ing)
+            if ingredient is not None:
+                ingredients.append(ingredient)
+
+        steps: list[ExtractedStep] = []
+        for raw_step in raw.get("steps") or []:
+            if not isinstance(raw_step, dict):
+                continue
+            step = _normalise_step(raw_step)
+            if step is not None:
+                steps.append(step)
+        # Per-component step-position renumbering — same 1..N rule as
+        # the pre-COMP-1 global pass, scoped to this component. The
+        # frontend uses ``position`` as a React key + display label, so
+        # gaps / dupes still bite even though each component has its
+        # own list now.
+        for index, step in enumerate(steps, start=1):
+            step["position"] = index
+
+        normalised.append(
+            {
+                "label": label,
+                "position": len(normalised),
+                "ingredients": ingredients,
+                "steps": steps,
+            }
+        )
+
+    if not normalised:
+        normalised.append(_default_component())
+
+    return normalised
+
+
+def _redistribute_ingredients(
+    components: list[ExtractedComponent],
+    flagged: list[ExtractedIngredient],
+) -> list[ExtractedComponent]:
+    """Map the flat mass-leak-flagged ingredient list back onto components.
+
+    :func:`_flag_mass_leak_in_description` operates on a flat ingredient
+    list (it's a BUG-028 guard from the pre-COMP-1 era and we keep its
+    signature). After it runs, we re-split the flat output along the
+    component boundaries so each component carries its own (possibly
+    downgraded) ingredients.
+
+    Invariant: ``sum(len(c.ingredients) for c in components) == len(flagged)``.
+    """
+    out: list[ExtractedComponent] = []
+    cursor = 0
+    for component in components:
+        count = len(component["ingredients"])
+        out.append(
+            {
+                "label": component["label"],
+                "position": component["position"],
+                "ingredients": flagged[cursor : cursor + count],
+                "steps": component["steps"],
+            }
+        )
+        cursor += count
+    return out
 
 
 def _clamp_servings(raw: Any) -> int | None:

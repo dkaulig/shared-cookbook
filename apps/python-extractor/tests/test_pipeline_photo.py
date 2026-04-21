@@ -13,7 +13,13 @@ from extractor.pipeline.video import ExtractionError
 
 
 def _canonical_vision_response() -> dict[str, Any]:
-    """A clean Vision-LLM reply matching PHOTO_RECIPE_SCHEMA."""
+    """A clean Vision-LLM reply matching PHOTO_RECIPE_SCHEMA.
+
+    COMP-1: ingredients + steps live inside the single default
+    component now; the photo path almost never produces multi-component
+    recipes (handwritten cards are one thing) so a single ``label=None``
+    component is the happy shape.
+    """
     return {
         "title": "Omas Kaiserschmarrn",
         "description": "Handgeschrieben, alte Familienrezept-Karte.",
@@ -21,25 +27,31 @@ def _canonical_vision_response() -> dict[str, Any]:
         "difficulty": 2,
         "prep_minutes": 15,
         "cook_minutes": 20,
-        "ingredients": [
+        "components": [
             {
-                "name": "Mehl",
-                "quantity": "250",
-                "unit": "g",
-                "note": None,
-                "confidence": "high",
-            },
-            {
-                "name": "Rosinen",
-                "quantity": "eine",
-                "unit": "Tasse",
-                "note": None,
-                "confidence": "handwritten_uncertain",
-            },
-        ],
-        "steps": [
-            {"position": 1, "content": "Teig anrühren.", "confidence": "high"},
-            {"position": 2, "content": "In Pfanne braten.", "confidence": "medium"},
+                "label": None,
+                "position": 0,
+                "ingredients": [
+                    {
+                        "name": "Mehl",
+                        "quantity": "250",
+                        "unit": "g",
+                        "note": None,
+                        "confidence": "high",
+                    },
+                    {
+                        "name": "Rosinen",
+                        "quantity": "eine",
+                        "unit": "Tasse",
+                        "note": None,
+                        "confidence": "handwritten_uncertain",
+                    },
+                ],
+                "steps": [
+                    {"position": 1, "content": "Teig anrühren.", "confidence": "high"},
+                    {"position": 2, "content": "In Pfanne braten.", "confidence": "medium"},
+                ],
+            }
         ],
         "tags": ["dessert", "klassiker"],
         "source_url": "photos://upload",
@@ -253,7 +265,9 @@ async def test_extract_from_photos_preserves_handwritten_uncertain_confidence() 
     )
     # The second ingredient in the canonical response is
     # handwritten_uncertain + has a quantity → post-process keeps it.
-    rosinen = next(i for i in result["recipe"]["ingredients"] if i["name"] == "Rosinen")
+    # COMP-1: ingredients now live inside the default component.
+    all_ingredients = [ing for c in result["recipe"]["components"] for ing in c["ingredients"]]
+    rosinen = next(i for i in all_ingredients if i["name"] == "Rosinen")
     assert rosinen["confidence"] == "handwritten_uncertain"
     # Old German unit preserved — no metric conversion at the pipeline layer.
     assert rosinen["unit"] == "Tasse"
@@ -264,7 +278,8 @@ async def test_extract_from_photos_renumbers_step_positions() -> None:
     """Post-process normalises positions to 1..N in input order — the
     shared rule from the URL pipeline applies here too."""
     response = _canonical_vision_response()
-    response["steps"] = [
+    # COMP-1: steps live inside the single default component.
+    response["components"][0]["steps"] = [
         {"position": 7, "content": "Schritt A.", "confidence": "high"},
         {"position": 3, "content": "Schritt B.", "confidence": "high"},
         {"position": 9, "content": "Schritt C.", "confidence": "medium"},
@@ -274,7 +289,8 @@ async def test_extract_from_photos_renumbers_step_positions() -> None:
         ["https://example.com/a.jpg"],
         provider=provider,
     )
-    positions = [step["position"] for step in result["recipe"]["steps"]]
+    all_steps = [step for c in result["recipe"]["components"] for step in c["steps"]]
+    positions = [step["position"] for step in all_steps]
     assert positions == [1, 2, 3]
 
 
@@ -296,7 +312,8 @@ async def test_extract_from_photos_defaults_to_missing_when_quantity_blank() -> 
     """Post-process rule applies: no quantity → confidence='missing'
     regardless of what the Vision-LLM claimed."""
     response = _canonical_vision_response()
-    response["ingredients"] = [
+    # COMP-1: ingredients live inside the single default component.
+    response["components"][0]["ingredients"] = [
         {
             "name": "Eine Prise Salz",
             "quantity": None,
@@ -311,7 +328,8 @@ async def test_extract_from_photos_defaults_to_missing_when_quantity_blank() -> 
         ["https://example.com/a.jpg"],
         provider=provider,
     )
-    assert result["recipe"]["ingredients"][0]["confidence"] == "missing"
+    all_ingredients = [ing for c in result["recipe"]["components"] for ing in c["ingredients"]]
+    assert all_ingredients[0]["confidence"] == "missing"
 
 
 async def test_extract_from_photos_attaches_usage_to_result() -> None:

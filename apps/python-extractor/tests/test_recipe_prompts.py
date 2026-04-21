@@ -32,8 +32,24 @@ def test_recipe_schema_is_valid_json_schema() -> None:
     jsonschema.Draft202012Validator.check_schema(RECIPE_SCHEMA)
 
 
+def _default_component(
+    *,
+    label: str | None = None,
+    position: int = 0,
+    ingredients: list[dict[str, Any]] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Helper — builds a valid component object for fixture payloads."""
+    return {
+        "label": label,
+        "position": position,
+        "ingredients": ingredients if ingredients is not None else [],
+        "steps": steps if steps is not None else [],
+    }
+
+
 def test_recipe_schema_accepts_minimal_valid_payload() -> None:
-    """A payload with just the required fields validates cleanly."""
+    """A payload with just the required fields + one default component validates."""
     payload: dict[str, Any] = {
         "title": "Einfaches Rezept",
         "description": None,
@@ -41,8 +57,7 @@ def test_recipe_schema_accepts_minimal_valid_payload() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/rezept",
         "thumbnail_url": None,
@@ -59,8 +74,7 @@ def test_recipe_schema_rejects_missing_title() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/rezept",
         "thumbnail_url": None,
@@ -79,8 +93,7 @@ def test_recipe_schema_rejects_extra_top_level_properties() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/rezept",
         "thumbnail_url": None,
@@ -92,7 +105,8 @@ def test_recipe_schema_rejects_extra_top_level_properties() -> None:
 
 
 def test_recipe_schema_validates_full_payload() -> None:
-    """Fully populated payload validates."""
+    """Fully populated payload validates — components carry the
+    ingredient + step arrays that used to be top-level."""
     payload = {
         "title": "Kaiserschmarrn",
         "description": "Österreichischer Klassiker.",
@@ -100,25 +114,29 @@ def test_recipe_schema_validates_full_payload() -> None:
         "difficulty": 2,
         "prep_minutes": 10,
         "cook_minutes": 15,
-        "ingredients": [
-            {
-                "name": "Mehl",
-                "quantity": "250",
-                "unit": "g",
-                "note": None,
-                "confidence": "high",
-            },
-            {
-                "name": "Rosinen",
-                "quantity": None,
-                "unit": None,
-                "note": "nach Geschmack",
-                "confidence": "missing",
-            },
-        ],
-        "steps": [
-            {"position": 1, "content": "Teig anrühren.", "confidence": "high"},
-            {"position": 2, "content": "In der Pfanne braten.", "confidence": "medium"},
+        "components": [
+            _default_component(
+                ingredients=[
+                    {
+                        "name": "Mehl",
+                        "quantity": "250",
+                        "unit": "g",
+                        "note": None,
+                        "confidence": "high",
+                    },
+                    {
+                        "name": "Rosinen",
+                        "quantity": None,
+                        "unit": None,
+                        "note": "nach Geschmack",
+                        "confidence": "missing",
+                    },
+                ],
+                steps=[
+                    {"position": 1, "content": "Teig anrühren.", "confidence": "high"},
+                    {"position": 2, "content": "In der Pfanne braten.", "confidence": "medium"},
+                ],
+            )
         ],
         "tags": ["dessert", "süß", "klassiker"],
         "source_url": "https://example.com/kaiserschmarrn",
@@ -137,8 +155,11 @@ def test_recipe_schema_rejects_invalid_confidence_level() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [{"position": 1, "content": "do stuff", "confidence": "bogus"}],
+        "components": [
+            _default_component(
+                steps=[{"position": 1, "content": "do stuff", "confidence": "bogus"}],
+            )
+        ],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
@@ -157,15 +178,221 @@ def test_recipe_schema_rejects_ingredient_without_name() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
+        "components": [
+            _default_component(
+                ingredients=[
+                    {
+                        "quantity": "1",
+                        "unit": "Stk",
+                        "note": None,
+                        "confidence": "high",
+                    }
+                ],
+            )
+        ],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# COMP-1 — nested components schema
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_recipe_schema_rejects_legacy_flat_ingredients() -> None:
+    """COMP-1 — the pre-components flat ``ingredients`` / ``steps`` shape
+    is gone. A payload with top-level ``ingredients`` fails validation
+    via ``additionalProperties: false`` so the migration is enforced at
+    the schema boundary, not left to runtime parsing errors.
+    """
+    payload: dict[str, Any] = {
+        "title": "Einfaches Rezept",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
         "ingredients": [
             {
-                "quantity": "1",
-                "unit": "Stk",
+                "name": "Mehl",
+                "quantity": "250",
+                "unit": "g",
                 "note": None,
                 "confidence": "high",
             }
         ],
         "steps": [],
+        "tags": [],
+        "source_url": "https://example.com/rezept",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_rejects_zero_components() -> None:
+    """COMP-1 — at least one component is required (``minItems: 1``).
+
+    The LLM may emit zero; the post-processor substitutes a default in
+    that case. The schema still bounds the direct LLM output to the
+    happy shape so a drifted prompt is caught at the structured-output
+    boundary.
+    """
+    payload: dict[str, Any] = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "components": [],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_accepts_two_labelled_components() -> None:
+    """COMP-1 — multi-part recipes: two labelled components each with
+    their own ingredients + steps. Quesadilla + Chipotle Sauce."""
+    payload: dict[str, Any] = {
+        "title": "Honey Chipotle Quesadilla",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "components": [
+            _default_component(
+                label="Chipotle Sauce",
+                position=0,
+                ingredients=[
+                    {
+                        "name": "Chipotle",
+                        "quantity": "2",
+                        "unit": "EL",
+                        "note": None,
+                        "confidence": "high",
+                    }
+                ],
+                steps=[
+                    {
+                        "position": 1,
+                        "content": "Chipotle verrühren.",
+                        "confidence": "high",
+                    }
+                ],
+            ),
+            _default_component(
+                label="Quesadilla",
+                position=1,
+                ingredients=[
+                    {
+                        "name": "Tortilla",
+                        "quantity": "2",
+                        "unit": "Stück",
+                        "note": None,
+                        "confidence": "high",
+                    }
+                ],
+                steps=[
+                    {
+                        "position": 1,
+                        "content": "Tortillas in der Pfanne anbraten.",
+                        "confidence": "high",
+                    }
+                ],
+            ),
+        ],
+        "tags": [],
+        "source_url": "https://example.com/q",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_accepts_null_component_label() -> None:
+    """COMP-1 — the default single-component recipe has ``label=None``
+    and must validate. This is the happy path for simple recipes that
+    get one synthesised default component by the post-processor."""
+    payload: dict[str, Any] = {
+        "title": "Simple",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "components": [
+            _default_component(label=None, position=0),
+        ],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_rejects_component_missing_position() -> None:
+    """Every component must carry ``position`` — the schema enforces it
+    so a drifted LLM emitting unordered components is caught at the
+    boundary."""
+    payload: dict[str, Any] = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "components": [
+            {
+                "label": None,
+                # position missing
+                "ingredients": [],
+                "steps": [],
+            }
+        ],
+        "tags": [],
+        "source_url": "https://example.com/x",
+        "thumbnail_url": None,
+        "nutrition_estimate": None,
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
+
+
+def test_recipe_schema_rejects_component_with_extra_property() -> None:
+    """``additionalProperties: false`` at the component level blocks drift.
+
+    A future field (colour chip, icon) must be added explicitly to the
+    schema; an un-declared key on the component fails validation.
+    """
+    payload: dict[str, Any] = {
+        "title": "X",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "components": [
+            {
+                "label": None,
+                "position": 0,
+                "ingredients": [],
+                "steps": [],
+                "bogus": "nope",
+            }
+        ],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
@@ -251,8 +478,7 @@ def test_recipe_schema_accepts_nutrition_estimate_payload() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
@@ -275,8 +501,7 @@ def test_recipe_schema_accepts_null_nutrition_estimate() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
@@ -297,8 +522,7 @@ def test_recipe_schema_rejects_missing_nutrition_estimate() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
@@ -333,8 +557,7 @@ def test_recipe_schema_rejects_nutrition_with_extra_field() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
@@ -359,8 +582,7 @@ def test_recipe_schema_rejects_nutrition_with_missing_required_field() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
@@ -449,3 +671,32 @@ def test_system_prompt_includes_imperial_to_metric_conversion() -> None:
     # Grep for the imperial units + their conversions in close proximity.
     for token in ("oz", "cup", "tbsp", "tsp", "clove", "Zehe"):
         assert token in SYSTEM_PROMPT_DE, f"prompt missing token {token!r}"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# COMP-1 — component grouping directive
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_system_prompt_teaches_component_grouping() -> None:
+    """COMP-1: the system prompt must instruct the LLM to split multi-
+    part sources into ``components`` with a ``label`` per sub-recipe,
+    and to fall back to a single ``label: null`` component when the
+    source has only one recipe block. This is the mechanical hook the
+    LLM uses to detect "Ingredients (Sauce):" headers in FB-reel
+    captions. Pinned as a regression guard so a future edit that drops
+    the paragraph surfaces in CI.
+    """
+    assert "components" in SYSTEM_PROMPT_DE, (
+        "the prompt must name the `components` field so the LLM emits the nested shape"
+    )
+    # The key concept: a German term for "label" (name/Überschrift) and
+    # the directive to fall back to a single null-labeled default.
+    lowered = SYSTEM_PROMPT_DE.lower()
+    assert "label" in lowered
+    # Fallback directive: the single-default component for simple recipes.
+    assert (
+        "label: null" in SYSTEM_PROMPT_DE
+        or "label=null" in SYSTEM_PROMPT_DE
+        or '"label": null' in SYSTEM_PROMPT_DE
+    )

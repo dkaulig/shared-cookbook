@@ -29,6 +29,7 @@ from extractor.pipeline.video import (
 
 
 def _canonical_response() -> dict[str, Any]:
+    """COMP-1: ingredients + steps live inside a single default component."""
     return {
         "title": "Lachsfilet",
         "description": None,
@@ -36,16 +37,24 @@ def _canonical_response() -> dict[str, Any]:
         "difficulty": None,
         "prep_minutes": 5,
         "cook_minutes": 12,
-        "ingredients": [
+        "components": [
             {
-                "name": "Lachs",
-                "quantity": "400",
-                "unit": "g",
-                "note": None,
-                "confidence": "high",
+                "label": None,
+                "position": 0,
+                "ingredients": [
+                    {
+                        "name": "Lachs",
+                        "quantity": "400",
+                        "unit": "g",
+                        "note": None,
+                        "confidence": "high",
+                    }
+                ],
+                "steps": [
+                    {"position": 1, "content": "Ofen vorheizen.", "confidence": "high"},
+                ],
             }
         ],
-        "steps": [{"position": 1, "content": "Ofen vorheizen.", "confidence": "high"}],
         "tags": ["fisch"],
         "source_url": "https://llm.example",
         "thumbnail_url": None,

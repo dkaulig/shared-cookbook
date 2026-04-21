@@ -94,6 +94,24 @@ def test_photo_recipe_schema_is_valid_json_schema() -> None:
     jsonschema.Draft202012Validator.check_schema(PHOTO_RECIPE_SCHEMA)
 
 
+def _photo_default_component(
+    *,
+    ingredients: list[dict[str, Any]] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """COMP-1 test helper — a default component for the photo schema.
+
+    Mirrors the helper in ``test_recipe_prompts.py``; lives here as a
+    local copy so the photo tests stay import-independent.
+    """
+    return {
+        "label": None,
+        "position": 0,
+        "ingredients": ingredients if ingredients is not None else [],
+        "steps": steps if steps is not None else [],
+    }
+
+
 def test_photo_recipe_schema_accepts_minimal_payload() -> None:
     payload: dict[str, Any] = {
         "title": "Omas Kaiserschmarrn",
@@ -102,8 +120,7 @@ def test_photo_recipe_schema_accepts_minimal_payload() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_photo_default_component()],
         "tags": [],
         "source_url": "photos://upload",
         "thumbnail_url": None,
@@ -123,16 +140,19 @@ def test_photo_recipe_schema_accepts_handwritten_uncertain_ingredient() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [
-            {
-                "name": "Rosinen",
-                "quantity": "eine",
-                "unit": "Tasse",
-                "note": None,
-                "confidence": "handwritten_uncertain",
-            }
+        "components": [
+            _photo_default_component(
+                ingredients=[
+                    {
+                        "name": "Rosinen",
+                        "quantity": "eine",
+                        "unit": "Tasse",
+                        "note": None,
+                        "confidence": "handwritten_uncertain",
+                    }
+                ],
+            )
         ],
-        "steps": [],
         "tags": [],
         "source_url": "photos://upload",
         "thumbnail_url": None,
@@ -151,13 +171,16 @@ def test_photo_recipe_schema_accepts_handwritten_uncertain_step() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [
-            {
-                "position": 1,
-                "content": "Teig kurz ruhen lassen (unleserlich).",
-                "confidence": "handwritten_uncertain",
-            }
+        "components": [
+            _photo_default_component(
+                steps=[
+                    {
+                        "position": 1,
+                        "content": "Teig kurz ruhen lassen (unleserlich).",
+                        "confidence": "handwritten_uncertain",
+                    }
+                ],
+            )
         ],
         "tags": [],
         "source_url": "photos://upload",
@@ -177,17 +200,21 @@ def test_photo_recipe_schema_still_accepts_classic_confidences() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [
-            {
-                "name": "Mehl",
-                "quantity": "250",
-                "unit": "g",
-                "note": None,
-                "confidence": "high",
-            },
-        ],
-        "steps": [
-            {"position": 1, "content": "Teig kneten.", "confidence": "medium"},
+        "components": [
+            _photo_default_component(
+                ingredients=[
+                    {
+                        "name": "Mehl",
+                        "quantity": "250",
+                        "unit": "g",
+                        "note": None,
+                        "confidence": "high",
+                    },
+                ],
+                steps=[
+                    {"position": 1, "content": "Teig kneten.", "confidence": "medium"},
+                ],
+            )
         ],
         "tags": [],
         "source_url": "photos://upload",
@@ -207,9 +234,12 @@ def test_photo_recipe_schema_rejects_bogus_confidence() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [
-            {"position": 1, "content": "X", "confidence": "kaputt"},
+        "components": [
+            _photo_default_component(
+                steps=[
+                    {"position": 1, "content": "X", "confidence": "kaputt"},
+                ],
+            )
         ],
         "tags": [],
         "source_url": "photos://upload",
@@ -229,8 +259,7 @@ def test_photo_recipe_schema_rejects_extra_properties() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_photo_default_component()],
         "tags": [],
         "source_url": "photos://upload",
         "thumbnail_url": None,
@@ -252,8 +281,7 @@ def test_photo_recipe_schema_accepts_nutrition_estimate_payload() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [],
-        "steps": [],
+        "components": [_photo_default_component()],
         "tags": [],
         "source_url": "photos://upload",
         "thumbnail_url": None,
@@ -356,16 +384,22 @@ def test_photo_recipe_schema_does_not_mutate_base_recipe_schema() -> None:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [
+        "components": [
             {
-                "name": "X",
-                "quantity": None,
-                "unit": None,
-                "note": None,
-                "confidence": "handwritten_uncertain",
+                "label": None,
+                "position": 0,
+                "ingredients": [
+                    {
+                        "name": "X",
+                        "quantity": None,
+                        "unit": None,
+                        "note": None,
+                        "confidence": "handwritten_uncertain",
+                    }
+                ],
+                "steps": [],
             }
         ],
-        "steps": [],
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,

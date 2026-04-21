@@ -18,6 +18,7 @@ from extractor.main import create_app, get_llm_provider
 
 
 def _canonical_vision_response() -> dict[str, Any]:
+    """COMP-1: ingredients + steps live inside a single default component."""
     return {
         "title": "Omas Apfelkuchen",
         "description": None,
@@ -25,25 +26,31 @@ def _canonical_vision_response() -> dict[str, Any]:
         "difficulty": 2,
         "prep_minutes": 20,
         "cook_minutes": 60,
-        "ingredients": [
+        "components": [
             {
-                "name": "Äpfel",
-                "quantity": "5",
-                "unit": "Stück",
-                "note": None,
-                "confidence": "high",
-            },
-            {
-                "name": "Zimt",
-                "quantity": "eine",
-                "unit": "Prise",
-                "note": None,
-                "confidence": "handwritten_uncertain",
-            },
-        ],
-        "steps": [
-            {"position": 1, "content": "Äpfel schälen.", "confidence": "high"},
-            {"position": 2, "content": "Teig anrühren.", "confidence": "high"},
+                "label": None,
+                "position": 0,
+                "ingredients": [
+                    {
+                        "name": "Äpfel",
+                        "quantity": "5",
+                        "unit": "Stück",
+                        "note": None,
+                        "confidence": "high",
+                    },
+                    {
+                        "name": "Zimt",
+                        "quantity": "eine",
+                        "unit": "Prise",
+                        "note": None,
+                        "confidence": "handwritten_uncertain",
+                    },
+                ],
+                "steps": [
+                    {"position": 1, "content": "Äpfel schälen.", "confidence": "high"},
+                    {"position": 2, "content": "Teig anrühren.", "confidence": "high"},
+                ],
+            }
         ],
         "tags": ["kuchen", "backen"],
         "source_url": "photos://llm-hallucinated",
@@ -158,8 +165,10 @@ def test_post_extract_photos_returns_200_for_single_photo() -> None:
     # LLM's fabricated URL was overridden.
     assert body["recipe"]["source_url"] == "photos://upload"
     # The multi-ingredient confidence bag contains the
-    # handwritten_uncertain flag, unchanged.
-    confidences = {i["confidence"] for i in body["recipe"]["ingredients"]}
+    # handwritten_uncertain flag, unchanged. COMP-1: ingredients live
+    # inside the default component.
+    all_ingredients = [ing for c in body["recipe"]["components"] for ing in c["ingredients"]]
+    confidences = {i["confidence"] for i in all_ingredients}
     assert "handwritten_uncertain" in confidences
     assert provider.calls == 1
     # PF2 — the .NET job reads these headers off the response to

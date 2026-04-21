@@ -69,6 +69,42 @@ _NUTRITION_ESTIMATE_SCHEMA: Final[dict[str, Any]] = {
     },
 }
 
+# COMP-1: per-component sub-recipe schema. Ingredients + steps live
+# inside a component so the LLM can split FB-reel captions with
+# "Ingredients (Sauce):" headers into multiple logical sub-recipes
+# rather than flattening them into one long linear list.
+#
+# - ``label`` — human-readable name ("Chipotle Sauce", "Teig"). ``null``
+#   for the default single-component variant of simple recipes; the
+#   frontend suppresses the header in that case so the detail page
+#   renders identically to the pre-COMP-1 UI.
+# - ``position`` — 0-based, the post-processor renumbers to a contiguous
+#   sequence so gaps / reorderings from the LLM don't break React keys.
+# - ``ingredients`` / ``steps`` — same shapes as the pre-COMP-1 top-level
+#   arrays, just nested under the component. No per-component metadata
+#   beyond ``label`` is modelled — the design doc keeps the schema tight
+#   and leaves future fields (colour chip, scalable flag) for a later
+#   slice.
+_COMPONENT_SCHEMA: Final[dict[str, Any]] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["label", "position", "ingredients", "steps"],
+    "properties": {
+        "label": {"type": ["string", "null"], "maxLength": 50},
+        "position": {"type": "integer", "minimum": 0, "maximum": 20},
+        "ingredients": {
+            "type": "array",
+            "items": _INGREDIENT_SCHEMA,
+            "maxItems": 100,
+        },
+        "steps": {
+            "type": "array",
+            "items": _STEP_SCHEMA,
+            "maxItems": 30,
+        },
+    },
+}
+
 RECIPE_SCHEMA: Final[dict[str, Any]] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -80,8 +116,7 @@ RECIPE_SCHEMA: Final[dict[str, Any]] = {
         "difficulty",
         "prep_minutes",
         "cook_minutes",
-        "ingredients",
-        "steps",
+        "components",
         "tags",
         "source_url",
         "thumbnail_url",
@@ -97,15 +132,18 @@ RECIPE_SCHEMA: Final[dict[str, Any]] = {
         "difficulty": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
         "prep_minutes": {"type": ["integer", "null"], "minimum": 0, "maximum": 1440},
         "cook_minutes": {"type": ["integer", "null"], "minimum": 0, "maximum": 1440},
-        "ingredients": {
+        # COMP-1: nested components replaced the pre-COMP-1 flat
+        # ``ingredients`` / ``steps`` top-level arrays. ``minItems: 1``
+        # so the LLM cannot emit a recipe-shaped envelope with zero
+        # components (the post-processor substitutes a default if the
+        # LLM slips through the schema via a retry path). The 20 cap
+        # matches the position-max — a real recipe with more than 20
+        # sub-recipes is almost certainly an LLM-hallucinated outline.
+        "components": {
             "type": "array",
-            "items": _INGREDIENT_SCHEMA,
-            "maxItems": 100,
-        },
-        "steps": {
-            "type": "array",
-            "items": _STEP_SCHEMA,
-            "maxItems": 30,
+            "items": _COMPONENT_SCHEMA,
+            "minItems": 1,
+            "maxItems": 20,
         },
         "tags": {
             "type": "array",
@@ -159,6 +197,11 @@ SYSTEM_PROMPT_DE: Final[str] = (
     "1 piece = 1 Stück. "
     'Gib ausschließlich die umgerechnete Einheit zurück — niemals "oz", '
     '"cup", "tbsp" etc. im Output. '
+    "Falls die Quelle sichtbar mehrere Rezept-Blöcke hat (z.B. "
+    "'Ingredients (Sauce)' oder 'For the Main:'), zerlege das Rezept in "
+    "mehrere `components` mit dem jeweiligen `label`. Andernfalls gib "
+    "genau eine Komponente mit `label: null` zurück, die alle Zutaten "
+    "und Schritte enthält. "
     "Schätze pro Portion die Nährwerte (kcal, protein_g, carbs_g, "
     "fat_g) als ganze Zahlen und gib sie im Feld `nutrition_estimate` "
     "zurück. Die Werte beziehen sich auf EINE Portion (nicht das ganze "

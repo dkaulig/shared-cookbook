@@ -140,6 +140,30 @@ class NutritionEstimate(TypedDict):
     fat_g: int
 
 
+class ExtractedComponent(TypedDict):
+    """One sub-recipe grouping ("Chipotle Sauce", "Teig", …).
+
+    Introduced by COMP-1 to model multi-part recipes (FB-reel captions
+    frequently split ingredients + steps under headers like "Ingredients
+    (Sauce):"). Every :class:`ExtractedRecipe` carries at least one
+    component; simple recipes get a single default with ``label=None``.
+
+    - ``label`` — human-readable name of the sub-recipe. ``None`` for the
+      default component of a single-part recipe (the frontend suppresses
+      the header in that case — detail page renders like today).
+    - ``position`` — 0-based, unique within the recipe. Post-process
+      renumbers to ``[0, 1, 2, ...]`` regardless of what the LLM emitted
+      so the backend can trust the ordering.
+    - ``ingredients`` / ``steps`` — scoped to this component. Shapes are
+      unchanged from the pre-COMP-1 flat arrays.
+    """
+
+    label: str | None
+    position: int
+    ingredients: list[ExtractedIngredient]
+    steps: list[ExtractedStep]
+
+
 class ExtractedRecipe(TypedDict):
     """The structured recipe payload.
 
@@ -150,6 +174,12 @@ class ExtractedRecipe(TypedDict):
     ``nutrition_estimate`` is the P2-10 addition. ``None`` means the LLM
     did not provide an estimate — the frontend hides the Nährwerte
     section entirely in that case.
+
+    COMP-1: the flat ``ingredients`` / ``steps`` arrays moved into
+    :class:`ExtractedComponent` entries on the new ``components`` array.
+    Every recipe carries at least one component — simple recipes get a
+    single default with ``label=None``; multi-part recipes split by the
+    captions visible headers.
     """
 
     title: str
@@ -158,8 +188,7 @@ class ExtractedRecipe(TypedDict):
     difficulty: int | None
     prep_minutes: int | None
     cook_minutes: int | None
-    ingredients: list[ExtractedIngredient]
-    steps: list[ExtractedStep]
+    components: list[ExtractedComponent]
     tags: list[str]
     source_url: str
     thumbnail_url: str | None
@@ -249,6 +278,7 @@ __all__ = [
     "STEP_CONFIDENCE_LEVELS",
     "ConfidenceLevel",
     "EmptyReason",
+    "ExtractedComponent",
     "ExtractedIngredient",
     "ExtractedRecipe",
     "ExtractedStep",

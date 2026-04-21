@@ -12,6 +12,8 @@ defensive — keeps us honest even if the LLM mis-behaves:
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from extractor.pipeline.post_process import (
@@ -22,7 +24,8 @@ from extractor.pipeline.post_process import (
 
 
 def _base_recipe_dict() -> dict[str, object]:
-    """Minimal LLM response dict — one ingredient, one step, one tag."""
+    """Minimal LLM response dict — one default component carrying one
+    ingredient, one step, one tag. COMP-1 nested shape."""
     return {
         "title": "Apfelmus",
         "description": None,
@@ -30,20 +33,69 @@ def _base_recipe_dict() -> dict[str, object]:
         "difficulty": None,
         "prep_minutes": None,
         "cook_minutes": None,
-        "ingredients": [
+        "components": [
             {
-                "name": "Äpfel",
-                "quantity": "1",
-                "unit": "kg",
-                "note": None,
-                "confidence": "high",
+                "label": None,
+                "position": 0,
+                "ingredients": [
+                    {
+                        "name": "Äpfel",
+                        "quantity": "1",
+                        "unit": "kg",
+                        "note": None,
+                        "confidence": "high",
+                    }
+                ],
+                "steps": [
+                    {"position": 1, "content": "Äpfel schälen.", "confidence": "high"},
+                ],
             }
         ],
-        "steps": [{"position": 1, "content": "Äpfel schälen.", "confidence": "high"}],
         "tags": ["Dessert"],
         "source_url": "https://llm-rewrote-url.example.com",
         "thumbnail_url": None,
     }
+
+
+def _set_ingredients(data: dict[str, Any], ingredients: list[Any]) -> None:
+    """Helper: overwrite the default component's ingredient list.
+
+    COMP-1 moved ingredients under ``components[0]`` — this keeps the
+    existing tests terse: they still want to express "the LLM emitted
+    these ingredients", not thread through the nested component shape.
+    """
+    components = data["components"]
+    assert isinstance(components, list) and components, "default component missing"
+    components[0]["ingredients"] = ingredients
+
+
+def _set_steps(data: dict[str, Any], steps: list[Any]) -> None:
+    """Helper: overwrite the default component's step list."""
+    components = data["components"]
+    assert isinstance(components, list) and components, "default component missing"
+    components[0]["steps"] = steps
+
+
+def _result_ingredients(result: Any) -> list[Any]:
+    """Helper: flatten the post-processed recipe's ingredients across
+    its (normalised) components. Tests that assert on the first
+    ingredient keep the same ergonomics as the pre-COMP-1 helper.
+    """
+    components = result["recipe"]["components"]
+    out: list[Any] = []
+    for c in components:
+        out.extend(c["ingredients"])
+    return out
+
+
+def _result_steps(result: Any) -> list[Any]:
+    """Helper: flatten the post-processed recipe's steps across
+    components. Per-component ordering is preserved."""
+    components = result["recipe"]["components"]
+    out: list[Any] = []
+    for c in components:
+        out.extend(c["steps"])
+    return out
 
 
 def test_post_process_preserves_caller_source_url() -> None:
@@ -94,17 +146,20 @@ def test_post_process_flags_missing_quantities() -> None:
     """Ingredient without ``quantity`` gets confidence='missing' even if
     the LLM claimed 'high'."""
     data = _base_recipe_dict()
-    data["ingredients"] = [
-        {
-            "name": "Salz",
-            "quantity": None,
-            "unit": None,
-            "note": "nach Geschmack",
-            "confidence": "high",
-        }
-    ]
+    _set_ingredients(
+        data,
+        [
+            {
+                "name": "Salz",
+                "quantity": None,
+                "unit": None,
+                "note": "nach Geschmack",
+                "confidence": "high",
+            }
+        ],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
-    assert result["recipe"]["ingredients"][0]["confidence"] == "missing"
+    assert _result_ingredients(result)[0]["confidence"] == "missing"
 
 
 def test_post_process_keeps_ingredient_confidence_when_quantity_present() -> None:
@@ -114,7 +169,7 @@ def test_post_process_keeps_ingredient_confidence_when_quantity_present() -> Non
         original_url="https://x",
         fallback_thumbnail=None,
     )
-    assert result["recipe"]["ingredients"][0]["confidence"] == "high"
+    assert _result_ingredients(result)[0]["confidence"] == "high"
 
 
 def test_post_process_lowercases_and_dedupes_tags() -> None:
@@ -179,29 +234,32 @@ def test_post_process_forwards_extra_notes() -> None:
 def test_post_process_overall_confidence_low_when_most_missing() -> None:
     """When >= half the ingredients lack quantities, overall drops to 'low'."""
     data = _base_recipe_dict()
-    data["ingredients"] = [
-        {
-            "name": "Salz",
-            "quantity": None,
-            "unit": None,
-            "note": None,
-            "confidence": "high",
-        },
-        {
-            "name": "Pfeffer",
-            "quantity": None,
-            "unit": None,
-            "note": None,
-            "confidence": "high",
-        },
-        {
-            "name": "Öl",
-            "quantity": "2",
-            "unit": "EL",
-            "note": None,
-            "confidence": "high",
-        },
-    ]
+    _set_ingredients(
+        data,
+        [
+            {
+                "name": "Salz",
+                "quantity": None,
+                "unit": None,
+                "note": None,
+                "confidence": "high",
+            },
+            {
+                "name": "Pfeffer",
+                "quantity": None,
+                "unit": None,
+                "note": None,
+                "confidence": "high",
+            },
+            {
+                "name": "Öl",
+                "quantity": "2",
+                "unit": "EL",
+                "note": None,
+                "confidence": "high",
+            },
+        ],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
     assert result["confidence"]["overall"] == "low"
 
@@ -368,13 +426,16 @@ def test_bug022_drops_description_when_identical_to_first_step() -> None:
     """
     data = _base_recipe_dict()
     data["description"] = "Zwiebel hacken und in Butter glasig dünsten"
-    data["steps"] = [
-        {
-            "position": 1,
-            "content": "Zwiebel hacken und in Butter glasig dünsten",
-            "confidence": "high",
-        }
-    ]
+    _set_steps(
+        data,
+        [
+            {
+                "position": 1,
+                "content": "Zwiebel hacken und in Butter glasig dünsten",
+                "confidence": "high",
+            }
+        ],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
     assert result["recipe"]["description"] is None
 
@@ -383,9 +444,10 @@ def test_bug022_keeps_description_when_unrelated_to_steps() -> None:
     """A genuine summary description survives — no false-positive dedupe."""
     data = _base_recipe_dict()
     data["description"] = "Klassischer Apfelkuchen nach Oma-Rezept"
-    data["steps"] = [
-        {"position": 1, "content": "Äpfel schälen", "confidence": "high"},
-    ]
+    _set_steps(
+        data,
+        [{"position": 1, "content": "Äpfel schälen", "confidence": "high"}],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
     assert result["recipe"]["description"] == "Klassischer Apfelkuchen nach Oma-Rezept"
 
@@ -399,13 +461,16 @@ def test_bug022_borderline_similarity_threshold() -> None:
     summary they'd phrase it differently from the step instruction."""
     data = _base_recipe_dict()
     data["description"] = "Zwiebel fein hacken"
-    data["steps"] = [
-        {
-            "position": 1,
-            "content": "Zwiebel fein hacken und in Butter dünsten",
-            "confidence": "high",
-        }
-    ]
+    _set_steps(
+        data,
+        [
+            {
+                "position": 1,
+                "content": "Zwiebel fein hacken und in Butter dünsten",
+                "confidence": "high",
+            }
+        ],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
     assert result["recipe"]["description"] is None
 
@@ -422,17 +487,20 @@ def test_bug028_downgrades_confidence_when_mass_in_description() -> None:
     type-system enum doesn't include "uncertain")."""
     data = _base_recipe_dict()
     data["description"] = "ca. 500 g Fleisch dazugeben"
-    data["ingredients"] = [
-        {
-            "name": "Fleisch",
-            "quantity": None,
-            "unit": None,
-            "note": None,
-            "confidence": "high",
-        }
-    ]
+    _set_ingredients(
+        data,
+        [
+            {
+                "name": "Fleisch",
+                "quantity": None,
+                "unit": None,
+                "note": None,
+                "confidence": "high",
+            }
+        ],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
-    assert result["recipe"]["ingredients"][0]["confidence"] == "low"
+    assert _result_ingredients(result)[0]["confidence"] == "low"
 
 
 def test_bug028_does_not_downgrade_when_description_clean() -> None:
@@ -443,7 +511,7 @@ def test_bug028_does_not_downgrade_when_description_clean() -> None:
     # The base dict already has a single ingredient with quantity="1 kg"
     # confidence="high"; that's the happy-path baseline.
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
-    assert result["recipe"]["ingredients"][0]["confidence"] == "high"
+    assert _result_ingredients(result)[0]["confidence"] == "high"
 
 
 def test_bug028_skips_guard_when_description_was_deduped() -> None:
@@ -456,21 +524,27 @@ def test_bug028_skips_guard_when_description_was_deduped() -> None:
     # BUG-022 dedupe drops description before the BUG-028 guard runs.
     duplicated = "500 g Mehl in die Schüssel geben und verrühren"
     data["description"] = duplicated
-    data["steps"] = [{"position": 1, "content": duplicated, "confidence": "high"}]
-    data["ingredients"] = [
-        {
-            "name": "Mehl",
-            "quantity": None,
-            "unit": None,
-            "note": None,
-            "confidence": "high",
-        }
-    ]
+    _set_steps(
+        data,
+        [{"position": 1, "content": duplicated, "confidence": "high"}],
+    )
+    _set_ingredients(
+        data,
+        [
+            {
+                "name": "Mehl",
+                "quantity": None,
+                "unit": None,
+                "note": None,
+                "confidence": "high",
+            }
+        ],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
     assert result["recipe"]["description"] is None
     # Ingredient gets the standard `_normalise_ingredient` treatment
     # (null quantity → "missing"), NOT the BUG-028 downgrade to "low".
-    assert result["recipe"]["ingredients"][0]["confidence"] == "missing"
+    assert _result_ingredients(result)[0]["confidence"] == "missing"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -590,24 +664,27 @@ def test_post_process_imperial_ingredient_converted_end_to_end() -> None:
     headline BUG-030 user story: '16 oz Hackfleisch' from an American
     recipe blog lands as '454 g Hackfleisch' in the pipeline output."""
     data = _base_recipe_dict()
-    data["ingredients"] = [
-        {
-            "name": "Hackfleisch",
-            "quantity": "16",
-            "unit": "oz",
-            "note": None,
-            "confidence": "high",
-        },
-        {
-            "name": "Knoblauch",
-            "quantity": "4",
-            "unit": "cloves",
-            "note": None,
-            "confidence": "high",
-        },
-    ]
+    _set_ingredients(
+        data,
+        [
+            {
+                "name": "Hackfleisch",
+                "quantity": "16",
+                "unit": "oz",
+                "note": None,
+                "confidence": "high",
+            },
+            {
+                "name": "Knoblauch",
+                "quantity": "4",
+                "unit": "cloves",
+                "note": None,
+                "confidence": "high",
+            },
+        ],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
-    ingredients = result["recipe"]["ingredients"]
+    ingredients = _result_ingredients(result)
     assert ingredients[0]["quantity"] == "454"
     assert ingredients[0]["unit"] == "g"
     assert ingredients[1]["quantity"] == "4"
@@ -633,8 +710,8 @@ def test_post_process_sets_recipe_empty_when_no_ingredients_or_steps() -> None:
     couldn't extract a recipe.
     """
     data = _base_recipe_dict()
-    data["ingredients"] = []
-    data["steps"] = []
+    _set_ingredients(data, [])
+    _set_steps(data, [])
     result = post_process(
         data,
         original_url="https://x",
@@ -658,33 +735,39 @@ def test_post_process_leaves_recipe_empty_false_on_valid_recipe() -> None:
     fires.
     """
     data = _base_recipe_dict()
-    data["ingredients"] = [
-        {
-            "name": "Mehl",
-            "quantity": "500",
-            "unit": "g",
-            "note": None,
-            "confidence": "high",
-        },
-        {
-            "name": "Zucker",
-            "quantity": "100",
-            "unit": "g",
-            "note": None,
-            "confidence": "high",
-        },
-        {
-            "name": "Eier",
-            "quantity": "3",
-            "unit": "Stück",
-            "note": None,
-            "confidence": "high",
-        },
-    ]
-    data["steps"] = [
-        {"position": 1, "content": "Ofen vorheizen.", "confidence": "high"},
-        {"position": 2, "content": "Zutaten mischen.", "confidence": "high"},
-    ]
+    _set_ingredients(
+        data,
+        [
+            {
+                "name": "Mehl",
+                "quantity": "500",
+                "unit": "g",
+                "note": None,
+                "confidence": "high",
+            },
+            {
+                "name": "Zucker",
+                "quantity": "100",
+                "unit": "g",
+                "note": None,
+                "confidence": "high",
+            },
+            {
+                "name": "Eier",
+                "quantity": "3",
+                "unit": "Stück",
+                "note": None,
+                "confidence": "high",
+            },
+        ],
+    )
+    _set_steps(
+        data,
+        [
+            {"position": 1, "content": "Ofen vorheizen.", "confidence": "high"},
+            {"position": 2, "content": "Zutaten mischen.", "confidence": "high"},
+        ],
+    )
     result = post_process(data, original_url="https://x", fallback_thumbnail=None)
     assert result["recipe_empty"] is False
     assert result["empty_reason"] is None
@@ -700,23 +783,26 @@ def test_post_process_sets_recipe_empty_when_all_ingredients_dropped() -> None:
     gate silent on an effectively-empty recipe.
     """
     data = _base_recipe_dict()
-    data["ingredients"] = [
-        {
-            "name": "",  # dropped by _normalise_ingredient
-            "quantity": "1",
-            "unit": "g",
-            "note": None,
-            "confidence": "high",
-        },
-        {
-            "name": "   ",  # also dropped (whitespace-only)
-            "quantity": "2",
-            "unit": "g",
-            "note": None,
-            "confidence": "high",
-        },
-    ]
-    data["steps"] = []
+    _set_ingredients(
+        data,
+        [
+            {
+                "name": "",  # dropped by _normalise_ingredient
+                "quantity": "1",
+                "unit": "g",
+                "note": None,
+                "confidence": "high",
+            },
+            {
+                "name": "   ",  # also dropped (whitespace-only)
+                "quantity": "2",
+                "unit": "g",
+                "note": None,
+                "confidence": "high",
+            },
+        ],
+    )
+    _set_steps(data, [])
     result = post_process(
         data,
         original_url="https://x",
@@ -727,8 +813,8 @@ def test_post_process_sets_recipe_empty_when_all_ingredients_dropped() -> None:
             "had_transcript": True,
         },
     )
-    assert result["recipe"]["ingredients"] == []
-    assert result["recipe"]["steps"] == []
+    assert _result_ingredients(result) == []
+    assert _result_steps(result) == []
     assert result["recipe_empty"] is True
     assert result["empty_reason"] == "no_recipe_detected"
 
@@ -780,8 +866,8 @@ def test_post_process_empty_all_signals_false_yields_no_usable_source() -> None:
     """All three signal flags false + empty recipe → ``no_usable_source``.
     This is the FB-reel-with-no-caption-no-audio-no-blog case."""
     data = _base_recipe_dict()
-    data["ingredients"] = []
-    data["steps"] = []
+    _set_ingredients(data, [])
+    _set_steps(data, [])
     result = post_process(
         data,
         original_url="https://x",
@@ -800,8 +886,8 @@ def test_post_process_empty_with_transcript_yields_no_recipe_detected() -> None:
     """Any true signal + empty recipe → keep ``no_recipe_detected`` so
     the copy explains "the sources were there but Azure found no recipe"."""
     data = _base_recipe_dict()
-    data["ingredients"] = []
-    data["steps"] = []
+    _set_ingredients(data, [])
+    _set_steps(data, [])
     result = post_process(
         data,
         original_url="https://x",
@@ -819,8 +905,8 @@ def test_post_process_empty_with_transcript_yields_no_recipe_detected() -> None:
 def test_post_process_empty_with_blog_yields_no_recipe_detected() -> None:
     """Blog-only signal + empty recipe → ``no_recipe_detected``."""
     data = _base_recipe_dict()
-    data["ingredients"] = []
-    data["steps"] = []
+    _set_ingredients(data, [])
+    _set_steps(data, [])
     result = post_process(
         data,
         original_url="https://x",
@@ -838,8 +924,8 @@ def test_post_process_empty_with_blog_yields_no_recipe_detected() -> None:
 def test_post_process_empty_with_caption_url_yields_no_recipe_detected() -> None:
     """Caption URL signal + empty recipe → ``no_recipe_detected``."""
     data = _base_recipe_dict()
-    data["ingredients"] = []
-    data["steps"] = []
+    _set_ingredients(data, [])
+    _set_steps(data, [])
     result = post_process(
         data,
         original_url="https://x",
@@ -854,6 +940,315 @@ def test_post_process_empty_with_caption_url_yields_no_recipe_detected() -> None
     assert result["empty_reason"] == "no_recipe_detected"
 
 
+# ─────────────────────────────────────────────────────────────────────
+# COMP-1 — component normalisation
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_comp1_components_renumber_to_contiguous_positions() -> None:
+    """COMP-1: LLM emits components with gaps/reordering; post-process
+    renumbers to ``[0, 1, 2, ...]`` in LLM-emitted ``position`` order.
+
+    Sort-by-position then renumber so the frontend can trust ``position``
+    as a React key and an ordering index regardless of the LLM's output.
+    """
+    data = _base_recipe_dict()
+    data["components"] = [
+        {
+            "label": "Zweite",
+            "position": 5,
+            "ingredients": [],
+            "steps": [],
+        },
+        {
+            "label": "Erste",
+            "position": 2,
+            "ingredients": [],
+            "steps": [],
+        },
+        {
+            "label": "Dritte",
+            "position": 9,
+            "ingredients": [],
+            "steps": [],
+        },
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    # Sorted by LLM-emitted position (2 < 5 < 9) then renumbered 0..N.
+    assert [c["label"] for c in components] == ["Erste", "Zweite", "Dritte"]
+    assert [c["position"] for c in components] == [0, 1, 2]
+
+
+def test_comp1_components_dedupe_duplicate_labels_keep_lowest_position() -> None:
+    """COMP-1: LLM quirk — duplicate labels. Keep the entry with the
+    lowest emitted position; drop the higher-position duplicate. This
+    is the frequent "LLM emitted the same component twice because the
+    caption repeated the header" pattern.
+    """
+    data = _base_recipe_dict()
+    data["components"] = [
+        {
+            "label": "Sauce",
+            "position": 2,
+            "ingredients": [
+                {
+                    "name": "Second (dup)",
+                    "quantity": "1",
+                    "unit": "g",
+                    "note": None,
+                    "confidence": "high",
+                }
+            ],
+            "steps": [],
+        },
+        {
+            "label": "Sauce",
+            "position": 0,
+            "ingredients": [
+                {
+                    "name": "First (winner)",
+                    "quantity": "2",
+                    "unit": "g",
+                    "note": None,
+                    "confidence": "high",
+                }
+            ],
+            "steps": [],
+        },
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    # Dedupe keeps the first-position entry (position=0) — its
+    # ingredients survive, not the higher-position duplicate's.
+    assert len(components) == 1
+    assert components[0]["label"] == "Sauce"
+    assert components[0]["position"] == 0
+    names = [i["name"] for i in components[0]["ingredients"]]
+    assert names == ["First (winner)"]
+
+
+def test_comp1_components_dedupe_null_labels_are_independent() -> None:
+    """Dedupe keys on the trimmed label string; ``label=None`` entries
+    are NOT deduped because two unlabelled components represent two
+    distinct sub-recipes the user (or LLM) intentionally separated.
+    """
+    data = _base_recipe_dict()
+    data["components"] = [
+        {
+            "label": None,
+            "position": 0,
+            "ingredients": [],
+            "steps": [],
+        },
+        {
+            "label": None,
+            "position": 1,
+            "ingredients": [],
+            "steps": [],
+        },
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    assert len(components) == 2
+    assert [c["position"] for c in components] == [0, 1]
+
+
+def test_comp1_missing_components_key_synthesises_default_single_component() -> None:
+    """COMP-1 invariant: the response ALWAYS has at least one component.
+
+    When the LLM's payload has no ``components`` key (or an empty list),
+    post-process substitutes a single default ``{label: null, position: 0,
+    ingredients: [], steps: []}`` so the .NET side's COMP-0 domain
+    invariant (recipe has ≥ 1 RecipeComponent) is satisfied.
+    """
+    data = _base_recipe_dict()
+    del data["components"]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    assert len(components) == 1
+    assert components[0]["label"] is None
+    assert components[0]["position"] == 0
+    assert components[0]["ingredients"] == []
+    assert components[0]["steps"] == []
+
+
+def test_comp1_empty_components_list_synthesises_default() -> None:
+    """COMP-1 invariant: same default-substitution when the LLM emits an
+    explicit empty ``components`` array (schema should reject this, but
+    the retry path can hand us a zero-component blob)."""
+    data = _base_recipe_dict()
+    data["components"] = []
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    assert len(components) == 1
+    assert components[0]["label"] is None
+    assert components[0]["position"] == 0
+
+
+def test_comp1_recipe_empty_fires_when_all_components_have_no_content() -> None:
+    """COMP-1: ``recipe_empty`` fires when ALL components have 0
+    ingredients AND 0 steps — i.e. the recipe has nothing consumable.
+    Single-default case that matches pre-COMP-1 "both lists empty"
+    behaviour.
+    """
+    data = _base_recipe_dict()
+    _set_ingredients(data, [])
+    _set_steps(data, [])
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": True,
+        },
+    )
+    assert result["recipe_empty"] is True
+    assert result["empty_reason"] == "no_recipe_detected"
+
+
+def test_comp1_recipe_empty_fires_when_multi_components_all_empty() -> None:
+    """COMP-1: multi-component recipes where EVERY component is empty
+    still fire the empty gate."""
+    data = _base_recipe_dict()
+    data["components"] = [
+        {"label": "Erste", "position": 0, "ingredients": [], "steps": []},
+        {"label": "Zweite", "position": 1, "ingredients": [], "steps": []},
+    ]
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": True,
+        },
+    )
+    assert result["recipe_empty"] is True
+    assert result["empty_reason"] == "no_recipe_detected"
+
+
+def test_comp1_recipe_empty_false_when_any_component_has_content() -> None:
+    """COMP-1: if at least one component carries ingredients OR steps,
+    the recipe is not empty."""
+    data = _base_recipe_dict()
+    data["components"] = [
+        {"label": "Leere", "position": 0, "ingredients": [], "steps": []},
+        {
+            "label": "Gefüllte",
+            "position": 1,
+            "ingredients": [
+                {
+                    "name": "Mehl",
+                    "quantity": "250",
+                    "unit": "g",
+                    "note": None,
+                    "confidence": "high",
+                }
+            ],
+            "steps": [],
+        },
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["recipe_empty"] is False
+    assert result["empty_reason"] is None
+
+
+def test_comp1_default_single_component_passes_through_unchanged() -> None:
+    """A single default component (label=None, position=0, real content)
+    flows through post-process verbatim — no reorder, no dedupe, no
+    default-substitution. Happy-path pre-COMP-1 parity."""
+    data = _base_recipe_dict()
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    assert len(components) == 1
+    assert components[0]["label"] is None
+    assert components[0]["position"] == 0
+    assert len(components[0]["ingredients"]) == 1
+    assert len(components[0]["steps"]) == 1
+
+
+def test_comp1_step_positions_renumbered_per_component_independently() -> None:
+    """Step ``position`` gets renumbered 1..N within each component, not
+    across the whole recipe. Two components with out-of-order steps each
+    get their own sequential sequence.
+    """
+    data = _base_recipe_dict()
+    data["components"] = [
+        {
+            "label": "A",
+            "position": 0,
+            "ingredients": [],
+            "steps": [
+                {"position": 5, "content": "A-erster", "confidence": "high"},
+                {"position": 2, "content": "A-zweiter", "confidence": "high"},
+            ],
+        },
+        {
+            "label": "B",
+            "position": 1,
+            "ingredients": [],
+            "steps": [
+                {"position": 9, "content": "B-erster", "confidence": "high"},
+            ],
+        },
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    a_positions = [s["position"] for s in components[0]["steps"]]
+    b_positions = [s["position"] for s in components[1]["steps"]]
+    # Each component renumbers its own steps 1..N; input order preserved.
+    assert a_positions == [1, 2]
+    assert b_positions == [1]
+
+
+def test_comp1_label_trimmed_and_length_capped() -> None:
+    """Security: the component ``label`` renders on the detail page.
+    Post-process trims whitespace and caps length at 50 chars (same as
+    tag names) so a hostile LLM can't emit an HTML-looking free-form
+    string that pokes at the frontend renderer. Longer labels are hard-
+    truncated rather than dropped — losing the last few characters is
+    better UX than losing the whole component."""
+    data = _base_recipe_dict()
+    long_label = "x" * 200
+    data["components"] = [
+        {
+            "label": f"  {long_label}  ",
+            "position": 0,
+            "ingredients": [],
+            "steps": [],
+        }
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    out_label = components[0]["label"]
+    assert out_label is not None
+    # Trimmed + capped at 50.
+    assert len(out_label) == 50
+    assert out_label == "x" * 50
+
+
+def test_comp1_empty_label_string_coerced_to_null() -> None:
+    """A whitespace-only label is dropped to ``None`` — the frontend
+    suppresses component headers when label is null, so an empty string
+    would render a blank header box. ``None`` is the explicit signal."""
+    data = _base_recipe_dict()
+    data["components"] = [
+        {
+            "label": "   ",
+            "position": 0,
+            "ingredients": [],
+            "steps": [],
+        }
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    assert components[0]["label"] is None
+
+
 def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
     """Plan §2.5 post-process: step positions must be 1..N in input order
     even when the LLM returns gapped (1, 3, 5) or mis-ordered values.
@@ -862,22 +1257,28 @@ def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
     payload = {
         "title": "Rezept",
         "servings": 2,
-        "ingredients": [
-            {"name": "Mehl", "quantity": "250", "unit": "g", "confidence": "high"},
-        ],
-        "steps": [
-            {"position": 3, "content": "Dritter Schritt laut LLM.", "confidence": "high"},
-            {"position": 1, "content": "Erster Schritt laut LLM.", "confidence": "high"},
-            {"position": 7, "content": "Schritt mit Riesen-Sprung.", "confidence": "high"},
+        "components": [
+            {
+                "label": None,
+                "position": 0,
+                "ingredients": [
+                    {"name": "Mehl", "quantity": "250", "unit": "g", "confidence": "high"},
+                ],
+                "steps": [
+                    {"position": 3, "content": "Dritter Schritt laut LLM.", "confidence": "high"},
+                    {"position": 1, "content": "Erster Schritt laut LLM.", "confidence": "high"},
+                    {"position": 7, "content": "Schritt mit Riesen-Sprung.", "confidence": "high"},
+                ],
+            }
         ],
         "tags": [],
     }
     result = post_process(payload, original_url="https://x", fallback_thumbnail=None)
-    positions = [step["position"] for step in result["recipe"]["steps"]]
+    positions = [step["position"] for step in _result_steps(result)]
     # Order of iteration is preserved (input order); positions re-assigned 1..N.
     assert positions == [1, 2, 3]
     # Content pinned to input order too — a sort-by-position would break this.
-    contents = [step["content"] for step in result["recipe"]["steps"]]
+    contents = [step["content"] for step in _result_steps(result)]
     assert contents == [
         "Dritter Schritt laut LLM.",
         "Erster Schritt laut LLM.",
