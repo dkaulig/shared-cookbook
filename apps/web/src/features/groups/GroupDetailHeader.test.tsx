@@ -139,17 +139,19 @@ describe('<GroupDetailHeader />', () => {
     ).not.toBeInTheDocument()
   })
 
-  // BUG-005 regression — the overlapping avatar must stay at z-10 so the
-  // page-scoped sticky sub-nav (z-20, on GroupDetailPage) covers it
-  // while scrolling. If someone bumps this to z-20+, the avatar will
-  // start eating the back-arrow + settings-cog tap-targets again.
-  it('overlapping avatar wrapper sits at z-10 so sticky sub-nav (z-20) wins (BUG-005)', () => {
+  // BUG-043 regression — the overlapping avatar sits at z-[5]: high
+  // enough to win against the cover (no z) but LOWER than the sticky
+  // sub-nav (z-10, on GroupDetailPage) so the avatar slides behind the
+  // sub-nav on scroll-up instead of covering it. The old BUG-005 test
+  // expected z-10, which tied with the sub-nav and lost on DOM order.
+  it('overlapping avatar wrapper sits below the sticky sub-nav (BUG-043)', () => {
     render(withRouter(<GroupDetailHeader group={baseGroup} recipeCount={47} />))
     const avatar = screen.getByTestId('group-avatar-big')
-    // The avatar wrapper holds the stacking context.
     const wrap = avatar.parentElement
     expect(wrap).not.toBeNull()
-    expect(wrap?.className).toContain('z-10')
+    expect(wrap?.className).toContain('z-[5]')
+    // Guard against regression to z-10 (ties with sub-nav) or higher.
+    expect(wrap?.className).not.toMatch(/\bz-1[0-9]\b/)
     expect(wrap?.className).not.toMatch(/z-(2[0-9]|3[0-9]|4[0-9]|5[0-9])/)
   })
 })
