@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { useMarkAsCooked, useRecipe } from '../hooks'
@@ -123,6 +123,53 @@ export function CookModePage() {
     }))
     setStep(0)
   }, [])
+
+  // COOK-REV follow-up — keyboard nav per UX-invariants in the plan:
+  // ArrowRight / Space advance, ArrowLeft goes back. Active only when
+  // the bottom bar would be shown (step in [0, totalSteps]) and no
+  // form input is focused (so typing in a text field never
+  // pages the cook flow). The exit-confirm dialog owns ESC on its own;
+  // we suppress all other keys while it's open to avoid surprise nav
+  // behind the dialog.
+  //
+  // Swipe-gesture support is a future follow-up (see plan UX-invariants
+  // — mentioned together with keyboard but gesture detection is a
+  // bigger surface than what this fix lands).
+  const totalStepsForKeyboard = sortedSteps.length
+  useEffect(() => {
+    if (step < 0) return
+    if (exitDialogOpen) return
+
+    function isFormInputFocused(): boolean {
+      const el = document.activeElement as HTMLElement | null
+      if (!el) return false
+      if (el.isContentEditable) return true
+      const tag = el.tagName
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isFormInputFocused()) return
+
+      if (event.key === 'ArrowRight' || event.key === ' ' || event.key === 'Spacebar') {
+        // Next — only while the bottom-bar's next action would be active.
+        if (step < 0 || step > totalStepsForKeyboard) return
+        event.preventDefault()
+        setStep((s) => s + 1)
+        return
+      }
+
+      if (event.key === 'ArrowLeft') {
+        // Back mirrors CookBottomBar's back-disabled rule: step <= 0.
+        if (step <= 0) return
+        event.preventDefault()
+        setStep((s) => s - 1)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [step, exitDialogOpen, totalStepsForKeyboard])
 
   if (detail.isLoading) {
     return (
