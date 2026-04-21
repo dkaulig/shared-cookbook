@@ -25,12 +25,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Annotated, AsyncIterator, Final, Literal
+from typing import Annotated, Final, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Response
@@ -487,7 +488,7 @@ async def _prefetch_whisper_model() -> None:
     logger.info("whisper prefetch started")
     try:
         await asyncio.to_thread(FasterWhisperTranscriber)
-    except Exception as exc:  # noqa: BLE001 — best-effort prefetch; real call re-tries
+    except Exception as exc:
         logger.warning("whisper prefetch failed (will retry on first transcribe): %s", exc)
         return
     logger.info("whisper prefetch completed")
@@ -509,10 +510,8 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     finally:
         if not task.done():
             task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
 
 def _resolve_version() -> str:
