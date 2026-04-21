@@ -233,10 +233,22 @@ async def get_float(config: ExtractorConfig | None, key: str, default: float) ->
 
 
 async def get_str(config: ExtractorConfig | None, key: str, default: str) -> str:
-    """``config.get`` for a ``str`` key with ``None``-safety."""
+    """``config.get`` for a ``str`` key with ``None``-safety.
+
+    Placeholder-safe: the CFG-0 migration seeds string-typed prompt
+    keys with literal ``PLACEHOLDER_<KIND>_PROMPT`` strings (too short
+    to satisfy the 100-char validator, but the seed bypasses that).
+    If the DB still carries that placeholder (nothing has overwritten
+    it yet via the admin UI), we fall back to the code default — the
+    actual prompt shipped with this extractor release — so extraction
+    never runs against a dummy string.
+    """
     if config is None:
         return default
-    return await config.get(key, default)
+    value = await config.get(key, default)
+    if isinstance(value, str) and value.startswith("PLACEHOLDER_"):
+        return default
+    return value
 
 
 async def get_list(config: ExtractorConfig | None, key: str, default: list[str]) -> list[str]:
