@@ -3,6 +3,7 @@ using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
+using FamilienKochbuch.Infrastructure.Services;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 
@@ -46,18 +47,24 @@ public class ExtractRecipeFromUrlJob
     private readonly AppDbContext _db;
     private readonly PythonExtractorRunner _runner;
     private readonly ThumbnailAttacher _thumbnailAttacher;
+    private readonly IPhotoStorage _photoStorage;
     private readonly TimeProvider _clock;
+    private readonly ILogger<ExtractRecipeFromUrlJob> _logger;
 
     public ExtractRecipeFromUrlJob(
         AppDbContext db,
         PythonExtractorRunner runner,
         ThumbnailAttacher thumbnailAttacher,
-        TimeProvider clock)
+        IPhotoStorage photoStorage,
+        TimeProvider clock,
+        ILogger<ExtractRecipeFromUrlJob> logger)
     {
         _db = db;
         _runner = runner;
         _thumbnailAttacher = thumbnailAttacher;
+        _photoStorage = photoStorage;
         _clock = clock;
+        _logger = logger;
     }
 
     /// <summary>Entry point invoked by Hangfire. Public for EF's DI
@@ -247,15 +254,128 @@ public class ExtractRecipeFromUrlJob
         }
         await _db.SaveChangesAsync(ct);
 
-        // Thumbnail dedupe: only attach a fresh thumbnail if the
-        // recipe doesn't already have a photo whose stored value
-        // matches the extracted URL verbatim. Mirrors the BUG-018
-        // attacher but targets the recipe's Photos collection
-        // directly (rather than staging for frontend promote).
-        if (!string.IsNullOrWhiteSpace(parsed.ThumbnailUrl)
-            && !target.Photos.Contains(parsed.ThumbnailUrl!, StringComparer.Ordinal))
+        // BUG-048 — auto-attach the extracted thumbnail onto the target
+        // recipe's Photos. Skipped on blogs with no og:image and on a
+        // repeat reimport of the same URL.
+        //
+        // Dedupe: a previous reimport may already have promoted a
+        // StagedPhoto sourced from this same thumbnail URL. The
+        // (PromotedToRecipeId, SourceUrl) index on StagedPhoto makes
+        // the lookup cheap; if any hit exists we skip the CDN fetch
+        // entirely so a frequent reimport doesn't bloat storage with
+        // duplicate thumbnails.
+        if (string.IsNullOrWhiteSpace(parsed.ThumbnailUrl)) return;
+
+        var alreadyPromoted = await _db.StagedPhotos
+            .AsNoTracking()
+            .AnyAsync(s => s.PromotedToRecipeId == target.Id
+                && s.SourceUrl == parsed.ThumbnailUrl, ct);
+        if (alreadyPromoted) return;
+
+        var stagedId = await _thumbnailAttacher.TryAttachAsync(
+            import, import.ResultJson!, ct);
+        if (stagedId is null) return; // attacher logged the skip reason
+
+        await PromoteThumbnailOntoRecipeAsync(target, stagedId.Value, ct);
+    }
+
+    /// <summary>
+    /// BUG-048 — mirrors the create-recipe promote-flow for a staged
+    /// photo the attacher just produced during a reimport. Copies the
+    /// blob into the recipe namespace, appends the destination path to
+    /// <see cref="Recipe.Photos"/>, marks the <see cref="StagedPhoto"/>
+    /// as promoted, and fires a best-effort cleanup of the source
+    /// staged blob.
+    ///
+    /// Failure modes are logged-and-swallowed: a storage-copy error or
+    /// a <see cref="Recipe.MaxPhotos"/> overflow on the recipe must not
+    /// fail the whole reimport — the extractor's body/metadata changes
+    /// are already persisted and the user's recipe is in a valid state
+    /// without the new thumbnail.
+    /// </summary>
+    private async Task PromoteThumbnailOntoRecipeAsync(
+        Recipe target, Guid stagedPhotoId, CancellationToken ct)
+    {
+        var staged = await _db.StagedPhotos
+            .FirstOrDefaultAsync(s => s.Id == stagedPhotoId, ct);
+        if (staged is null)
         {
-            await _thumbnailAttacher.TryAttachAsync(import, import.ResultJson!, ct);
+            // Shouldn't happen — TryAttachAsync just inserted the row
+            // and SaveChanges'd. Guard is defensive.
+            _logger.LogWarning(
+                "Reimport thumbnail staged-photo {StagedPhotoId} vanished before promote; skipping.",
+                stagedPhotoId);
+            return;
+        }
+
+        // Photo cap: if the recipe is already full, drop the new
+        // thumbnail. The staged row stays un-promoted and the hourly
+        // sweep reaps it after 24 h. This is rare (user would have had
+        // to manually add 3 photos before re-importing) and a hard fail
+        // would be worse UX than a silent skip.
+        if (target.Photos.Count >= Recipe.MaxPhotos)
+        {
+            _logger.LogInformation(
+                "Recipe {RecipeId} is at the {Max}-photo cap; reimport thumbnail from staged {StagedPhotoId} left unpromoted.",
+                target.Id, Recipe.MaxPhotos, staged.Id);
+            return;
+        }
+
+        string destinationPath;
+        try
+        {
+            destinationPath = await _photoStorage.CopyAsync(
+                staged.PhotoId, staged.ContentType, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Reimport thumbnail copy from staged {StagedPhotoId} ({SourcePath}) to recipe {RecipeId} failed; skipping attach.",
+                staged.Id, staged.PhotoId, target.Id);
+            return;
+        }
+
+        try
+        {
+            target.AddPhoto(destinationPath);
+            staged.MarkPromoted(target.Id, _clock.GetUtcNow());
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Reimport thumbnail promote for staged {StagedPhotoId} -> recipe {RecipeId} failed during SaveChanges; rolling back in-memory state + deleting destination blob.",
+                staged.Id, target.Id);
+            // Roll back the in-memory AddPhoto so a subsequent caller
+            // sees the true Photos count, and best-effort delete the
+            // orphaned destination blob. The staged source stays put
+            // (sweep reaps eventually).
+            target.RemovePhoto(destinationPath);
+            try
+            {
+                await _photoStorage.DeleteAsync(destinationPath, ct);
+            }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogWarning(cleanupEx,
+                    "Cleanup of orphaned reimport destination blob {Path} failed; sweep job will retry.",
+                    destinationPath);
+            }
+            return;
+        }
+
+        // Best-effort delete of the staged source blob — same pattern
+        // as the create-recipe promote. The sweep job reaps orphans if
+        // this fails.
+        try
+        {
+            await _photoStorage.DeleteAsync(staged.PhotoId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Cleanup of staged source blob {Path} after reimport promote failed; sweep job will retry.",
+                staged.PhotoId);
         }
     }
 }

@@ -184,7 +184,12 @@ public sealed class ThumbnailAttacher
                 photoId: storagePath,
                 signedUrl: signedUrl,
                 contentType: contentType,
-                createdAt: _clock.GetUtcNow());
+                createdAt: _clock.GetUtcNow(),
+                // BUG-048 — record the thumbnail URL on the staged row so
+                // the reimport flow can dedupe on repeat runs without
+                // refetching or making the recipe's Photos collection
+                // load-bearing for the comparison.
+                sourceUrl: thumbnailUrl);
             _db.StagedPhotos.Add(staged);
 
             import.AttachThumbnailStagedPhoto(staged.Id);

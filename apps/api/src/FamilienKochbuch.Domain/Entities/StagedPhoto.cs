@@ -32,7 +32,8 @@ public sealed class StagedPhoto
         string photoId,
         string signedUrl,
         string contentType,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        string? sourceUrl = null)
     {
         if (userId == Guid.Empty)
             throw new ArgumentException("UserId must not be empty.", nameof(userId));
@@ -49,6 +50,7 @@ public sealed class StagedPhoto
         SignedUrl = signedUrl.Trim();
         ContentType = contentType.Trim();
         CreatedAt = createdAt;
+        SourceUrl = string.IsNullOrWhiteSpace(sourceUrl) ? null : sourceUrl.Trim();
     }
 
     public Guid Id { get; private set; }
@@ -78,6 +80,22 @@ public sealed class StagedPhoto
     /// <see cref="PromotedAt"/> is also <c>null</c>; both fields move
     /// together via <see cref="MarkPromoted"/>.</summary>
     public Guid? PromotedToRecipeId { get; private set; }
+
+    /// <summary>
+    /// BUG-048 — origin URL the photo was sourced from, when the row was
+    /// produced by <see cref="Api.Services.ThumbnailAttacher"/> against a
+    /// Python-extractor <c>recipe.thumbnail_url</c>. <c>null</c> for
+    /// rows created by the user-facing staged-upload endpoint (where the
+    /// user directly uploaded a file and no origin URL exists).
+    ///
+    /// Used by the reimport flow to dedupe — a repeat reimport of the
+    /// same source URL must not re-stage the thumbnail if a previous
+    /// reimport already promoted a StagedPhoto with this same origin
+    /// onto the target recipe. Pure metadata: never surfaced to the
+    /// frontend, never used to resolve the blob (<see cref="PhotoId"/>
+    /// remains the only storage key).
+    /// </summary>
+    public string? SourceUrl { get; private set; }
 
     /// <summary>
     /// Records the recipe that adopted this staged photo + the
