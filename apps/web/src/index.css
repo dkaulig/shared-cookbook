@@ -132,6 +132,18 @@
    */
   --side-rail-width: 72px;
   --split-left-width: 340px;
+
+  /*
+   * TABLET-5 — desktop primary-nav bar height.
+   *
+   * Reserves the strip used by <DesktopTopNav /> at `≥ xl` (1280 px+)
+   * for the horizontal primary-nav row that closes the ≥xl nav cliff.
+   * A disjoint token from `--topnav-height` because that one tracks
+   * the shared BRAND TopNav (60 px + iOS safe-area-inset-top) and is
+   * already consumed by page-scoped sticky sub-navs; this one is the
+   * additional desktop-only primary-nav strip layered below it.
+   */
+  --desktop-topnav-height: 60px;
 }
 
 .dark {
