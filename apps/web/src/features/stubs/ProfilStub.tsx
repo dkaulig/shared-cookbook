@@ -94,6 +94,12 @@ export function ProfilStub() {
             <Button asChild variant="outline">
               <Link to="/admin/ai-usage">KI-Verbrauch einsehen</Link>
             </Button>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Passe Prompts, Modelle, Feature-Flags und Pipeline-Schwellenwerte live an — Änderungen wirken nach spätestens 60 Sekunden.
+            </p>
+            <Button asChild variant="outline">
+              <Link to="/admin/extractor">Extractor-Konfiguration</Link>
+            </Button>
           </CardContent>
         </Card>
       )}

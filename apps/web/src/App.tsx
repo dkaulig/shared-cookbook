@@ -30,6 +30,7 @@ import { SearchPage } from '@/features/search/SearchPage'
 import { WochenplanStub } from '@/features/stubs/WochenplanStub'
 import { ProfilStub } from '@/features/stubs/ProfilStub'
 import { AiUsagePage } from '@/features/admin/AiUsagePage'
+import { ExtractorConfigPage } from '@/features/admin/ExtractorConfigPage'
 
 /**
  * Route table.
@@ -170,6 +171,10 @@ export default function App() {
             }
           >
             <Route path="/admin/ai-usage" element={<AiUsagePage />} />
+            <Route
+              path="/admin/extractor"
+              element={<ExtractorConfigPage />}
+            />
           </Route>
 
           {/*
