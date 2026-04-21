@@ -2262,3 +2262,72 @@ Medium — App-weiter Refactor. Aber alle Änderungen leben in 5 Dateien
 (`AppLayout.tsx`, `BottomNav.tsx`, `bottomZone.tsx`, `index.css`,
 `RecipeActionBar.tsx` + `ChatPage.tsx`-1-Zeile) und sind in einem
 atomaren Commit landbar/revert-bar.
+
+---
+
+## BUG-044 · RecipeFormPage: `0,25` als Zutatenmenge wird als null serialisiert (Create-500)
+**Reported:** 2026-04-21 (User: "hab gerade mehrfach versucht nen
+rezept zu speichern, das hat nicht geklappt" → Prod-Log zeigt 400 auf
+`POST /api/groups/:id/recipes` mit serialisiertem `quantity: null` +
+`scalable: true` → Domain-Invariant-Break).
+**Status:** `[x] fixed` (2026-04-21, commit `1da2321`).
+**Severity:** high (häufigster deutschsprachiger Input-Fall — User
+tippen Komma-Dezimal fürs Rezept-Eingabefeld).
+**Where:** `apps/web/src/features/recipes/RecipeFormPage.tsx:717-735` —
+`Number("0,25") === NaN` wurde via `JSON.stringify` zu `null`, aber
+`scalable` blieb true. `Ingredient` ctor wirft
+`"Scalable ingredients must have a quantity > 0"`.
+**Fix:** `.replace(',', '.')` vor `Number()`; bei NaN flippen wir
+`scalable=false` damit die Invariante hält.
+**Tests:** 2 Regressionstests in `RecipeFormPage.test.tsx`.
+
+## BUG-045 · Import-Tags werden nie vorausgewählt (Video-Rezepte haben kein Tag)
+**Reported:** 2026-04-21 (User: "bisher wurde noch nie ein tag beim
+rezept import aus videos ausgewählt").
+**Status:** `[x] fixed` (2026-04-21, commit `2ae098d`).
+**Severity:** medium (Pipeline + Backend liefern Tags korrekt;
+Frontend verwirft sie).
+**Where:** `apps/web/src/features/imports/importPrefill.ts` — das
+`ImportPrefill`-Interface hatte gar kein `tags`-Feld;
+`extractedRecipeToPrefill` verwarf `r.tags` stumm. Kombiniert mit
+`RecipeFormPage.tsx:542-544` (`selectedTagIds` las nur `initial?.tags`,
+nie `prefill?.tags`) landeten AI-Tags nie in der Chip-Auswahl.
+**Fix:** `tags`-Feld auf `ImportPrefill` + Namen→Id-Lookup gegen den
+Gruppen-Tag-Katalog + Merge mit `initial`. Names-not-in-catalogue
+werden still verworfen (auto-create ist follow-up).
+
+## BUG-047 · Blog-Imports bekommen kein Foto (SSRF-Allowlist nur Video-CDNs)
+**Reported:** 2026-04-21 (User: "wenn ich von einem blog/url importiere
+werden aktuell keine fotos von der seite importiert" — Repro:
+masonfit.com Blog).
+**Status:** `[x] fixed` (2026-04-21, commit `68bcd87`).
+**Severity:** medium (Feature-Lücke — User musste Fotos manuell
+hochladen nach jedem Blog-Import).
+**Where:** `apps/api/src/FamilienKochbuch.Api/Services/ThumbnailAttacher.cs:55-74`
+— `AllowedHostSuffixes` enthielt nur Video-CDN-Domains
+(`.fbcdn.net`, `.ytimg.com` etc.). Blog-Thumbnails liegen auf der
+eigenen Blog-Domain (z.B. `masonfit.com/wp-content/...`) → SSRF-Guard
+rejected.
+**Fix:** Accept-Rule "same registered domain as import's SourceUrl"
+zusätzlich zur bestehenden Allowlist. Plus defense-in-depth:
+`IsHostPublicAsync` resolved die Host-IP und rejected bei
+private/loopback/link-local/reserved (hätte sonst über einen
+feindlichen Blog exploitable werden können). +21 neue Tests inklusive
+21-row Public-Address-Theory.
+
+## BUG-048 · Reimport promotet neu-gestagte Screenshots nicht auf die Recipe.Photos
+**Reported:** 2026-04-21 (User: "kurzer bug bei einem reimport werden
+keinen neuen screenshots erstellt").
+**Status:** `[x] fixed` (2026-04-21, commits `e7bb928` + `f079fa6`).
+**Severity:** medium (Reimport-UX-Lücke — `ThumbnailAttacher` staged
+korrekt, aber der "Adopt"-Step existiert nur im Neu-Erstellen-Flow).
+**Where:** `apps/api/src/FamilienKochbuch.Api/Jobs/ExtractRecipeFromUrlJob.cs:250-259`
+— der alte Code rief zwar `TryAttachAsync` auf, aber der Output-
+`StagedPhoto` blieb orphaned. Zusätzlich war die Dedupe-Bedingung
+`!target.Photos.Contains(parsed.ThumbnailUrl)` kaputt, weil
+`Photos` Storage-Paths speichert, nicht rohe Thumbnail-URLs.
+**Fix:** Neue Helper `PromoteThumbnailOntoRecipeAsync` spiegelt den
+bestehenden `PromoteStagedPhotosAsync`-Flow (CopyAsync → AddPhoto →
+MarkPromoted). Dedupe über das neue `StagedPhoto.SourceUrl`-Feld
+(Migration `AddStagedPhotoSourceUrl`) + composite Index
+`(PromotedToRecipeId, SourceUrl)`.
