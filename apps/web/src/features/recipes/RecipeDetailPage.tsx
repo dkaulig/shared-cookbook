@@ -185,8 +185,18 @@ export function RecipeDetailPage() {
       // Navigate to the shared progress page. The detail-page group id
       // is passed as router state for the page's sessionStorage memo
       // fallback (matches the standard import-url flow).
+      //
+      // REPLACE is load-bearing: the progress page is a transient screen
+      // that itself redirects with `replace` back to this same detail URL
+      // on success. If we PUSHED here instead, the history stack would
+      // accumulate a duplicate detail entry (`.../recipes/:r` → progress
+      // → `.../recipes/:r` again), and the browser Back button would eat
+      // one visually-invisible back before landing on the group's recipe
+      // list. Replacing keeps the stack clean: `/groups/:g` → detail (now
+      // progress, then detail again after Done) → Back → `/groups/:g`.
       navigate(`/rezepte/import/${encodeURIComponent(importId)}`, {
         state: { groupId },
+        replace: true,
       })
     } catch (err) {
       // 409 version_mismatch → invalidate the recipe query so the next

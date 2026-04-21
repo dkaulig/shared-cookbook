@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { render, screen } from '@testing-library/react'
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import type { RecipeDetailDto } from '@familien-kochbuch/shared'
@@ -455,6 +461,78 @@ describe('RecipeDetailPage', () => {
 
     await screen.findByTestId('progress-page')
     expect(seenIfMatch).toBe('W/"r1-0"')
+  })
+
+  // 2026-04-21 Nav-bug fix — the reimport-trigger on RecipeDetailPage
+  // must REPLACE the detail-page history entry (not push on top of it).
+  // Otherwise the post-Done redirect (which itself already uses replace)
+  // leaves a duplicate /groups/:g/recipes/:r on the stack, and the
+  // browser Back button eats one "invisible" back before landing on
+  // the group's recipe list as the user expects.
+  it('REIMPORT nav-bug: replacing detail-page entry means Back from progress lands before the detail', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('/api/recipes/r1/reimport', () =>
+        HttpResponse.json({ importId: 'imp-42' }, { status: 202 }),
+      ),
+    )
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function LocationProbe() {
+      const loc = useLocation()
+      const navigate = useNavigate()
+      return (
+        <>
+          <div data-testid="location">{loc.pathname}</div>
+          <button type="button" onClick={() => navigate(-1)} data-testid="back">
+            back
+          </button>
+        </>
+      )
+    }
+    const tree = (
+      <QueryClientProvider client={client}>
+        <MemoryRouter
+          initialEntries={['/groups/g1', '/groups/g1/recipes/r1']}
+          initialIndex={1}
+        >
+          <BottomZoneProvider>
+            <LocationProbe />
+            <Routes>
+              <Route path="/groups/:groupId" element={<div>group-list</div>} />
+              <Route
+                path="/groups/:groupId/recipes/:recipeId"
+                element={<RecipeDetailPage />}
+              />
+              <Route
+                path="/rezepte/import/:importId"
+                element={<div data-testid="progress-page">progress</div>}
+              />
+            </Routes>
+            <BottomNav />
+          </BottomZoneProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    render(tree)
+
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+    await screen.findByRole('heading', { name: /Rezept neu importieren\?/i })
+    await user.click(screen.getByRole('button', { name: /Reimport starten/i }))
+    await screen.findByTestId('progress-page')
+
+    // Simulate browser Back after the reimport-navigate. If replace was
+    // used, the progress-page entry sits where the detail-page was, and
+    // Back lands on /groups/g1 (the group list). If push was used, Back
+    // lands back on the detail page's /groups/g1/recipes/r1 — i.e. the
+    // user has to click Back twice to actually leave the detail.
+    await user.click(screen.getByTestId('back'))
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/groups/g1')
+    })
   })
 
   it('REIMPORT-1: surfaces a 409 version_mismatch as an inline error without navigating', async () => {
