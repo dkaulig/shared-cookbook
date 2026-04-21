@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Outlet, useMatch } from 'react-router-dom'
 import { TopNav } from './TopNav'
+import { DesktopTopNav } from './DesktopTopNav'
 import { BottomNav } from './BottomNav'
 import { SideRail } from './SideRail'
 import { BottomZoneProvider } from './bottomZone'
@@ -99,6 +100,19 @@ export function AppLayout() {
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
       <BottomZoneProvider>
         {!hideTopNav && <TopNav />}
+        {/*
+         * TABLET-5 — horizontal primary-nav bar for the desktop zone
+         * (`≥ xl`). Rendered as a flex-shrink-0 sibling between the
+         * shared brand <TopNav /> and the main band so <main> scrolls
+         * beneath both strips. `hidden xl:flex` on the <nav> itself
+         * collapses the bar in mobile + tablet zones where BottomNav /
+         * SideRail already provide primary navigation — zero layout
+         * cost below xl because display:none removes it from the
+         * flex track entirely. Suppressed on routes that ship their
+         * own top bar (recipe detail / form) for the same reason the
+         * shared TopNav is.
+         */}
+        {!hideTopNav && <DesktopTopNav />}
         {/*
          * TABLET-0 — horizontal band between TopNav and BottomNav.
          * SideRail is a flex-sibling of <main> in the tablet zone.

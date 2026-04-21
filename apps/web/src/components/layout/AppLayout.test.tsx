@@ -163,4 +163,52 @@ describe('<AppLayout />', () => {
     expect(root?.className).toMatch(/\bflex-col\b/)
     expect(root?.className).toMatch(/\boverflow-hidden\b/)
   })
+
+  // ───────── TABLET-5 — DesktopTopNav wiring ─────────
+
+  it('mounts the DesktopTopNav navigation landmark alongside the BottomNav + SideRail', () => {
+    renderAt('/')
+    // All three nav landmarks exist in the DOM at once; Tailwind
+    // responsive classes decide which is visible at the active viewport.
+    expect(
+      screen.getByRole('navigation', { name: /desktop-navigation/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: /seitenleiste/i })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: /hauptnavigation/i })).toBeInTheDocument()
+  })
+
+  it('scopes the DesktopTopNav to the desktop zone via `hidden xl:flex`', () => {
+    renderAt('/')
+    const nav = screen.getByRole('navigation', { name: /desktop-navigation/i })
+    expect(nav.className).toMatch(/\bhidden\b/)
+    expect(nav.className).toMatch(/\bxl:flex\b/)
+  })
+
+  it('renders DesktopTopNav as a flex-column sibling of the main band (not nested inside it)', () => {
+    const { container } = renderAt('/')
+    const root = container.firstElementChild as HTMLElement | null
+    const desktopNav = screen.getByRole('navigation', { name: /desktop-navigation/i })
+    // DesktopTopNav sits at the TOP of the flex-col shell, above the
+    // horizontal band that hosts SideRail + <main>. It is a direct flex
+    // child of the hoppr root (same parent as SideRail's wrapper band).
+    expect(desktopNav.parentElement).toBe(root)
+  })
+
+  it('hides the DesktopTopNav on the recipe detail route (DS5 owns its own top bar)', () => {
+    renderAt('/groups/g1/recipes/r1')
+    expect(
+      screen.queryByRole('navigation', { name: /desktop-navigation/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides the DesktopTopNav on the recipe edit + new routes (form owns its own top bar)', () => {
+    renderAt('/groups/g1/recipes/r1/edit')
+    expect(
+      screen.queryByRole('navigation', { name: /desktop-navigation/i }),
+    ).not.toBeInTheDocument()
+    renderAt('/groups/g1/recipes/new')
+    expect(
+      screen.queryByRole('navigation', { name: /desktop-navigation/i }),
+    ).not.toBeInTheDocument()
+  })
 })
