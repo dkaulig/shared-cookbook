@@ -149,6 +149,15 @@ export function GroupDetailPage() {
   // with a full-width primary button in the unified Bottom-Zone slot.
   // Same target (`/groups/:id/recipes/new`), just folded into the
   // shared BottomNav container so there's no overlap math per page.
+  //
+  // TABLET-1 — when a nested recipe route is active on mobile, the
+  // child RecipeDetailPage's `useBottomZoneSlot(RecipeActionBar)` wins
+  // (child effects commit after the parent). On navigation BACK from
+  // the recipe to `/groups/:id`, GroupDetailPage stays mounted (it's
+  // now the parent route), so we MUST re-run this slot effect when
+  // the outlet disappears — otherwise the "Neues Rezept" FAB never
+  // gets re-asserted. `outletNode != null` is the right dep.
+  const hasOutlet = outletNode != null
   useBottomZoneSlot(
     groupId ? (
       <Link
@@ -164,7 +173,7 @@ export function GroupDetailPage() {
         Neues Rezept
       </Link>
     ) : null,
-    [groupId],
+    [groupId, hasOutlet],
   )
 
   if (!groupId) return <Navigate to="/groups" replace />

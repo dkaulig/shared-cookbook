@@ -395,6 +395,49 @@ describe('<GroupDetailPage />', () => {
   })
 
   /**
+   * Regression guard: on mobile, navigating from the nested recipe
+   * route BACK to the bare group route must re-assert the "Neues
+   * Rezept" slot. The parent GroupDetailPage stays mounted across
+   * that navigation now (it owns the nested outlet), so the slot
+   * effect MUST run on the outlet→null transition.
+   */
+  it('re-asserts the "Neues Rezept" bottom-zone slot when the outlet clears', async () => {
+    const originalMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes('max-width: 767px'),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    })
+    try {
+      const { rerender } = render(withProviders('/groups/g1/recipes/r1'))
+      // On mobile, the recipe stub renders in place of the list; the
+      // slot may or may not be populated yet depending on child mount
+      // order — we don't assert that here.
+      await screen.findByTestId('recipe-detail-page')
+      // Navigate back to the bare group URL. `withProviders` builds a
+      // fresh MemoryRouter per call; rerender with a new entry.
+      rerender(withProviders('/groups/g1'))
+      const link = await screen.findByRole('link', { name: /Neues Rezept/i })
+      expect(link).toHaveAttribute('href', '/groups/g1/recipes/new')
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      })
+    }
+  })
+
+  /**
    * Mobile fallback: when `useIsMobile()` reports true (viewport < md),
    * the page drops the SplitPane entirely so the nested outlet takes
    * over `<main>` as in the pre-TABLET-1 flow. The list is not rendered
