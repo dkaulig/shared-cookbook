@@ -64,9 +64,10 @@ function groupSummary(over: Partial<GroupSummary>): GroupSummary {
 /**
  * DS3 bottom navigation.
  *
- * Spec: `docs/mockups/warme-kueche-home.html` — 5 items (Start,
- * Gruppen, + FAB, Wochenplan, Profil) fixed to the bottom with a
- * cream/blur backdrop.
+ * Spec: `docs/mockups/warme-kueche-home.html` — 4 nav items + FAB
+ * (Start, Gruppen, + FAB, Suche, Wochenplan). Profil was removed in
+ * 2026-04-21 because the TopNav avatar on every viewport already
+ * links to /profil; a duplicate tab was redundant clutter.
  */
 describe('<BottomNav />', () => {
   afterEach(() => {
@@ -74,10 +75,10 @@ describe('<BottomNav />', () => {
     useAuthStore.getState().clear()
   })
 
-  it('renders all six navigation items in the expected order (SEARCH-1 adds Suche)', () => {
+  it('renders the 4 nav items + FAB in the expected order', () => {
     renderAt('/')
     const nav = screen.getByRole('navigation', { name: /hauptnavigation/i })
-    // Now the FAB is a `<button>` and the five nav items are `<a>`s.
+    // Now the FAB is a `<button>` and the four nav items are `<a>`s.
     const labels = Array.from(nav.querySelectorAll('a, button')).map(
       (el) => el.getAttribute('aria-label') ?? el.textContent?.trim(),
     )
@@ -88,9 +89,9 @@ describe('<BottomNav />', () => {
         'Neues Rezept',
         'Suche',
         'Wochenplan',
-        'Profil',
       ]),
     )
+    expect(labels).not.toContain('Profil')
   })
 
   // SEARCH-1 — /suche surfaces in the BottomNav between Gruppen and
@@ -128,10 +129,11 @@ describe('<BottomNav />', () => {
     expect(wp).toHaveAttribute('aria-current', 'page')
   })
 
-  it('marks Profil as active on /profil', () => {
+  it('does not render a Profil tab (avatar in TopNav owns /profil)', () => {
     renderAt('/profil')
-    const profil = screen.getByRole('link', { name: /profil/i })
-    expect(profil).toHaveAttribute('aria-current', 'page')
+    const nav = screen.getByRole('navigation', { name: /hauptnavigation/i })
+    const labels = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent?.trim())
+    expect(labels).not.toContain('Profil')
   })
 
   // ───────── BUG-008 regression ─────────

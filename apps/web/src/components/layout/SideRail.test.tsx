@@ -64,9 +64,11 @@ describe('<SideRail />', () => {
     )
   })
 
-  it('marks Profil as active on /profil', () => {
+  it('does not render a Profil item (avatar in TopNav owns /profil)', () => {
     renderAt('/profil')
-    expect(screen.getByRole('link', { name: /profil/i })).toHaveAttribute('aria-current', 'page')
+    const rail = screen.getByRole('navigation', { name: /seitenleiste/i })
+    const labels = Array.from(rail.querySelectorAll('a')).map((a) => a.textContent?.trim())
+    expect(labels).not.toContain('Profil')
   })
 
   // SEARCH-1 — global search is now a first-class nav entry, surfaced

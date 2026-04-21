@@ -19,19 +19,22 @@ function readSource(rel: string): string {
 }
 
 describe('navItems — shared source of truth', () => {
-  it('exposes the five primary routes in the documented order (SEARCH-1 adds Suche between Gruppen and Wochenplan)', () => {
+  it('exposes the four primary routes in the documented order (Profil dropped — avatar in TopNav owns it)', () => {
     expect(navItems.map((item) => item.to)).toEqual([
       '/',
       '/groups',
       '/suche',
       '/wochenplan',
-      '/profil',
     ])
   })
 
   it('ships German labels for every item', () => {
     const labels = navItems.map((item) => item.label)
-    expect(labels).toEqual(['Start', 'Gruppen', 'Suche', 'Wochenplan', 'Profil'])
+    expect(labels).toEqual(['Start', 'Gruppen', 'Suche', 'Wochenplan'])
+  })
+
+  it('does not include a Profil nav item (the TopNav avatar links to /profil)', () => {
+    expect(navItems.find((item) => item.to === '/profil')).toBeUndefined()
   })
 
   it('includes a Suche entry with the Lucide Search icon (SEARCH-1)', () => {

@@ -1,4 +1,4 @@
-import { Calendar, Home, Search, User, Users } from 'lucide-react'
+import { Calendar, Home, Search, Users } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 
 /**
@@ -12,9 +12,12 @@ import type { ComponentType, SVGProps } from 'react'
  *
  * SEARCH-1 — /suche is inserted between /groups and /wochenplan so the
  * global-search affordance sits next to the group list on every nav
- * surface. BottomNav grows from 4 + FAB slots to 5 + FAB (6 total);
- * at 390 px this yields ~65 px per slot, still comfortably above the
- * 44 px touch-target floor.
+ * surface.
+ *
+ * Profil (2026-04-21): dropped from this list. The avatar in the
+ * sticky <TopNav /> banner (visible on every viewport) already links
+ * to /profil — keeping a second entry in the bottom / side / top nav
+ * is redundant clutter.
  *
  * The `+ Neues Rezept` FAB between Gruppen and Suche is NOT a route
  * and therefore not in this list; BottomNav renders it inline via
@@ -33,5 +36,4 @@ export const navItems: readonly NavItem[] = [
   { to: '/groups', label: 'Gruppen', icon: Users },
   { to: '/suche', label: 'Suche', icon: Search },
   { to: '/wochenplan', label: 'Wochenplan', icon: Calendar },
-  { to: '/profil', label: 'Profil', icon: User },
 ] as const
