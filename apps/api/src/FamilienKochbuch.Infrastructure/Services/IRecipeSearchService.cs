@@ -13,6 +13,10 @@ public enum SearchSort
     BestRated,
     /// <summary>Most recently cooked first (via <c>Recipe.LastCookedAt</c>).</summary>
     LastCooked,
+    /// <summary>Title ascending (A-Z). Stable tie-breaker on Id. Added
+    /// alongside PAGE-0/1 so GroupDetail's sort Select can hit the
+    /// search endpoint (filter/q-preserving) with the new value.</summary>
+    TitleAsc,
 }
 
 /// <summary>
