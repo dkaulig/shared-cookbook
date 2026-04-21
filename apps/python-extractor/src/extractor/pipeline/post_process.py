@@ -33,6 +33,7 @@ from extractor.pipeline.types import (
     ExtractedStep,
     ExtractionConfidence,
     ExtractionResult,
+    ExtractionSignals,
     IngredientConfidenceLevel,
     NutritionEstimate,
     StepConfidenceLevel,
@@ -157,6 +158,7 @@ def post_process(
     fallback_thumbnail: str | None,
     extra_notes: list[str] | None = None,
     usage: TokenUsage | None = None,
+    signals: ExtractionSignals | None = None,
 ) -> ExtractionResult:
     """Apply the defensive rules and return an :class:`ExtractionResult`.
 
@@ -178,6 +180,13 @@ def post_process(
         :class:`ExtractionResult` so the HTTP layer can emit
         ``X-Extractor-*`` headers without a second round-trip
         through the pipeline.
+    signals
+        BUG-034 — which source signals the URL pipeline observed. When
+        ``None``, defaults to all-false (legacy callers / photo path /
+        chat path don't collect URL-style signals). Drives the
+        :data:`EmptyReason` classifier when the recipe is empty: all
+        three flags false → ``no_usable_source``; any flag true →
+        ``no_recipe_detected``.
     """
     raw_servings = llm_output.get("servings")
     servings = _clamp_servings(raw_servings)
@@ -248,19 +257,43 @@ def post_process(
     # (no exception, the source was reachable, Azure answered) but the
     # result is not a recipe. We surface that as a dedicated flag so the
     # frontend can branch on it instead of rendering a silently-empty
-    # form. ``empty_reason`` is ``"no_recipe_detected"`` here because we
-    # only fire this gate after the pipeline got a full LLM response;
-    # ``"empty_transcript"`` / ``"extractor_error"`` are reserved for
-    # pipeline-level gates (BUG-033 and future error-degradation paths)
-    # that sit ABOVE post-process.
+    # form. The ``empty_reason`` classifier uses the caller-supplied
+    # signal flags so the frontend can show variant copy:
+    #
+    # - all three signals false → ``no_usable_source`` (the pipeline
+    #   had nothing to feed the LLM — no caption URL, no blog text, no
+    #   transcript);
+    # - any signal true → ``no_recipe_detected`` (sources were there,
+    #   the LLM just couldn't extract a recipe).
+    #
+    # ``empty_transcript`` / ``extractor_error`` remain reserved for
+    # pipeline-level gates ABOVE post-process.
+    effective_signals: ExtractionSignals = signals if signals is not None else {
+        "had_caption_url": False,
+        "had_blog_source": False,
+        "had_transcript": False,
+    }
     recipe_empty: bool = len(ingredients) == 0 and len(steps) == 0
-    empty_reason: EmptyReason | None = "no_recipe_detected" if recipe_empty else None
+    empty_reason: EmptyReason | None
+    if not recipe_empty:
+        empty_reason = None
+    elif any(
+        (
+            effective_signals["had_caption_url"],
+            effective_signals["had_blog_source"],
+            effective_signals["had_transcript"],
+        )
+    ):
+        empty_reason = "no_recipe_detected"
+    else:
+        empty_reason = "no_usable_source"
 
     result: ExtractionResult = {
         "recipe": recipe,
         "confidence": confidence,
         "recipe_empty": recipe_empty,
         "empty_reason": empty_reason,
+        "signals": effective_signals,
     }
     if usage is not None:
         result["usage"] = usage
