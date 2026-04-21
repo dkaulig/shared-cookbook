@@ -209,6 +209,45 @@ describe('imports.ts DTOs', () => {
     expect(dto.groupId).toBe('22222222-3333-4444-5555-666666666666')
   })
 
+  // REIMPORT-0 — the in-place reimport flow extends the DTO with an
+  // optional `targetRecipeId`. The web layer's progress-page uses the
+  // field to branch between "Done → new recipe form" (null) and
+  // "Done → back to detail page" (set). A rename on the .NET
+  // ImportStatusResponse record fails this compile-time gate.
+  it('RecipeImportDto carries optional targetRecipeId for reimports', () => {
+    const reimport: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      source: 'url',
+      status: 'done',
+      progress: 100,
+      sourceUrl: 'https://example.com/rezept',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-21T00:00:00Z',
+      completedAt: '2026-04-21T00:00:42Z',
+      targetRecipeId: '33333333-4444-5555-6666-777777777777',
+    }
+    expect(reimport.targetRecipeId).toBe('33333333-4444-5555-6666-777777777777')
+
+    // A non-reimport row leaves the field null / omitted — both shapes
+    // must type-check against the same interface.
+    const newImport: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      source: 'url',
+      status: 'running',
+      progress: 50,
+      sourceUrl: 'https://example.com/rezept',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-21T00:00:00Z',
+      completedAt: null,
+      targetRecipeId: null,
+    }
+    expect(newImport.targetRecipeId).toBeNull()
+  })
+
   // BUG-010 — compile-time regression guard on the list-DTO surface.
   // A rename on the .NET ImportSummary record fails here if the shared
   // type drifts away.

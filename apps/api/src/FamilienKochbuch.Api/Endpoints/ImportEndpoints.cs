@@ -79,7 +79,17 @@ public static class ImportEndpoints
         /// forwards to <c>POST /api/recipes</c>, so the user gets the
         /// thumbnail attached as a recipe photo without manual upload.
         /// </summary>
-        Guid? ThumbnailStagedPhotoId);
+        Guid? ThumbnailStagedPhotoId,
+        /// <summary>
+        /// REIMPORT-0 — id of the target <see cref="Recipe"/> this
+        /// import should update in place when it completes. Non-null
+        /// exclusively on imports enqueued by <c>POST /api/recipes/{id}/reimport</c>;
+        /// standard URL / Photo / Chat imports leave this null. The
+        /// frontend's progress page uses the value to dispatch the
+        /// terminal-state redirect: null → new recipe form, set →
+        /// back to the detail page for the target recipe.
+        /// </summary>
+        Guid? TargetRecipeId);
 
     /// <summary>
     /// Wire shape of <c>GET /api/imports?mine=true</c>. Lighter than
@@ -235,7 +245,11 @@ public static class ImportEndpoints
             // BUG-018 — surface the auto-attached video thumbnail
             // staged-photo id so the frontend prefill can promote it
             // alongside any user-uploaded photos without an extra round-trip.
-            ThumbnailStagedPhotoId: import.ThumbnailStagedPhotoId));
+            ThumbnailStagedPhotoId: import.ThumbnailStagedPhotoId,
+            // REIMPORT-0 — surface the target-recipe id so the
+            // progress page's terminal-state redirect can branch to
+            // the detail page instead of the new-recipe form.
+            TargetRecipeId: import.TargetRecipeId));
     }
 
     // ── GET /api/imports?mine=true (BUG-010 list) ───────────────────

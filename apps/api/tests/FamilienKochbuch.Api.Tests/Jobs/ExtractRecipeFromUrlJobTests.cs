@@ -82,7 +82,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var thumbnailAttacher = new ThumbnailAttacher(
             _db, factory, _photoStorage, _clock,
             NullLogger<ThumbnailAttacher>.Instance);
-        _job = new ExtractRecipeFromUrlJob(_db, runner, thumbnailAttacher);
+        _job = new ExtractRecipeFromUrlJob(_db, runner, thumbnailAttacher, _clock);
     }
 
     public async Task DisposeAsync()
@@ -597,5 +597,205 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     public void BUG018_Host_Allowlist_Suffix_Match(string url, bool allowed)
     {
         Assert.Equal(allowed, ThumbnailAttacher.IsAllowedThumbnailHost(url, out _));
+    }
+
+    // ── REIMPORT-0: in-place update on a pre-existing recipe ───────
+    //
+    // When the import row carries a non-null TargetRecipeId, the job
+    // must (a) load the target recipe, (b) let the Python pipeline
+    // produce a fresh extraction result the same way as a new import,
+    // (c) overwrite the recipe's mutable body via UpdateFromImport
+    // rather than letting the PF1 promote-flow insert a new row, and
+    // (d) dedupe auto-attached thumbnails by URL so a reimport doesn't
+    // pile duplicate photos onto the recipe.
+
+    private async Task<Recipe> SeedTargetRecipeAsync(
+        string? sourceUrl = "https://example.com/rezept",
+        string title = "Altes Rezept")
+    {
+        var recipe = new Recipe(
+            groupId: _groupId,
+            createdByUserId: _userId,
+            title: title,
+            description: "Alte Beschreibung",
+            defaultServings: 2,
+            prepTimeMinutes: 5,
+            difficulty: 1,
+            sourceUrl: sourceUrl,
+            sourceType: RecipeSourceType.Video,
+            forkOfRecipeId: null,
+            createdAt: _clock.GetUtcNow());
+        _db.Recipes.Add(recipe);
+        await _db.SaveChangesAsync();
+        return recipe;
+    }
+
+    private async Task<RecipeImport> SeedReimportAsync(Recipe target)
+    {
+        var import = new RecipeImport(
+            _userId, _groupId, ImportSource.Url,
+            sourceUrl: target.SourceUrl,
+            createdAt: _clock.GetUtcNow(),
+            targetRecipeId: target.Id);
+        _db.RecipeImports.Add(import);
+        await _db.SaveChangesAsync();
+        return import;
+    }
+
+    /// <summary>Result JSON the Python pipeline emits for a reimport
+    /// smoke — minimal shape covering title + one ingredient + one step
+    /// + one tag (seeded globally below so the domain's AI-tag resolver
+    /// finds a match).</summary>
+    private const string ReimportResult = """
+        {
+          "recipe": {
+            "title": "Neues Rezept",
+            "description": "Frisch extrahiert",
+            "servings": 4,
+            "difficulty": 2,
+            "prep_minutes": 15,
+            "cook_minutes": null,
+            "ingredients": [
+              { "name": "Mehl", "quantity": "500", "unit": "g", "note": null, "confidence": "high" }
+            ],
+            "steps": [
+              { "position": 1, "content": "Vermengen.", "confidence": "high" }
+            ],
+            "tags": ["schnell"],
+            "source_url": "https://example.com/rezept",
+            "thumbnail_url": null
+          },
+          "confidence": { "overall": "high", "notes": [] },
+          "recipe_empty": false,
+          "empty_reason": null
+        }
+        """;
+
+    [Fact]
+    public async Task REIMPORT_Updates_Target_Recipe_In_Place_And_Bumps_Version()
+    {
+        // Seed the global AI tag so UpdateFromImport's name resolver
+        // finds "schnell" and preserves the AI side of the Tag merge.
+        _db.Tags.Add(Tag.CreateGlobal("schnell", TagCategory.Aufwand));
+        await _db.SaveChangesAsync();
+
+        var target = await SeedTargetRecipeAsync();
+        var originalId = target.Id;
+        var originalCreated = target.CreatedAt;
+        var originalCreator = target.CreatedByUserId;
+        var versionBefore = target.Version;
+
+        var import = await SeedReimportAsync(target);
+        _handler.QueueResponse(HttpStatusCode.OK, ReimportResult);
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        using var freshDb = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await freshDb.Recipes
+            .Include(r => r.Ingredients)
+            .Include(r => r.Steps)
+            .Include(r => r.RecipeTags)
+            .SingleAsync(r => r.Id == originalId);
+
+        // Recipe row was updated IN PLACE — same id / group / creator /
+        // createdAt, bumped version, new body.
+        Assert.Equal(originalId, reloaded.Id);
+        Assert.Equal(originalCreator, reloaded.CreatedByUserId);
+        Assert.Equal(originalCreated, reloaded.CreatedAt);
+        Assert.Equal(versionBefore + 1, reloaded.Version);
+        Assert.Equal("Neues Rezept", reloaded.Title);
+        Assert.Equal("Frisch extrahiert", reloaded.Description);
+        Assert.Equal(4, reloaded.DefaultServings);
+        Assert.Equal(15, reloaded.PrepTimeMinutes);
+        Assert.Equal(2, reloaded.Difficulty);
+        Assert.Single(reloaded.Ingredients);
+        Assert.Equal("Mehl", reloaded.Ingredients.Single().Name);
+        Assert.Single(reloaded.Steps);
+        Assert.Equal("Vermengen.", reloaded.Steps.Single().Content);
+        // Global "schnell" tag was attached via AI-merge.
+        Assert.Single(reloaded.RecipeTags);
+
+        // No NEW recipe row created — reimport is in-place.
+        Assert.Equal(1, await freshDb.Recipes.CountAsync(r => r.GroupId == _groupId));
+
+        // Import ends in Done with TargetRecipeId still set for the
+        // frontend's redirect path.
+        var importReloaded = await freshDb.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, importReloaded.Status);
+        Assert.Equal(originalId, importReloaded.TargetRecipeId);
+    }
+
+    [Fact]
+    public async Task REIMPORT_Preserves_Photos_And_Deduplicates_Thumbnail_By_Url()
+    {
+        var target = await SeedTargetRecipeAsync();
+        // Same URL the extractor is about to report as thumbnail_url.
+        const string existingThumbUrl = "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg";
+        target.AddPhoto(existingThumbUrl);
+        await _db.SaveChangesAsync();
+
+        var import = await SeedReimportAsync(target);
+        var resultWithSameThumbnail = $$"""
+            {
+              "recipe": {
+                "title": "Neu",
+                "description": null,
+                "servings": 2,
+                "difficulty": 1,
+                "prep_minutes": null,
+                "cook_minutes": null,
+                "ingredients": [],
+                "steps": [],
+                "tags": [],
+                "source_url": "https://example.com/rezept",
+                "thumbnail_url": "{{existingThumbUrl}}"
+              },
+              "confidence": { "overall": "high", "notes": [] },
+              "recipe_empty": false,
+              "empty_reason": null
+            }
+            """;
+        _handler.QueueResponse(HttpStatusCode.OK, resultWithSameThumbnail);
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        using var freshDb = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await freshDb.Recipes.SingleAsync(r => r.Id == target.Id);
+
+        // No duplicate photo — dedupe-by-URL rule kept the existing one
+        // and refused to stage another copy via the thumbnail attacher.
+        Assert.Single(reloaded.Photos);
+        Assert.Equal(existingThumbUrl, reloaded.Photos[0]);
+        // Thumbnail downloader was NOT invoked because the URL is
+        // already a recipe photo (dedupe guard short-circuits before
+        // the network call).
+        Assert.Empty(_thumbnailHandler.Requests);
+    }
+
+    [Fact]
+    public async Task REIMPORT_Missing_Target_Recipe_Marks_Error_Without_Calling_Python()
+    {
+        var target = await SeedTargetRecipeAsync();
+        var import = await SeedReimportAsync(target);
+
+        // Target deleted after enqueue — the job must refuse to run
+        // and land the import in Error with `recipe_deleted` instead
+        // of surprise-creating a new row.
+        _db.Recipes.Remove(target);
+        await _db.SaveChangesAsync();
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        using var freshDb = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await freshDb.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Error, reloaded.Status);
+        Assert.Contains("recipe_deleted", reloaded.ErrorMessage ?? string.Empty);
+        // Python was never called — the guard fires before the runner.
+        Assert.Empty(_handler.Requests);
     }
 }

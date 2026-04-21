@@ -5,6 +5,7 @@ using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,19 @@ public static class RecipeEndpoints
     public const int DefaultPageSize = 20;
     public const int MaxPageSize = 100;
     public const long MaxPhotoBytes = 5 * 1024 * 1024;
+
+    /// <summary>
+    /// REIMPORT-0 — sentinel value the Python pipeline writes into
+    /// <c>recipe.source_url</c> for the photo-import path (photos don't
+    /// have a human-meaningful URL, but the ExtractedRecipe contract
+    /// requires a non-null value). Mirrored here so the reimport
+    /// endpoint can refuse to re-run extraction against photos (there
+    /// IS no URL to re-fetch). The frontend carries the same constant
+    /// in <c>apps/web/src/features/imports/importPrefill.ts</c>
+    /// (<c>PHOTO_SOURCE_SENTINEL</c>) and the Python source of truth
+    /// lives at <c>apps/python-extractor/src/extractor/pipeline/photo.py</c>.
+    /// </summary>
+    public const string PhotoSourceSentinel = "photos://upload";
 
     private static readonly HashSet<string> AllowedPhotoContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -219,6 +233,12 @@ public static class RecipeEndpoints
         // P2-10: PATCH for the estimated per-portion nutrition. Author
         // or admin only; a null body clears the estimate.
         recipe.MapPatch("/nutrition", PatchNutritionAsync);
+
+        // REIMPORT-0: re-run the URL extractor against the recipe's
+        // stored `SourceUrl` and overwrite the current body in place.
+        // Empty body — the URL always comes from the DB so a client can
+        // never redirect the job at an arbitrary host (SSRF guard).
+        recipe.MapPost("/reimport", ReimportRecipeAsync);
 
         // P2-8: staged photo upload for the import-from-photos flow.
         // Lives outside the {id:guid} group because the photo isn't yet
@@ -1340,6 +1360,112 @@ public static class RecipeEndpoints
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
         return Results.Ok(detail);
+    }
+
+    // ── POST /api/recipes/{id}/reimport (REIMPORT-0) ────────────────
+
+    /// <summary>
+    /// REIMPORT-0 — enqueues a fresh URL-extraction run against the
+    /// recipe's own <see cref="Recipe.SourceUrl"/>, with a
+    /// <see cref="RecipeImport.TargetRecipeId"/> back-pointer that
+    /// instructs <see cref="Jobs.ExtractRecipeFromUrlJob"/> to overwrite
+    /// the current recipe row in place on success (rather than create a
+    /// new one via the PF1 promote-flow).
+    ///
+    /// <para>
+    /// Security model:
+    /// <list type="bullet">
+    /// <item>URL is read straight from the freshly-loaded recipe — NEVER
+    /// from any client-provided body. A hostile caller therefore cannot
+    /// redirect the extractor at an arbitrary host; the reimport is
+    /// strictly scoped to the saved SourceUrl.</item>
+    /// <item>404 (IDOR-hide) is returned for both a missing recipe AND
+    /// a member-mismatch so a non-member can't probe recipe ids.</item>
+    /// <item>OFF3 <c>If-Match: W/"{id}-{version}"</c> enforced — a stale
+    /// header yields 409 with the current DTO payload, matching the PUT
+    /// + PATCH endpoints' contract.</item>
+    /// <item>Photo-imported recipes are refused up front (400
+    /// <c>photo_import_reimport_not_supported</c>) — the photo
+    /// pipeline has no URL to re-fetch; the sentinel
+    /// <see cref="PhotoSourceSentinel"/> lives on the recipe row for
+    /// provenance only.</item>
+    /// </list>
+    /// </para>
+    ///
+    /// On success the handler returns 202 Accepted with
+    /// <see cref="ImportEndpoints.ImportEnqueueResponse"/> so the
+    /// frontend can start polling <c>GET /api/imports/{id}</c> the
+    /// same way the standard URL-import flow does.
+    /// </summary>
+    private static async Task<IResult> ReimportRecipeAsync(
+        Guid id,
+        HttpRequest httpRequest,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        Hangfire.IBackgroundJobClient jobs,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        // Load WITH children — we need them for the current-DTO payload
+        // embedded in the 409 conflict body, and loading once avoids a
+        // second round-trip after the guards pass.
+        var recipe = await LoadRecipeWithChildrenAsync(db, id, ct);
+        if (recipe is null) return Results.NotFound();
+
+        // IDOR-hide: non-members see the same 404 as a missing recipe.
+        // Using NotFound (not Forbid) keeps the existence of the id out
+        // of the probe surface.
+        if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.NotFound();
+
+        if (string.IsNullOrWhiteSpace(recipe.SourceUrl))
+        {
+            return FamilienResults.BadRequest(
+                "source_url_missing",
+                "Dieses Rezept hat keine Quell-URL — Reimport ist nur für URL-Imports möglich.");
+        }
+
+        if (recipe.SourceUrl.StartsWith(PhotoSourceSentinel, StringComparison.Ordinal))
+        {
+            return FamilienResults.BadRequest(
+                "photo_import_reimport_not_supported",
+                "Reimport ist für Foto-Imports nicht möglich — es gibt keine URL zum erneuten Abrufen.");
+        }
+
+        // OFF3 If-Match guard. The existing helper short-circuits when
+        // no header is supplied (backward-compat) and returns a ready-
+        // made 409 with the current DTO when a stale value arrives.
+        var currentDtoForConflict = await ProjectDetailAsync(db, recipe, photoStorage, ct);
+        var conflict = ETagHelper.RequireMatchingVersion(
+            httpRequest, recipe, () => recipe.Id, currentDtoForConflict);
+        if (conflict is not null) return conflict;
+
+        // REIMPORT-0 — create a new import row that points back at the
+        // recipe via TargetRecipeId. The extractor job branches on this
+        // to update in place instead of creating a new recipe.
+        //
+        // SECURITY: SourceUrl is read straight from the DB-loaded recipe
+        // above — NEVER trust a caller-supplied URL here. The reimport
+        // endpoint body is empty by design so there's no request-side
+        // URL field to worry about.
+        var import = new RecipeImport(
+            userId: userId,
+            groupId: recipe.GroupId,
+            source: ImportSource.Url,
+            sourceUrl: recipe.SourceUrl,
+            createdAt: clock.GetUtcNow(),
+            targetRecipeId: recipe.Id);
+        db.RecipeImports.Add(import);
+        await db.SaveChangesAsync(ct);
+
+        jobs.Enqueue<Jobs.ExtractRecipeFromUrlJob>(j =>
+            j.ExecuteAsync(import.Id, CancellationToken.None));
+
+        return Results.Accepted(
+            $"/api/imports/{import.Id}",
+            new ImportEndpoints.ImportEnqueueResponse(import.Id));
     }
 
     // ── GET /api/groups/{groupId}/tags ──────────────────────────────

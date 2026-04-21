@@ -71,12 +71,15 @@ public sealed class RecipeImport
         Guid groupId,
         ImportSource source,
         string? sourceUrl,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        Guid? targetRecipeId = null)
     {
         if (userId == Guid.Empty)
             throw new ArgumentException("UserId must not be empty.", nameof(userId));
         if (groupId == Guid.Empty)
             throw new ArgumentException("GroupId must not be empty.", nameof(groupId));
+        if (targetRecipeId is { } tr && tr == Guid.Empty)
+            throw new ArgumentException("TargetRecipeId must not be Guid.Empty.", nameof(targetRecipeId));
 
         Id = Guid.NewGuid();
         UserId = userId;
@@ -86,6 +89,7 @@ public sealed class RecipeImport
         Status = ImportStatus.Queued;
         Progress = 0;
         CreatedAt = createdAt;
+        TargetRecipeId = targetRecipeId;
 
         // PV1 — phase-aware progress fields. Start in Queued at 0% within-phase;
         // AttemptNumber = 1 on creation, LastProgressAt tracks heartbeat for the
@@ -156,6 +160,21 @@ public sealed class RecipeImport
     /// the FB-CDN URL expiring an hour later.
     /// </summary>
     public Guid? ThumbnailStagedPhotoId { get; private set; }
+
+    /// <summary>
+    /// REIMPORT-0 — id of the <see cref="Recipe"/> the URL-extract job
+    /// should update in place on success, rather than letting the
+    /// standard PF1 promote-flow create a brand-new recipe row. Non-null
+    /// exclusively on imports enqueued by the reimport endpoint
+    /// (<c>POST /api/recipes/{id}/reimport</c>); regular URL / Photo /
+    /// Chat imports leave it null.
+    ///
+    /// Set once at creation time via the optional ctor parameter so the
+    /// row's "this is a reimport" invariant can't be mutated after
+    /// enqueue — callers that need a reimport build a fresh row pointing
+    /// at the target recipe.
+    /// </summary>
+    public Guid? TargetRecipeId { get; private set; }
 
     // ── State transitions ───────────────────────────────────────────
 

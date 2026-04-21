@@ -309,4 +309,13 @@ export interface RecipeImportDto {
    * The persisted SeaweedFS copy outlives the FB-CDN URL expiry.
    */
   thumbnailStagedPhotoId?: string | null
+  /**
+   * REIMPORT-0 — id of the Recipe the URL-extract job should update in
+   * place. Non-null exclusively for imports enqueued by
+   * `POST /api/recipes/{id}/reimport`; standard URL / Photo / Chat
+   * imports leave this field `null`. The frontend's progress page uses
+   * it to distinguish "Done → new recipe form" (null) from "Done →
+   * back to detail page" (set) on the terminal-state redirect.
+   */
+  targetRecipeId?: string | null
 }
