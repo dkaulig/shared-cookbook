@@ -93,6 +93,15 @@ export interface ImportStatusResponseWire {
    * on older server builds — treat absent as null.
    */
   thumbnailStagedPhotoId?: string | null
+  /**
+   * REIMPORT-0 — id of the target recipe this import updates in place
+   * on Done. Non-null exclusively for imports enqueued by
+   * `POST /api/recipes/{id}/reimport`; the frontend's progress page
+   * uses the value to dispatch the terminal-state redirect (null → new
+   * recipe form, set → back to detail page). May be absent on older
+   * server builds — treat absent as null.
+   */
+  targetRecipeId?: string | null
 }
 
 function normaliseStatus(raw: string): ImportStatus {
@@ -169,6 +178,10 @@ export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportD
     // means the URL job didn't auto-attach a thumbnail and the form
     // should not seed a staged photo from this side.
     thumbnailStagedPhotoId: wire.thumbnailStagedPhotoId ?? null,
+    // REIMPORT-0 — pass through verbatim. `null` (or absent on old
+    // builds) means this is a standard import; the progress page
+    // falls through to the new-recipe-form branch on Done.
+    targetRecipeId: wire.targetRecipeId ?? null,
   }
 }
 

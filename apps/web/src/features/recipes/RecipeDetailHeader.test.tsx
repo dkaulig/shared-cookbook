@@ -43,10 +43,12 @@ function renderHeader(
         avgRating={4.8}
         ratingCount={12}
         sourceGroupName={null}
+        canReimport={false}
         onBack={() => {}}
         onFork={() => {}}
         onEdit={() => {}}
         onDelete={() => {}}
+        onReimport={() => {}}
         {...override}
       />
     </MemoryRouter>,
@@ -150,6 +152,74 @@ describe('RecipeDetailHeader — top-bar icon buttons', () => {
     await user.click(screen.getByRole('button', { name: /Mehr/i }))
     await user.click(screen.getByRole('menuitem', { name: /Löschen/i }))
     expect(del).toHaveBeenCalled()
+  })
+})
+
+// ── REIMPORT-1 ───────────────────────────────────────────────────────
+//
+// The 3-dots overflow menu grows a new "Neu importieren" entry when the
+// recipe was imported from a URL and the caller has edit rights. Photo-
+// imports (sentinel `photos://upload`) MUST stay gated out because the
+// reimport endpoint has no URL to re-fetch.
+describe('RecipeDetailHeader — Neu importieren overflow entry', () => {
+  const URL_RECIPE = {
+    ...RECIPE,
+    sourceUrl: 'https://example.com/rezept',
+    sourceType: 'Url' as const,
+  }
+
+  it('renders "Neu importieren" when sourceUrl is a real URL and the caller can edit', async () => {
+    const user = userEvent.setup()
+    const onReimport = vi.fn()
+    renderHeader({
+      recipe: URL_RECIPE,
+      canReimport: true,
+      onReimport,
+    })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    const entry = screen.getByRole('menuitem', { name: /Neu importieren/i })
+    expect(entry).toBeInTheDocument()
+    await user.click(entry)
+    expect(onReimport).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the entry for manually created recipes (sourceUrl=null)', async () => {
+    const user = userEvent.setup()
+    renderHeader({
+      recipe: { ...RECIPE, sourceUrl: null },
+      canReimport: true,
+      onReimport: vi.fn(),
+    })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    expect(
+      screen.queryByRole('menuitem', { name: /Neu importieren/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides the entry for photo-import recipes (sourceUrl=photos://upload)', async () => {
+    const user = userEvent.setup()
+    renderHeader({
+      recipe: { ...URL_RECIPE, sourceUrl: 'photos://upload' },
+      canReimport: true,
+      onReimport: vi.fn(),
+    })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    expect(
+      screen.queryByRole('menuitem', { name: /Neu importieren/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides the entry when the caller lacks edit rights', async () => {
+    const user = userEvent.setup()
+    renderHeader({
+      recipe: URL_RECIPE,
+      canReimport: false,
+      onReimport: vi.fn(),
+    })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    expect(
+      screen.queryByRole('menuitem', { name: /Neu importieren/i }),
+    ).not.toBeInTheDocument()
   })
 })
 

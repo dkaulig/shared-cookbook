@@ -1,9 +1,11 @@
 import { useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import type { ImportStatus, RecipeImportPhase } from '@familien-kochbuch/shared'
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { recipeQueryKeys } from '@/features/recipes/queryKeys'
 import { useImportStatus } from './hooks'
 import { recallImportGroup } from './importGroupMemo'
 import { derivePhase, resolveLabel } from './phaseProgress'
@@ -43,11 +45,19 @@ export function ImportProgressPage() {
   const params = useParams<{ importId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const importId = params.importId ?? ''
   const locationState = location.state as { groupId?: string } | null
 
   const status = useImportStatus(importId)
   const data = status.data
+
+  // REIMPORT-1 — a non-null `targetRecipeId` on the wire means the
+  // current import was enqueued by `POST /api/recipes/{id}/reimport`
+  // (backend REIMPORT-0). The page then (a) shows a "Reimport läuft"
+  // banner while running and (b) dispatches the terminal-state
+  // redirect to the detail page instead of the new-recipe form.
+  const isReimport = data?.targetRecipeId != null
 
   // Resolution order: navigation-state (submit path) → sessionStorage
   // sidecar (reload survival) → `data.groupId` from the status response.
@@ -70,18 +80,34 @@ export function ImportProgressPage() {
   // card's success flourish a beat to register before we navigate, per
   // design-doc §PhaseDetailCard Done row ("success checkmark +
   // auto-redirect after 500ms").
+  //
+  // REIMPORT-1 — when `targetRecipeId` is set, the in-place update path
+  // completed: navigate to the existing recipe's detail page instead of
+  // the new-recipe form, and invalidate the recipe's detail cache so
+  // the fresh data renders on mount.
   useEffect(() => {
     if (!data) return
     if (data.status !== 'done') return
     if (!groupId) return
+    const targetRecipeId = data.targetRecipeId ?? null
     const timer = window.setTimeout(() => {
-      navigate(
-        `/groups/${groupId}/recipes/new?importId=${encodeURIComponent(importId)}`,
-        { replace: true },
-      )
+      if (targetRecipeId) {
+        void queryClient.invalidateQueries({
+          queryKey: recipeQueryKeys.detail(targetRecipeId),
+        })
+        navigate(
+          `/groups/${groupId}/recipes/${encodeURIComponent(targetRecipeId)}`,
+          { replace: true, state: { reimportSuccess: true } },
+        )
+      } else {
+        navigate(
+          `/groups/${groupId}/recipes/new?importId=${encodeURIComponent(importId)}`,
+          { replace: true },
+        )
+      }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [data, groupId, importId, navigate])
+  }, [data, groupId, importId, navigate, queryClient])
 
   function handleRetry() {
     const sourceUrl = data?.sourceUrl ?? ''
@@ -112,6 +138,21 @@ export function ImportProgressPage() {
       <h1 className="font-serif text-[clamp(26px,6vw,34px)] font-semibold leading-[1.1] tracking-[-0.015em]">
         Rezept wird extrahiert
       </h1>
+
+      {/* REIMPORT-1 — contextual banner while the reimport pipeline
+          runs, so the user knows this invocation updates an existing
+          recipe instead of creating a new one. Only visible once the
+          status response has settled with a non-null targetRecipeId. */}
+      {isReimport && effectiveStatus !== 'done' && effectiveStatus !== 'error' && (
+        <div
+          data-testid="reimport-running-banner"
+          role="status"
+          className="mt-4 inline-flex items-center gap-2 rounded-[10px] bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-[13px] font-medium text-foreground ring-1 ring-[hsl(var(--primary)/0.2)]"
+        >
+          <RefreshCw className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          Reimport läuft — Rezept wird aktualisiert
+        </div>
+      )}
 
       {effectiveStatus === 'done' && !groupId ? (
         // PV4 rare edge case: post-BUG-012 the server always sends

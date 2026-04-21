@@ -26,7 +26,13 @@ export interface ConfirmDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
-  description: string
+  /**
+   * Dialog body. Accepts either a plain string (rendered inside the
+   * standard muted `<p>` paragraph) or a {@link ReactNode} for richer
+   * layouts (e.g. REIMPORT-1's two-paragraph body with an amber hint
+   * box below). ReactNode callers own their own spacing/typography.
+   */
+  description: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   confirmVariant?: 'default' | 'destructive'
@@ -98,12 +104,21 @@ export function ConfirmDialog({
         >
           {title}
         </h2>
-        <p
-          id="confirm-dialog-description"
-          className="mb-4 text-sm text-muted-foreground"
-        >
-          {description}
-        </p>
+        {typeof description === 'string' ? (
+          <p
+            id="confirm-dialog-description"
+            className="mb-4 text-sm text-muted-foreground"
+          >
+            {description}
+          </p>
+        ) : (
+          <div
+            id="confirm-dialog-description"
+            className="mb-4 text-sm text-muted-foreground"
+          >
+            {description}
+          </div>
+        )}
 
         <div className="flex justify-end gap-2">
           <Button
@@ -160,7 +175,7 @@ export function ConfirmDialog({
  */
 export interface ConfirmOptions {
   title: string
-  description: string
+  description: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   confirmVariant?: 'default' | 'destructive'

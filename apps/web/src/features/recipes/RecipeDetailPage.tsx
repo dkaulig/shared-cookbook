@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import type { ApiError, RecipeDetailDto, RecipeSnapshot } from '@familien-kochbuch/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
+import { VersionMismatchError } from '@/features/_shared/apiError'
 import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useRatings } from '@/features/ratings/hooks'
 import { useGroup } from '@/features/groups/hooks'
@@ -11,7 +13,9 @@ import {
   useDeleteRecipe,
   useMarkAsCooked,
   useRecipe,
+  useReimportRecipe,
 } from './hooks'
+import { recipeQueryKeys } from './queryKeys'
 import { RecipeDetailHeader } from './RecipeDetailHeader'
 import { PortionStepperCard } from './PortionStepperCard'
 import { IngredientChecklist } from './IngredientChecklist'
@@ -42,6 +46,7 @@ import { useBottomZoneSlot } from '@/components/layout/bottomZone'
 export function RecipeDetailPage() {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const recipeId = params.recipeId ?? ''
   const groupId = params.groupId ?? ''
 
@@ -50,6 +55,8 @@ export function RecipeDetailPage() {
   const ratings = useRatings(recipeId)
   const deleteMutation = useDeleteRecipe(groupId)
   const markCooked = useMarkAsCooked(recipeId)
+  const reimportMutation = useReimportRecipe(recipeId, groupId)
+  const queryClient = useQueryClient()
   const { user } = useAuth()
 
   const [servings, setServings] = useState<number | null>(null)
@@ -58,6 +65,24 @@ export function RecipeDetailPage() {
   // BUG-004 — open-state for the shadcn-style confirm modal that
   // replaced the native `window.confirm('Rezept wirklich löschen?')`.
   const [deleteOpen, setDeleteOpen] = useState(false)
+  // REIMPORT-1 — confirm-dialog + inline-error state for the reimport
+  // flow. The flow lives on the detail page (not in a separate dialog
+  // component) because it reuses the existing ConfirmDialog primitive
+  // and navigates away on success — a dedicated component would just
+  // be a wrapper around the state triple.
+  const [reimportOpen, setReimportOpen] = useState(false)
+  const [reimportError, setReimportError] = useState<string | null>(null)
+  // REIMPORT-1 — success banner surfaces when the progress page
+  // redirects back with `state.reimportSuccess`. Auto-hides after 4 s
+  // so it doesn't linger on subsequent navigations.
+  const initialReimportSuccess =
+    !!(location.state as { reimportSuccess?: boolean } | null)?.reimportSuccess
+  const [reimportSuccess, setReimportSuccess] = useState(initialReimportSuccess)
+  useEffect(() => {
+    if (!reimportSuccess) return
+    const t = window.setTimeout(() => setReimportSuccess(false), 4000)
+    return () => window.clearTimeout(t)
+  }, [reimportSuccess])
 
   // Hook for the history panel — needs a snapshot-shaped view of the
   // live detail. Keep the hook order stable by computing it before any
@@ -145,6 +170,46 @@ export function RecipeDetailPage() {
     }
   }
 
+  // REIMPORT-1 — edit-right gate mirrors the NutritionSection rule so
+  // Members-but-not-authors stay read-only. The detail-page owns the
+  // gate (not the header) because the auth context only lives here.
+  const canReimport =
+    !!recipe && (user?.role === 'Admin' || user?.id === recipe.createdByUserId)
+
+  async function handleConfirmReimport() {
+    if (!recipe) return
+    setReimportError(null)
+    try {
+      const { importId } = await reimportMutation.mutateAsync(recipe.version)
+      setReimportOpen(false)
+      // Navigate to the shared progress page. The detail-page group id
+      // is passed as router state for the page's sessionStorage memo
+      // fallback (matches the standard import-url flow).
+      navigate(`/rezepte/import/${encodeURIComponent(importId)}`, {
+        state: { groupId },
+      })
+    } catch (err) {
+      // 409 version_mismatch → invalidate the recipe query so the next
+      // render picks up the server's current version + surface a user-
+      // facing hint. The dialog closes so the user can re-open it after
+      // the recipe refetches.
+      if (err instanceof VersionMismatchError) {
+        void queryClient.invalidateQueries({
+          queryKey: recipeQueryKeys.detail(recipeId),
+        })
+        setReimportError(
+          'Das Rezept wurde parallel geändert. Bitte erneut versuchen.',
+        )
+      } else {
+        const apiErr = err as ApiError
+        setReimportError(
+          apiErr.message || 'Reimport konnte nicht gestartet werden.',
+        )
+      }
+      setReimportOpen(false)
+    }
+  }
+
   return (
     <>
       <RecipeDetailHeader
@@ -153,10 +218,15 @@ export function RecipeDetailPage() {
         avgRating={aggregate?.avg ?? null}
         ratingCount={aggregate?.count ?? 0}
         sourceGroupName={null}
+        canReimport={canReimport}
         onBack={() => navigate(`/groups/${groupId}`)}
         onFork={() => setForkDialogOpen(true)}
         onEdit={() => navigate(`/groups/${groupId}/recipes/${recipe.id}/edit`)}
         onDelete={() => setDeleteOpen(true)}
+        onReimport={() => {
+          setReimportError(null)
+          setReimportOpen(true)
+        }}
       />
 
       <main className="mx-auto max-w-3xl px-5 pb-32 md:max-w-[920px] md:px-8">
@@ -166,6 +236,24 @@ export function RecipeDetailPage() {
             className="mt-4 rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
           >
             {deleteError}
+          </p>
+        )}
+
+        {reimportError && (
+          <p
+            role="alert"
+            className="mt-4 rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
+          >
+            {reimportError}
+          </p>
+        )}
+
+        {reimportSuccess && (
+          <p
+            role="status"
+            className="mt-4 rounded-[12px] bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-sm text-foreground ring-1 ring-[hsl(var(--primary)/0.25)]"
+          >
+            Rezept erfolgreich aktualisiert.
           </p>
         )}
 
@@ -251,6 +339,32 @@ export function RecipeDetailPage() {
         confirmLabel="Löschen"
         onConfirm={handleConfirmDelete}
         isLoading={deleteMutation.isPending}
+      />
+
+      {/* REIMPORT-1 — confirm-before-action dialog. Description is a
+          ReactNode so the "link drift" hint can sit in its own amber
+          callout box below the main body copy. */}
+      <ConfirmDialog
+        open={reimportOpen}
+        onOpenChange={setReimportOpen}
+        title="Rezept neu importieren?"
+        description={
+          <>
+            <p className="mb-3">
+              Der ursprüngliche Import wird erneut ausgeführt und überschreibt
+              Titel, Zutaten und Schritte mit den frischen Daten. Fotos,
+              Bewertungen und &bdquo;Zuletzt gekocht&ldquo;-Historie bleiben
+              erhalten. Manuelle Änderungen am Rezept gehen verloren.
+            </p>
+            <p className="rounded-[10px] bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-[13px] leading-[1.45] text-foreground ring-1 ring-[hsl(var(--primary)/0.2)]">
+              Falls der Link zwischenzeitlich geändert wurde, kann ein
+              komplett anderes Rezept entstehen.
+            </p>
+          </>
+        }
+        confirmLabel="Reimport starten"
+        onConfirm={handleConfirmReimport}
+        isLoading={reimportMutation.isPending}
       />
     </>
   )
