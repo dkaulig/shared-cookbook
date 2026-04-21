@@ -67,4 +67,58 @@ describe('<App />', () => {
     // Greeting kicker embeds the display name.
     expect(screen.getByText(/oma/i)).toBeInTheDocument()
   })
+
+  // TABLET-1 — the recipe-detail route is now a CHILD of the group-
+  // detail route so it can render inside the SplitPane's right pane.
+  // Navigating directly to `/groups/:id/recipes/:recipeId` must still
+  // resolve the full chain (protected → layout → group-detail → recipe)
+  // without the URL bouncing to a 404.
+  it('resolves the nested `/groups/:id/recipes/:recipeId` route without a 404', async () => {
+    window.history.replaceState(null, '', '/groups/g1/recipes/r1')
+    server.use(
+      http.post('/api/auth/refresh', () =>
+        HttpResponse.json({
+          accessToken: 'tok',
+          user: { id: 'u1', email: 'user@example.com', displayName: 'Oma', role: 'User' },
+        }),
+      ),
+      http.get('/api/groups', () => HttpResponse.json([])),
+      http.get('/api/groups/g1', () =>
+        HttpResponse.json({
+          id: 'g1',
+          name: 'Example Family',
+          description: null,
+          coverImageUrl: null,
+          defaultServings: 4,
+          isPrivateCollection: false,
+          memberCount: 1,
+          myRole: 'Admin',
+          version: 0,
+          members: [],
+        }),
+      ),
+      http.get('/api/groups/g1/members', () => HttpResponse.json([])),
+      http.get('/api/groups/g1/tags', () => HttpResponse.json([])),
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 20 }),
+      ),
+      http.get('/api/recipes/r1', () => new HttpResponse(null, { status: 404 })),
+    )
+
+    renderApp()
+
+    await waitFor(() => {
+      // URL stays on the nested recipe route (NotFoundPage would swap
+      // it out for the 404 page — our recipe here 404s via API but the
+      // route itself resolved, so the URL stays).
+      expect(window.location.pathname).toBe('/groups/g1/recipes/r1')
+    })
+    // The 404 page has a very different shell — assert the GroupDetail
+    // surface is mounted by looking for the sub-nav landmark.
+    await waitFor(() => {
+      expect(
+        screen.getByRole('navigation', { name: /gruppen-navigation/i }),
+      ).toBeInTheDocument()
+    })
+  })
 })

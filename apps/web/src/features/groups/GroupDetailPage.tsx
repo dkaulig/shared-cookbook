@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import {
+  Link,
+  Navigate,
+  useNavigate,
+  useOutlet,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom'
 import { ArrowLeft, ChevronDown, ChevronUp, ListOrdered, Plus, Users } from 'lucide-react'
 import type { ApiError, RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
@@ -21,6 +28,8 @@ import { GroupFilterBar } from './GroupFilterBar'
 import { GroupMembersAndInvitesPanel } from './GroupMembersAndInvitesPanel'
 import { useGroup } from './hooks'
 import { useBottomZoneSlot } from '@/components/layout/bottomZone'
+import { SplitPane } from '@/components/layout/SplitPane'
+import { useIsMobile } from '@/lib/useIsMobile'
 
 /**
  * DS4 Group Detail page.
@@ -121,6 +130,21 @@ export function GroupDetailPage() {
     onRandomRequest: handleRandom,
   })
 
+  // TABLET-1 — at `md:+` we render a two-column SplitPane. The RIGHT
+  // pane hosts either the nested `<Outlet />` (when the URL resolves a
+  // child route like `/groups/:id/recipes/:recipeId`) or a German
+  // empty-state prompt. `useOutlet()` returns `null` when no child is
+  // matched, which is the cleanest signal we have for the empty state
+  // without coupling to specific child paths. Keep this hook BEFORE any
+  // early return so the call order stays stable across renders.
+  const outletNode = useOutlet()
+  // `useIsMobile()` tracks `(max-width: 767px)` — the complement of
+  // Tailwind's `md:` breakpoint. Below `md:` the page falls back to its
+  // original single-column flow: when a recipe is selected the outlet
+  // takes over the whole `<main>` (mirrors the pre-TABLET-1 behaviour
+  // where `/groups/:id/recipes/:recipeId` replaced `<main>` entirely).
+  const isMobile = useIsMobile()
+
   // BUG-036 — replace the old floating round FAB (fixed bottom-right)
   // with a full-width primary button in the unified Bottom-Zone slot.
   // Same target (`/groups/:id/recipes/new`), just folded into the
@@ -181,7 +205,7 @@ export function GroupDetailPage() {
   const hasFiltersOrQuery = activeFilterCount > 0 || !!filters.q
   const recipesLabel = totalRecipes === 1 ? 'Rezept' : 'Rezepte'
 
-  return (
+  const listPane = (
     <div className="mx-auto w-full max-w-[1120px]">
       {/* Sub-top-nav inside the app shell. AppLayout already owns the
           global TopNav above this — this is the page-scoped sub-nav. */}
@@ -356,6 +380,35 @@ export function GroupDetailPage() {
           primary button for consistency with other contextual actions
           (RecipeActionBar, FormActionBar). */}
     </div>
+  )
+
+  const rightPane = outletNode ?? (
+    <div
+      className="flex h-full items-center justify-center px-6 py-10 text-center text-[hsl(var(--muted-foreground))]"
+      role="status"
+    >
+      <p className="max-w-sm text-[15px] leading-[1.5]">
+        Wähle ein Rezept links, um die Details hier zu sehen.
+      </p>
+    </div>
+  )
+
+  // Mobile flow: if the user has drilled into a recipe, the nested
+  // outlet takes over the whole `<main>` so RecipeDetailPage isn't
+  // mounted twice (once here, once in the SplitPane). Without a child
+  // route, the list pane renders inline as before.
+  if (isMobile) {
+    return <>{outletNode ?? listPane}</>
+  }
+
+  return (
+    <SplitPane
+      leftLabel="Rezept-Liste"
+      rightLabel="Rezept-Detail"
+      left={listPane}
+      right={rightPane}
+      className="h-full"
+    />
   )
 }
 
