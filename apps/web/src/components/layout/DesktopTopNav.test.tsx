@@ -67,9 +67,11 @@ describe('<DesktopTopNav />', () => {
     )
   })
 
-  it('marks Profil as active on /profil', () => {
+  it('does not render a Profil item (avatar in TopNav owns /profil)', () => {
     renderAt('/profil')
-    expect(screen.getByRole('link', { name: /profil/i })).toHaveAttribute('aria-current', 'page')
+    const nav = screen.getByRole('navigation', { name: /desktop-navigation/i })
+    const labels = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent?.trim())
+    expect(labels).not.toContain('Profil')
   })
 
   // SEARCH-1 — global search surfaces on the desktop primary-nav row too.
