@@ -229,7 +229,27 @@ export function RecipeDetailPage() {
         }}
       />
 
-      <main className="mx-auto max-w-3xl px-5 pb-32 md:max-w-[920px] md:px-8">
+      {/*
+       * TABLET-3 — Recipe-Detail two-column layout at md:+.
+       *
+       * Mobile (< md) keeps the pre-refactor single-column flow: each
+       * data-testid wrapper is a plain <div> with no grid styles, so
+       * children stack in document order (ingredients → nutrition →
+       * steps → rating → history).
+       *
+       * Tablet/desktop (md:+) switches to a CSS grid with the left
+       * column pinned at `--split-left-width` (340 px, shared with the
+       * TABLET-0 SplitPane primitive) and the right column taking the
+       * rest (`1fr`). The left column uses `position: sticky` with
+       * `top-5` so ingredients + nutrition + history stay visible while
+       * the steps list scrolls in the main `<main>` scroll container
+       * (AppLayout ships `<main>` as the sole scroll root per BUG-039).
+       * `self-start` on the left column is required so sticky works
+       * inside a grid — the default `stretch` would make the column
+       * match the right column's height and sticky would have no room
+       * to scroll against.
+       */}
+      <main className="mx-auto max-w-3xl px-5 pb-32 md:max-w-[1200px] md:px-8">
         {deleteError && (
           <p
             role="alert"
@@ -257,66 +277,80 @@ export function RecipeDetailPage() {
           </p>
         )}
 
-        <PortionStepperCard
-          className="mt-5"
-          servings={currentServings}
-          onServingsChange={setServings}
-          groupDefaultServings={groupDefaultServings}
-          groupName={groupName}
-        />
+        <div
+          data-testid="recipe-detail-grid"
+          className="mt-5 md:grid md:grid-cols-[var(--split-left-width)_1fr] md:gap-8"
+        >
+          <div
+            data-testid="recipe-detail-left"
+            className="md:sticky md:top-5 md:self-start"
+          >
+            <PortionStepperCard
+              servings={currentServings}
+              onServingsChange={setServings}
+              groupDefaultServings={groupDefaultServings}
+              groupName={groupName}
+            />
 
-        <section className="mt-7">
-          <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
-            Zutaten{' '}
-            <span className="ml-2 text-[12px] font-normal text-[hsl(var(--muted-foreground))]">
-              Abhaken was du schon hast
-            </span>
-          </h2>
-          <IngredientChecklist
-            ingredients={recipe.ingredients}
-            defaultServings={recipe.defaultServings}
-            servings={currentServings}
-          />
-        </section>
+            <section className="mt-7">
+              <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
+                Zutaten{' '}
+                <span className="ml-2 text-[12px] font-normal text-[hsl(var(--muted-foreground))]">
+                  Abhaken was du schon hast
+                </span>
+              </h2>
+              <IngredientChecklist
+                ingredients={recipe.ingredients}
+                defaultServings={recipe.defaultServings}
+                servings={currentServings}
+              />
+            </section>
 
-        <NutritionSection
-          recipeId={recipe.id}
-          nutrition={recipe.nutritionEstimate}
-          canEdit={
-            user?.role === 'Admin' || user?.id === recipe.createdByUserId
-          }
-        />
+            <NutritionSection
+              recipeId={recipe.id}
+              nutrition={recipe.nutritionEstimate}
+              canEdit={
+                user?.role === 'Admin' || user?.id === recipe.createdByUserId
+              }
+            />
 
-        <section className="mt-7">
-          <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
-            Zubereitung
-          </h2>
-          <StepList steps={recipe.steps} />
-        </section>
+            <section className="mt-7">
+              <RecipeHistoryPanel recipeId={recipe.id} current={currentSnapshot} />
+            </section>
+          </div>
 
-        {recipe.sourceUrl && (
-          <p className="mt-6 text-[13px]">
-            <a
-              href={recipe.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[hsl(var(--primary))] underline"
-            >
-              Zur Original-Quelle ↗
-            </a>
-          </p>
-        )}
+          <div
+            data-testid="recipe-detail-right"
+            className="mt-7 md:mt-0 md:min-w-0"
+          >
+            <section>
+              <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
+                Zubereitung
+              </h2>
+              <StepList steps={recipe.steps} />
+            </section>
 
-        <section className="mt-7">
-          <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
-            Bewertungen
-          </h2>
-          <RatingWidget recipeId={recipe.id} />
-        </section>
+            {recipe.sourceUrl && (
+              <p className="mt-6 text-[13px]">
+                <a
+                  href={recipe.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[hsl(var(--primary))] underline"
+                >
+                  Zur Original-Quelle ↗
+                </a>
+              </p>
+            )}
 
-        <section className="mt-7">
-          <RecipeHistoryPanel recipeId={recipe.id} current={currentSnapshot} />
-        </section>
+            <section className="mt-7">
+              <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
+                Bewertungen
+              </h2>
+              <RatingWidget recipeId={recipe.id} />
+            </section>
+          </div>
+        </div>
       </main>
 
       {/* BUG-036 — the sticky action row now lives in the Bottom-Zone
