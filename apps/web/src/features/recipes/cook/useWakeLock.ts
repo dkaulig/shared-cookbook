@@ -33,6 +33,17 @@ export function useWakeLock(active: boolean): { supported: boolean; granted: boo
   const [granted, setGranted] = useState(false)
   const sentinelRef = useRef<WakeLockSentinelLike | null>(null)
 
+  // COOK-reviewer follow-up — mirror `active` into a ref so the
+  // visibilitychange handler always reads the freshest value. Without
+  // this the handler closed over `active` from the effect scope: if
+  // `active` flipped to false between renders before React's cleanup
+  // detached the listener, a visibility → visible event still re-
+  // requested the lock (stale-closure bug).
+  const activeRef = useRef(active)
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
+
   useEffect(() => {
     if (!supported || !active) return
 
@@ -63,7 +74,7 @@ export function useWakeLock(active: boolean): { supported: boolean; granted: boo
     }
 
     function handleVisibilityChange() {
-      if (document.visibilityState === 'visible' && active) {
+      if (document.visibilityState === 'visible' && activeRef.current) {
         void acquire()
       }
     }

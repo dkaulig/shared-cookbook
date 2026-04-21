@@ -356,3 +356,139 @@ describe('CookModePage — exit confirmation', () => {
     expect(screen.getByText('recipe-detail-page')).toBeInTheDocument()
   })
 })
+
+describe('CookModePage — keyboard navigation (→ / ← / Space)', () => {
+  it('ArrowRight from mise-en-place advances to step 1', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    await user.keyboard('{ArrowRight}')
+
+    await screen.findByTestId('cook-step-card')
+    expect(screen.getByText(/Schritt 1 von 3/i)).toBeInTheDocument()
+  })
+
+  it('Space advances the step the same as ArrowRight', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    await user.keyboard(' ')
+
+    await screen.findByTestId('cook-step-card')
+    expect(screen.getByText(/Schritt 1 von 3/i)).toBeInTheDocument()
+  })
+
+  it('ArrowLeft from step 2 returns to step 1', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByText(/Schritt 1 von 3/i)
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByText(/Schritt 2 von 3/i)
+
+    await user.keyboard('{ArrowLeft}')
+
+    expect(screen.getByText(/Schritt 1 von 3/i)).toBeInTheDocument()
+  })
+
+  it('ArrowRight at the last step advances to the finish card', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByText(/Schritt 1 von 3/i)
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByText(/Schritt 2 von 3/i)
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByText(/Schritt 3 von 3/i)
+
+    await user.keyboard('{ArrowRight}')
+
+    await screen.findByTestId('cook-finish-card')
+  })
+
+  it('ArrowLeft at step 1 does NOT navigate back to the portions picker', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByText(/Schritt 1 von 3/i)
+
+    await user.keyboard('{ArrowLeft}')
+
+    // ArrowLeft from step 1 lands on mise-en-place (step 0), NOT the picker (-1).
+    await screen.findByTestId('cook-mise-en-place')
+    expect(screen.queryByTestId('cook-portions-picker')).not.toBeInTheDocument()
+
+    // Another ArrowLeft on mise-en-place is a no-op (no picker reopen).
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.queryByTestId('cook-portions-picker')).not.toBeInTheDocument()
+    expect(screen.getByTestId('cook-mise-en-place')).toBeInTheDocument()
+  })
+
+  it('ArrowRight on the finish card is a no-op (bottom bar hidden)', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /^Fertig$/i }))
+    await screen.findByTestId('cook-finish-card')
+
+    await user.keyboard('{ArrowRight}')
+
+    // Still on the finish card — no further progression.
+    expect(screen.getByTestId('cook-finish-card')).toBeInTheDocument()
+  })
+
+  it('keyboard is inactive while the portions picker is open (step -1)', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByTestId('cook-portions-picker')
+
+    await user.keyboard('{ArrowRight}')
+
+    // Still on the picker — ArrowRight did NOT advance past it.
+    expect(screen.getByTestId('cook-portions-picker')).toBeInTheDocument()
+    expect(screen.queryByTestId('cook-mise-en-place')).not.toBeInTheDocument()
+  })
+
+  it('keyboard is inactive while a form input has focus', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    // Mount a focused input so document.activeElement is an <input>.
+    const input = document.createElement('input')
+    input.setAttribute('data-testid', 'scratch-input')
+    document.body.appendChild(input)
+    input.focus()
+    expect(document.activeElement).toBe(input)
+
+    await user.keyboard('{ArrowRight}')
+
+    // No navigation — we are still on mise-en-place.
+    expect(screen.getByTestId('cook-mise-en-place')).toBeInTheDocument()
+    expect(screen.queryByTestId('cook-step-card')).not.toBeInTheDocument()
+
+    input.remove()
+  })
+})
