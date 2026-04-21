@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { Calendar, Home, Plus, User, Users } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
-import type { ComponentType, SVGProps } from 'react'
 import { cn } from '@/lib/utils'
 import { CreateActionSheet } from './CreateActionSheet'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
 import { useBottomZoneConsumer } from './bottomZone'
+import { navItems, type NavItem } from './navItems'
 
 /**
  * DS3 bottom navigation (mobile first).
@@ -26,19 +26,6 @@ import { useBottomZoneConsumer } from './bottomZone'
  * row, separated by a subtle border. Both rows share the same outer
  * flex wrapper.
  */
-type NavItem = {
-  to: string
-  label: string
-  icon: ComponentType<SVGProps<SVGSVGElement>>
-}
-
-const items: NavItem[] = [
-  { to: '/', label: 'Start', icon: Home },
-  { to: '/groups', label: 'Gruppen', icon: Users },
-  { to: '/wochenplan', label: 'Wochenplan', icon: Calendar },
-  { to: '/profil', label: 'Profil', icon: User },
-]
-
 export function BottomNav() {
   const [createSheetOpen, setCreateSheetOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
@@ -72,7 +59,7 @@ export function BottomNav() {
           aria-label="Hauptnavigation"
           className="flex items-stretch justify-around"
         >
-          {items.slice(0, 2).map((item) => (
+          {navItems.slice(0, 2).map((item) => (
             <NavItemLink key={item.to} item={item} />
           ))}
 
@@ -96,7 +83,7 @@ export function BottomNav() {
             <span>Neu</span>
           </button>
 
-          {items.slice(2).map((item) => (
+          {navItems.slice(2).map((item) => (
             <NavItemLink key={item.to} item={item} />
           ))}
         </nav>

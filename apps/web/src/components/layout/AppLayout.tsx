@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Outlet, useMatch } from 'react-router-dom'
 import { TopNav } from './TopNav'
 import { BottomNav } from './BottomNav'
+import { SideRail } from './SideRail'
 import { BottomZoneProvider } from './bottomZone'
 import { useLiveSync } from '@/features/live/useLiveSync'
 import { useBackgroundSyncMessage } from '@/features/offline/useBackgroundSyncMessage'
@@ -98,13 +99,24 @@ export function AppLayout() {
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
       <BottomZoneProvider>
         {!hideTopNav && <TopNav />}
-        <main
-          data-app-shell="true"
-          data-testid="app-scroll"
-          className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
-        >
-          <Outlet />
-        </main>
+        {/*
+         * TABLET-0 — horizontal band between TopNav and BottomNav.
+         * SideRail is a flex-sibling of <main> in the tablet zone.
+         * `hidden md:flex xl:hidden` collapses the rail outside the
+         * 768–1279 px range so <main> reclaims the full width on
+         * both mobile and desktop zones with zero layout math —
+         * display:none removes it from the flex track entirely.
+         */}
+        <div className="flex min-h-0 flex-1">
+          <SideRail />
+          <main
+            data-app-shell="true"
+            data-testid="app-scroll"
+            className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
+          >
+            <Outlet />
+          </main>
+        </div>
         <BottomNav />
       </BottomZoneProvider>
     </div>

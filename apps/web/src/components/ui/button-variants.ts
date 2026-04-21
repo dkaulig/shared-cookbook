@@ -11,6 +11,12 @@ import { cva } from 'class-variance-authority'
  *   - sage-dark on hover (via --primary-hover)
  *   - 99% scale tap motion
  *
+ * TABLET-0 — every hover-state is gated behind
+ * `[@media(hover:hover)]:` so touch-only tablets (and phones) don't
+ * leave a tapped button stuck in the hover colour until the next tap.
+ * Desktop + tablets with a Bluetooth mouse still see the full hover
+ * affordance.
+ *
  * The file is kept component-free so `react-refresh/only-export-components`
  * stays happy in `button.tsx`.
  */
@@ -20,16 +26,16 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(26,26,24,0.08),0_4px_12px_-4px_rgba(79,121,97,0.4)] hover:bg-[hsl(var(--primary-hover))] active:scale-[0.99]',
+          'bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(26,26,24,0.08),0_4px_12px_-4px_rgba(79,121,97,0.4)] [@media(hover:hover)]:hover:bg-[hsl(var(--primary-hover))] active:scale-[0.99]',
         destructive:
-          'bg-destructive text-destructive-foreground shadow-[0_1px_2px_rgba(26,26,24,0.08),0_4px_12px_-4px_rgba(220,38,38,0.35)] hover:bg-destructive/90 active:scale-[0.99]',
+          'bg-destructive text-destructive-foreground shadow-[0_1px_2px_rgba(26,26,24,0.08),0_4px_12px_-4px_rgba(220,38,38,0.35)] [@media(hover:hover)]:hover:bg-destructive/90 active:scale-[0.99]',
         outline:
-          'border border-input bg-background text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground',
+          'border border-input bg-background text-foreground shadow-sm [@media(hover:hover)]:hover:bg-accent [@media(hover:hover)]:hover:text-accent-foreground',
         secondary:
-          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
+          'bg-secondary text-secondary-foreground shadow-sm [@media(hover:hover)]:hover:bg-secondary/80',
         ghost:
-          'text-foreground hover:bg-accent hover:text-accent-foreground',
-        link: 'text-primary underline-offset-4 hover:underline',
+          'text-foreground [@media(hover:hover)]:hover:bg-accent [@media(hover:hover)]:hover:text-accent-foreground',
+        link: 'text-primary underline-offset-4 [@media(hover:hover)]:hover:underline',
       },
       size: {
         default: 'h-10 px-5 py-2 text-sm',
