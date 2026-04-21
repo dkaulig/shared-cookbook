@@ -210,13 +210,11 @@ export function useRemoveRecipePhoto(id: string) {
  * Returns `{ importId }` so the caller can navigate to
  * `/rezepte/import/{importId}` — the existing `ImportProgressPage` owns
  * the polling + terminal-state redirect, branching on the wire's
- * `targetRecipeId` to hop back to the recipe detail page on Done.
- *
- * `groupId` is accepted for symmetry with the other detail-page
- * mutations; it's reserved for future list-cache invalidations once
- * the recipe has been updated in-place.
+ * `targetRecipeId` to hop back to the recipe detail page on Done. On
+ * Done, the progress page itself invalidates the recipe detail query,
+ * so this hook has no post-success cache work to do.
  */
-export function useReimportRecipe(recipeId: string, _groupId: string) {
+export function useReimportRecipe(recipeId: string) {
   return useMutation<ImportEnqueueResponse, Error, number>({
     mutationFn: (currentVersion) =>
       reimportRecipe(recipeId, {

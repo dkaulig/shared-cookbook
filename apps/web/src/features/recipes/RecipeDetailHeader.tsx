@@ -34,12 +34,17 @@ export interface RecipeDetailHeaderProps {
   /** Name of the source group when this recipe is a fork. */
   sourceGroupName: string | null
   /**
-   * REIMPORT-1 — mirrors the edit-right gate the "Bearbeiten" entry
-   * uses. The header renders the "Neu importieren" menu entry only when
-   * this is true AND `recipe.sourceUrl` is a real URL (not null and not
-   * the photo-import sentinel). The caller is the detail page; it
-   * already owns the edit-right check for "Bearbeiten" — pass the same
-   * flag through.
+   * REIMPORT-1 — author-or-admin gate (same rule the NutritionSection
+   * edit affordance uses). The header renders the "Neu importieren"
+   * menu entry only when this is true AND `recipe.sourceUrl` is a real
+   * URL (not null and not the photo-import sentinel). The caller is the
+   * detail page, which owns the auth context and computes the flag.
+   *
+   * NB: this is stricter than the backend, which only gates the
+   * endpoint on group membership (matching PUT / DELETE / COOK). The
+   * frontend narrows to author/admin so a reimport — which wholesale
+   * replaces the recipe body — stays behind an explicit "owner"
+   * affordance on the UI.
    */
   canReimport: boolean
   onBack: () => void
