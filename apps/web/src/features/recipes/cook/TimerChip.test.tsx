@@ -1,10 +1,34 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
 import { render, screen, act, fireEvent } from '@testing-library/react'
-import { TimerChip } from './TimerChip'
+import { TimerChip, type TimerChipState } from './TimerChip'
+
+/**
+ * Minimal stateful wrapper — since TimerChip is controlled-only now
+ * (the CookModePage lifts the state into a per-step `Map`), each test
+ * needs a local state holder to exercise the transitions.
+ */
+function Harness({
+  label,
+  initialSeconds,
+}: {
+  label: string
+  initialSeconds: number
+}) {
+  const [state, setState] = useState<TimerChipState | undefined>(undefined)
+  return (
+    <TimerChip
+      label={label}
+      initialSeconds={initialSeconds}
+      state={state}
+      onStateChange={setState}
+    />
+  )
+}
 
 describe('TimerChip — idle state', () => {
   it('renders "⏱ label" and is tappable in idle state', () => {
-    render(<TimerChip label="10 Minuten" initialSeconds={600} />)
+    render(<Harness label="10 Minuten" initialSeconds={600} />)
     expect(screen.getByRole('button', { name: /10 Minuten/ })).toBeInTheDocument()
     expect(screen.getByRole('button')).toHaveTextContent('⏱')
   })
@@ -19,7 +43,7 @@ describe('TimerChip — running countdown', () => {
   })
 
   it('click starts the timer; display shows MM:SS', () => {
-    render(<TimerChip label="10 Minuten" initialSeconds={600} />)
+    render(<Harness label="10 Minuten" initialSeconds={600} />)
     const btn = screen.getByRole('button')
     act(() => {
       fireEvent.click(btn)
@@ -28,7 +52,7 @@ describe('TimerChip — running countdown', () => {
   })
 
   it('decrements 1 Hz via setInterval — 3s → 09:57', () => {
-    render(<TimerChip label="10 Minuten" initialSeconds={600} />)
+    render(<Harness label="10 Minuten" initialSeconds={600} />)
     act(() => {
       fireEvent.click(screen.getByRole('button'))
     })
@@ -39,7 +63,7 @@ describe('TimerChip — running countdown', () => {
   })
 
   it('pause then resume cycles through paused / running', () => {
-    render(<TimerChip label="1 Minute" initialSeconds={60} />)
+    render(<Harness label="1 Minute" initialSeconds={60} />)
     act(() => {
       fireEvent.click(screen.getByRole('button'))
     })
@@ -72,7 +96,7 @@ describe('TimerChip — running countdown', () => {
     const vibrate = vi.fn().mockReturnValue(true)
     ;(navigator as unknown as { vibrate: typeof vibrate }).vibrate = vibrate
 
-    render(<TimerChip label="3 Sekunden" initialSeconds={3} />)
+    render(<Harness label="3 Sekunden" initialSeconds={3} />)
     act(() => {
       fireEvent.click(screen.getByRole('button'))
     })
@@ -85,7 +109,7 @@ describe('TimerChip — running countdown', () => {
 
   it('vibrate unsupported — still transitions to done without throwing', () => {
     delete (navigator as unknown as { vibrate?: unknown }).vibrate
-    render(<TimerChip label="2 Sekunden" initialSeconds={2} />)
+    render(<Harness label="2 Sekunden" initialSeconds={2} />)
     act(() => {
       fireEvent.click(screen.getByRole('button'))
     })
@@ -96,7 +120,7 @@ describe('TimerChip — running countdown', () => {
   })
 
   it('reset button brings done state back to idle', () => {
-    render(<TimerChip label="2 Sekunden" initialSeconds={2} />)
+    render(<Harness label="2 Sekunden" initialSeconds={2} />)
     act(() => {
       fireEvent.click(screen.getByRole('button'))
     })

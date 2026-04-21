@@ -1,5 +1,6 @@
 import { Minus, Plus, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { MAX_SERVINGS, MIN_SERVINGS, clampPortions } from '../portions'
 
 export interface PortionsPickerOverlayProps {
   /** Current session portions — parent-owned state. */
@@ -16,16 +17,6 @@ export interface PortionsPickerOverlayProps {
    * just info. The cook flow defaults `value` to this on first mount.
    */
   recipeDefaultServings: number
-}
-
-const MIN_SERVINGS = 1
-const MAX_SERVINGS = 99
-
-function clamp(value: number): number {
-  if (!Number.isFinite(value)) return MIN_SERVINGS
-  if (value < MIN_SERVINGS) return MIN_SERVINGS
-  if (value > MAX_SERVINGS) return MAX_SERVINGS
-  return Math.round(value)
 }
 
 /**
@@ -51,7 +42,7 @@ export function PortionsPickerOverlay({
   const atMax = value >= MAX_SERVINGS
 
   function emit(next: number) {
-    onChange(clamp(next))
+    onChange(clampPortions(next))
   }
 
   return (

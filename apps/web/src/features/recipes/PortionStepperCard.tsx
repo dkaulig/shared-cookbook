@@ -1,15 +1,6 @@
 import { Minus, Plus, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const MIN_SERVINGS = 1
-const MAX_SERVINGS = 99
-
-function clamp(value: number): number {
-  if (!Number.isFinite(value)) return MIN_SERVINGS
-  if (value < MIN_SERVINGS) return MIN_SERVINGS
-  if (value > MAX_SERVINGS) return MAX_SERVINGS
-  return Math.round(value)
-}
+import { MAX_SERVINGS, MIN_SERVINGS, clampPortions } from './portions'
 
 export interface PortionStepperCardProps {
   /** Current servings (integer, 1..99). Controlled by the parent. */
@@ -56,7 +47,7 @@ export function PortionStepperCard({
   const atMax = servings >= MAX_SERVINGS
 
   function emit(next: number) {
-    onServingsChange(clamp(next))
+    onServingsChange(clampPortions(next))
   }
 
   return (

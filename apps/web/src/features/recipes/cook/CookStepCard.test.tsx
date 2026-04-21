@@ -13,15 +13,27 @@ const STEP: RecipeStepDto = {
   content: 'Mehl in eine Schüssel geben.',
 }
 
+/** Shared default props for the now-required wiring. */
+const DEFAULTS = {
+  timerStates: new Map<string, TimerChipState>(),
+  onTimerStateChange: () => {},
+  ingredients: [] as Array<{ id: string; name: string }>,
+  onIngredientActivate: () => {},
+}
+
 describe('CookStepCard', () => {
   it('renders the step number, total + step text', () => {
-    render(<CookStepCard step={STEP} stepNumber={2} totalSteps={5} />)
+    render(
+      <CookStepCard step={STEP} stepNumber={2} totalSteps={5} {...DEFAULTS} />,
+    )
     expect(screen.getByText(/Schritt 2 von 5/i)).toBeInTheDocument()
     expect(screen.getByText('Mehl in eine Schüssel geben.')).toBeInTheDocument()
   })
 
   it('uses large typography on the step body (≥22px)', () => {
-    render(<CookStepCard step={STEP} stepNumber={1} totalSteps={3} />)
+    render(
+      <CookStepCard step={STEP} stepNumber={1} totalSteps={3} {...DEFAULTS} />,
+    )
     const body = screen.getByTestId('cook-step-content')
     // 22px at md breakpoint and up; we assert the Tailwind class is
     // present rather than parsing computed styles (jsdom has no layout
@@ -83,6 +95,7 @@ describe('CookStepCard — inline timer chips', () => {
         step={{ id: 's2', position: 1, content: '5-7 Minuten köcheln lassen.' }}
         stepNumber={2}
         totalSteps={3}
+        {...DEFAULTS}
       />,
     )
     expect(screen.getByTestId('timer-chip')).toBeInTheDocument()
@@ -96,6 +109,7 @@ describe('CookStepCard — inline timer chips', () => {
         step={{ id: 's3', position: 2, content: 'Nach Geschmack würzen.' }}
         stepNumber={3}
         totalSteps={3}
+        {...DEFAULTS}
       />,
     )
     expect(screen.queryByTestId('timer-chip')).not.toBeInTheDocument()
@@ -114,6 +128,8 @@ describe('CookStepCard — ingredient chips (COOK-2)', () => {
         }}
         stepNumber={2}
         totalSteps={3}
+        timerStates={DEFAULTS.timerStates}
+        onTimerStateChange={DEFAULTS.onTimerStateChange}
         ingredients={[{ id: 'i1', name: 'Butter' }]}
         onIngredientActivate={onActivate}
       />,
@@ -136,6 +152,8 @@ describe('CookStepCard — ingredient chips (COOK-2)', () => {
         }}
         stepNumber={1}
         totalSteps={1}
+        timerStates={DEFAULTS.timerStates}
+        onTimerStateChange={DEFAULTS.onTimerStateChange}
         ingredients={[{ id: 'i1', name: 'Butter' }]}
         onIngredientActivate={onActivate}
       />,
@@ -154,7 +172,10 @@ describe('CookStepCard — ingredient chips (COOK-2)', () => {
         }}
         stepNumber={3}
         totalSteps={3}
+        timerStates={DEFAULTS.timerStates}
+        onTimerStateChange={DEFAULTS.onTimerStateChange}
         ingredients={[{ id: 'i1', name: 'Butter' }]}
+        onIngredientActivate={DEFAULTS.onIngredientActivate}
       />,
     )
     expect(screen.queryByTestId('ingredient-chip')).not.toBeInTheDocument()
@@ -204,6 +225,8 @@ describe('CookStepCard — timer state survives step transitions', () => {
           totalSteps={2}
           timerStates={timerStates}
           onTimerStateChange={setTimerState}
+          ingredients={[]}
+          onIngredientActivate={() => {}}
         />
       </div>
     )

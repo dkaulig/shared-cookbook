@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -22,14 +22,14 @@ export interface TimerChipProps {
   /** Starting seconds when the timer runs for the first time. */
   initialSeconds: number
   /**
-   * Optional controlled state — when provided together with
-   * `onStateChange` the TimerChip becomes CONTROLLED so the parent can
-   * persist its state across unmounts (e.g. the CookModePage keeps a
+   * Current state — the parent (CookModePage) owns a
    * `Map<timerId, TimerChipState>` so stepping away + back preserves
-   * the running countdown).
+   * the running countdown. `undefined` collapses to a default idle
+   * state so the parent can lazily populate entries in its map.
    */
-  state?: TimerChipState
-  onStateChange?: (next: TimerChipState) => void
+  state: TimerChipState | undefined
+  /** Propagate every state transition (tick, pause, reset) to the parent. */
+  onStateChange: (next: TimerChipState) => void
 }
 
 function formatMMSS(total: number): string {
@@ -39,44 +39,21 @@ function formatMMSS(total: number): string {
   return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`
 }
 
-function safeVibrate(pattern: number) {
-  const nav = navigator as unknown as { vibrate?: (p: number | number[]) => boolean }
-  try {
-    nav.vibrate?.(pattern)
-  } catch {
-    /* swallow — vibration isn't critical */
-  }
-}
-
 export function TimerChip({
   label,
   initialSeconds,
   state: controlledState,
   onStateChange,
 }: TimerChipProps) {
-  // Controlled mode is entered whenever a parent `onStateChange` is
-  // provided — the state prop may be `undefined` for a not-yet-created
-  // entry in the parent's map, in which case we fall back to a default
-  // idle state without flipping to uncontrolled mode (that would reset
-  // every time the parent swaps the entry in/out during step navigation).
-  const isControlled = onStateChange != null
-  const [uncontrolled, setUncontrolled] = useState<TimerChipState>(() => ({
+  // The state prop may be `undefined` for a not-yet-created entry in
+  // the parent's map — we present a default idle state in that case so
+  // the parent can populate on first interaction.
+  const state: TimerChipState = controlledState ?? {
     status: 'idle',
     remaining: initialSeconds,
-  }))
-  const state: TimerChipState = isControlled
-    ? (controlledState ?? { status: 'idle', remaining: initialSeconds })
-    : uncontrolled
+  }
 
-  const update = useCallback(
-    (next: TimerChipState) => {
-      if (isControlled) onStateChange!(next)
-      else setUncontrolled(next)
-    },
-    [isControlled, onStateChange],
-  )
-
-  const updateRef = useRef(update)
+  const updateRef = useRef(onStateChange)
   const remainingRef = useRef(state.remaining)
   const statusRef = useRef(state.status)
 
@@ -85,7 +62,7 @@ export function TimerChip({
   // tick. Assignment inside useEffect satisfies react-hooks/refs which
   // forbids ref writes during render.
   useEffect(() => {
-    updateRef.current = update
+    updateRef.current = onStateChange
     remainingRef.current = state.remaining
     statusRef.current = state.status
   })
@@ -110,27 +87,29 @@ export function TimerChip({
     return () => clearInterval(id)
   }, [state.status])
 
-  // Fire vibration once when entering done state.
+  // Fire vibration once when entering done state. Optional chaining
+  // handles unsupported platforms — no mainstream browser throws from
+  // this call synchronously, so the helper's try/catch was dead weight.
   const prevStatusRef = useRef<TimerChipStatus>(state.status)
   useEffect(() => {
     if (prevStatusRef.current !== 'done' && state.status === 'done') {
-      safeVibrate(200)
+      navigator.vibrate?.(200)
     }
     prevStatusRef.current = state.status
   }, [state.status])
 
   function handleMainTap() {
     if (state.status === 'idle') {
-      update({ status: 'running', remaining: initialSeconds })
+      onStateChange({ status: 'running', remaining: initialSeconds })
     } else if (state.status === 'running') {
-      update({ status: 'paused', remaining: state.remaining })
+      onStateChange({ status: 'paused', remaining: state.remaining })
     } else if (state.status === 'paused') {
-      update({ status: 'running', remaining: state.remaining })
+      onStateChange({ status: 'running', remaining: state.remaining })
     }
   }
 
   function handleReset() {
-    update({ status: 'idle', remaining: initialSeconds })
+    onStateChange({ status: 'idle', remaining: initialSeconds })
   }
 
   // Visual variant by status.
