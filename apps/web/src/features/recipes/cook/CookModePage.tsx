@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { useMarkAsCooked, useRecipe } from '../hooks'
@@ -8,6 +8,8 @@ import { CookStepCard } from './CookStepCard'
 import { CookTopBar } from './CookTopBar'
 import { MiseEnPlaceList } from './MiseEnPlaceList'
 import { PortionsPickerOverlay } from './PortionsPickerOverlay'
+import type { TimerChipState } from './TimerChip'
+import { useWakeLock } from './useWakeLock'
 
 /**
  * COOK-0 — "Jetzt kochen" Modus.
@@ -52,11 +54,33 @@ export function CookModePage() {
     () => new Set(),
   )
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
+  // COOK-1 — lifted timer-state map. Keyed by `${step.id}:${matchStart}`
+  // so a timer's running / paused / done status survives step-navigation.
+  const [timerStates, setTimerStates] = useState<Map<string, TimerChipState>>(
+    () => new Map(),
+  )
+
+  // COOK-1 — keep the screen on while the user is actually cooking.
+  // Active once the portions picker has been confirmed (step moves to 0
+  // or higher). We don't acquire on the picker itself — reading "how
+  // many portions?" is a fast interaction, no need for a lock there.
+  const wakeLock = useWakeLock(step > -1)
 
   const sortedSteps = useMemo(() => {
     if (!detail.data) return []
     return detail.data.steps.slice().sort((a, b) => a.position - b.position)
   }, [detail.data])
+
+  const handleTimerStateChange = useCallback(
+    (key: string, next: TimerChipState) => {
+      setTimerStates((prev) => {
+        const copy = new Map(prev)
+        copy.set(key, next)
+        return copy
+      })
+    },
+    [],
+  )
 
   if (!recipeId) return <Navigate to={`/groups/${groupId}`} replace />
 
@@ -185,6 +209,8 @@ export function CookModePage() {
             step={sortedSteps[step - 1]!}
             stepNumber={step}
             totalSteps={totalSteps}
+            timerStates={timerStates}
+            onTimerStateChange={handleTimerStateChange}
           />
         )}
 
@@ -206,6 +232,16 @@ export function CookModePage() {
           onBack={handleBack}
           onNext={handleNext}
         />
+      )}
+
+      {wakeLock.granted && (
+        <div
+          aria-live="polite"
+          className="sr-only"
+          data-testid="cook-wake-lock-status"
+        >
+          Bildschirm bleibt an
+        </div>
       )}
 
       <ConfirmDialog

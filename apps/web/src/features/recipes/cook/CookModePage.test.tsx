@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, afterEach } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -195,6 +195,59 @@ describe('CookModePage — portions chip reopens picker', () => {
     expect(
       screen.getByRole('button', { name: /Portionen anpassen — aktuell 8/i }),
     ).toHaveTextContent(/8 Portionen/)
+  })
+})
+
+describe('CookModePage — wake lock (COOK-1)', () => {
+  const originalWakeLock = (navigator as unknown as { wakeLock?: unknown }).wakeLock
+
+  afterEach(() => {
+    if (originalWakeLock === undefined) {
+      delete (navigator as unknown as { wakeLock?: unknown }).wakeLock
+    } else {
+      ;(navigator as unknown as { wakeLock?: unknown }).wakeLock = originalWakeLock
+    }
+  })
+
+  it('requests a screen wake-lock after the portions picker is confirmed', async () => {
+    const release = vi.fn().mockResolvedValue(undefined)
+    const request = vi.fn().mockResolvedValue({ release })
+    ;(navigator as unknown as { wakeLock: unknown }).wakeLock = { request }
+
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByTestId('cook-portions-picker')
+    // On the picker step (step = -1) the wake-lock should NOT yet be
+    // requested — we only turn on the screen-keep-awake when the user
+    // actually starts cooking.
+    expect(request).not.toHaveBeenCalled()
+
+    // Confirm portions → mise-en-place (step 0) → wake-lock requested.
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await waitFor(() => {
+      expect(request).toHaveBeenCalledWith('screen')
+    })
+  })
+
+  it('releases the lock when the cook page unmounts', async () => {
+    const release = vi.fn().mockResolvedValue(undefined)
+    const request = vi.fn().mockResolvedValue({ release })
+    ;(navigator as unknown as { wakeLock: unknown }).wakeLock = { request }
+
+    const user = userEvent.setup()
+    const { unmount } = render(withProviders('/groups/g1/recipes/r1/cook'))
+    await screen.findByTestId('cook-portions-picker')
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await waitFor(() => {
+      expect(request).toHaveBeenCalled()
+    })
+
+    unmount()
+    await waitFor(() => {
+      expect(release).toHaveBeenCalled()
+    })
   })
 })
 
