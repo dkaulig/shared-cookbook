@@ -27,7 +27,16 @@ export function readFiltersFromSearchParams(params: URLSearchParams): RecipeSear
   const createdBy = params.get('createdBy')
   if (createdBy) out.createdBy = createdBy
   const sort = params.get('sort')
-  if (sort === 'newest' || sort === 'best_rated' || sort === 'last_cooked') {
+  if (
+    sort === 'newest' ||
+    sort === 'best_rated' ||
+    sort === 'last_cooked' ||
+    sort === 'updated_desc' ||
+    sort === 'cooked_desc' ||
+    sort === 'title_asc' ||
+    sort === 'cook_count_desc' ||
+    sort === 'rating_desc'
+  ) {
     out.sort = sort as SearchSort
   }
   const page = params.get('page')

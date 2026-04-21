@@ -7,9 +7,15 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, ChevronUp, ListOrdered, Plus, Users } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Plus, Users } from 'lucide-react'
 import type { ApiError, RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
+import {
+  DEFAULT_RECIPE_LIST_PAGE_SIZE,
+  DEFAULT_RECIPE_LIST_SORT,
+} from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
+import { Pagination } from '@/components/ui/pagination'
+import { Select } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { RecipeGridCard } from '@/features/recipes/RecipeGridCard'
@@ -49,11 +55,29 @@ import { useIsMobile } from '@/lib/useIsMobile'
  * the grid, `fetchRandomRecipe` for Zufall. URL search-params drive
  * filter state so the view is shareable/reloadable.
  */
-const SORT_LABELS: Record<SearchSort, string> = {
-  newest: 'Neueste zuerst',
-  best_rated: 'Am besten bewertet',
-  last_cooked: 'Zuletzt gekocht',
-}
+/**
+ * PAGE-1 — sort options that drive the recipe list. German labels are
+ * the ones the user sees in the header `<Select>`. Order matches the
+ * design doc: default first, then by how likely the user is to reach
+ * for each option.
+ *
+ * The backend (PAGE-0) may cut one of `cook_count_desc` / `rating_desc`
+ * depending on column availability. We ship all five optimistically;
+ * an unsupported pick surfaces as a 400 `invalid_sort` via the standard
+ * list-load-error toast.
+ */
+const SORT_OPTIONS: Array<{ value: SearchSort; label: string }> = [
+  { value: 'updated_desc', label: 'Zuletzt aktualisiert' },
+  { value: 'cooked_desc', label: 'Zuletzt gekocht' },
+  { value: 'title_asc', label: 'Titel A-Z' },
+  { value: 'cook_count_desc', label: 'Am häufigsten gekocht' },
+  { value: 'rating_desc', label: 'Beste Bewertung' },
+]
+
+// Mirror the PAGE-0 backend defaults so share-links + empty-state
+// escape-hatches agree on what "page 1, default sort" means.
+const DEFAULT_SORT: SearchSort = DEFAULT_RECIPE_LIST_SORT
+const DEFAULT_PAGE_SIZE = DEFAULT_RECIPE_LIST_PAGE_SIZE
 
 export function GroupDetailPage() {
   const params = useParams<{ id: string }>()
@@ -64,7 +88,20 @@ export function GroupDetailPage() {
 
   const [searchParams, setSearchParams] = useSearchParams()
   const filters = readFiltersFromSearchParams(searchParams)
-  const search = useRecipeSearch(groupId, filters)
+
+  // PAGE-1 — pagination + sort are URL-driven so the view is share-/
+  // reload-safe. The sort defaults to the list-endpoint's
+  // `updated_desc`, but we honour whatever the URL supplies (including
+  // legacy `newest|best_rated|last_cooked` picked up by the search
+  // endpoint pre-PAGE-1). `page` is 1-based; absent → 1.
+  const urlPage = filters.page && filters.page > 0 ? filters.page : 1
+  const urlSort: SearchSort = filters.sort ?? DEFAULT_SORT
+  const search = useRecipeSearch(groupId, {
+    ...filters,
+    page: urlPage,
+    pageSize: filters.pageSize ?? DEFAULT_PAGE_SIZE,
+    sort: urlSort,
+  })
 
   // Debounced search input — tracks user keystrokes locally, then
   // commits to the URL after 300 ms so typing doesn't slam the backend.
@@ -99,7 +136,41 @@ export function GroupDetailPage() {
   const [randomError, setRandomError] = useState<string | null>(null)
 
   const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters])
-  const sortLabel = SORT_LABELS[filters.sort ?? 'newest']
+
+  /**
+   * PAGE-1 — sort change resets `page` to 1 (otherwise a deep
+   * `?sort=X&page=5` reshuffle could strand the user on an empty tail
+   * page). Preserves every other filter. The default sort strips itself
+   * from the URL so share-links don't carry needless noise.
+   */
+  const handleSortChange = useCallback(
+    (next: SearchSort) => {
+      const current = readFiltersFromSearchParams(searchParams)
+      const nextFilters: RecipeSearchParams = {
+        ...current,
+        sort: next === DEFAULT_SORT ? undefined : next,
+        page: undefined,
+      }
+      setSearchParams(writeFiltersToSearchParams(nextFilters))
+    },
+    [searchParams, setSearchParams],
+  )
+
+  /**
+   * PAGE-1 — page-change preserves sort + every other filter. Page 1
+   * strips itself from the URL (default) for clean share-links.
+   */
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      const current = readFiltersFromSearchParams(searchParams)
+      const nextFilters: RecipeSearchParams = {
+        ...current,
+        page: nextPage <= 1 ? undefined : nextPage,
+      }
+      setSearchParams(writeFiltersToSearchParams(nextFilters))
+    },
+    [searchParams, setSearchParams],
+  )
 
   const handleRandom = useCallback(async () => {
     if (!groupId) return
@@ -327,18 +398,32 @@ export function GroupDetailPage() {
         )}
       </div>
 
-      {/* Results header */}
-      <div className="flex items-baseline justify-between gap-2.5 px-5 pb-2 pt-[18px] md:px-8 md:pt-[22px]">
+      {/* Results header — PAGE-1 replaces the passive sort-indicator
+          with an interactive <Select> so the user can pick one of 5
+          sort orders. The Select writes `?sort=…` to the URL (sort
+          change resets `page=1` in the handler). */}
+      <div className="flex flex-wrap items-baseline justify-between gap-2.5 px-5 pb-2 pt-[18px] md:px-8 md:pt-[22px]">
         <div className="font-serif text-[22px] font-semibold">
           {totalRecipes} {recipesLabel}
           <span className="ml-1.5 font-sans text-[13px] font-medium text-[hsl(var(--muted-foreground))]">
             in {group.name}
           </span>
         </div>
-        <div className="inline-flex items-center gap-1 text-[13px] text-[hsl(var(--muted-foreground))]">
-          <ListOrdered className="h-[13px] w-[13px]" aria-hidden="true" />
-          {sortLabel}
-        </div>
+        <label className="inline-flex items-center gap-2 text-[13px] text-[hsl(var(--muted-foreground))]">
+          <span className="sr-only">Sortierung</span>
+          <Select
+            aria-label="Sortierung"
+            value={urlSort}
+            onChange={(e) => handleSortChange(e.target.value as SearchSort)}
+            className="h-9 w-auto min-w-[180px] text-sm"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </label>
       </div>
 
       {/* Recipe grid */}
@@ -361,13 +446,31 @@ export function GroupDetailPage() {
           </p>
         )}
 
-        {search.isSuccess && items.length === 0 && (
-          <EmptyState
-            hasFilters={hasFiltersOrQuery}
-            onClearFilters={() => setSearchParams(writeFiltersToSearchParams({}), { replace: true })}
-            newRecipeHref={`/groups/${groupId}/recipes/new`}
-          />
-        )}
+        {/* PAGE-1 — deep-link past the last page (`?page=99` on a
+            3-page list) lands here: total > 0 but items is empty.
+            Render a bespoke empty-state with a "Zur ersten Seite"
+            escape-hatch rather than conflating with the no-recipes /
+            no-filter-matches branches below. */}
+        {search.isSuccess &&
+          items.length === 0 &&
+          urlPage > 1 &&
+          totalRecipes > 0 && (
+            <EmptyPastEnd
+              firstPageHref={buildFirstPageHref(searchParams)}
+            />
+          )}
+
+        {search.isSuccess &&
+          items.length === 0 &&
+          !(urlPage > 1 && totalRecipes > 0) && (
+            <EmptyState
+              hasFilters={hasFiltersOrQuery}
+              onClearFilters={() =>
+                setSearchParams(writeFiltersToSearchParams({}), { replace: true })
+              }
+              newRecipeHref={`/groups/${groupId}/recipes/new`}
+            />
+          )}
 
         {search.isSuccess && items.length > 0 && (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-4">
@@ -380,6 +483,21 @@ export function GroupDetailPage() {
               />
             ))}
           </div>
+        )}
+
+        {/* PAGE-1 — pagination nav. Hidden when total ≤ pageSize
+            (one-page lists don't need chrome). Sits under the grid on
+            mobile; the md+ SplitPane keeps it in the natural flow at
+            the bottom of the left column's scroll container. */}
+        {search.isSuccess && totalRecipes > 0 && (
+          <Pagination
+            page={urlPage}
+            totalPages={Math.max(
+              1,
+              Math.ceil(totalRecipes / (filters.pageSize ?? DEFAULT_PAGE_SIZE)),
+            )}
+            onPageChange={handlePageChange}
+          />
         )}
       </div>
 
@@ -418,6 +536,40 @@ export function GroupDetailPage() {
       right={rightPane}
       className="h-full"
     />
+  )
+}
+
+/**
+ * PAGE-1 — build the href that drops the `page` URL param (back to
+ * page 1) while preserving every other filter. Used by the "past-end"
+ * empty-state so a deep-linked `?page=99` gives the user a one-click
+ * escape without losing their sort/filters context.
+ */
+function buildFirstPageHref(current: URLSearchParams): string {
+  const next = new URLSearchParams(current)
+  next.delete('page')
+  const qs = next.toString()
+  return qs ? `?${qs}` : '?'
+}
+
+function EmptyPastEnd({ firstPageHref }: { firstPageHref: string }) {
+  return (
+    <div className="rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 px-6 py-10 text-center">
+      <p className="font-serif text-[22px] font-semibold text-foreground">
+        Keine Rezepte auf dieser Seite
+      </p>
+      <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
+        Die gewählte Seite liegt hinter dem Ende der Liste.
+      </p>
+      <div className="mt-4">
+        <Link
+          to={firstPageHref}
+          className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+        >
+          Zur ersten Seite
+        </Link>
+      </div>
+    </div>
   )
 }
 

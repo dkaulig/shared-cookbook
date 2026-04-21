@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 
 describe('recipesApi', () => {
-  it('fetchGroupRecipes issues GET with group id and page params', async () => {
+  it('fetchGroupRecipes issues GET with page, pageSize, and sort query params', async () => {
     let hitUrl = ''
     server.use(
       http.get('/api/groups/g1/recipes', ({ request }) => {
@@ -41,14 +41,18 @@ describe('recipesApi', () => {
         return HttpResponse.json<RecipeSummaryListDto>({
           items: [],
           page: 1,
-          pageSize: 20,
+          pageSize: 24,
           total: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
         })
       }),
     )
 
-    const result = await fetchGroupRecipes('g1', 2, 10)
-    expect(hitUrl).toContain('/api/groups/g1/recipes?page=2&pageSize=10')
+    const result = await fetchGroupRecipes('g1', { page: 2, pageSize: 10, sort: 'title_asc' })
+    expect(hitUrl).toContain('page=2')
+    expect(hitUrl).toContain('pageSize=10')
+    expect(hitUrl).toContain('sort=title_asc')
     expect(result.total).toBe(0)
   })
 

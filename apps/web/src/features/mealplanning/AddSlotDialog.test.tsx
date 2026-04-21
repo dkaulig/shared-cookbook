@@ -48,7 +48,7 @@ function renderDialog(onClose: () => void = () => {}) {
 describe('<AddSlotDialog />', () => {
   it('shows the initial date and meal in the header', () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )
@@ -60,7 +60,7 @@ describe('<AddSlotDialog />', () => {
 
   it('shows a validation error when neither a recipe nor a label is provided', async () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )
@@ -76,7 +76,7 @@ describe('<AddSlotDialog />', () => {
   it('POSTs a slot with a free-text label and calls onClose on success', async () => {
     let captured: AddSlotRequest | null = null
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.post(`/api/mealplans/${PLAN_ID}/slots`, async ({ request }) => {
@@ -123,7 +123,7 @@ describe('<AddSlotDialog />', () => {
   it('POSTs a slot with the picked recipeId when a search result is selected', async () => {
     let captured: AddSlotRequest | null = null
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({
           items: [
             {
@@ -183,7 +183,7 @@ describe('<AddSlotDialog />', () => {
 
   it('surfaces the server error message when the API rejects the slot', async () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.post(`/api/mealplans/${PLAN_ID}/slots`, () =>
@@ -207,7 +207,7 @@ describe('<AddSlotDialog />', () => {
 
   it('calls onClose when the user clicks "Abbrechen"', async () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )
@@ -221,7 +221,7 @@ describe('<AddSlotDialog />', () => {
 
   it('hides the "Ist Rest von" dropdown when there are no candidate parents', () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )
@@ -246,7 +246,7 @@ describe('<AddSlotDialog />', () => {
     }
     let captured: AddSlotRequest | null = null
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.post(`/api/mealplans/${PLAN_ID}/slots`, async ({ request }) => {

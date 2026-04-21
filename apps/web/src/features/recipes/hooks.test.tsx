@@ -8,10 +8,10 @@ import { useAuthStore } from '@/features/auth/authStore'
 import { VersionMismatchError } from '@/features/_shared/apiError'
 import {
   useCreateRecipe,
-  useGroupRecipes,
   useGroupTags,
   useMarkAsCooked,
   useRecipe,
+  useRecipes,
   useReimportRecipe,
 } from './hooks'
 
@@ -30,13 +30,20 @@ function makeWrapper() {
 }
 
 describe('recipes hooks', () => {
-  it('useGroupRecipes returns items from the API', async () => {
+  it('useRecipes returns items from the API', async () => {
     server.use(
       http.get('/api/groups/g1/recipes', () =>
-        HttpResponse.json({ items: [{ id: 'r1', title: 'R' }], page: 1, pageSize: 20, total: 1 }),
+        HttpResponse.json({
+          items: [{ id: 'r1', title: 'R' }],
+          page: 1,
+          pageSize: 24,
+          total: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        }),
       ),
     )
-    const { result } = renderHook(() => useGroupRecipes('g1'), { wrapper: makeWrapper() })
+    const { result } = renderHook(() => useRecipes('g1'), { wrapper: makeWrapper() })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.items).toHaveLength(1)
   })

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
-import { useRecipeSearch } from '@/features/search/hooks'
+import { useRecipes } from '@/features/recipes/hooks'
 import { MealPlanApiError } from './mealPlanApi'
 import { buildParentLabel, eligibleParents } from './parentSlotHelpers'
 import { usePatchSlot } from './useMealPlan'
@@ -70,7 +70,9 @@ export function EditSlotDialog({
   )
   const [error, setError] = useState<string | null>(null)
 
-  const search = useRecipeSearch(groupId, { q: query || undefined, pageSize: 8 })
+  // PAGE-1 — stopgap until the Cross-Group-Search slice: pull the full
+  // (title-sorted) list in one shot so the picker can filter client-side.
+  const search = useRecipes(groupId, { pageSize: 100, sort: 'title_asc' })
   const patch = usePatchSlot(groupId, weekStart, planId)
 
   // Exclude the slot being edited + its descendants so the picker
@@ -150,7 +152,15 @@ export function EditSlotDialog({
     }
   }
 
-  const recipes = search.data?.items ?? []
+  // Client-side filter on the typed query — cheap at pageSize=100.
+  const recipes = useMemo(() => {
+    const all = search.data?.items ?? []
+    const q = query.trim().toLowerCase()
+    if (q.length === 0) return all.slice(0, 8)
+    return all
+      .filter((r) => r.title.toLowerCase().includes(q))
+      .slice(0, 8)
+  }, [search.data?.items, query])
 
   return (
     <div

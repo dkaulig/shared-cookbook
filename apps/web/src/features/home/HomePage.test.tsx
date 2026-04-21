@@ -5,7 +5,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { GroupSummary, RecipeSearchResult } from '@familien-kochbuch/shared'
+import type { GroupSummary, RecipeSummaryListDto } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { HomePage } from './HomePage'
@@ -45,7 +45,14 @@ function groupSummary(over: Partial<GroupSummary>): GroupSummary {
   }
 }
 
-const emptySearch: RecipeSearchResult = { items: [], page: 1, pageSize: 4, total: 0 }
+const emptySearch: RecipeSummaryListDto = {
+  items: [],
+  page: 1,
+  pageSize: 5,
+  total: 0,
+  hasNextPage: false,
+  hasPrevPage: false,
+}
 
 describe('<HomePage />', () => {
   beforeEach(() => {
@@ -142,7 +149,7 @@ describe('<HomePage />', () => {
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -159,7 +166,7 @@ describe('<HomePage />', () => {
         HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'gA', name: 'Familie Kaulig' })]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -180,8 +187,8 @@ describe('<HomePage />', () => {
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/gA/recipes/search', () =>
-        HttpResponse.json<RecipeSearchResult>({
+      http.get('/api/groups/gA/recipes', () =>
+        HttpResponse.json<RecipeSummaryListDto>({
           items: [
             {
               id: 'r1',
@@ -202,7 +209,7 @@ describe('<HomePage />', () => {
           total: 1,
         }),
       ),
-      http.get('/api/groups/gB/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/gB/recipes', () => HttpResponse.json(emptySearch)),
     )
 
     renderHome()
@@ -221,7 +228,7 @@ describe('<HomePage />', () => {
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/gA/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/gA/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -242,7 +249,7 @@ describe('<HomePage />', () => {
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -267,7 +274,7 @@ describe('<HomePage />', () => {
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -297,7 +304,7 @@ describe('<HomePage />', () => {
     server.use(
       http.get('/api/groups', () => HttpResponse.json<GroupSummary[]>([])),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -318,7 +325,7 @@ describe('<HomePage />', () => {
         HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'gA' })]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -334,7 +341,7 @@ describe('<HomePage />', () => {
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -365,7 +372,7 @@ describe('<HomePage />', () => {
         HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'gA' })]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/:groupId/recipes/search', () => HttpResponse.json(emptySearch)),
+      http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
     )
     renderHome()
 
@@ -384,8 +391,8 @@ describe('<HomePage />', () => {
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
-      http.get('/api/groups/gA/recipes/search', () =>
-        HttpResponse.json<RecipeSearchResult>({
+      http.get('/api/groups/gA/recipes', () =>
+        HttpResponse.json<RecipeSummaryListDto>({
           items: [
             {
               id: 'r1',

@@ -5,6 +5,7 @@ import type {
   ImportEnqueueResponse,
   NutritionEstimate,
   RecipeDetailDto,
+  RecipeListSort,
   RecipeRevisionDetail,
   RecipeRevisionSummary,
   RecipeSummaryListDto,
@@ -12,6 +13,7 @@ import type {
   UpdateRecipeRequest,
   UploadPhotoResponse,
 } from '@familien-kochbuch/shared'
+import { DEFAULT_RECIPE_LIST_SORT } from '@familien-kochbuch/shared'
 import {
   createRecipe,
   deleteRecipe,
@@ -31,13 +33,39 @@ import { recipeQueryKeys } from './queryKeys'
 import { groupQueryKeys } from '@/features/groups/queryKeys'
 import { buildIfMatch } from '@/features/_shared/ifMatch'
 
-/** List of recipes in a group (paginated). */
-export function useGroupRecipes(groupId: string | undefined, page = 1, pageSize = 20) {
+/**
+ * PAGE-1 — paginated + sorted slice of a group's recipes.
+ *
+ * Matches backend PAGE-0 contract:
+ *   `GET /api/groups/:groupId/recipes?page=1&pageSize=24&sort=updated_desc`
+ *   → `{ items, page, pageSize, total, hasNextPage, hasPrevPage }`.
+ *
+ * Query key shape: `['recipes', 'group', groupId, page, sort]` when the
+ * caller sticks with the default pageSize (24), so pagination state
+ * round-trips the cache cleanly. `pageSize` is only appended to the key
+ * when it differs from the default — low-frequency consumers like the
+ * mealplan picker (pageSize=100) get their own cache bucket without
+ * inflating the common grid consumer's key.
+ *
+ * The hook accepts an options bag so call-sites read self-documenting
+ * (no mystery positional `undefined`s). `sort` defaults to
+ * `updated_desc`, matching the backend. Unknown sorts surface as a
+ * 400 `invalid_sort` via the standard list-load-error toast — one of
+ * `cook_count_desc` / `rating_desc` may be cut on the backend depending
+ * on column availability.
+ */
+export function useRecipes(
+  groupId: string | undefined,
+  options: { page?: number; pageSize?: number; sort?: RecipeListSort } = {},
+) {
+  const page = options.page ?? 1
+  const sort = options.sort ?? DEFAULT_RECIPE_LIST_SORT
+  const pageSize = options.pageSize
   return useQuery<RecipeSummaryListDto>({
     queryKey: groupId
-      ? recipeQueryKeys.forGroup(groupId, page, pageSize)
+      ? recipeQueryKeys.forGroup(groupId, page, sort, pageSize)
       : ['recipes', 'group', 'disabled'],
-    queryFn: () => fetchGroupRecipes(groupId!, page, pageSize),
+    queryFn: () => fetchGroupRecipes(groupId!, { page, pageSize, sort }),
     enabled: !!groupId,
   })
 }

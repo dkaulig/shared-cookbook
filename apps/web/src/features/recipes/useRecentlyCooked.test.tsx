@@ -3,16 +3,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { RecipeSearchResult } from '@familien-kochbuch/shared'
+import type { RecipeSummaryListDto } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useRecentlyCooked } from './useRecentlyCooked'
 
 /**
- * Home page's "Zuletzt gekocht" section reuses the existing recipe
- * search endpoint. The hook is a thin wrapper around
- * `/api/groups/:groupId/recipes/search?sort=last_cooked&pageSize=4`
- * so the Home page does not import the search feature directly.
+ * PAGE-1 — Home page's "Zuletzt gekocht" now rides the paginated
+ * recipe-list endpoint with `pageSize=5&sort=cooked_desc`. The hook is
+ * a thin wrapper so the Home page does not import the recipe feature
+ * internals directly.
  */
 function makeWrapper() {
   const client = new QueryClient({
@@ -38,17 +38,19 @@ describe('useRecentlyCooked', () => {
     useAuthStore.getState().clear()
   })
 
-  it('queries /search?sort=last_cooked&pageSize=4 for the supplied group', async () => {
+  it('queries /recipes?sort=cooked_desc&pageSize=5 for the supplied group', async () => {
     let seenUrl = ''
     server.use(
-      http.get('/api/groups/:groupId/recipes/search', ({ request, params }) => {
+      http.get('/api/groups/:groupId/recipes', ({ request, params }) => {
         seenUrl = request.url
         expect(params.groupId).toBe('g1')
-        return HttpResponse.json<RecipeSearchResult>({
+        return HttpResponse.json<RecipeSummaryListDto>({
           items: [],
           page: 1,
-          pageSize: 4,
+          pageSize: 5,
           total: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
         })
       }),
     )
@@ -58,20 +60,22 @@ describe('useRecentlyCooked', () => {
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true)
     })
-    expect(seenUrl).toContain('sort=last_cooked')
-    expect(seenUrl).toContain('pageSize=4')
+    expect(seenUrl).toContain('sort=cooked_desc')
+    expect(seenUrl).toContain('pageSize=5')
   })
 
   it('is disabled when groupId is undefined — no request goes out', async () => {
     let called = false
     server.use(
-      http.get('/api/groups/:groupId/recipes/search', () => {
+      http.get('/api/groups/:groupId/recipes', () => {
         called = true
-        return HttpResponse.json<RecipeSearchResult>({
+        return HttpResponse.json<RecipeSummaryListDto>({
           items: [],
           page: 1,
-          pageSize: 4,
+          pageSize: 5,
           total: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
         })
       }),
     )
@@ -86,8 +90,8 @@ describe('useRecentlyCooked', () => {
 
   it('exposes the recipe summaries the API returns', async () => {
     server.use(
-      http.get('/api/groups/:groupId/recipes/search', () =>
-        HttpResponse.json<RecipeSearchResult>({
+      http.get('/api/groups/:groupId/recipes', () =>
+        HttpResponse.json<RecipeSummaryListDto>({
           items: [
             {
               id: 'r1',
@@ -104,8 +108,10 @@ describe('useRecentlyCooked', () => {
             },
           ],
           page: 1,
-          pageSize: 4,
+          pageSize: 5,
           total: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
         }),
       ),
     )
