@@ -100,7 +100,7 @@ describe('useReimportRecipe', () => {
         return HttpResponse.json({ importId: 'imp-42' }, { status: 202 })
       }),
     )
-    const { result } = renderHook(() => useReimportRecipe('r1', 'g1'), {
+    const { result } = renderHook(() => useReimportRecipe('r1'), {
       wrapper: makeWrapper(),
     })
     const response = await result.current.mutateAsync(7)
@@ -123,7 +123,7 @@ describe('useReimportRecipe', () => {
         ),
       ),
     )
-    const { result } = renderHook(() => useReimportRecipe('r1', 'g1'), {
+    const { result } = renderHook(() => useReimportRecipe('r1'), {
       wrapper: makeWrapper(),
     })
     await expect(result.current.mutateAsync(3)).rejects.toBeInstanceOf(
@@ -144,7 +144,7 @@ describe('useReimportRecipe', () => {
         ),
       ),
     )
-    const { result } = renderHook(() => useReimportRecipe('r1', 'g1'), {
+    const { result } = renderHook(() => useReimportRecipe('r1'), {
       wrapper: makeWrapper(),
     })
     await expect(result.current.mutateAsync(0)).rejects.toMatchObject({
@@ -165,7 +165,7 @@ describe('useReimportRecipe', () => {
         ),
       ),
     )
-    const { result } = renderHook(() => useReimportRecipe('r1', 'g1'), {
+    const { result } = renderHook(() => useReimportRecipe('r1'), {
       wrapper: makeWrapper(),
     })
     await expect(result.current.mutateAsync(0)).rejects.toMatchObject({

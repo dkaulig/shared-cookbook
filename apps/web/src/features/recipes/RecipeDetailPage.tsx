@@ -55,7 +55,7 @@ export function RecipeDetailPage() {
   const ratings = useRatings(recipeId)
   const deleteMutation = useDeleteRecipe(groupId)
   const markCooked = useMarkAsCooked(recipeId)
-  const reimportMutation = useReimportRecipe(recipeId, groupId)
+  const reimportMutation = useReimportRecipe(recipeId)
   const queryClient = useQueryClient()
   const { user } = useAuth()
 
