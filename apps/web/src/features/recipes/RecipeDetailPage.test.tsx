@@ -36,13 +36,22 @@ const recipe: RecipeDetailDto = {
   createdAt: '2026-04-18T00:00:00Z',
   updatedAt: '2026-04-18T00:00:00Z',
   version: 0,
-  ingredients: [
-    { id: 'i1', position: 0, quantity: 500, unit: 'g', name: 'Mehl', note: null, scalable: true },
-    { id: 'i2', position: 1, quantity: null, unit: 'Prise', name: 'Salz', note: null, scalable: false },
-  ],
-  steps: [
-    { id: 's1', position: 0, content: 'Mehl in eine Schüssel geben.' },
-    { id: 's2', position: 1, content: 'Eier und Salz hinzufügen.' },
+  // COMP-2 — single-default component wraps the pre-COMP-2 flat
+  // ingredient+step fixture so the detail page renders identically.
+  components: [
+    {
+      id: 'c1',
+      position: 0,
+      label: null,
+      ingredients: [
+        { id: 'i1', position: 0, quantity: 500, unit: 'g', name: 'Mehl', note: null, scalable: true },
+        { id: 'i2', position: 1, quantity: null, unit: 'Prise', name: 'Salz', note: null, scalable: false },
+      ],
+      steps: [
+        { id: 's1', position: 0, content: 'Mehl in eine Schüssel geben.' },
+        { id: 's2', position: 1, content: 'Eier und Salz hinzufügen.' },
+      ],
+    },
   ],
   tags: [{ id: 't1', name: 'deftig', category: 'Typ', isGlobal: true, groupId: null }],
   nutritionEstimate: null,
@@ -614,6 +623,114 @@ describe('RecipeDetailPage', () => {
     expect(screen.getByRole('heading', { name: /^Zubereitung$/i })).toBeInTheDocument()
     expect(screen.getByText('Mehl in eine Schüssel geben.')).toBeInTheDocument()
     expect(screen.getByText('Salz')).toBeInTheDocument()
+  })
+
+  // ── COMP-2 — component grouping on the detail page ───────────────
+
+  it('COMP-2: single-default recipe renders without any component-header <h3>s (DOM unchanged from pre-COMP-2)', async () => {
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    // No component-heading chrome for the single-default case — the
+    // detail page must render exactly like the pre-COMP-2 flat layout.
+    expect(
+      screen.queryAllByTestId('recipe-detail-component-heading'),
+    ).toHaveLength(0)
+  })
+
+  it('COMP-2: multi-component recipe renders each component as an <h3> section (Chipotle Sauce + Hauptgericht)', async () => {
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json({
+          ...recipe,
+          components: [
+            {
+              id: 'c1',
+              position: 0,
+              label: 'Chipotle Sauce',
+              ingredients: [
+                { id: 'i-s1', position: 0, quantity: 2, unit: 'EL', name: 'Honig', note: null, scalable: true },
+              ],
+              steps: [
+                { id: 'st-s1', position: 0, content: 'Sauce mischen.' },
+              ],
+            },
+            {
+              id: 'c2',
+              position: 1,
+              label: null,
+              ingredients: [
+                { id: 'i-m1', position: 0, quantity: 2, unit: 'Stück', name: 'Tortilla', note: null, scalable: true },
+              ],
+              steps: [
+                { id: 'st-m1', position: 0, content: 'Tortilla anbraten.' },
+              ],
+            },
+          ],
+        }),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    // The two component sections surface under their own headings.
+    // The null-labelled component in a multi-component recipe falls
+    // back to the German "Hauptgericht" placeholder.
+    const headings = screen.getAllByTestId('recipe-detail-component-heading')
+    // Ingredients pane + steps pane each render a copy of the heading,
+    // so we expect 4 headings total (2 components × 2 sections).
+    const texts = headings.map((h) => h.textContent)
+    expect(texts).toContain('Chipotle Sauce')
+    expect(texts).toContain('Hauptgericht')
+    // Per-component ingredients + steps are visible.
+    expect(screen.getByText('Honig')).toBeInTheDocument()
+    expect(screen.getByText('Tortilla')).toBeInTheDocument()
+    expect(screen.getByText('Sauce mischen.')).toBeInTheDocument()
+    expect(screen.getByText('Tortilla anbraten.')).toBeInTheDocument()
+  })
+
+  it('COMP-2: portion slider scales ingredients across all components uniformly', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json({
+          ...recipe,
+          defaultServings: 2,
+          components: [
+            {
+              id: 'c1',
+              position: 0,
+              label: 'Sauce',
+              ingredients: [
+                { id: 'i1', position: 0, quantity: 100, unit: 'g', name: 'Zucker', note: null, scalable: true },
+              ],
+              steps: [{ id: 's1', position: 0, content: 'Sauce.' }],
+            },
+            {
+              id: 'c2',
+              position: 1,
+              label: null,
+              ingredients: [
+                { id: 'i2', position: 0, quantity: 200, unit: 'g', name: 'Mehl', note: null, scalable: true },
+              ],
+              steps: [{ id: 's2', position: 0, content: 'Main.' }],
+            },
+          ],
+        }),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    // Initial render at 2 portions: 100 g + 200 g.
+    expect(await screen.findByText(/^100 g$/)).toBeInTheDocument()
+    expect(screen.getByText(/^200 g$/)).toBeInTheDocument()
+
+    // Bump portions to 4 → quantities double across both components.
+    const plus = screen.getByRole('button', { name: /Portion erhöhen/i })
+    await user.click(plus)
+    await user.click(plus)
+    await screen.findByText(/^200 g$/)
+    await screen.findByText(/^400 g$/)
   })
 
   it('fires the mark-as-cooked mutation when the sticky "Jetzt gekocht" button is tapped', async () => {

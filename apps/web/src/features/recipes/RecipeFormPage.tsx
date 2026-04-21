@@ -24,7 +24,6 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core'
 import {
   SortableContext,
-  arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
@@ -59,6 +58,7 @@ import {
   useUpdateRecipe,
 } from './hooks'
 import { CharCounter } from './CharCounter'
+import { reorderAcrossComponents } from './componentReorder'
 import { renderInlineMarkdown } from './markdownRenderer'
 import { wrapSelection } from './markdownToolbarHelpers'
 import { StepMarkdownToolbar } from './StepMarkdownToolbar'
@@ -148,6 +148,30 @@ type StepRow = {
   confidence?: StepConfidenceLevel
 }
 
+/**
+ * COMP-2 — one sub-recipe group in the form's in-memory state. Simple
+ * recipes carry exactly one component with `label === null`; the
+ * progressive-disclosure renderer collapses that case into the flat
+ * pre-COMP-2 layout. Multi-component recipes have ≥2 entries, or 1
+ * entry with a non-null label.
+ *
+ * Constants:
+ *   - `label` is stored as `null` for the single-default component
+ *     specifically so the default-render branch can still distinguish
+ *     the implicit "no header needed" state from a user who typed
+ *     empty text into the label input (stored as `""`, not `null`).
+ *   - Label cap of 50 chars mirrors the Python post-processor's cap
+ *     so the form can't produce a payload the backend would reject.
+ */
+const COMPONENT_LABEL_MAX = 50
+
+type ComponentRow = {
+  key: string
+  label: string | null
+  ingredients: IngredientRow[]
+  steps: StepRow[]
+}
+
 function emptyIngredient(): IngredientRow {
   return {
     key: crypto.randomUUID(),
@@ -176,6 +200,15 @@ function ingredientFromDto(i: IngredientDto): IngredientRow {
 
 function stepFromDto(s: RecipeStepDto): StepRow {
   return { key: s.id ?? crypto.randomUUID(), content: s.content }
+}
+
+function emptyComponent(label: string | null = ''): ComponentRow {
+  return {
+    key: crypto.randomUUID(),
+    label,
+    ingredients: [emptyIngredient()],
+    steps: [emptyStep()],
+  }
 }
 
 type Props = {
@@ -510,36 +543,73 @@ function RecipeFormInner({
     if (chatImportId && prefill?.sourceUrl.startsWith('chat://')) return ''
     return prefill?.sourceUrl ?? ''
   })
-  const [ingredients, setIngredients] = useState<IngredientRow[]>(() => {
-    if (initial && initial.ingredients.length > 0) {
-      return initial.ingredients.map(ingredientFromDto)
-    }
-    if (prefill && prefill.ingredients.length > 0) {
-      return prefill.ingredients.map((i) => ({
-        key: crypto.randomUUID(),
-        quantity: i.quantity,
-        unit: i.unit,
-        name: i.name,
-        note: i.note,
-        scalable: i.scalable,
-        confidence: i.confidence,
+  // COMP-2 — one state slot for all nested components. Seeding order:
+  //   1. Edit mode: pick up server `initial.components`, mapping each
+  //      ingredient/step DTO to the row shape.
+  //   2. Create + prefill mode: hydrate from `prefill.components`
+  //      (already normalised by extractedRecipeToPrefill).
+  //   3. Fresh create: single default component with one empty row
+  //      each — matches the pre-COMP-2 empty-state UX.
+  const [components, setComponents] = useState<ComponentRow[]>(() => {
+    if (initial && initial.components.length > 0) {
+      const sorted = [...initial.components].sort(
+        (a, b) => a.position - b.position,
+      )
+      return sorted.map((c) => ({
+        key: c.id ?? crypto.randomUUID(),
+        label: c.label,
+        ingredients:
+          c.ingredients.length > 0
+            ? c.ingredients.map(ingredientFromDto)
+            : [emptyIngredient()],
+        steps:
+          c.steps.length > 0
+            ? c.steps.map(stepFromDto)
+            : [emptyStep()],
       }))
     }
-    return [emptyIngredient()]
-  })
-  const [steps, setSteps] = useState<StepRow[]>(() => {
-    if (initial && initial.steps.length > 0) {
-      return initial.steps.map(stepFromDto)
-    }
-    if (prefill && prefill.steps.length > 0) {
-      return prefill.steps.map((s) => ({
+    if (prefill && prefill.components.length > 0) {
+      return prefill.components.map((c) => ({
         key: crypto.randomUUID(),
-        content: s.content,
-        confidence: s.confidence,
+        label: c.label,
+        ingredients:
+          c.ingredients.length > 0
+            ? c.ingredients.map((i) => ({
+                key: crypto.randomUUID(),
+                quantity: i.quantity,
+                unit: i.unit,
+                name: i.name,
+                note: i.note,
+                scalable: i.scalable,
+                confidence: i.confidence,
+              }))
+            : [emptyIngredient()],
+        steps:
+          c.steps.length > 0
+            ? c.steps.map((s) => ({
+                key: crypto.randomUUID(),
+                content: s.content,
+                confidence: s.confidence,
+              }))
+            : [emptyStep()],
       }))
     }
-    return [emptyStep()]
+    return [
+      {
+        key: crypto.randomUUID(),
+        label: null,
+        ingredients: [emptyIngredient()],
+        steps: [emptyStep()],
+      },
+    ]
   })
+
+  // COMP-2 — progressive disclosure: default mode (single component
+  // with `label: null`) renders exactly like the pre-COMP-2 form.
+  // Multi-component mode fires whenever either condition flips.
+  const isMultiComponentMode =
+    components.length > 1 ||
+    (components[0] && components[0].label !== null)
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     () => initial?.tags.map((t) => t.id) ?? [],
   )
@@ -690,38 +760,145 @@ function RecipeFormInner({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  function updateIngredient(index: number, updater: (row: IngredientRow) => IngredientRow) {
-    setIngredients((prev) => prev.map((row, i) => (i === index ? updater(row) : row)))
+  // ── COMP-2 component mutators ────────────────────────────────────
+  // All ingredient + step mutations are scoped by componentIndex so
+  // the same row-level handlers work in both single- and multi-
+  // component mode. Single-default mode always passes componentIndex:0.
+
+  function updateIngredient(
+    componentIndex: number,
+    rowIndex: number,
+    updater: (row: IngredientRow) => IngredientRow,
+  ) {
+    setComponents((prev) =>
+      prev.map((c, i) =>
+        i === componentIndex
+          ? {
+              ...c,
+              ingredients: c.ingredients.map((row, j) =>
+                j === rowIndex ? updater(row) : row,
+              ),
+            }
+          : c,
+      ),
+    )
   }
 
-  function updateStep(index: number, content: string) {
-    setSteps((prev) => prev.map((row, i) => (i === index ? { ...row, content } : row)))
+  function updateStep(componentIndex: number, rowIndex: number, content: string) {
+    setComponents((prev) =>
+      prev.map((c, i) =>
+        i === componentIndex
+          ? {
+              ...c,
+              steps: c.steps.map((row, j) =>
+                j === rowIndex ? { ...row, content } : row,
+              ),
+            }
+          : c,
+      ),
+    )
+  }
+
+  function addIngredientRow(componentIndex: number) {
+    setComponents((prev) =>
+      prev.map((c, i) =>
+        i === componentIndex
+          ? { ...c, ingredients: [...c.ingredients, emptyIngredient()] }
+          : c,
+      ),
+    )
+  }
+
+  function removeIngredientRow(componentIndex: number, rowIndex: number) {
+    setComponents((prev) =>
+      prev.map((c, i) => {
+        if (i !== componentIndex) return c
+        if (c.ingredients.length <= 1) return c
+        return {
+          ...c,
+          ingredients: c.ingredients.filter((_, j) => j !== rowIndex),
+        }
+      }),
+    )
+  }
+
+  function addStepRow(componentIndex: number) {
+    setComponents((prev) =>
+      prev.map((c, i) =>
+        i === componentIndex ? { ...c, steps: [...c.steps, emptyStep()] } : c,
+      ),
+    )
+  }
+
+  function removeStepRow(componentIndex: number, rowIndex: number) {
+    setComponents((prev) =>
+      prev.map((c, i) => {
+        if (i !== componentIndex) return c
+        if (c.steps.length <= 1) return c
+        return { ...c, steps: c.steps.filter((_, j) => j !== rowIndex) }
+      }),
+    )
+  }
+
+  function updateComponentLabel(componentIndex: number, label: string) {
+    // Cap applied at mutate time so pasting long text gets visually
+    // clamped; mirrors the Python post-processor's 50-char enforcement.
+    const capped = label.slice(0, COMPONENT_LABEL_MAX)
+    setComponents((prev) =>
+      prev.map((c, i) => (i === componentIndex ? { ...c, label: capped } : c)),
+    )
+  }
+
+  function addComponent() {
+    // When flipping from single-default to multi-component mode (i.e.
+    // the user's first click), promote the existing default to an
+    // empty-labelled component so the UI can render its label input
+    // immediately. Subsequent adds just push a fresh empty component.
+    setComponents((prev) => {
+      const next = prev.map((c) =>
+        c.label == null ? { ...c, label: '' } : c,
+      )
+      return [...next, emptyComponent('')]
+    })
+  }
+
+  function removeComponent(componentIndex: number) {
+    setComponents((prev) => {
+      if (prev.length <= 1) return prev
+      return prev.filter((_, i) => i !== componentIndex)
+    })
   }
 
   function toggleTag(id: string) {
     setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
   }
 
+  /**
+   * COMP-2 — dnd-kit drag-end across all components. Each sortable row
+   * is keyed by `ingredientRow.key` (or `stepRow.key`), making both
+   * intra-component and cross-component moves work with a single
+   * `arrayMove`-equivalent on a flattened list. We re-split the
+   * flattened list back into components by re-reading each row's
+   * parent index from the pre-move state.
+   *
+   * Boundary conditions:
+   *   - The active or over row ids identify rows uniquely across all
+   *     components.
+   *   - Same-component reorder falls out naturally (the rows stay in
+   *     the same component).
+   *   - Cross-component moves update both the source and destination
+   *     component's rows atomically.
+   */
   function handleIngredientDragEnd(event: DragEndEvent) {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    setIngredients((prev) => {
-      const oldIndex = prev.findIndex((r) => r.key === active.id)
-      const newIndex = prev.findIndex((r) => r.key === over.id)
-      if (oldIndex < 0 || newIndex < 0) return prev
-      return arrayMove(prev, oldIndex, newIndex)
-    })
+    setComponents((prev) => reorderAcrossComponents(prev, 'ingredients', active.id, over.id))
   }
 
   function handleStepDragEnd(event: DragEndEvent) {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    setSteps((prev) => {
-      const oldIndex = prev.findIndex((r) => r.key === active.id)
-      const newIndex = prev.findIndex((r) => r.key === over.id)
-      if (oldIndex < 0 || newIndex < 0) return prev
-      return arrayMove(prev, oldIndex, newIndex)
-    })
+    setComponents((prev) => reorderAcrossComponents(prev, 'steps', active.id, over.id))
   }
 
   function cancel() {
@@ -742,48 +919,89 @@ function RecipeFormInner({
       setError('Titel ist erforderlich.')
       return
     }
-    const usableIngredients = ingredients.filter((i) => i.name.trim().length > 0)
-    if (usableIngredients.length === 0) {
+
+    // COMP-2 — build nested components payload. Each component keeps
+    // its own ingredient + step arrays; positions re-number inside
+    // each component (0..n-1). A component with zero usable rows is
+    // dropped entirely — the same "mindestens 1 Zutat + 1 Schritt"
+    // validation applies, but now it applies to the *total* across
+    // components: at least one component must survive, and at least
+    // one ingredient + one step must exist somewhere. Per-component
+    // "empty sauce = drop" matches the pre-COMP-2 behaviour of
+    // filtering blank rows.
+    const componentsPayload = components
+      .map((c, ci) => {
+        const usableIngredients = c.ingredients.filter(
+          (i) => i.name.trim().length > 0,
+        )
+        const usableSteps = c.steps.filter((s) => s.content.trim().length > 0)
+        const ingredients = usableIngredients.map((row, idx) => {
+          const trimmed = row.quantity.trim()
+          // "nach Geschmack" is a unit convention that always implies a null
+          // quantity (the renderer shows italic "nach Geschmack" text and
+          // the scaler skips the row).
+          const noQty = trimmed === '' || row.unit === 'nach Geschmack'
+          // BUG-044 — normalise German comma-decimal before Number().
+          // `Number("0,25")` is NaN → JSON.stringify serialises NaN as
+          // `null` → backend sees `{quantity: null, scalable: true}` and
+          // throws because "unscalable requires null quantity". Result
+          // was a 400 invalid_input on any import that surfaced a
+          // fractional quantity from a German-language source.
+          const parsed = noQty ? null : Number(trimmed.replace(',', '.'))
+          // Fallthrough safety: if the user typed garbage ("abc"), parsed
+          // is NaN too — treat as missing quantity + force scalable=false
+          // so the payload stays schema-valid.
+          const quantity = parsed != null && Number.isFinite(parsed) ? parsed : null
+          return {
+            position: idx,
+            quantity,
+            unit: row.unit.trim(),
+            name: row.name.trim(),
+            note: row.note.trim() === '' ? undefined : row.note.trim(),
+            scalable: quantity == null ? false : row.scalable,
+          }
+        })
+        const steps = usableSteps.map((row, idx) => ({
+          position: idx,
+          content: row.content.trim(),
+        }))
+        // Normalise empty-string label → null so the single-default
+        // component can still round-trip through "default mode" on the
+        // next edit if the user wiped the label.
+        const rawLabel = c.label
+        const label =
+          rawLabel === null
+            ? null
+            : rawLabel.trim() === ''
+              ? null
+              : rawLabel.trim()
+        return {
+          position: ci,
+          label,
+          ingredients,
+          steps,
+        }
+      })
+      .filter((c) => c.ingredients.length > 0 || c.steps.length > 0)
+      // Renumber positions after drops so the server never sees gaps.
+      .map((c, idx) => ({ ...c, position: idx }))
+
+    const totalIngredients = componentsPayload.reduce(
+      (sum, c) => sum + c.ingredients.length,
+      0,
+    )
+    const totalSteps = componentsPayload.reduce(
+      (sum, c) => sum + c.steps.length,
+      0,
+    )
+    if (totalIngredients === 0) {
       setError('Mindestens eine Zutat ist erforderlich.')
       return
     }
-    const usableSteps = steps.filter((s) => s.content.trim().length > 0)
-    if (usableSteps.length === 0) {
+    if (totalSteps === 0) {
       setError('Mindestens ein Schritt ist erforderlich.')
       return
     }
-
-    const ingredientsPayload: IngredientDto[] = usableIngredients.map((row, idx) => {
-      const trimmed = row.quantity.trim()
-      // "nach Geschmack" is a unit convention that always implies a null
-      // quantity (the renderer shows italic "nach Geschmack" text and
-      // the scaler skips the row).
-      const noQty = trimmed === '' || row.unit === 'nach Geschmack'
-      // BUG-044 — normalise German comma-decimal before Number().
-      // `Number("0,25")` is NaN → JSON.stringify serialises NaN as
-      // `null` → backend sees `{quantity: null, scalable: true}` and
-      // throws because "unscalable requires null quantity". Result
-      // was a 400 invalid_input on any import that surfaced a
-      // fractional quantity from a German-language source.
-      const parsed = noQty ? null : Number(trimmed.replace(',', '.'))
-      // Fallthrough safety: if the user typed garbage ("abc"), parsed
-      // is NaN too — treat as missing quantity + force scalable=false
-      // so the payload stays schema-valid.
-      const quantity = parsed != null && Number.isFinite(parsed) ? parsed : null
-      return {
-        position: idx,
-        quantity,
-        unit: row.unit.trim(),
-        name: row.name.trim(),
-        note: row.note.trim() === '' ? undefined : row.note.trim(),
-        scalable: quantity == null ? false : row.scalable,
-      }
-    })
-
-    const stepsPayload: RecipeStepDto[] = usableSteps.map((row, idx) => ({
-      position: idx,
-      content: row.content.trim(),
-    }))
 
     const payload: CreateRecipeRequest = {
       title: title.trim(),
@@ -795,8 +1013,7 @@ function RecipeFormInner({
       prepTimeMinutes: prepTime.trim() === '' ? undefined : Number(prepTime),
       difficulty,
       sourceUrl: sourceUrl.trim() === '' ? undefined : sourceUrl.trim(),
-      ingredients: ingredientsPayload,
-      steps: stepsPayload,
+      components: componentsPayload,
       tagIds: selectedTagIds,
       // P2-10: include the prefill's nutrition estimate in the
       // create-recipe payload. The edit path (mode === 'edit') doesn't
@@ -887,18 +1104,40 @@ function RecipeFormInner({
       // project the local form state onto the same shape so the body
       // can diff the two sides.
       if (err instanceof VersionMismatchError && mode === 'edit') {
+        // COMP-2 — flatten components → flat ingredients/steps for the
+        // conflict body, which renders count-delta summaries and
+        // doesn't surface components today. Preserves pre-COMP-2 UX.
+        const flatIngredients = payload.components.flatMap((c) => c.ingredients)
+        const flatSteps = payload.components.flatMap((c) => c.steps)
         const localShape: RecipeConflictShape = {
           id: recipeId,
           title: payload.title,
           description: payload.description ?? null,
-          ingredients: payload.ingredients,
-          steps: payload.steps,
+          ingredients: flatIngredients,
+          steps: flatSteps,
           version:
             (queryClient.getQueryData<RecipeDetailDto>(
               recipeQueryKeys.detail(recipeId),
             )?.version ?? 0) as number,
         }
-        conflict.captureFrom409(localShape, err)
+        // Project the server's 409 `current` DTO onto the same flat
+        // conflict shape. The raw server payload carries `components`
+        // (not flat ingredients/steps) so the conflict body needs the
+        // same flattening applied before it renders count-deltas.
+        const serverCurrent = err.current as RecipeDetailDto | null
+        if (serverCurrent) {
+          const serverConflictShape: RecipeConflictShape = {
+            id: serverCurrent.id,
+            title: serverCurrent.title,
+            description: serverCurrent.description ?? null,
+            ingredients: serverCurrent.components.flatMap((c) => c.ingredients),
+            steps: serverCurrent.components.flatMap((c) => c.steps),
+            version: serverCurrent.version,
+          }
+          conflict.captureFrom409(localShape, { current: serverConflictShape })
+        } else {
+          conflict.captureFrom409(localShape, err)
+        }
         return
       }
       const apiErr = err as ApiError
@@ -1092,86 +1331,154 @@ function RecipeFormInner({
             </Field>
           </FormCard>
 
-          {/* ── Zutaten ───────────────────────────────────────── */}
-          <FormCard
-            title="Zutaten"
-            description="Reihenfolge per Griff ziehen. Bei „nach Geschmack“ skalieren wir nicht mit."
-          >
-            <DndContext
-              sensors={dndSensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleIngredientDragEnd}
-            >
-              <SortableContext
-                items={ingredients.map((r) => r.key)}
-                strategy={verticalListSortingStrategy}
+          {/* ── Zutaten ───────────────────────────────────────────
+              COMP-2 — progressive disclosure. In default mode (single
+              component with `label: null`) the render mirrors the pre-
+              COMP-2 form exactly: flat ingredient list, flat step
+              list, no component chrome. The "+ Komponente hinzufügen"
+              button lives in the Zutaten header and flips the form
+              into multi-component mode on click.
+              Multi-component mode wraps each component in its own
+              sub-card with a label input + delete-button header, and
+              renders per-component ingredient + step lists inside a
+              SINGLE DndContext each so cross-component drag-drop keeps
+              working (1 drag boundary per kind, not a nested tree). */}
+          {!isMultiComponentMode && components[0] ? (
+            <>
+              <FormCard
+                title="Zutaten"
+                description="Reihenfolge per Griff ziehen. Bei „nach Geschmack“ skalieren wir nicht mit."
               >
-                <ul className="flex flex-col gap-2">
-                  {ingredients.map((row, index) => (
-                    <SortableIngredientRow
-                      key={row.key}
-                      row={row}
-                      index={index}
-                      canRemove={ingredients.length > 1}
-                      onUpdate={updateIngredient}
-                      onRemove={() =>
-                        setIngredients((prev) =>
-                          prev.length > 1 ? prev.filter((_, i) => i !== index) : prev,
-                        )
-                      }
-                    />
-                  ))}
-                </ul>
-              </SortableContext>
-            </DndContext>
-            <AddRowButton
-              onClick={() => setIngredients((prev) => [...prev, emptyIngredient()])}
-              label="Zutat hinzufügen"
-            />
-          </FormCard>
+                <div className="mb-3 flex justify-end">
+                  <AddComponentButton onClick={addComponent} />
+                </div>
+                <DndContext
+                  sensors={dndSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleIngredientDragEnd}
+                >
+                  <SortableContext
+                    items={components[0].ingredients.map((r) => r.key)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <ul className="flex flex-col gap-2">
+                      {components[0].ingredients.map((row, index) => (
+                        <SortableIngredientRow
+                          key={row.key}
+                          row={row}
+                          index={index}
+                          canRemove={components[0]!.ingredients.length > 1}
+                          onUpdate={(rowIndex, updater) =>
+                            updateIngredient(0, rowIndex, updater)
+                          }
+                          onRemove={() => removeIngredientRow(0, index)}
+                        />
+                      ))}
+                    </ul>
+                  </SortableContext>
+                </DndContext>
+                <AddRowButton
+                  onClick={() => addIngredientRow(0)}
+                  label="Zutat hinzufügen"
+                />
+              </FormCard>
 
-          {/* ── Zubereitung ────────────────────────────────────── */}
-          <FormCard
-            title="Zubereitung"
-            description="Schrittweise. Reihenfolge per Griff umsortierbar."
-          >
-            {/*
-              Two independent DndContexts (one for ingredients, one for
-              steps) keep collision detection scoped per list so a
-              dragged ingredient can never land in the step list.
-            */}
-            <DndContext
-              sensors={dndSensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleStepDragEnd}
-            >
-              <SortableContext
-                items={steps.map((r) => r.key)}
-                strategy={verticalListSortingStrategy}
+              <FormCard
+                title="Zubereitung"
+                description="Schrittweise. Reihenfolge per Griff umsortierbar."
               >
-                <ol className="flex flex-col gap-2">
-                  {steps.map((row, index) => (
-                    <SortableStepRow
-                      key={row.key}
-                      row={row}
-                      index={index}
-                      canRemove={steps.length > 1}
-                      onChange={(content) => updateStep(index, content)}
-                      onRemove={() =>
-                        setSteps((prev) =>
-                          prev.length > 1 ? prev.filter((_, i) => i !== index) : prev,
-                        )
-                      }
-                    />
-                  ))}
-                </ol>
-              </SortableContext>
-            </DndContext>
-            <AddRowButton
-              onClick={() => setSteps((prev) => [...prev, emptyStep()])}
-              label="Schritt hinzufügen"
-            />
-          </FormCard>
+                <DndContext
+                  sensors={dndSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleStepDragEnd}
+                >
+                  <SortableContext
+                    items={components[0].steps.map((r) => r.key)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <ol className="flex flex-col gap-2">
+                      {components[0].steps.map((row, index) => (
+                        <SortableStepRow
+                          key={row.key}
+                          row={row}
+                          index={index}
+                          canRemove={components[0]!.steps.length > 1}
+                          onChange={(content) => updateStep(0, index, content)}
+                          onRemove={() => removeStepRow(0, index)}
+                        />
+                      ))}
+                    </ol>
+                  </SortableContext>
+                </DndContext>
+                <AddRowButton
+                  onClick={() => addStepRow(0)}
+                  label="Schritt hinzufügen"
+                />
+              </FormCard>
+            </>
+          ) : (
+            <FormCard
+              title="Komponenten"
+              description="Zutaten und Schritte gruppiert — z.B. „Chipotle Sauce“ + „Hauptgericht“. Zutaten lassen sich per Drag-and-Drop zwischen Komponenten verschieben."
+            >
+              {/* One DndContext per kind so cross-component moves work
+                  with a flat id-space but ingredient drags still can't
+                  accidentally land in the step list. */}
+              <DndContext
+                sensors={dndSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleIngredientDragEnd}
+              >
+                <SortableContext
+                  items={components.flatMap((c) => c.ingredients.map((r) => r.key))}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <DndContext
+                    sensors={dndSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleStepDragEnd}
+                  >
+                    <SortableContext
+                      items={components.flatMap((c) => c.steps.map((r) => r.key))}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <ul className="flex flex-col gap-4">
+                        {components.map((component, componentIndex) => (
+                          <ComponentCard
+                            key={component.key}
+                            component={component}
+                            componentIndex={componentIndex}
+                            canDelete={components.length > 1}
+                            onLabelChange={(label) =>
+                              updateComponentLabel(componentIndex, label)
+                            }
+                            onDelete={() => removeComponent(componentIndex)}
+                            onIngredientUpdate={(rowIndex, updater) =>
+                              updateIngredient(componentIndex, rowIndex, updater)
+                            }
+                            onIngredientRemove={(rowIndex) =>
+                              removeIngredientRow(componentIndex, rowIndex)
+                            }
+                            onIngredientAdd={() => addIngredientRow(componentIndex)}
+                            onStepChange={(rowIndex, content) =>
+                              updateStep(componentIndex, rowIndex, content)
+                            }
+                            onStepRemove={(rowIndex) =>
+                              removeStepRow(componentIndex, rowIndex)
+                            }
+                            onStepAdd={() => addStepRow(componentIndex)}
+                          />
+                        ))}
+                      </ul>
+                    </SortableContext>
+                  </DndContext>
+                </SortableContext>
+              </DndContext>
+              <div className="mt-4">
+                <AddComponentButton onClick={addComponent} />
+              </div>
+            </FormCard>
+          )}
 
           {/* ── Tags ──────────────────────────────────────────── */}
           <FormCard
@@ -1516,6 +1823,167 @@ function CustomTagButton({ onClick }: { onClick: () => void }) {
 }
 
 // ── Ingredient row ───────────────────────────────────────────────────
+
+/**
+ * COMP-2 — "+ Komponente hinzufügen" button. Shared between the
+ * Zutaten-header (single-default mode) and the Komponenten-footer
+ * (multi-component mode). Styled like `AddRowButton` but opinionated
+ * about its icon + copy.
+ */
+function AddComponentButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-2 rounded-full border border-dashed border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.06)] px-3.5 py-[7px] text-[13px] font-semibold text-[hsl(var(--primary-hover,var(--primary)))]',
+        'transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.12)]',
+      )}
+    >
+      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+      Komponente hinzufügen
+    </button>
+  )
+}
+
+/**
+ * COMP-2 — one component's sub-card in multi-component mode. Renders:
+ *   - editable label input (capped at {@link COMPONENT_LABEL_MAX}),
+ *   - delete button (disabled when it's the last component),
+ *   - per-component ingredient list (scoped SortableContext so intra-
+ *     component reorder stays local),
+ *   - per-component step list (same scoping),
+ *   - add-row buttons for ingredients + steps.
+ *
+ * The surrounding parent owns the DndContext(s) so cross-component
+ * drag-drop continues to work — the SortableContext here just narrows
+ * the render.
+ */
+function ComponentCard({
+  component,
+  componentIndex,
+  canDelete,
+  onLabelChange,
+  onDelete,
+  onIngredientUpdate,
+  onIngredientRemove,
+  onIngredientAdd,
+  onStepChange,
+  onStepRemove,
+  onStepAdd,
+}: {
+  component: ComponentRow
+  componentIndex: number
+  canDelete: boolean
+  onLabelChange: (label: string) => void
+  onDelete: () => void
+  onIngredientUpdate: (
+    rowIndex: number,
+    updater: (row: IngredientRow) => IngredientRow,
+  ) => void
+  onIngredientRemove: (rowIndex: number) => void
+  onIngredientAdd: () => void
+  onStepChange: (rowIndex: number, content: string) => void
+  onStepRemove: (rowIndex: number) => void
+  onStepAdd: () => void
+}) {
+  const labelId = `component-label-${component.key}`
+  return (
+    <li
+      data-testid={`component-card-${componentIndex}`}
+      className="rounded-[14px] border border-border bg-[hsl(var(--muted)/0.35)] p-4"
+    >
+      <div className="mb-3 flex items-start gap-2">
+        <div className="flex-1">
+          <label
+            htmlFor={labelId}
+            className="mb-1 block text-[11px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]"
+          >
+            Komponenten-Name
+          </label>
+          <input
+            id={labelId}
+            data-testid={`component-label-input-${componentIndex}`}
+            type="text"
+            value={component.label ?? ''}
+            onChange={(e) => onLabelChange(e.target.value)}
+            maxLength={COMPONENT_LABEL_MAX}
+            placeholder="z.B. Chipotle Sauce oder Hauptgericht"
+            aria-label={`Komponente ${componentIndex + 1} Name`}
+            className={cn(
+              'w-full rounded-[10px] border border-[hsl(var(--input))] bg-background px-3 py-2 text-[15px] font-semibold text-foreground',
+              'focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25',
+            )}
+          />
+        </div>
+        <button
+          type="button"
+          data-testid={`component-delete-${componentIndex}`}
+          onClick={onDelete}
+          disabled={!canDelete}
+          aria-label={`Komponente ${componentIndex + 1} entfernen`}
+          className={cn(
+            'mt-[22px] grid h-9 w-9 place-items-center rounded-md text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]',
+            !canDelete &&
+              'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[hsl(var(--muted-foreground))]',
+          )}
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="mb-3">
+        <h4 className="mb-2 text-[12px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
+          Zutaten
+        </h4>
+        <SortableContext
+          items={component.ingredients.map((r) => r.key)}
+          strategy={verticalListSortingStrategy}
+        >
+          <ul className="flex flex-col gap-2">
+            {component.ingredients.map((row, index) => (
+              <SortableIngredientRow
+                key={row.key}
+                row={row}
+                index={index}
+                canRemove={component.ingredients.length > 1}
+                onUpdate={(rowIndex, updater) =>
+                  onIngredientUpdate(rowIndex, updater)
+                }
+                onRemove={() => onIngredientRemove(index)}
+              />
+            ))}
+          </ul>
+        </SortableContext>
+        <AddRowButton onClick={onIngredientAdd} label="Zutat hinzufügen" />
+      </div>
+
+      <div>
+        <h4 className="mb-2 text-[12px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
+          Zubereitung
+        </h4>
+        <SortableContext
+          items={component.steps.map((r) => r.key)}
+          strategy={verticalListSortingStrategy}
+        >
+          <ol className="flex flex-col gap-2">
+            {component.steps.map((row, index) => (
+              <SortableStepRow
+                key={row.key}
+                row={row}
+                index={index}
+                canRemove={component.steps.length > 1}
+                onChange={(content) => onStepChange(index, content)}
+                onRemove={() => onStepRemove(index)}
+              />
+            ))}
+          </ol>
+        </SortableContext>
+        <AddRowButton onClick={onStepAdd} label="Schritt hinzufügen" />
+      </div>
+    </li>
+  )
+}
 
 /**
  * Sortable ingredient row — preserves the S3 drag-drop wiring:

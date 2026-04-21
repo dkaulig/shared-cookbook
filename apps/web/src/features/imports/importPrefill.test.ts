@@ -6,7 +6,32 @@ import {
   withImportEnvelope,
 } from './importPrefill'
 
-function recipe(over: Partial<ExtractedRecipe> = {}): ExtractedRecipe {
+/**
+ * COMP-2 helper — build an ExtractedRecipe with a single default
+ * component (label:null, position:0) that carries the caller's
+ * ingredients/steps. Lets the existing per-field tests stay focused
+ * on one dimension without re-writing the whole fixture each time.
+ */
+function recipe(
+  over: Partial<
+    Omit<ExtractedRecipe, 'components'> & {
+      ingredients?: ExtractedRecipe['components'][number]['ingredients']
+      steps?: ExtractedRecipe['components'][number]['steps']
+      components?: ExtractedRecipe['components']
+    }
+  > = {},
+): ExtractedRecipe {
+  const { ingredients, steps, components, ...rest } = over
+  const resolvedComponents =
+    components ??
+    [
+      {
+        label: null,
+        position: 0,
+        ingredients: ingredients ?? [],
+        steps: steps ?? [],
+      },
+    ]
   return {
     title: 'Pizza',
     description: null,
@@ -14,12 +39,11 @@ function recipe(over: Partial<ExtractedRecipe> = {}): ExtractedRecipe {
     difficulty: null,
     prep_minutes: null,
     cook_minutes: null,
-    ingredients: [],
-    steps: [],
+    components: resolvedComponents,
     tags: [],
     source_url: 'https://example.com',
     thumbnail_url: null,
-    ...over,
+    ...rest,
   }
 }
 
@@ -78,7 +102,7 @@ describe('extractedRecipeToPrefill', () => {
         ],
       }),
     )
-    expect(out.ingredients[0]).toMatchObject({
+    expect(out.components[0]?.ingredients[0]).toMatchObject({
       name: 'Mehl',
       quantity: '',
       scalable: false,
@@ -100,8 +124,8 @@ describe('extractedRecipeToPrefill', () => {
         ],
       }),
     )
-    expect(out.ingredients[0].quantity).toBe('500')
-    expect(out.ingredients[0].scalable).toBe(true)
+    expect(out.components[0]?.ingredients[0]?.quantity).toBe('500')
+    expect(out.components[0]?.ingredients[0]?.scalable).toBe(true)
   })
 
   it('canonicalises a case-variant unit to the form select option', () => {
@@ -118,7 +142,7 @@ describe('extractedRecipeToPrefill', () => {
         ],
       }),
     )
-    expect(out.ingredients[0].unit).toBe('ml')
+    expect(out.components[0]?.ingredients[0]?.unit).toBe('ml')
   })
 
   it('falls back to "g" when the LLM emitted a null unit', () => {
@@ -135,7 +159,7 @@ describe('extractedRecipeToPrefill', () => {
         ],
       }),
     )
-    expect(out.ingredients[0].unit).toBe('g')
+    expect(out.components[0]?.ingredients[0]?.unit).toBe('g')
   })
 
   it('preserves the handwritten_uncertain confidence marker end-to-end', () => {
@@ -159,8 +183,8 @@ describe('extractedRecipeToPrefill', () => {
         ],
       }),
     )
-    expect(out.ingredients[0].confidence).toBe('handwritten_uncertain')
-    expect(out.steps[0].confidence).toBe('handwritten_uncertain')
+    expect(out.components[0]?.ingredients[0]?.confidence).toBe('handwritten_uncertain')
+    expect(out.components[0]?.steps[0]?.confidence).toBe('handwritten_uncertain')
   })
 
   it('flags URL-based imports as isPhotoImport:false with the URL passed through', () => {
@@ -251,7 +275,7 @@ describe('extractedRecipeToPrefill', () => {
     // All other fields round-trip unchanged so the overlay can never
     // accidentally clobber the recipe-shape conversion.
     expect(out.title).toBe(base.title)
-    expect(out.ingredients).toBe(base.ingredients)
+    expect(out.components).toBe(base.components)
   })
 
   it('withImportEnvelope is a no-op when thumbnailStagedPhotoId is missing', () => {
@@ -326,8 +350,9 @@ describe('extractedRecipeToPrefill', () => {
         }),
       )
       expect(out.title).toBe('Apfelkuchen')
-      expect(out.ingredients).toHaveLength(1)
-      expect(out.ingredients[0]?.name).toBe('Mehl')
+      expect(out.components).toHaveLength(1)
+      expect(out.components[0]?.ingredients).toHaveLength(1)
+      expect(out.components[0]?.ingredients[0]?.name).toBe('Mehl')
     })
 
     // BUG-034 (signal-aware follow-up) — the three signal flags flow
@@ -363,6 +388,118 @@ describe('extractedRecipeToPrefill', () => {
         had_blog_source: false,
         had_transcript: false,
       })
+    })
+  })
+
+  // ── COMP-2 — nested components round-trip ────────────────────────
+  describe('COMP-2 nested components', () => {
+    it('maps a multi-component ExtractedRecipe into the prefill.components array preserving labels + children', () => {
+      const out = extractedRecipeToPrefill(
+        recipe({
+          components: [
+            {
+              label: 'Chipotle Sauce',
+              position: 0,
+              ingredients: [
+                {
+                  name: 'Honig',
+                  quantity: '2',
+                  unit: 'EL',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [
+                { position: 1, content: 'Mischen.', confidence: 'high' },
+              ],
+            },
+            {
+              label: null,
+              position: 1,
+              ingredients: [
+                {
+                  name: 'Tortilla',
+                  quantity: '1',
+                  unit: 'Stück',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [
+                { position: 1, content: 'Anbraten.', confidence: 'high' },
+              ],
+            },
+          ],
+        }),
+      )
+      expect(out.components).toHaveLength(2)
+      expect(out.components[0]?.label).toBe('Chipotle Sauce')
+      expect(out.components[0]?.position).toBe(0)
+      expect(out.components[0]?.ingredients[0]?.name).toBe('Honig')
+      expect(out.components[1]?.label).toBeNull()
+      expect(out.components[1]?.ingredients[0]?.name).toBe('Tortilla')
+    })
+
+    it('single-default fallback: one component with label=null when the wire carries exactly one null-labelled entry', () => {
+      const out = extractedRecipeToPrefill(
+        recipe({
+          components: [
+            {
+              label: null,
+              position: 0,
+              ingredients: [
+                {
+                  name: 'Mehl',
+                  quantity: '500',
+                  unit: 'g',
+                  note: null,
+                  confidence: 'high',
+                },
+              ],
+              steps: [
+                { position: 1, content: 'Kneten.', confidence: 'high' },
+              ],
+            },
+          ],
+        }),
+      )
+      expect(out.components).toHaveLength(1)
+      expect(out.components[0]?.label).toBeNull()
+      expect(out.components[0]?.ingredients[0]?.name).toBe('Mehl')
+    })
+
+    it('renumbers component positions 0..n-1 regardless of the LLM emit order (defensive normalisation)', () => {
+      const out = extractedRecipeToPrefill(
+        recipe({
+          components: [
+            { label: 'A', position: 5, ingredients: [], steps: [] },
+            { label: 'B', position: 2, ingredients: [], steps: [] },
+          ],
+        }),
+      )
+      expect(out.components.map((c) => c.position)).toEqual([0, 1])
+    })
+
+    it('falls back to a single default component when the legacy wire lacks components', () => {
+      // Defensive: chat-import payloads (or tests predating COMP-1) may
+      // arrive without the `components` key at all. The prefill must
+      // still emerge with at least one component so the form renders.
+      const legacy = {
+        title: 'Legacy',
+        description: null,
+        servings: null,
+        difficulty: null,
+        prep_minutes: null,
+        cook_minutes: null,
+        tags: [],
+        source_url: 'https://example.com',
+        thumbnail_url: null,
+      } as unknown as ExtractedRecipe
+      const out = extractedRecipeToPrefill(legacy)
+      expect(out.components).toHaveLength(1)
+      expect(out.components[0]?.label).toBeNull()
+      expect(out.components[0]?.ingredients).toEqual([])
+      expect(out.components[0]?.steps).toEqual([])
     })
   })
 })

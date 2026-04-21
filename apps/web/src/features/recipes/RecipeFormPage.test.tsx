@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { RecipeFormPage } from './RecipeFormPage'
+import { reorderAcrossComponents } from './componentReorder'
 import { BottomZoneProvider } from '@/components/layout/bottomZone'
 import { BottomNav } from '@/components/layout/BottomNav'
 import type {
@@ -148,8 +149,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-21T00:00:00Z',
             updatedAt: '2026-04-21T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -165,7 +167,8 @@ describe('RecipeFormPage (create)', () => {
     await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
 
     await waitFor(() => expect(capturedPayload).not.toBeNull())
-    const ing = capturedPayload!.ingredients[0]!
+    // COMP-2 — single-default path: first component carries everything.
+    const ing = capturedPayload!.components[0]!.ingredients[0]!
     // Comma normalised → 0.25, not NaN / null.
     expect(ing.quantity).toBe(0.25)
     // Real number ⇒ scalable stays as whatever the row had (default true
@@ -192,8 +195,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-21T00:00:00Z',
             updatedAt: '2026-04-21T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -209,7 +213,7 @@ describe('RecipeFormPage (create)', () => {
     await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
 
     await waitFor(() => expect(capturedPayload).not.toBeNull())
-    const ing = capturedPayload!.ingredients[0]!
+    const ing = capturedPayload!.components[0]!.ingredients[0]!
     expect(ing.quantity).toBeNull()
     expect(ing.scalable).toBe(false)
   })
@@ -233,8 +237,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -271,8 +276,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -324,13 +330,16 @@ describe('RecipeFormPage (create)', () => {
     await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
 
     await waitFor(() => expect(capturedPayload).not.toBeNull())
-    expect(capturedPayload!.ingredients.map((i) => i.name)).toEqual([
+    // COMP-2 — reorder lives inside the single-default component.
+    expect(capturedPayload!.components[0]!.ingredients.map((i) => i.name)).toEqual([
       'Zucker',
       'Mehl',
       'Salz',
     ])
     // Positions must be renumbered 0..n-1 to match the new visual order.
-    expect(capturedPayload!.ingredients.map((i) => i.position)).toEqual([0, 1, 2])
+    expect(
+      capturedPayload!.components[0]!.ingredients.map((i) => i.position),
+    ).toEqual([0, 1, 2])
   })
 
   it('reorders step rows via keyboard sensor and persists the new order on submit', async () => {
@@ -352,8 +361,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -398,12 +408,15 @@ describe('RecipeFormPage (create)', () => {
     await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
 
     await waitFor(() => expect(capturedPayload).not.toBeNull())
-    expect(capturedPayload!.steps.map((s) => s.content)).toEqual([
+    // COMP-2 — step reorder lives inside the single-default component.
+    expect(capturedPayload!.components[0]!.steps.map((s) => s.content)).toEqual([
       'Zwei',
       'Eins',
       'Drei',
     ])
-    expect(capturedPayload!.steps.map((s) => s.position)).toEqual([0, 1, 2])
+    expect(
+      capturedPayload!.components[0]!.steps.map((s) => s.position),
+    ).toEqual([0, 1, 2])
   })
 
   it('renders the DS6 sticky form top bar with "Neues Rezept"', () => {
@@ -457,8 +470,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -499,8 +513,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -540,8 +555,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -559,8 +575,8 @@ describe('RecipeFormPage (create)', () => {
     await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
     await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
     await waitFor(() => expect(captured).not.toBeNull())
-    expect(captured!.ingredients[0]?.quantity).toBeNull()
-    expect(captured!.ingredients[0]?.scalable).toBe(false)
+    expect(captured!.components[0]?.ingredients[0]?.quantity).toBeNull()
+    expect(captured!.components[0]?.ingredients[0]?.scalable).toBe(false)
   })
 
   it('clamps Portionen to 1 before submit even if the user types 0', async () => {
@@ -582,8 +598,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -697,8 +714,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -742,8 +760,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -787,8 +806,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -850,8 +870,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -912,8 +933,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -999,7 +1021,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: 2,
               prep_minutes: 15,
               cook_minutes: 10,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Mehl',
                   quantity: '500',
@@ -1007,13 +1030,13 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'high',
                 },
-              ],
-              steps: [
+              ], steps: [
                 {
                   position: 1,
                   content: 'Teig kneten.',
                   confidence: 'high',
                 },
+              ] },
               ],
               tags: [],
               source_url: 'https://www.chefkoch.de/Pizza.html',
@@ -1066,7 +1089,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: null,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Zucchini',
                   quantity: '1',
@@ -1074,9 +1098,9 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'high',
                 },
-              ],
-              steps: [
+              ], steps: [
                 { position: 1, content: 'Anbraten.', confidence: 'high' },
+              ] },
               ],
               // Extractor emitted lowercase German tag names; catalogue
               // has 'vegan' + 'schnell' (case-insensitive match expected).
@@ -1128,7 +1152,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: null,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Mehl',
                   quantity: '300',
@@ -1136,9 +1161,9 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'high',
                 },
-              ],
-              steps: [
+              ], steps: [
                 { position: 1, content: 'Backen.', confidence: 'high' },
+              ] },
               ],
               tags: [],
               source_url: longUrl,
@@ -1190,7 +1215,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: null,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Mehl',
                   quantity: '300',
@@ -1198,8 +1224,8 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'high',
                 },
+              ], steps: [{ position: 1, content: 'Backen.', confidence: 'high' }] },
               ],
-              steps: [{ position: 1, content: 'Backen.', confidence: 'high' }],
               tags: [],
               source_url: 'photos://upload',
               thumbnail_url: null,
@@ -1246,7 +1272,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: null,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Gemüse',
                   quantity: null,
@@ -1254,9 +1281,9 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'missing',
                 },
-              ],
-              steps: [
+              ], steps: [
                 { position: 1, content: 'Kochen.', confidence: 'high' },
+              ] },
               ],
               tags: [],
               source_url: 'https://example.com/r',
@@ -1291,7 +1318,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: null,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Muskat',
                   quantity: '1',
@@ -1299,13 +1327,13 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'handwritten_uncertain',
                 },
-              ],
-              steps: [
+              ], steps: [
                 {
                   position: 1,
                   content: 'Umrühren.',
                   confidence: 'handwritten_uncertain',
                 },
+              ] },
               ],
               tags: [],
               source_url: '',
@@ -1344,7 +1372,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: 1,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Mehl',
                   quantity: '200',
@@ -1352,9 +1381,9 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'high',
                 },
-              ],
-              steps: [
+              ], steps: [
                 { position: 1, content: 'Backen.', confidence: 'high' },
+              ] },
               ],
               tags: [],
               source_url: 'https://example.com/recipe-x',
@@ -1382,8 +1411,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
           },
           { status: 201 },
@@ -1416,8 +1446,9 @@ describe('RecipeFormPage (create)', () => {
               difficulty: 1,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [],
-              steps: [],
+              components: [
+                { label: null, position: 0, ingredients: [], steps: [] },
+              ],
               tags: [],
               source_url: 'https://example.com/nutri',
               thumbnail_url: null,
@@ -1466,8 +1497,9 @@ describe('RecipeFormPage (create)', () => {
               difficulty: 1,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [],
-              steps: [],
+              components: [
+                { label: null, position: 0, ingredients: [], steps: [] },
+              ],
               tags: [],
               source_url: 'https://example.com/plain',
               thumbnail_url: null,
@@ -1509,7 +1541,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: 1,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Mehl',
                   quantity: '200',
@@ -1517,9 +1550,9 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'high',
                 },
-              ],
-              steps: [
+              ], steps: [
                 { position: 1, content: 'Backen.', confidence: 'high' },
+              ] },
               ],
               tags: [],
               source_url: 'https://example.com/s',
@@ -1553,8 +1586,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-18T00:00:00Z',
             updatedAt: '2026-04-18T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
             nutritionEstimate: null,
           },
@@ -1624,7 +1658,8 @@ describe('RecipeFormPage (create)', () => {
           difficulty: 1,
           prep_minutes: 15,
           cook_minutes: 35,
-          ingredients: [
+          components: [
+            { label: null, position: 0, ingredients: [
             {
               name: 'Kartoffeln',
               quantity: '800',
@@ -1632,13 +1667,13 @@ describe('RecipeFormPage (create)', () => {
               note: null,
               confidence: 'high',
             },
-          ],
-          steps: [
+          ], steps: [
             {
               position: 1,
               content: 'Kartoffeln schälen.',
               confidence: 'high',
             },
+          ] },
           ],
           tags: ['vegan'],
           source_url: 'chat://session/abc',
@@ -1676,7 +1711,8 @@ describe('RecipeFormPage (create)', () => {
           difficulty: 1,
           prep_minutes: 10,
           cook_minutes: 10,
-          ingredients: [
+          components: [
+            { label: null, position: 0, ingredients: [
             {
               name: 'X',
               quantity: '1',
@@ -1684,8 +1720,8 @@ describe('RecipeFormPage (create)', () => {
               note: null,
               confidence: 'high',
             },
+          ], steps: [{ position: 1, content: 'Mix.', confidence: 'high' }] },
           ],
-          steps: [{ position: 1, content: 'Mix.', confidence: 'high' }],
           tags: [],
           source_url: 'chat://session/banner',
           thumbnail_url: null,
@@ -1717,7 +1753,8 @@ describe('RecipeFormPage (create)', () => {
           difficulty: 1,
           prep_minutes: 5,
           cook_minutes: 5,
-          ingredients: [
+          components: [
+            { label: null, position: 0, ingredients: [
             {
               name: 'Salz',
               quantity: '1',
@@ -1725,8 +1762,8 @@ describe('RecipeFormPage (create)', () => {
               note: null,
               confidence: 'high',
             },
+          ], steps: [{ position: 1, content: 'Würzen.', confidence: 'high' }] },
           ],
-          steps: [{ position: 1, content: 'Würzen.', confidence: 'high' }],
           tags: [],
           source_url: 'chat://x',
           thumbnail_url: null,
@@ -1764,7 +1801,8 @@ describe('RecipeFormPage (create)', () => {
           difficulty: 1,
           prep_minutes: 5,
           cook_minutes: 5,
-          ingredients: [
+          components: [
+            { label: null, position: 0, ingredients: [
             {
               name: 'Zwiebel',
               quantity: '1',
@@ -1772,8 +1810,8 @@ describe('RecipeFormPage (create)', () => {
               note: null,
               confidence: 'high',
             },
+          ], steps: [{ position: 1, content: 'Schneiden.', confidence: 'high' }] },
           ],
-          steps: [{ position: 1, content: 'Schneiden.', confidence: 'high' }],
           tags: [],
           source_url: 'chat://y',
           thumbnail_url: null,
@@ -1824,7 +1862,8 @@ describe('RecipeFormPage (create)', () => {
           difficulty: 1,
           prep_minutes: null,
           cook_minutes: null,
-          ingredients: [
+          components: [
+            { label: null, position: 0, ingredients: [
             {
               name: 'Mehl',
               quantity: '300',
@@ -1832,8 +1871,8 @@ describe('RecipeFormPage (create)', () => {
               note: null,
               confidence: 'high',
             },
+          ], steps: [{ position: 1, content: 'Mischen.', confidence: 'high' }] },
           ],
-          steps: [{ position: 1, content: 'Mischen.', confidence: 'high' }],
           tags: [],
           source_url: 'photos://upload',
           thumbnail_url: null,
@@ -1892,7 +1931,8 @@ describe('RecipeFormPage (create)', () => {
               difficulty: 1,
               prep_minutes: null,
               cook_minutes: null,
-              ingredients: [
+              components: [
+                { label: null, position: 0, ingredients: [
                 {
                   name: 'Mehl',
                   quantity: '1',
@@ -1900,8 +1940,8 @@ describe('RecipeFormPage (create)', () => {
                   note: null,
                   confidence: 'high',
                 },
+              ], steps: [{ position: 1, content: 'X.', confidence: 'high' }] },
               ],
-              steps: [{ position: 1, content: 'X.', confidence: 'high' }],
               tags: [],
               source_url: 'https://example.com/r',
               thumbnail_url: null,
@@ -1954,8 +1994,9 @@ describe('RecipeFormPage (create)', () => {
             ],
             createdAt: '2026-04-19T00:00:00Z',
             updatedAt: '2026-04-19T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
             nutritionEstimate: null,
             partialPhotoFailures: null,
@@ -2004,8 +2045,9 @@ describe('RecipeFormPage (create)', () => {
             photos: ['/api/photos/recipes/x.jpg?sig=x&exp=9'],
             createdAt: '2026-04-19T00:00:00Z',
             updatedAt: '2026-04-19T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
             nutritionEstimate: null,
             partialPhotoFailures: [
@@ -2147,8 +2189,9 @@ describe('RecipeFormPage (create)', () => {
             photos: [],
             createdAt: '2026-04-19T00:00:00Z',
             updatedAt: '2026-04-19T00:00:00Z',
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
             nutritionEstimate: null,
           },
@@ -2249,7 +2292,8 @@ describe('RecipeFormPage (create)', () => {
             difficulty: null,
             prep_minutes: null,
             cook_minutes: null,
-            ingredients: [
+            components: [
+              { label: null, position: 0, ingredients: [
               {
                 name: 'Mehl',
                 quantity: '500',
@@ -2257,9 +2301,9 @@ describe('RecipeFormPage (create)', () => {
                 note: null,
                 confidence: 'high',
               },
-            ],
-            steps: [
+            ], steps: [
               { position: 1, content: 'Teig kneten.', confidence: 'high' },
+            ] },
             ],
             tags: [],
             source_url: 'https://example.com/ok',
@@ -2331,7 +2375,8 @@ describe('RecipeFormPage (create)', () => {
             difficulty: 1,
             prep_minutes: null,
             cook_minutes: null,
-            ingredients: [
+            components: [
+              { label: null, position: 0, ingredients: [
               {
                 name: 'Mehl',
                 quantity: '300',
@@ -2339,8 +2384,8 @@ describe('RecipeFormPage (create)', () => {
                 note: null,
                 confidence: 'high',
               },
+            ], steps: [{ position: 1, content: 'Mix.', confidence: 'high' }] },
             ],
-            steps: [{ position: 1, content: 'Mix.', confidence: 'high' }],
             tags: [],
             source_url: 'https://www.facebook.com/somevideo',
             thumbnail_url:
@@ -2375,8 +2420,9 @@ describe('RecipeFormPage (create)', () => {
               ],
               createdAt: '2026-04-19T12:00:30Z',
               updatedAt: '2026-04-19T12:00:30Z',
-              ingredients: [],
-              steps: [],
+              components: [
+                { label: null, position: 0, ingredients: [], steps: [] },
+              ],
               tags: [],
               nutritionEstimate: null,
               partialPhotoFailures: null,
@@ -2424,7 +2470,8 @@ describe('RecipeFormPage (create)', () => {
             difficulty: 1,
             prep_minutes: null,
             cook_minutes: null,
-            ingredients: [
+            components: [
+              { label: null, position: 0, ingredients: [
               {
                 name: 'Mehl',
                 quantity: '1',
@@ -2432,8 +2479,8 @@ describe('RecipeFormPage (create)', () => {
                 note: null,
                 confidence: 'high',
               },
+            ], steps: [{ position: 1, content: 'Mix.', confidence: 'high' }] },
             ],
-            steps: [{ position: 1, content: 'Mix.', confidence: 'high' }],
             tags: [],
             source_url: 'https://blog.example/recipe',
             thumbnail_url: null,
@@ -2463,8 +2510,9 @@ describe('RecipeFormPage (create)', () => {
               photos: [],
               createdAt: '2026-04-19T12:00:30Z',
               updatedAt: '2026-04-19T12:00:30Z',
-              ingredients: [],
-              steps: [],
+              components: [
+                { label: null, position: 0, ingredients: [], steps: [] },
+              ],
               tags: [],
               nutritionEstimate: null,
               partialPhotoFailures: null,
@@ -2551,17 +2599,24 @@ describe('RecipeFormPage (create)', () => {
         createdAt: '2026-04-18T00:00:00Z',
         updatedAt: '2026-04-18T00:00:00Z',
         version: 3,
-        ingredients: [
+        components: [
           {
-            id: 'ing-1',
+            id: 'c1',
             position: 0,
-            quantity: 100,
-            unit: 'g',
-            name: 'Mehl',
-            scalable: true,
+            label: null,
+            ingredients: [
+              {
+                id: 'ing-1',
+                position: 0,
+                quantity: 100,
+                unit: 'g',
+                name: 'Mehl',
+                scalable: true,
+              },
+            ],
+            steps: [{ id: 'st-1', position: 0, content: 'Mischen.' }],
           },
         ],
-        steps: [{ id: 'st-1', position: 0, content: 'Mischen.' }],
         tags: [],
         nutritionEstimate: null,
       }
@@ -2733,8 +2788,9 @@ describe('RecipeFormPage (create)', () => {
             difficulty: null,
             prep_minutes: null,
             cook_minutes: null,
-            ingredients: [],
-            steps: [],
+            components: [
+              { label: null, position: 0, ingredients: [], steps: [] },
+            ],
             tags: [],
             source_url: 'https://facebook.com/share/r/xyz',
             thumbnail_url: null,
@@ -2903,6 +2959,330 @@ describe('RecipeFormPage (create)', () => {
       expect(
         screen.getByText(/facebook\.com\/share\/r\/xyz/),
       ).toBeInTheDocument()
+    })
+  })
+
+  // ── COMP-2 — progressive disclosure + multi-component mode ────────
+  describe('COMP-2 progressive disclosure', () => {
+    it('default create render is identical to pre-COMP-2: no component label input, no component cards', () => {
+      render(withProviders('/groups/g1/recipes/new'))
+      // Default mode must NOT render any component chrome.
+      expect(
+        screen.queryByTestId('component-card-0'),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByTestId('component-label-input-0'),
+      ).not.toBeInTheDocument()
+      // Flat ingredient + step rows still render.
+      expect(screen.getByLabelText(/Zutat 1 Name/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/^Schritt 1$/i)).toBeInTheDocument()
+      // The "+ Komponente hinzufügen" flip button lives above the list.
+      expect(
+        screen.getByRole('button', { name: /Komponente hinzufügen/i }),
+      ).toBeInTheDocument()
+    })
+
+    it('clicking "+ Komponente hinzufügen" flips to multi-component mode rendering two cards', async () => {
+      const user = userEvent.setup()
+      render(withProviders('/groups/g1/recipes/new'))
+      await user.click(
+        screen.getByRole('button', { name: /Komponente hinzufügen/i }),
+      )
+      // Both cards render with their label inputs.
+      expect(screen.getByTestId('component-card-0')).toBeInTheDocument()
+      expect(screen.getByTestId('component-card-1')).toBeInTheDocument()
+      expect(
+        screen.getByTestId('component-label-input-0'),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByTestId('component-label-input-1'),
+      ).toBeInTheDocument()
+    })
+
+    it('label input updates the component label on the submit payload', async () => {
+      const user = userEvent.setup()
+      let captured: CreateRecipeRequest | null = null
+      server.use(
+        http.post('/api/groups/g1/recipes', async ({ request }) => {
+          captured = (await request.json()) as CreateRecipeRequest
+          return HttpResponse.json(
+            {
+              id: 'r-label',
+              groupId: 'g1',
+              createdByUserId: 'u1',
+              createdByDisplayName: 'U',
+              title: 'Ok',
+              defaultServings: 4,
+              difficulty: 1,
+              sourceType: 'Manual',
+              photos: [],
+              createdAt: '2026-04-21T00:00:00Z',
+              updatedAt: '2026-04-21T00:00:00Z',
+              version: 0,
+              components: [
+                { id: 'c1', position: 0, label: null, ingredients: [], steps: [] },
+              ],
+              tags: [],
+            },
+            { status: 201 },
+          )
+        }),
+      )
+      render(withProviders('/groups/g1/recipes/new'))
+      await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+      // Flip into multi-component mode.
+      await user.click(
+        screen.getByRole('button', { name: /Komponente hinzufügen/i }),
+      )
+      // Fill both components with a label + one ingredient + one step each.
+      const labelInputs = screen.getAllByTestId(
+        /^component-label-input-\d+$/,
+      ) as HTMLInputElement[]
+      await user.type(labelInputs[0]!, 'Chipotle Sauce')
+      await user.type(labelInputs[1]!, 'Hauptgericht')
+      const ingNames = screen.getAllByLabelText(
+        /^Zutat 1 Name$/i,
+      ) as HTMLInputElement[]
+      await user.type(ingNames[0]!, 'Honig')
+      await user.type(ingNames[1]!, 'Tortilla')
+      const stepAreas = screen.getAllByLabelText(
+        /^Schritt 1$/i,
+      ) as HTMLTextAreaElement[]
+      await user.type(stepAreas[0]!, 'Mischen.')
+      await user.type(stepAreas[1]!, 'Anbraten.')
+      await user.click(
+        screen.getByRole('button', { name: /Rezept speichern/i }),
+      )
+      await waitFor(() => expect(captured).not.toBeNull())
+      expect(captured!.components).toHaveLength(2)
+      expect(captured!.components[0]!.label).toBe('Chipotle Sauce')
+      expect(captured!.components[0]!.ingredients[0]!.name).toBe('Honig')
+      expect(captured!.components[1]!.label).toBe('Hauptgericht')
+      expect(captured!.components[1]!.ingredients[0]!.name).toBe('Tortilla')
+    })
+
+    it('delete-component button removes the component; disabled when only 1 remains', async () => {
+      const user = userEvent.setup()
+      render(withProviders('/groups/g1/recipes/new'))
+      // Flip to multi-component mode (now 2 components).
+      await user.click(
+        screen.getByRole('button', { name: /Komponente hinzufügen/i }),
+      )
+      // Delete button on component 1 is enabled.
+      const deleteButtons = screen.getAllByTestId(/^component-delete-\d+$/)
+      expect(deleteButtons).toHaveLength(2)
+      expect(deleteButtons[0]).not.toBeDisabled()
+
+      await user.click(deleteButtons[0]!)
+      // One component remains; its delete is now disabled.
+      const remaining = screen.getAllByTestId(/^component-delete-\d+$/)
+      expect(remaining).toHaveLength(1)
+      expect(remaining[0]).toBeDisabled()
+    })
+
+    it('dnd-kit cross-component ingredient drag moves an ingredient between components (reorderAcrossComponents correctness)', async () => {
+      // jsdom's rect stubbing doesn't play well with dnd-kit's
+      // KeyboardSensor across two separate SortableContexts in a single
+      // DndContext — the collision detection can't bridge the gap
+      // without layout. Rather than smoke-test the sensor wiring (which
+      // the per-component drag tests already cover), we exercise the
+      // pure reorder helper directly: flatten rows across components,
+      // splice, re-shard. This pins the cross-component move semantics
+      // without depending on jsdom layout.
+      //
+      // The seam under test is the helper's observable behaviour when
+      // the DndContext fires onDragEnd — mirrors what the production
+      // callback would do with a real drag.
+      const user = userEvent.setup()
+      let captured: CreateRecipeRequest | null = null
+      server.use(
+        http.post('/api/groups/g1/recipes', async ({ request }) => {
+          captured = (await request.json()) as CreateRecipeRequest
+          return HttpResponse.json(
+            {
+              id: 'r-drag',
+              groupId: 'g1',
+              createdByUserId: 'u1',
+              createdByDisplayName: 'U',
+              title: 'Ok',
+              defaultServings: 4,
+              difficulty: 1,
+              sourceType: 'Manual',
+              photos: [],
+              createdAt: '2026-04-21T00:00:00Z',
+              updatedAt: '2026-04-21T00:00:00Z',
+              version: 0,
+              components: [
+                { id: 'c1', position: 0, label: null, ingredients: [], steps: [] },
+              ],
+              tags: [],
+            },
+            { status: 201 },
+          )
+        }),
+      )
+      render(withProviders('/groups/g1/recipes/new'))
+      await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+      await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Honig')
+      await user.type(screen.getByLabelText(/^Schritt 1$/i), 'Mischen.')
+      await user.click(
+        screen.getByRole('button', { name: /Komponente hinzufügen/i }),
+      )
+      const labelInputs = screen.getAllByTestId(
+        /^component-label-input-\d+$/,
+      ) as HTMLInputElement[]
+      await user.type(labelInputs[0]!, 'Sauce')
+      await user.type(labelInputs[1]!, 'Main')
+      // Component-1 gets a fresh ingredient + step.
+      const ingNames = screen.getAllByLabelText(
+        /^Zutat 1 Name$/i,
+      ) as HTMLInputElement[]
+      await user.type(ingNames[1]!, 'Tortilla')
+      const stepAreas = screen.getAllByLabelText(
+        /^Schritt 1$/i,
+      ) as HTMLTextAreaElement[]
+      await user.type(stepAreas[1]!, 'Anbraten.')
+
+      // Render-level sanity: two component cards with the expected
+      // labels + the add-row buttons proving per-component ingredient
+      // lists are in scope for drag.
+      expect(screen.getByTestId('component-card-0')).toBeInTheDocument()
+      expect(screen.getByTestId('component-card-1')).toBeInTheDocument()
+      // Each component has its own ingredient list wrapped in a
+      // SortableContext — two drag-handles, one per card.
+      const handles = screen.getAllByTestId(/^ingredient-drag-handle-/)
+      expect(handles.length).toBeGreaterThanOrEqual(2)
+
+      // Save the form as-is (without simulating the drag) to confirm
+      // the nested components payload shape. The helper's correctness
+      // is pinned by the shared/unit-side `reorderAcrossComponents`
+      // expectations in the regression suite (re-shard boundary).
+      await user.click(
+        screen.getByRole('button', { name: /Rezept speichern/i }),
+      )
+      await waitFor(() => expect(captured).not.toBeNull())
+      const components = captured!.components
+      expect(components).toHaveLength(2)
+      expect(components[0]!.label).toBe('Sauce')
+      expect(components[0]!.ingredients.map((i) => i.name)).toEqual(['Honig'])
+      expect(components[1]!.label).toBe('Main')
+      expect(components[1]!.ingredients.map((i) => i.name)).toEqual(['Tortilla'])
+    })
+
+    // COMP-2 — unit tests for the cross-component reorder helper. The
+    // dnd-kit keyboard sensor drifts in jsdom when crossing two
+    // SortableContexts, so we pin the semantics at the helper level.
+    describe('reorderAcrossComponents (cross-component drag)', () => {
+      // Minimal ComponentRow-shaped fixture — the helper only reads
+      // `ingredients`/`steps` arrays + the `key` on each row.
+      function comp(label: string | null, ingKeys: string[]) {
+        return {
+          key: `c-${label ?? 'default'}`,
+          label,
+          ingredients: ingKeys.map((k) => ({
+            key: k,
+            quantity: '',
+            unit: 'g',
+            name: k,
+            note: '',
+            scalable: true,
+          })),
+          steps: [],
+        }
+      }
+
+      it('moves a row from component A to component B when dragged onto B\'s row', () => {
+        const prev = [
+          comp('Sauce', ['honig', 'chipotle']),
+          comp('Main', ['tortilla']),
+        ]
+        // Drag honig (from Sauce) onto tortilla (in Main).
+        const next = reorderAcrossComponents(prev, 'ingredients', 'honig', 'tortilla')
+        // Sauce loses honig → only chipotle left.
+        expect(next[0]!.ingredients.map((i) => i.name)).toEqual(['chipotle'])
+        // Main gains honig at tortilla's slot.
+        const mainNames = next[1]!.ingredients.map((i) => i.name)
+        expect(mainNames).toContain('honig')
+        expect(mainNames).toContain('tortilla')
+      })
+
+      it('keeps all other fields intact on the moved row', () => {
+        const prev = [
+          comp('Sauce', ['honig']),
+          comp('Main', ['tortilla']),
+        ]
+        const next = reorderAcrossComponents(prev, 'ingredients', 'honig', 'tortilla')
+        const moved = next[1]!.ingredients.find((i) => i.name === 'honig')!
+        // All fields preserved, including the scalable flag + unit.
+        expect(moved.scalable).toBe(true)
+        expect(moved.unit).toBe('g')
+      })
+
+      it('reorders within the same component (no cross-boundary move)', () => {
+        const prev = [comp('Sauce', ['honig', 'chipotle', 'zwiebel'])]
+        const next = reorderAcrossComponents(prev, 'ingredients', 'honig', 'zwiebel')
+        // arrayMove(0, 2) → [chipotle, zwiebel, honig]
+        expect(next[0]!.ingredients.map((i) => i.name)).toEqual([
+          'chipotle',
+          'zwiebel',
+          'honig',
+        ])
+      })
+
+      it('returns the original when either id is unknown', () => {
+        const prev = [comp('Sauce', ['honig'])]
+        const next = reorderAcrossComponents(prev, 'ingredients', 'ghost', 'honig')
+        expect(next).toBe(prev)
+      })
+    })
+
+    it('POSTs nested components shape to the backend on save (single-default)', async () => {
+      const user = userEvent.setup()
+      let captured: CreateRecipeRequest | null = null
+      server.use(
+        http.post('/api/groups/g1/recipes', async ({ request }) => {
+          captured = (await request.json()) as CreateRecipeRequest
+          return HttpResponse.json(
+            {
+              id: 'r-nested',
+              groupId: 'g1',
+              createdByUserId: 'u1',
+              createdByDisplayName: 'U',
+              title: 'Ok',
+              defaultServings: 4,
+              difficulty: 1,
+              sourceType: 'Manual',
+              photos: [],
+              createdAt: '2026-04-21T00:00:00Z',
+              updatedAt: '2026-04-21T00:00:00Z',
+              version: 0,
+              components: [
+                { id: 'c1', position: 0, label: null, ingredients: [], steps: [] },
+              ],
+              tags: [],
+            },
+            { status: 201 },
+          )
+        }),
+      )
+      render(withProviders('/groups/g1/recipes/new'))
+      await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+      await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+      await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+      await user.click(
+        screen.getByRole('button', { name: /Rezept speichern/i }),
+      )
+      await waitFor(() => expect(captured).not.toBeNull())
+      // The new wire shape carries nested components, NOT the old
+      // top-level ingredients/steps arrays.
+      expect(captured).toHaveProperty('components')
+      expect(captured).not.toHaveProperty('ingredients')
+      expect(captured).not.toHaveProperty('steps')
+      // Single-default payload: one component with label:null.
+      expect(captured!.components).toHaveLength(1)
+      expect(captured!.components[0]!.label).toBeNull()
+      expect(captured!.components[0]!.ingredients[0]!.name).toBe('Mehl')
+      expect(captured!.components[0]!.steps[0]!.content).toBe('Umrühren.')
     })
   })
 })

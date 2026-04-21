@@ -20,6 +20,25 @@ const INGREDIENTS: IngredientDto[] = [
   },
 ]
 
+// COMP-2 — helper that wraps a flat ingredient fixture in a single-
+// default group so the pre-COMP-2 tests continue to pin the same
+// behaviour (no sub-headers, identical rendering).
+function singleDefaultGroups(
+  ingredients: IngredientDto[],
+): ReadonlyArray<{
+  component: { id: string; position: number; label: string | null }
+  label: string
+  ingredients: IngredientDto[]
+}> {
+  return [
+    {
+      component: { id: 'c-default', position: 0, label: null },
+      label: 'Hauptgericht',
+      ingredients,
+    },
+  ]
+}
+
 function Harness({
   sessionServings,
   onToggle,
@@ -39,7 +58,7 @@ function Harness({
   }
   return (
     <MiseEnPlaceList
-      ingredients={INGREDIENTS}
+      groups={singleDefaultGroups(INGREDIENTS)}
       defaultServings={4}
       sessionServings={sessionServings}
       checked={checked}
@@ -103,7 +122,7 @@ describe('MiseEnPlaceList — highlight state (COOK-2)', () => {
   it('applies a ring highlight class to the matching row', () => {
     render(
       <MiseEnPlaceList
-        ingredients={INGREDIENTS}
+        groups={singleDefaultGroups(INGREDIENTS)}
         defaultServings={4}
         sessionServings={4}
         checked={new Set()}
@@ -119,7 +138,7 @@ describe('MiseEnPlaceList — highlight state (COOK-2)', () => {
   it('removes the highlight class after 1.5 seconds', () => {
     render(
       <MiseEnPlaceList
-        ingredients={INGREDIENTS}
+        groups={singleDefaultGroups(INGREDIENTS)}
         defaultServings={4}
         sessionServings={4}
         checked={new Set()}
@@ -140,7 +159,7 @@ describe('MiseEnPlaceList — highlight state (COOK-2)', () => {
     Element.prototype.scrollIntoView = scrollSpy
     render(
       <MiseEnPlaceList
-        ingredients={INGREDIENTS}
+        groups={singleDefaultGroups(INGREDIENTS)}
         defaultServings={4}
         sessionServings={4}
         checked={new Set()}
@@ -157,7 +176,7 @@ describe('MiseEnPlaceList — highlight state (COOK-2)', () => {
     expect(() =>
       render(
         <MiseEnPlaceList
-          ingredients={INGREDIENTS}
+          groups={singleDefaultGroups(INGREDIENTS)}
           defaultServings={4}
           sessionServings={4}
           checked={new Set()}
@@ -170,5 +189,56 @@ describe('MiseEnPlaceList — highlight state (COOK-2)', () => {
     rows.forEach((row) => {
       expect(row.className).not.toMatch(/ring-2/)
     })
+  })
+})
+
+// ── COMP-2 — sub-header grouping ─────────────────────────────────────
+
+describe('MiseEnPlaceList — COMP-2 grouping', () => {
+  it('renders one sub-header per component in multi-component mode', () => {
+    render(
+      <MiseEnPlaceList
+        groups={[
+          {
+            component: { id: 'c-sauce', position: 0, label: 'Chipotle Sauce' },
+            label: 'Chipotle Sauce',
+            ingredients: [
+              { id: 's1', position: 0, quantity: 2, unit: 'EL', name: 'Honig', note: null, scalable: true },
+            ],
+          },
+          {
+            component: { id: 'c-main', position: 1, label: null },
+            label: 'Hauptgericht',
+            ingredients: [
+              { id: 'm1', position: 0, quantity: 1, unit: 'Stück', name: 'Tortilla', note: null, scalable: true },
+            ],
+          },
+        ]}
+        defaultServings={2}
+        sessionServings={2}
+        checked={new Set()}
+        onToggle={vi.fn()}
+      />,
+    )
+    const subheaders = screen.getAllByTestId('cook-mise-en-place-subheader')
+    expect(subheaders.map((h) => h.textContent)).toEqual([
+      'Chipotle Sauce',
+      'Hauptgericht',
+    ])
+  })
+
+  it('suppresses sub-headers on a single-default group (label === null)', () => {
+    render(
+      <MiseEnPlaceList
+        groups={singleDefaultGroups(INGREDIENTS)}
+        defaultServings={4}
+        sessionServings={4}
+        checked={new Set()}
+        onToggle={vi.fn()}
+      />,
+    )
+    expect(
+      screen.queryAllByTestId('cook-mise-en-place-subheader'),
+    ).toHaveLength(0)
   })
 })

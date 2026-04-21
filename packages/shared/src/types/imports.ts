@@ -77,6 +77,22 @@ export interface ExtractedNutritionEstimate {
   fat_g: number
 }
 
+/**
+ * COMP-1 — one sub-recipe group as emitted by the Python extractor.
+ * Simple recipes carry exactly one component with `label: null` and
+ * `position: 0`; multi-part recipes (FB-reel captions with "Ingredients
+ * (Sauce):" headers) split ingredients + steps across multiple entries.
+ *
+ * Mirrors :class:`extractor.pipeline.types.ExtractedComponent` on the
+ * Python side. Keep the field names in sync (snake_case on the wire).
+ */
+export interface ExtractedComponent {
+  label: string | null
+  position: number
+  ingredients: ExtractedIngredient[]
+  steps: ExtractedStep[]
+}
+
 export interface ExtractedRecipe {
   title: string
   description: string | null
@@ -84,8 +100,12 @@ export interface ExtractedRecipe {
   difficulty: number | null
   prep_minutes: number | null
   cook_minutes: number | null
-  ingredients: ExtractedIngredient[]
-  steps: ExtractedStep[]
+  /**
+   * COMP-1 — nested sub-recipe groups. Always ≥1 entry. Simple recipes
+   * get one default component with `label: null`; multi-part recipes
+   * surface one entry per visible sub-block.
+   */
+  components: ExtractedComponent[]
   tags: string[]
   source_url: string
   thumbnail_url: string | null

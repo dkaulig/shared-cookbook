@@ -1,5 +1,6 @@
 import type {
   EmptyReason,
+  ExtractedComponent,
   ExtractedRecipe,
   ExtractionResult,
   ExtractionSignals,
@@ -36,6 +37,19 @@ export interface ImportPrefillStep {
   confidence: StepConfidenceLevel
 }
 
+/**
+ * COMP-2 — one sub-recipe group in the form's in-memory prefill shape.
+ * Mirrors {@link ExtractedComponent} but carries the form-friendly
+ * `ImportPrefillIngredient` / `ImportPrefillStep` items so the form
+ * can render the rows directly.
+ */
+export interface ImportPrefillComponent {
+  label: string | null
+  position: number
+  ingredients: ImportPrefillIngredient[]
+  steps: ImportPrefillStep[]
+}
+
 export interface ImportPrefill {
   title: string
   description: string
@@ -43,8 +57,14 @@ export interface ImportPrefill {
   prepTimeMinutes: number | null
   difficulty: 1 | 2 | 3
   sourceUrl: string
-  ingredients: ImportPrefillIngredient[]
-  steps: ImportPrefillStep[]
+  /**
+   * COMP-2 — nested sub-recipe groups. Always ≥1 entry. Simple recipes
+   * carry one default component with `label: null`; the form's
+   * progressive-disclosure toggle collapses that case into the flat
+   * pre-COMP-2 UI. Replaces the old flat `ingredients` + `steps`
+   * top-level arrays.
+   */
+  components: ImportPrefillComponent[]
   /**
    * True when the extractor reported the photo-pipeline sentinel as
    * `source_url`. The provenance banner branches on this to swap the
@@ -187,25 +207,41 @@ function clampDifficulty(raw: number | null | undefined): 1 | 2 | 3 {
  * overlaying it onto the prefill via {@link withImportEnvelope}.
  */
 export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
-  const ingredients = r.ingredients.map((i): ImportPrefillIngredient => {
-    const quantity = i.quantity?.trim() ?? ''
-    // A missing quantity forces scalable off — the scaler throws on
-    // null/0 and we don't want to surprise the user with a confusing
-    // error when they click Save.
-    const scalable = quantity !== ''
-    return {
-      quantity,
-      unit: normaliseUnit(i.unit),
-      name: i.name,
-      note: i.note ?? '',
-      scalable,
-      confidence: i.confidence,
-    }
-  })
+  // COMP-2 — map each ExtractedComponent to an ImportPrefillComponent.
+  // The Python post-processor guarantees ≥1 component (single-default
+  // fallback for simple recipes); defensive fallback here keeps legacy
+  // chat-import callers that might pre-date COMP-1 type-safe.
+  const rawComponents: ExtractedComponent[] =
+    r.components && r.components.length > 0
+      ? r.components
+      : [{ label: null, position: 0, ingredients: [], steps: [] }]
 
-  const steps = r.steps.map((s): ImportPrefillStep => ({
-    content: s.content,
-    confidence: s.confidence,
+  const components: ImportPrefillComponent[] = rawComponents.map((c, idx) => ({
+    // Renumber positions 0..n-1 so the frontend never has to trust the
+    // LLM's emit-order. The Python side already normalises, but a
+    // defensive re-index keeps the form's in-memory shape consistent
+    // even on legacy payloads.
+    position: idx,
+    label: c.label,
+    ingredients: c.ingredients.map((i): ImportPrefillIngredient => {
+      const quantity = i.quantity?.trim() ?? ''
+      // A missing quantity forces scalable off — the scaler throws on
+      // null/0 and we don't want to surprise the user with a confusing
+      // error when they click Save.
+      const scalable = quantity !== ''
+      return {
+        quantity,
+        unit: normaliseUnit(i.unit),
+        name: i.name,
+        note: i.note ?? '',
+        scalable,
+        confidence: i.confidence,
+      }
+    }),
+    steps: c.steps.map((s): ImportPrefillStep => ({
+      content: s.content,
+      confidence: s.confidence,
+    })),
   }))
 
   const prepMinutes =
@@ -244,8 +280,7 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
     prepTimeMinutes: prepMinutes,
     difficulty: clampDifficulty(r.difficulty),
     sourceUrl,
-    ingredients,
-    steps,
+    components,
     isPhotoImport,
     nutritionEstimate,
     // Caller (RecipeFormPage wrapper) overlays this from the import
