@@ -488,6 +488,56 @@ describe('RecipeDetailPage', () => {
     ).toBeInTheDocument()
   })
 
+  // ── TABLET-3 — Recipe-Detail two-column layout at md:+ ───────────────
+  //
+  // At `md:+` the body below the hero refactors into a two-column grid:
+  // left column is ingredients + nutrition + history (sticky), right
+  // column is the steps list (scrollable). Mobile (< md) stays a single
+  // flow so the DOM-order invariant (ingredients before steps) remains.
+
+  it('TABLET-3: renders a left column and a right column with the right Tailwind classes', async () => {
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    const left = screen.getByTestId('recipe-detail-left')
+    const right = screen.getByTestId('recipe-detail-right')
+    expect(left).toBeInTheDocument()
+    expect(right).toBeInTheDocument()
+    // Sticky affordance applies at md:+ only — mobile stays normal flow.
+    expect(left.className).toMatch(/md:sticky/)
+    // The body wrapper switches to a two-column grid at md:+.
+    const grid = screen.getByTestId('recipe-detail-grid')
+    expect(grid.className).toMatch(/md:grid/)
+    expect(grid.className).toMatch(/md:grid-cols-\[var\(--split-left-width\)_1fr\]/)
+  })
+
+  it('TABLET-3: ingredients appear before steps in DOM order so the mobile flow stays intact', async () => {
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    const ingredientsHeading = screen.getByRole('heading', { name: /^Zutaten/i })
+    const stepsHeading = screen.getByRole('heading', { name: /^Zubereitung$/i })
+    // `compareDocumentPosition` returns FOLLOWING (bit 0x04) when the
+    // argument comes AFTER the reference node — the assertion here is
+    // "steps follow ingredients in document order". This invariant holds
+    // for both the mobile single-column flow AND the md:+ two-column
+    // grid (the left column always precedes the right in the DOM).
+    const rel = ingredientsHeading.compareDocumentPosition(stepsHeading)
+    expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('TABLET-3: both ingredients and steps render in the same tree (no conditional hide)', async () => {
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    // Regression guard: the refactor must not gate one column behind a
+    // JS viewport check — both surfaces must be in the DOM so Tailwind
+    // responsive classes alone decide the presentation.
+    expect(screen.getByRole('heading', { name: /^Zutaten/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^Zubereitung$/i })).toBeInTheDocument()
+    expect(screen.getByText('Mehl in eine Schüssel geben.')).toBeInTheDocument()
+    expect(screen.getByText('Salz')).toBeInTheDocument()
+  })
+
   it('fires the mark-as-cooked mutation when the sticky "Jetzt gekocht" button is tapped', async () => {
     const user = userEvent.setup()
     let cookedAt: string | null = null
