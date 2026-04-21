@@ -140,11 +140,69 @@ public static class RecipeEndpoints
 
     public record CreateTagRequest(string Name, string Category);
 
+    /// <summary>
+    /// PAGE-0 — paginated wrapper for a recipe list page. Shape matches
+    /// <c>docs/plans/2026-04-21-recipe-list-pagination-design.md</c>:
+    /// <c>items</c> + the caller's echoed <c>page</c> / <c>pageSize</c>,
+    /// an honest <c>total</c> (count before pagination), and the two
+    /// nav flags the frontend uses to render the pagination bar without
+    /// an extra round-trip.
+    /// </summary>
     public record RecipeSummaryListDto(
         RecipeSummaryDto[] Items,
         int Page,
         int PageSize,
-        int Total);
+        int Total,
+        bool HasNextPage,
+        bool HasPrevPage);
+
+    /// <summary>
+    /// PAGE-0 — sort keys accepted by
+    /// <c>GET /api/groups/{groupId}/recipes</c>. Names mirror the
+    /// snake_case wire values (<see cref="TryParseRecipeSort"/>).
+    /// <c>cook_count_desc</c> is intentionally absent: the domain has no
+    /// <c>TimesCooked</c> / <c>CookCount</c> column or <c>CookHistory</c>
+    /// table, so we can't compose that sort without either new schema
+    /// or a subquery on a non-existent aggregation table. Deferred to a
+    /// follow-up slice; see the design doc's "Open questions".
+    /// </summary>
+    public enum RecipeSortOrder
+    {
+        UpdatedDesc,
+        CookedDesc,
+        TitleAsc,
+        RatingDesc,
+    }
+
+    /// <summary>
+    /// Parses the snake_case <c>?sort=</c> query value into
+    /// <see cref="RecipeSortOrder"/>. Returns <c>false</c> for every
+    /// value not explicitly listed — unknown sorts must surface as a
+    /// 400 at the endpoint layer rather than silently falling back.
+    /// </summary>
+    internal static bool TryParseRecipeSort(string? raw, out RecipeSortOrder sort)
+    {
+        switch (raw)
+        {
+            case null:
+            case "":
+            case "updated_desc":
+                sort = RecipeSortOrder.UpdatedDesc;
+                return true;
+            case "cooked_desc":
+                sort = RecipeSortOrder.CookedDesc;
+                return true;
+            case "title_asc":
+                sort = RecipeSortOrder.TitleAsc;
+                return true;
+            case "rating_desc":
+                sort = RecipeSortOrder.RatingDesc;
+                return true;
+            default:
+                sort = default;
+                return false;
+        }
+    }
 
     public record RecipeDetailDto(
         Guid Id,
@@ -648,10 +706,20 @@ public static class RecipeEndpoints
 
     // ── GET /api/groups/{groupId}/recipes ───────────────────────────
 
+    /// <summary>
+    /// PAGE-0 — paginated recipe list for a group. Contract mirrors
+    /// <c>docs/plans/2026-04-21-recipe-list-pagination-design.md</c>:
+    /// <c>page</c> ≥ 1 (default 1), <c>pageSize</c> 1–100 (default 24),
+    /// <c>sort</c> one of the <see cref="RecipeSortOrder"/> snake_case
+    /// values (default <c>updated_desc</c>). Every sort carries
+    /// <c>Id ASC</c> as a stable tie-breaker. Deep-links past the last
+    /// page return an empty items array + honest <c>total</c> (no 404).
+    /// </summary>
     private static async Task<IResult> ListGroupRecipesAsync(
         Guid groupId,
         int? page,
         int? pageSize,
+        string? sort,
         ClaimsPrincipal principal,
         AppDbContext db,
         IPhotoStorage photoStorage,
@@ -659,33 +727,71 @@ public static class RecipeEndpoints
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
+        // Validate query params BEFORE touching the DB. Each has its
+        // own stable error code the frontend keys off.
+        var effectivePage = page ?? 1;
+        if (effectivePage < 1)
+        {
+            return FamilienResults.BadRequest("invalid_page",
+                $"Die Seitenzahl muss mindestens 1 sein (erhalten: {effectivePage}).");
+        }
+
+        var effectivePageSize = pageSize ?? ListDefaultPageSize;
+        if (effectivePageSize < 1 || effectivePageSize > MaxPageSize)
+        {
+            return FamilienResults.BadRequest("invalid_page_size",
+                $"Die Seitengröße muss zwischen 1 und {MaxPageSize} liegen (erhalten: {effectivePageSize}).");
+        }
+
+        if (!TryParseRecipeSort(sort, out var sortOrder))
+        {
+            return FamilienResults.BadRequest("invalid_sort",
+                $"Unbekannte Sortierung '{sort}'. Erlaubt: updated_desc, cooked_desc, title_asc, rating_desc.");
+        }
+
         var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId && g.DeletedAt == null, ct);
         if (group is null) return Results.NotFound();
         if (!await IsGroupMemberAsync(db, groupId, userId, ct)) return Results.Forbid();
 
-        var p = Math.Max(page ?? 1, 1);
-        var size = Math.Min(Math.Max(pageSize ?? DefaultPageSize, 1), MaxPageSize);
-
         var baseQuery = db.Recipes.Where(r => r.GroupId == groupId && r.DeletedAt == null);
         var total = await baseQuery.CountAsync(ct);
 
-        // SQLite can't order by DateTimeOffset server-side (Postgres can),
-        // so we page by CreatedAt (DateTimeOffset support is the same),
-        // but we just materialize and sort in memory. Page sizes are
-        // bounded (≤ 100) so this is fine.
-        var all = await baseQuery
-            .Join(db.Users, r => r.CreatedByUserId, u => u.Id, (r, u) => new
+        // SQLite can't ORDER BY DateTimeOffset server-side (Postgres can),
+        // so we materialize the group slice and sort / page in memory.
+        // Group-level sizes (≤ 500 recipes typical) keep this sub-ms.
+        // When Postgres replaces SQLite for production queries, the
+        // partial composite indexes added by the AddRecipesListPagination
+        // migration match each sort's (Group, key, Id) ordering.
+        var projected = await baseQuery
+            .Select(r => new RecipeListRow
             {
                 Recipe = r,
-                CreatorDisplay = u.DisplayName,
+                CreatorDisplay = db.Users.Where(u => u.Id == r.CreatedByUserId)
+                    .Select(u => u.DisplayName).FirstOrDefault() ?? string.Empty,
+                // Average returns 0.0 over an empty sequence in SQL; we
+                // short-circuit to ``null`` via RatingCount below so the
+                // DTO reflects "unrated" instead of "0.0 stars".
+                AvgRating = db.Ratings.Where(rt => rt.RecipeId == r.Id)
+                    .Select(rt => (double?)rt.Stars).Average(),
+                RatingCount = db.Ratings.Count(rt => rt.RecipeId == r.Id),
+                MyStars = db.Ratings
+                    .Where(rt => rt.RecipeId == r.Id && rt.UserId == userId)
+                    .Select(rt => (int?)rt.Stars)
+                    .FirstOrDefault(),
             })
             .ToListAsync(ct);
 
-        var rows = all
-            .OrderByDescending(x => x.Recipe.UpdatedAt)
-            .Skip((p - 1) * size)
-            .Take(size)
-            .ToList();
+        // Guard against Skip() overflow on pathological `page` values
+        // (e.g. ``page=int.MaxValue&pageSize=100``). A negative Skip
+        // would silently return the whole collection. Short-circuit
+        // once the offset exceeds the materialised row count.
+        var offsetLong = (long)(effectivePage - 1) * effectivePageSize;
+        var rows = offsetLong >= projected.Count
+            ? new List<RecipeListRow>()
+            : ApplyListSort(projected, sortOrder)
+                .Skip((int)offsetLong)
+                .Take(effectivePageSize)
+                .ToList();
 
         var recipeIds = rows.Select(x => x.Recipe.Id).ToArray();
         var tagMap = await db.RecipeTags
@@ -696,45 +802,79 @@ public static class RecipeEndpoints
             .GroupBy(x => x.RecipeId)
             .ToDictionary(g => g.Key, g => g.Select(x => x.TagId).ToArray());
 
-        // Rating aggregates per recipe. We pull in one shot and compute
-        // avg/count/myStars in memory — rating counts per recipe are small.
-        var ratingRows = await db.Ratings
-            .Where(r => recipeIds.Contains(r.RecipeId))
-            .Select(r => new { r.RecipeId, r.UserId, r.Stars })
-            .ToListAsync(ct);
-        var ratingsByRecipe = ratingRows.GroupBy(x => x.RecipeId)
-            .ToDictionary(g => g.Key, g => g.ToList());
-
-        var items = rows.Select(x =>
+        var items = rows.Select(row =>
         {
-            var ratings = ratingsByRecipe.TryGetValue(x.Recipe.Id, out var list) ? list : null;
-            double? avg = ratings is null || ratings.Count == 0
-                ? null
-                : Math.Round(ratings.Average(r => (double)r.Stars), 1);
-            int count = ratings?.Count ?? 0;
-            int? myStars = ratings?.FirstOrDefault(r => r.UserId == userId)?.Stars;
-
-            var firstPhotoPath = x.Recipe.Photos.FirstOrDefault();
+            var firstPhotoPath = row.Recipe.Photos.FirstOrDefault();
             var firstPhotoUrl = string.IsNullOrEmpty(firstPhotoPath)
                 ? null
                 : photoStorage.GetPublicUrl(firstPhotoPath);
 
+            double? avg = row.RatingCount == 0 || row.AvgRating is null
+                ? null
+                : Math.Round(row.AvgRating.Value, 1);
+
             return new RecipeSummaryDto(
-                x.Recipe.Id,
-                x.Recipe.GroupId,
-                x.Recipe.Title,
-                x.Recipe.Description,
+                row.Recipe.Id,
+                row.Recipe.GroupId,
+                row.Recipe.Title,
+                row.Recipe.Description,
                 firstPhotoUrl,
-                tagsByRecipe.TryGetValue(x.Recipe.Id, out var ids) ? ids : Array.Empty<Guid>(),
-                x.CreatorDisplay,
-                x.Recipe.UpdatedAt,
+                tagsByRecipe.TryGetValue(row.Recipe.Id, out var ids) ? ids : Array.Empty<Guid>(),
+                row.CreatorDisplay,
+                row.Recipe.UpdatedAt,
                 avg,
-                count,
-                myStars);
+                row.RatingCount,
+                row.MyStars);
         }).ToArray();
 
-        return Results.Ok(new RecipeSummaryListDto(items, p, size, total));
+        // ``(long)`` guard matches the overflow-safe offset computation
+        // above so an attacker-chosen huge ``page`` can't flip the
+        // comparison back below zero.
+        var hasNextPage = (long)effectivePage * effectivePageSize < total;
+        var hasPrevPage = effectivePage > 1;
+
+        return Results.Ok(new RecipeSummaryListDto(
+            items, effectivePage, effectivePageSize, total, hasNextPage, hasPrevPage));
     }
+
+    /// <summary>PAGE-0 default page size (grid-friendly 6×4 on desktop,
+    /// 2×12 on mobile). Separate from <see cref="DefaultPageSize"/> so
+    /// other callers that rely on the legacy 20 default keep their
+    /// behaviour.</summary>
+    public const int ListDefaultPageSize = 24;
+
+    private sealed class RecipeListRow
+    {
+        public Domain.Entities.Recipe Recipe { get; set; } = null!;
+        public string CreatorDisplay { get; set; } = string.Empty;
+        public double? AvgRating { get; set; }
+        public int RatingCount { get; set; }
+        public int? MyStars { get; set; }
+    }
+
+    /// <summary>
+    /// Applies the PAGE-0 sort plus the mandatory <c>Id ASC</c> tie-breaker.
+    /// NULL handling for <c>LastCookedAt</c> / <c>AvgRating</c> maps nulls
+    /// to the "bottom" of the DESC order so unrated / never-cooked recipes
+    /// appear last, matching the Postgres <c>NULLS LAST</c> behaviour the
+    /// partial indexes target.
+    /// </summary>
+    private static IOrderedEnumerable<RecipeListRow> ApplyListSort(
+        IEnumerable<RecipeListRow> rows, RecipeSortOrder sort) => sort switch
+    {
+        RecipeSortOrder.CookedDesc => rows
+            .OrderByDescending(x => x.Recipe.LastCookedAt ?? DateTimeOffset.MinValue)
+            .ThenBy(x => x.Recipe.Id),
+        RecipeSortOrder.TitleAsc => rows
+            .OrderBy(x => x.Recipe.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(x => x.Recipe.Id),
+        RecipeSortOrder.RatingDesc => rows
+            .OrderByDescending(x => x.RatingCount == 0 ? double.MinValue : x.AvgRating ?? double.MinValue)
+            .ThenBy(x => x.Recipe.Id),
+        _ => rows
+            .OrderByDescending(x => x.Recipe.UpdatedAt)
+            .ThenBy(x => x.Recipe.Id),
+    };
 
     // ── GET /api/recipes/{id} ───────────────────────────────────────
 

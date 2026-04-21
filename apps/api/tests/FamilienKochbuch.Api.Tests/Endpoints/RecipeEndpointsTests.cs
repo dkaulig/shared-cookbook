@@ -1822,4 +1822,332 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
     }
 
     private sealed record ConflictBodyDto(string Code, string Message, System.Text.Json.JsonElement? Current);
+
+    // ── PAGE-0 — paginated recipe list ──────────────────────────────
+
+    /// <summary>
+    /// PAGE-0 helper: seed `count` recipes directly via the DbContext,
+    /// spacing their <c>CreatedAt</c> / <c>UpdatedAt</c> at 1s intervals
+    /// anchored at <paramref name="baseUpdatedAt"/>. Avoids the HTTP path
+    /// (which would advance the shared <see cref="FamilienKochbuchWebApplicationFactory.Clock"/>
+    /// past the JWT bearer's <c>ClockSkew</c> tolerance when multiple
+    /// tests accumulate their nudges).
+    /// </summary>
+    private async Task<Guid[]> SeedRecipesAsync(
+        Guid groupId, Guid createdByUserId, string[] titles,
+        DateTimeOffset? baseUpdatedAt = null)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var baseTime = baseUpdatedAt ?? DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        var ids = new Guid[titles.Length];
+        for (var i = 0; i < titles.Length; i++)
+        {
+            var recipe = new FamilienKochbuch.Domain.Entities.Recipe(
+                groupId, createdByUserId, titles[i], null, 4, null, 1, null,
+                FamilienKochbuch.Domain.Enums.RecipeSourceType.Manual, null,
+                baseTime.AddSeconds(i));
+            db.Recipes.Add(recipe);
+            ids[i] = recipe.Id;
+        }
+        await db.SaveChangesAsync();
+        return ids;
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_Defaults_Return_Page1_PageSize24_SortedByUpdatedAt_Desc()
+    {
+        var (userId, token) = await SignupAndLoginAsync("page-default@ex.com", "PD");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        await SeedRecipesAsync(groupId, userId, new[] { "Alpha", "Bravo", "Charlie" });
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+
+        Assert.Equal(1, body.Page);
+        Assert.Equal(24, body.PageSize);
+        Assert.Equal(3, body.Total);
+        Assert.False(body.HasNextPage);
+        Assert.False(body.HasPrevPage);
+        // Most recently created has the latest UpdatedAt — appears first.
+        Assert.Equal(new[] { "Charlie", "Bravo", "Alpha" }, body.Items.Select(i => i.Title).ToArray());
+    }
+
+    [Theory]
+    [InlineData("page=0")]
+    [InlineData("page=-1")]
+    public async Task ListGroupRecipes_InvalidPage_Returns_400_InvalidPage(string query)
+    {
+        var (_, token) = await SignupAndLoginAsync($"pg-{query.GetHashCode():x}@ex.com", "PG");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?{query}");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.Equal("invalid_page", body!.Code);
+    }
+
+    [Theory]
+    [InlineData("pageSize=0")]
+    [InlineData("pageSize=101")]
+    [InlineData("pageSize=-5")]
+    [InlineData("pageSize=1000000")]
+    public async Task ListGroupRecipes_InvalidPageSize_Returns_400_InvalidPageSize(string query)
+    {
+        var (_, token) = await SignupAndLoginAsync($"ps-{query.GetHashCode():x}@ex.com", "PS");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?{query}");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.Equal("invalid_page_size", body!.Code);
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_PageSize100_Ok()
+    {
+        var (_, token) = await SignupAndLoginAsync("ps-max@ex.com", "MAX");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        (await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", BuildCreateRequest("A")))
+            .EnsureSuccessStatusCode();
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?pageSize=100");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+        Assert.Equal(100, body.PageSize);
+        Assert.Single(body.Items);
+    }
+
+    [Theory]
+    [InlineData("bogus")]
+    [InlineData("UPDATED_DESC")]
+    [InlineData("cook_count_desc")] // Cut in PAGE-0 — see design doc.
+    public async Task ListGroupRecipes_InvalidSort_Returns_400_InvalidSort(string sort)
+    {
+        var (_, token) = await SignupAndLoginAsync($"so-{sort}@ex.com", "SO");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?sort={sort}");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.Equal("invalid_sort", body!.Code);
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_SortUpdatedDesc_Produces_Correct_Order()
+    {
+        var (userId, token) = await SignupAndLoginAsync("s-upd@ex.com", "SU");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        await SeedRecipesAsync(groupId, userId, new[] { "First", "Second", "Third" });
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?sort=updated_desc");
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+        Assert.Equal(new[] { "Third", "Second", "First" }, body.Items.Select(i => i.Title).ToArray());
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_SortTitleAsc_Produces_Correct_Order()
+    {
+        var (userId, token) = await SignupAndLoginAsync("s-title@ex.com", "ST");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        await SeedRecipesAsync(groupId, userId, new[] { "Zwiebel", "Apfel", "Möhre" });
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?sort=title_asc");
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+        Assert.Equal(new[] { "Apfel", "Möhre", "Zwiebel" }, body.Items.Select(i => i.Title).ToArray());
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_SortCookedDesc_RecentlyCooked_First_NullsLast()
+    {
+        var (userId, token) = await SignupAndLoginAsync("s-cook@ex.com", "SC");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var ids = await SeedRecipesAsync(groupId, userId,
+            new[] { "NieGekocht", "FrüherGekocht", "ZuletztGekocht" });
+
+        // Stamp LastCookedAt directly so recipes [1] and [2] have distinct cook times,
+        // [0] stays null. Written via the DbContext to avoid the clock-advance path.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var r1 = await db.Recipes.SingleAsync(r => r.Id == ids[1]);
+            var r2 = await db.Recipes.SingleAsync(r => r.Id == ids[2]);
+            var baseTime = DateTimeOffset.Parse("2026-03-01T00:00:00Z");
+            r1.MarkCooked(baseTime);
+            r2.MarkCooked(baseTime.AddMinutes(1));
+            await db.SaveChangesAsync();
+        }
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?sort=cooked_desc");
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+        // ZuletztGekocht (most recent) → FrüherGekocht → NieGekocht (null, last).
+        Assert.Equal(new[] { "ZuletztGekocht", "FrüherGekocht", "NieGekocht" },
+            body.Items.Select(i => i.Title).ToArray());
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_SortRatingDesc_HighestAvg_First_NullsLast()
+    {
+        var (userId, token) = await SignupAndLoginAsync("s-rate@ex.com", "SR");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var ids = await SeedRecipesAsync(groupId, userId,
+            new[] { "Unrated", "DreiSterne", "FuenfSterne" });
+
+        (await _client.PostAsJsonAsync($"/api/recipes/{ids[1]}/ratings",
+            new RatingEndpoints.UpsertRatingRequest(3, null))).EnsureSuccessStatusCode();
+        (await _client.PostAsJsonAsync($"/api/recipes/{ids[2]}/ratings",
+            new RatingEndpoints.UpsertRatingRequest(5, null))).EnsureSuccessStatusCode();
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?sort=rating_desc");
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+        Assert.Equal(new[] { "FuenfSterne", "DreiSterne", "Unrated" },
+            body.Items.Select(i => i.Title).ToArray());
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_Paging_Middle_Page_Total_And_HasNextHasPrev()
+    {
+        var (userId, token) = await SignupAndLoginAsync("pg-mid@ex.com", "PM");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var titles = Enumerable.Range(0, 30).Select(i => $"R{i:D2}").ToArray();
+        await SeedRecipesAsync(groupId, userId, titles);
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?page=2&pageSize=10");
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+        Assert.Equal(30, body.Total);
+        Assert.Equal(10, body.Items.Length);
+        Assert.True(body.HasNextPage);
+        Assert.True(body.HasPrevPage);
+        Assert.Equal(2, body.Page);
+        Assert.Equal(10, body.PageSize);
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_DeepLink_Past_End_Returns_EmptyItems_With_HonestTotal()
+    {
+        var (userId, token) = await SignupAndLoginAsync("pg-deep@ex.com", "PD");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        await SeedRecipesAsync(groupId, userId, new[] { "R0", "R1", "R2", "R3", "R4" });
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?page=5&pageSize=10");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+        Assert.Empty(body.Items);
+        Assert.Equal(5, body.Total);
+        Assert.False(body.HasNextPage);
+        Assert.True(body.HasPrevPage);
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_StableTieBreaker_By_IdAsc_When_UpdatedAt_Equal()
+    {
+        var (userId, token) = await SignupAndLoginAsync("pg-tie@ex.com", "PT");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // Seed two recipes directly with identical UpdatedAt via the DbContext —
+        // the HTTP create path would stamp Version-bumped different UpdatedAts
+        // and also drift the shared test clock.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var now = DateTimeOffset.Parse("2026-02-01T00:00:00Z");
+        var a = new FamilienKochbuch.Domain.Entities.Recipe(
+            groupId, userId, "TieA", null, 4, null, 1, null,
+            FamilienKochbuch.Domain.Enums.RecipeSourceType.Manual, null, now);
+        var b = new FamilienKochbuch.Domain.Entities.Recipe(
+            groupId, userId, "TieB", null, 4, null, 1, null,
+            FamilienKochbuch.Domain.Enums.RecipeSourceType.Manual, null, now);
+        db.Recipes.Add(a);
+        db.Recipes.Add(b);
+        await db.SaveChangesAsync();
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes?sort=updated_desc");
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+
+        // Identical UpdatedAt → stable order by Id ASC.
+        var expected = new[] { a.Id, b.Id }.OrderBy(id => id).ToArray();
+        Assert.Equal(expected, body.Items.Select(i => i.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_SoftDeleted_Excluded_From_Items_And_Total()
+    {
+        var (userId, token) = await SignupAndLoginAsync("pg-del@ex.com", "PDEL");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var ids = await SeedRecipesAsync(groupId, userId, new[] { "Keep", "DeleteMe" });
+
+        (await _client.DeleteAsync($"/api/recipes/{ids[1]}")).EnsureSuccessStatusCode();
+
+        var response = await _client.GetAsync($"/api/groups/{groupId}/recipes");
+        response.EnsureSuccessStatusCode();
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+
+        Assert.Equal(1, body.Total);
+        Assert.Single(body.Items);
+        Assert.Equal("Keep", body.Items[0].Title);
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_Pathological_HugePage_Does_Not_Bypass_Pagination()
+    {
+        // Security: (page-1) * pageSize on int32 can overflow to a
+        // negative number; a negative Skip() returns the whole collection.
+        // The endpoint must short-circuit to an empty page instead.
+        var (userId, token) = await SignupAndLoginAsync("pg-huge@ex.com", "PH");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        await SeedRecipesAsync(groupId, userId,
+            Enumerable.Range(0, 5).Select(i => $"R{i}").ToArray());
+
+        var response = await _client.GetAsync(
+            $"/api/groups/{groupId}/recipes?page={int.MaxValue}&pageSize=100");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeSummaryListDto>())!;
+        Assert.Empty(body.Items);
+        Assert.Equal(5, body.Total);
+        Assert.False(body.HasNextPage);
+    }
+
+    [Fact]
+    public async Task ListGroupRecipes_Pagination_NonMember_Still_403()
+    {
+        var (_, aTok) = await SignupAndLoginAsync("pg-na@ex.com", "A");
+        var (_, bTok) = await SignupAndLoginAsync("pg-nb@ex.com", "B");
+        using var clientA = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientA, aTok);
+        var groupId = await CreateGroupAsync(clientA);
+
+        using var clientB = _factory.CreateRateLimitBypassingClient();
+        AuthorizeClient(clientB, bTok);
+        var response = await clientB.GetAsync($"/api/groups/{groupId}/recipes?page=1&pageSize=10&sort=title_asc");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
 }
