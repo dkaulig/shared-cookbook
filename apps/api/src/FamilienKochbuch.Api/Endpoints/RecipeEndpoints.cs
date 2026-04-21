@@ -204,6 +204,96 @@ public static class RecipeEndpoints
         }
     }
 
+    /// <summary>
+    /// SEARCH-0 — result-item shape for the cross-group search endpoint.
+    /// Same fields as <see cref="RecipeSummaryDto"/> plus <c>GroupName</c>
+    /// so the frontend can render a group-chip per card without a
+    /// follow-up groups lookup. <c>GroupId</c> is already on the summary.
+    /// </summary>
+    public record RecipeGlobalSearchItemDto(
+        Guid Id,
+        Guid GroupId,
+        string GroupName,
+        string Title,
+        string? Description,
+        string? Photo,
+        Guid[] TagIds,
+        string CreatedByDisplayName,
+        DateTimeOffset UpdatedAt,
+        double? AvgRating,
+        int RatingCount,
+        int? MyStars);
+
+    /// <summary>
+    /// SEARCH-0 — wrapper for <c>GET /api/recipes/search</c>. Mirrors
+    /// <see cref="RecipeSummaryListDto"/> exactly (page / pageSize /
+    /// total / hasNextPage / hasPrevPage) and additionally echoes the
+    /// trimmed <c>query</c> so the frontend can re-synchronise its
+    /// debounced URL state without re-reading <c>?q=</c>.
+    /// </summary>
+    public record RecipeGlobalSearchListDto(
+        RecipeGlobalSearchItemDto[] Items,
+        int Page,
+        int PageSize,
+        int Total,
+        bool HasNextPage,
+        bool HasPrevPage,
+        string Query);
+
+    /// <summary>
+    /// SEARCH-0 — sort keys accepted by <c>GET /api/recipes/search</c>.
+    /// Superset of <see cref="RecipeSortOrder"/>: adds
+    /// <c>RelevanceDesc</c> (the default when <c>q</c> is set). Every
+    /// other key maps 1:1 to the list-endpoint semantics so sort UI
+    /// components can share a single enum on the frontend.
+    /// </summary>
+    public enum RecipeSearchSortOrder
+    {
+        RelevanceDesc,
+        UpdatedDesc,
+        CookedDesc,
+        TitleAsc,
+        RatingDesc,
+    }
+
+    /// <summary>
+    /// Parses the snake_case <c>?sort=</c> query value into
+    /// <see cref="RecipeSearchSortOrder"/>. Returns <c>false</c> for
+    /// unknown values so the endpoint can return a 400 invalid_sort.
+    /// Null / empty defaults to <c>RelevanceDesc</c>.
+    /// </summary>
+    internal static bool TryParseRecipeSearchSort(string? raw, out RecipeSearchSortOrder sort)
+    {
+        switch (raw)
+        {
+            case null:
+            case "":
+            case "relevance_desc":
+                sort = RecipeSearchSortOrder.RelevanceDesc;
+                return true;
+            case "updated_desc":
+                sort = RecipeSearchSortOrder.UpdatedDesc;
+                return true;
+            case "cooked_desc":
+                sort = RecipeSearchSortOrder.CookedDesc;
+                return true;
+            case "title_asc":
+                sort = RecipeSearchSortOrder.TitleAsc;
+                return true;
+            case "rating_desc":
+                sort = RecipeSearchSortOrder.RatingDesc;
+                return true;
+            default:
+                sort = default;
+                return false;
+        }
+    }
+
+    /// <summary>SEARCH-0: maximum accepted length of <c>?q=</c>. DoS
+    /// guard — a 10kB query-string with a 9kB ILIKE pattern would hurt
+    /// Postgres a lot more than it would hurt the caller.</summary>
+    public const int SearchQueryMaxLength = 200;
+
     public record RecipeDetailDto(
         Guid Id,
         Guid GroupId,
@@ -317,6 +407,13 @@ public static class RecipeEndpoints
         // hourly SweepAbandonedStagedPhotosJob: this is the
         // user-initiated path, the sweep is the timeout fallback.
         app.MapDelete("/api/staged-photos/{id:guid}", DeleteStagedPhotoAsync)
+            .WithTags("Recipes")
+            .RequireAuthorization();
+
+        // SEARCH-0 — top-level cross-group recipe search. Lives outside
+        // the /api/groups/{id} prefix because authz scopes by the
+        // caller's membership set rather than a single group id.
+        app.MapGet("/api/recipes/search", SearchRecipesGloballyAsync)
             .WithTags("Recipes")
             .RequireAuthorization();
     }
@@ -873,6 +970,219 @@ public static class RecipeEndpoints
             .ThenBy(x => x.Recipe.Id),
         _ => rows
             .OrderByDescending(x => x.Recipe.UpdatedAt)
+            .ThenBy(x => x.Recipe.Id),
+    };
+
+    // ── GET /api/recipes/search ─────────────────────────────────────
+
+    /// <summary>
+    /// SEARCH-0 — cross-group recipe search. Authz scopes to the caller's
+    /// group-membership set; `q` is ILIKE-matched against Title /
+    /// Description / Tag names. When <c>sort=relevance_desc</c> (the
+    /// default when <c>q</c> is set) the result is ordered by a
+    /// title(3) + tag(2) + description(1) score. Every other sort key
+    /// mirrors the list endpoint's semantics exactly.
+    /// </summary>
+    private static async Task<IResult> SearchRecipesGloballyAsync(
+        string? q,
+        int? page,
+        int? pageSize,
+        string? sort,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        // Trim + validate `q`. Empty / whitespace-only / over-length all
+        // collapse to the same `invalid_query` code so the frontend has
+        // one error bucket for "bad search term".
+        var trimmedQ = q?.Trim() ?? string.Empty;
+        if (trimmedQ.Length < 1 || trimmedQ.Length > SearchQueryMaxLength)
+        {
+            return FamilienResults.BadRequest("invalid_query",
+                $"Der Suchbegriff muss zwischen 1 und {SearchQueryMaxLength} Zeichen lang sein.");
+        }
+
+        var effectivePage = page ?? 1;
+        if (effectivePage < 1)
+        {
+            return FamilienResults.BadRequest("invalid_page",
+                $"Die Seitenzahl muss mindestens 1 sein (erhalten: {effectivePage}).");
+        }
+
+        var effectivePageSize = pageSize ?? ListDefaultPageSize;
+        if (effectivePageSize < 1 || effectivePageSize > MaxPageSize)
+        {
+            return FamilienResults.BadRequest("invalid_page_size",
+                $"Die Seitengröße muss zwischen 1 und {MaxPageSize} liegen (erhalten: {effectivePageSize}).");
+        }
+
+        if (!TryParseRecipeSearchSort(sort, out var sortOrder))
+        {
+            return FamilienResults.BadRequest("invalid_sort",
+                $"Unbekannte Sortierung '{sort}'. Erlaubt: relevance_desc, updated_desc, cooked_desc, title_asc, rating_desc.");
+        }
+
+        // Authz — the single boundary. A recipe survives this filter
+        // only when its group appears in the caller's membership set.
+        var memberGroupIds = db.GroupMemberships
+            .Where(gm => gm.UserId == userId)
+            .Select(gm => gm.GroupId);
+
+        // ILIKE-equivalent via EF.Functions.Like over a ToUpper()'d
+        // pattern — portable across Postgres (production) and SQLite
+        // (integration tests), whose LIKE is case-sensitive by default.
+        // Postgres's own `ILIKE` could be used via EF.Functions.ILike,
+        // but SQLite wouldn't translate it.
+        var upperPattern = $"%{trimmedQ.ToUpperInvariant()}%";
+
+        // Single filtering query — EF composes the recipe + group join
+        // alongside the three text-match predicates into a single SQL
+        // statement. The tag match lives in a correlated EXISTS so we
+        // don't pull RecipeTags / Tags rows into memory.
+        var baseQuery = db.Recipes
+            .Where(r => r.DeletedAt == null)
+            .Where(r => memberGroupIds.Contains(r.GroupId))
+            .Where(r =>
+                EF.Functions.Like(r.Title.ToUpper(), upperPattern)
+                || (r.Description != null && EF.Functions.Like(r.Description.ToUpper(), upperPattern))
+                || db.RecipeTags
+                    .Where(rt => rt.RecipeId == r.Id)
+                    .Join(db.Tags, rt => rt.TagId, t => t.Id, (rt, t) => t.Name)
+                    .Any(name => EF.Functions.Like(name.ToUpper(), upperPattern)));
+
+        var total = await baseQuery.CountAsync(ct);
+
+        // Pull the filtered rows + pre-computed match flags for scoring,
+        // aggregates for the summary DTO, and the owning group's name.
+        // SQLite can't ORDER BY DateTimeOffset server-side, so for
+        // parity with the PAGE-0 list endpoint we materialise once and
+        // sort / paginate in memory. Group-count ×
+        // max-matches-per-group stays small at family scale.
+        var projected = await baseQuery
+            .Select(r => new RecipeSearchRow
+            {
+                Recipe = r,
+                GroupName = db.Groups.Where(g => g.Id == r.GroupId)
+                    .Select(g => g.Name).FirstOrDefault() ?? string.Empty,
+                CreatorDisplay = db.Users.Where(u => u.Id == r.CreatedByUserId)
+                    .Select(u => u.DisplayName).FirstOrDefault() ?? string.Empty,
+                TitleMatches = EF.Functions.Like(r.Title.ToUpper(), upperPattern),
+                DescriptionMatches = r.Description != null
+                    && EF.Functions.Like(r.Description.ToUpper(), upperPattern),
+                TagMatches = db.RecipeTags
+                    .Where(rt => rt.RecipeId == r.Id)
+                    .Join(db.Tags, rt => rt.TagId, t => t.Id, (rt, t) => t.Name)
+                    .Any(name => EF.Functions.Like(name.ToUpper(), upperPattern)),
+                AvgRating = db.Ratings.Where(rt => rt.RecipeId == r.Id)
+                    .Select(rt => (double?)rt.Stars).Average(),
+                RatingCount = db.Ratings.Count(rt => rt.RecipeId == r.Id),
+                MyStars = db.Ratings
+                    .Where(rt => rt.RecipeId == r.Id && rt.UserId == userId)
+                    .Select(rt => (int?)rt.Stars)
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(ct);
+
+        foreach (var row in projected)
+        {
+            row.Score = (row.TitleMatches ? 3 : 0)
+                + (row.TagMatches ? 2 : 0)
+                + (row.DescriptionMatches ? 1 : 0);
+        }
+
+        var offsetLong = (long)(effectivePage - 1) * effectivePageSize;
+        var pageRows = offsetLong >= projected.Count
+            ? new List<RecipeSearchRow>()
+            : ApplySearchSort(projected, sortOrder)
+                .Skip((int)offsetLong)
+                .Take(effectivePageSize)
+                .ToList();
+
+        var recipeIds = pageRows.Select(x => x.Recipe.Id).ToArray();
+        var tagMap = await db.RecipeTags
+            .Where(rt => recipeIds.Contains(rt.RecipeId))
+            .Select(rt => new { rt.RecipeId, rt.TagId })
+            .ToListAsync(ct);
+        var tagsByRecipe = tagMap
+            .GroupBy(x => x.RecipeId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.TagId).ToArray());
+
+        var items = pageRows.Select(row =>
+        {
+            var firstPhotoPath = row.Recipe.Photos.FirstOrDefault();
+            var firstPhotoUrl = string.IsNullOrEmpty(firstPhotoPath)
+                ? null
+                : photoStorage.GetPublicUrl(firstPhotoPath);
+
+            double? avg = row.RatingCount == 0 || row.AvgRating is null
+                ? null
+                : Math.Round(row.AvgRating.Value, 1);
+
+            return new RecipeGlobalSearchItemDto(
+                row.Recipe.Id,
+                row.Recipe.GroupId,
+                row.GroupName,
+                row.Recipe.Title,
+                row.Recipe.Description,
+                firstPhotoUrl,
+                tagsByRecipe.TryGetValue(row.Recipe.Id, out var ids) ? ids : Array.Empty<Guid>(),
+                row.CreatorDisplay,
+                row.Recipe.UpdatedAt,
+                avg,
+                row.RatingCount,
+                row.MyStars);
+        }).ToArray();
+
+        var hasNextPage = (long)effectivePage * effectivePageSize < total;
+        var hasPrevPage = effectivePage > 1;
+
+        return Results.Ok(new RecipeGlobalSearchListDto(
+            items, effectivePage, effectivePageSize, total,
+            hasNextPage, hasPrevPage, trimmedQ));
+    }
+
+    private sealed class RecipeSearchRow
+    {
+        public Domain.Entities.Recipe Recipe { get; set; } = null!;
+        public string GroupName { get; set; } = string.Empty;
+        public string CreatorDisplay { get; set; } = string.Empty;
+        public bool TitleMatches { get; set; }
+        public bool DescriptionMatches { get; set; }
+        public bool TagMatches { get; set; }
+        public double? AvgRating { get; set; }
+        public int RatingCount { get; set; }
+        public int? MyStars { get; set; }
+        public int Score { get; set; }
+    }
+
+    /// <summary>
+    /// SEARCH-0 sort. <c>RelevanceDesc</c> orders by the precomputed
+    /// <see cref="RecipeSearchRow.Score"/> DESC; every other key reuses
+    /// the PAGE-0 list-sort semantics (same NULLS LAST handling) so the
+    /// two endpoints are interchangeable for the non-relevance sorts.
+    /// All orderings end on <c>Id ASC</c> for a deterministic
+    /// tie-break.
+    /// </summary>
+    private static IOrderedEnumerable<RecipeSearchRow> ApplySearchSort(
+        IEnumerable<RecipeSearchRow> rows, RecipeSearchSortOrder sort) => sort switch
+    {
+        RecipeSearchSortOrder.UpdatedDesc => rows
+            .OrderByDescending(x => x.Recipe.UpdatedAt)
+            .ThenBy(x => x.Recipe.Id),
+        RecipeSearchSortOrder.CookedDesc => rows
+            .OrderByDescending(x => x.Recipe.LastCookedAt ?? DateTimeOffset.MinValue)
+            .ThenBy(x => x.Recipe.Id),
+        RecipeSearchSortOrder.TitleAsc => rows
+            .OrderBy(x => x.Recipe.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(x => x.Recipe.Id),
+        RecipeSearchSortOrder.RatingDesc => rows
+            .OrderByDescending(x => x.RatingCount == 0 ? double.MinValue : x.AvgRating ?? double.MinValue)
+            .ThenBy(x => x.Recipe.Id),
+        _ => rows
+            .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Recipe.Id),
     };
 
