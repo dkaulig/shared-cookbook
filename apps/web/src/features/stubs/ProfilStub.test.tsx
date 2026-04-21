@@ -81,6 +81,27 @@ describe('<ProfilStub />', () => {
     expect(link).toHaveAttribute('href', '/admin/ai-usage')
   })
 
+  it('shows the Extractor-Config link for admins pointing at /admin/extractor', () => {
+    useAuthStore.getState().setSession('tok', {
+      id: 'u1',
+      email: 'admin@ex.com',
+      displayName: 'Admin',
+      role: 'Admin',
+    })
+    renderPage()
+    const link = screen.getByRole('link', {
+      name: /Extractor-Konfiguration/i,
+    })
+    expect(link).toHaveAttribute('href', '/admin/extractor')
+  })
+
+  it('does not show the Extractor-Config link for regular users', () => {
+    renderPage()
+    expect(
+      screen.queryByRole('link', { name: /Extractor-Konfiguration/i }),
+    ).toBeNull()
+  })
+
   it('shows the Abmelden button and clears auth state when clicked', async () => {
     server.use(http.post('/api/auth/logout', () => new HttpResponse(null, { status: 204 })))
     renderPage()

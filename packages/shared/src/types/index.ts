@@ -125,6 +125,15 @@ export type {
   AiUsageSummary,
 } from './aiUsage.ts'
 export type {
+  ExtractorConfigDetailResponse,
+  ExtractorConfigHistoryEntry,
+  ExtractorConfigItem,
+  ExtractorConfigListResponse,
+  ExtractorConfigUpdatedBy,
+  ExtractorConfigValueType,
+  PutExtractorConfigRequest,
+} from './extractorConfig.ts'
+export type {
   AddSlotRequest,
   CreateMealPlanRequest,
   MealPlanDto,
