@@ -342,7 +342,7 @@ describe('<MealPlanPage />', () => {
           slots: [makeSlot('s1', { label: 'Spaghetti Bolognese' })],
         }),
       ),
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )
@@ -976,7 +976,7 @@ describe('<MealPlanPage />', () => {
           slots: [],
         }),
       ),
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )

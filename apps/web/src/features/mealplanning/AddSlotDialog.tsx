@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
-import { useRecipeSearch } from '@/features/search/hooks'
+import { useRecipes } from '@/features/recipes/hooks'
 import { buildParentLabel, eligibleParents } from './parentSlotHelpers'
 import { useAddSlot } from './useMealPlan'
 import { MEAL_SLOTS, MEAL_SLOT_LABELS, formatGermanDate } from './weekGrid'
@@ -73,7 +73,12 @@ export function AddSlotDialog({
   const [parentSlotId, setParentSlotId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const search = useRecipeSearch(groupId, { q: query || undefined, pageSize: 8 })
+  // PAGE-1 — stopgap until the Cross-Group-Search slice: pull the full
+  // (title-sorted) list in one shot so the picker can filter client-side
+  // on the typed query. `pageSize=100` covers the realistic family-
+  // cookbook ceiling; beyond that the cross-group search endpoint will
+  // take over.
+  const search = useRecipes(groupId, { pageSize: 100, sort: 'title_asc' })
   const addSlot = useAddSlot(groupId, weekStart, planId)
 
   // Creating a new slot, so there's no "self" to exclude — pass `null`
@@ -117,7 +122,15 @@ export function AddSlotDialog({
     }
   }
 
-  const recipes = search.data?.items ?? []
+  // Client-side filter on the typed query — cheap at pageSize=100.
+  const recipes = useMemo(() => {
+    const all = search.data?.items ?? []
+    const q = query.trim().toLowerCase()
+    if (q.length === 0) return all.slice(0, 8)
+    return all
+      .filter((r) => r.title.toLowerCase().includes(q))
+      .slice(0, 8)
+  }, [search.data?.items, query])
 
   return (
     <div

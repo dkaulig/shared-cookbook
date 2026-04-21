@@ -62,7 +62,13 @@ const CATEGORY_LABEL: Record<TagCategory, string> = {
   Custom: 'Custom',
 }
 
-const SORT_LABELS: Record<SearchSort, string> = {
+/**
+ * Filter-panel sort labels. Kept narrow (the 3 search-endpoint values)
+ * so the panel's sort dropdown only surfaces the sorts the filter panel
+ * supports; PAGE-1 added new list-endpoint sort values that live on the
+ * GroupDetailPage header Select instead.
+ */
+const SORT_LABELS: Partial<Record<SearchSort, string>> = {
   newest: 'Neueste',
   best_rated: 'Am besten bewertet',
   last_cooked: 'Zuletzt gekocht',

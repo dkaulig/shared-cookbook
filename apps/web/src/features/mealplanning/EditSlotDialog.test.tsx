@@ -66,7 +66,7 @@ function renderDialog(slot: MealPlanSlotDto, onClose: () => void = () => {}) {
 describe('<EditSlotDialog />', () => {
   it('prefills the form from the slot DTO', () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )
@@ -83,7 +83,7 @@ describe('<EditSlotDialog />', () => {
   it('sends only the changed fields (servings only) on submit', async () => {
     let capturedBody: unknown = null
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, async ({ request }) => {
@@ -109,7 +109,7 @@ describe('<EditSlotDialog />', () => {
   it('sends the picked recipeId when the user selects a new recipe', async () => {
     let capturedBody: unknown = null
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({
           items: [
             {
@@ -157,7 +157,7 @@ describe('<EditSlotDialog />', () => {
   it('closes without firing a request when nothing changed', async () => {
     let calledPatch = false
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, () => {
@@ -178,7 +178,7 @@ describe('<EditSlotDialog />', () => {
 
   it('shows the server error message when the PATCH fails with 400', async () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, () =>
@@ -204,7 +204,7 @@ describe('<EditSlotDialog />', () => {
 
   it('calls onClose when the user clicks "Abbrechen"', async () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )
@@ -218,7 +218,7 @@ describe('<EditSlotDialog />', () => {
 
   it('validates that either a recipe or a label is present', async () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )
@@ -246,7 +246,7 @@ describe('<EditSlotDialog />', () => {
     const child = makeSlot({ id: SLOT_ID, label: 'Rest', parentSlotId: null })
     let capturedBody: unknown = null
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, async ({ request }) => {
@@ -292,7 +292,7 @@ describe('<EditSlotDialog />', () => {
     })
     let capturedBody: unknown = null
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, async ({ request }) => {
@@ -326,7 +326,7 @@ describe('<EditSlotDialog />', () => {
 
   it('hides the parent dropdown when there are no eligible candidates', () => {
     server.use(
-      http.get('/api/groups/g1/recipes/search', () =>
+      http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
     )

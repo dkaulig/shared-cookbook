@@ -1,20 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
-import type { RecipeSearchResult } from '@familien-kochbuch/shared'
-import { searchRecipes } from '@/features/search/searchApi'
+import { useRecipes } from './hooks'
 
 /**
  * "Zuletzt gekocht" — the Home page's recent-recipes section.
  *
- * Wraps the existing `/api/groups/:groupId/recipes/search` endpoint with
- * `sort=last_cooked&pageSize=4` so the Home page does not import the
- * search feature directly. Backed by the same URL (and the same server
- * ordering) as the Group Detail page's "zuletzt gekocht" sort, so the
- * two views stay in sync.
+ * PAGE-1 — rides the paginated recipe-list endpoint
+ * (`/api/groups/:groupId/recipes?pageSize=5&sort=cooked_desc`). Same
+ * server-side ordering contract as the Group Detail page's
+ * "Zuletzt gekocht" sort so the two views stay in sync.
  */
-export function useRecentlyCooked(groupId: string | undefined, pageSize = 4) {
-  return useQuery<RecipeSearchResult>({
-    queryKey: ['recentlyCooked', groupId ?? 'disabled', pageSize],
-    queryFn: () => searchRecipes(groupId!, { sort: 'last_cooked', page: 1, pageSize }),
-    enabled: !!groupId,
-  })
+export function useRecentlyCooked(groupId: string | undefined, pageSize = 5) {
+  return useRecipes(groupId, { page: 1, pageSize, sort: 'cooked_desc' })
 }

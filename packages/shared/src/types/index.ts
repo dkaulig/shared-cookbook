@@ -38,6 +38,7 @@ export type {
   NutritionEstimate,
   RecipeChangeType,
   RecipeDetailDto,
+  RecipeListSort,
   RecipeRevisionChangedBy,
   RecipeRevisionDetail,
   RecipeRevisionSummary,
@@ -53,6 +54,10 @@ export type {
   TagDto,
   UpdateRecipeRequest,
   UploadPhotoResponse,
+} from './recipes.ts'
+export {
+  DEFAULT_RECIPE_LIST_PAGE_SIZE,
+  DEFAULT_RECIPE_LIST_SORT,
 } from './recipes.ts'
 export type {
   RatingAggregate,

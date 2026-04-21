@@ -274,6 +274,116 @@ describe('<GroupDetailPage />', () => {
     expect(list).toHaveTextContent('Bob')
   })
 
+  // ─────────── PAGE-1 — Pagination + Sort ───────────
+
+  it('renders the sort <Select> with 5 German labels (PAGE-1)', async () => {
+    render(withProviders('/groups/g1'))
+    const select = await screen.findByRole('combobox', { name: /sortierung/i })
+    expect(select).toBeInTheDocument()
+    const options = Array.from(
+      (select as HTMLSelectElement).options,
+      (o) => o.text,
+    )
+    expect(options).toEqual(
+      expect.arrayContaining([
+        'Zuletzt aktualisiert',
+        'Zuletzt gekocht',
+        'Titel A-Z',
+        'Am häufigsten gekocht',
+        'Beste Bewertung',
+      ]),
+    )
+  })
+
+  it('picking a sort writes ?sort=title_asc&page=1 to the URL (PAGE-1)', async () => {
+    render(withProviders('/groups/g1?page=3'))
+    const select = (await screen.findByRole('combobox', {
+      name: /sortierung/i,
+    })) as HTMLSelectElement
+    const user = userEvent.setup()
+    await user.selectOptions(select, 'title_asc')
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      expect(loc).toContain('sort=title_asc')
+      // Sort change resets page → 1 (and the URL strips it when default).
+      expect(loc).not.toContain('page=3')
+    })
+  })
+
+  it('shows pagination nav + "Nächste Seite" when there is a next page (PAGE-1)', async () => {
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({
+          items: [schnitzel],
+          total: 72,
+          page: 1,
+          pageSize: 24,
+          hasNextPage: true,
+          hasPrevPage: false,
+        }),
+      ),
+    )
+    render(withProviders('/groups/g1'))
+    await screen.findByRole('link', { name: /Omas Schnitzel/ })
+    const next = await screen.findByRole('button', { name: /Nächste Seite/ })
+    expect(next).toBeEnabled()
+  })
+
+  it('clicking next writes ?page=2 to the URL (PAGE-1)', async () => {
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({
+          items: [schnitzel],
+          total: 72,
+          page: 1,
+          pageSize: 24,
+          hasNextPage: true,
+          hasPrevPage: false,
+        }),
+      ),
+    )
+    render(withProviders('/groups/g1'))
+    const next = await screen.findByRole('button', { name: /Nächste Seite/ })
+    const user = userEvent.setup()
+    await user.click(next)
+    await waitFor(() => {
+      expect(screen.getByTestId('location-probe').textContent ?? '').toContain(
+        'page=2',
+      )
+    })
+  })
+
+  it('deep-link ?page=99 past the end shows an empty-state with a "Zur ersten Seite" link (PAGE-1)', async () => {
+    server.use(
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({
+          items: [],
+          total: 48,
+          page: 99,
+          pageSize: 24,
+          hasNextPage: false,
+          hasPrevPage: true,
+        }),
+      ),
+    )
+    render(withProviders('/groups/g1?page=99'))
+    expect(
+      await screen.findByText(/Keine Rezepte auf dieser Seite/i),
+    ).toBeInTheDocument()
+    const back = screen.getByRole('link', { name: /Zur ersten Seite/i })
+    // The href strips the `page` param — back on page 1 by default.
+    // Relative-resolved, so it's either `/groups/g1` or `?` here; what
+    // matters is that `page=99` isn't carried forward.
+    expect(back.getAttribute('href') ?? '').not.toMatch(/page=99/)
+    // Clicking it navigates to a URL without a page param.
+    const user = userEvent.setup()
+    await user.click(back)
+    await waitFor(() => {
+      const loc = screen.getByTestId('location-probe').textContent ?? ''
+      expect(loc).not.toContain('page=99')
+    })
+  })
+
   // BUG-005 regression — the page sub-nav (back arrow + settings cog)
   // used to be `z-[9]`, which lost the stacking fight against the
   // `GroupDetailHeader` avatar (`z-10`). We now anchor sub-navs at

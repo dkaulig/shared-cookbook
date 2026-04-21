@@ -5,10 +5,15 @@ import type {
   ImportEnqueueResponse,
   NutritionEstimate,
   RecipeDetailDto,
+  RecipeListSort,
   RecipeSummaryListDto,
   TagDto,
   UpdateRecipeRequest,
   VersionMismatchError as VersionMismatchErrorBody,
+} from '@familien-kochbuch/shared'
+import {
+  DEFAULT_RECIPE_LIST_PAGE_SIZE,
+  DEFAULT_RECIPE_LIST_SORT,
 } from '@familien-kochbuch/shared'
 import { apiClient } from '@/features/auth/apiClient'
 import { VersionMismatchError } from '@/features/_shared/apiError'
@@ -65,12 +70,29 @@ async function throwApiError(response: Response): Promise<never> {
 
 // ── Recipes ─────────────────────────────────────────────────────────
 
+/**
+ * PAGE-1 — fetch a paginated + sorted slice of a group's recipes.
+ * Options default to the backend's defaults (page 1, pageSize 24, sort
+ * `updated_desc`) so all callers that don't care just get the first page
+ * of the newest-updated recipes. The server clamps pageSize (1..100) and
+ * 400s on unknown sorts — those bubble up as standard ApiError toasts.
+ */
 export async function fetchGroupRecipes(
   groupId: string,
-  page = 1,
-  pageSize = 20,
+  options: {
+    page?: number
+    pageSize?: number
+    sort?: RecipeListSort
+  } = {},
 ): Promise<RecipeSummaryListDto> {
-  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  const page = options.page ?? 1
+  const pageSize = options.pageSize ?? DEFAULT_RECIPE_LIST_PAGE_SIZE
+  const sort = options.sort ?? DEFAULT_RECIPE_LIST_SORT
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+    sort,
+  })
   return request<RecipeSummaryListDto>(
     `/api/groups/${encodeURIComponent(groupId)}/recipes?${params.toString()}`,
   )

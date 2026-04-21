@@ -76,11 +76,33 @@ export interface RecipeSummaryDto {
   myStars: number | null
 }
 
+/**
+ * PAGE-1 — sort enum accepted by the paginated recipe-list endpoint
+ * (`GET /api/groups/:groupId/recipes`). Mirrors backend PAGE-0's
+ * `RecipeListSort`. One of `cook_count_desc` / `rating_desc` may be cut
+ * server-side if the underlying column isn't available — the frontend
+ * offers all five optimistically; an unsupported choice surfaces as a
+ * 400 `invalid_sort` which the standard list-load-error toast picks up.
+ */
+export type RecipeListSort =
+  | 'updated_desc'
+  | 'cooked_desc'
+  | 'title_asc'
+  | 'cook_count_desc'
+  | 'rating_desc'
+
+export const DEFAULT_RECIPE_LIST_SORT: RecipeListSort = 'updated_desc'
+export const DEFAULT_RECIPE_LIST_PAGE_SIZE = 24
+
 export interface RecipeSummaryListDto {
   items: RecipeSummaryDto[]
   page: number
   pageSize: number
   total: number
+  /** PAGE-1 — cheap derived flags so pagination UI doesn't reimplement
+   *  `page > 1` / `page * pageSize < total`. */
+  hasNextPage: boolean
+  hasPrevPage: boolean
 }
 
 export interface RecipeDetailDto {
