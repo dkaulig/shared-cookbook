@@ -21,9 +21,21 @@ Wake-Lock verhindert dass das Display einschläft.
 
 1. **Entry**: neuer primary Button auf `RecipeDetailPage`, direkt
    neben "Jetzt gekocht": **"Jetzt kochen"** (Chef-Hat-Icon).
-2. **Mise-en-Place-Screen (Step 0)**: Zutaten als Checkliste,
-   scaled mit dem aktuellen Portionsslider. Je Zutat ein grosser
-   Tap-Target (~52 px) der abhakt. Unten Button "Los geht's".
+2. **Portionen-Wahl (Step −1)**: kurzer Overlay VOR dem Mise-en-Place
+   mit der Frage "Für wie viele Portionen möchtest du kochen?" +
+   grossem Stepper (− / Zahl / +) defaulted auf den aktuellen
+   Portionsslider-Wert. Zwei Buttons: "Weiter" (speichert die Wahl
+   für die Session) und "Abbrechen" (zurück zur Detail-Page).
+   Der Portions-State bleibt bis zum Verlassen des Kochmodus erhalten
+   und skaliert ALLE Zutaten-Mengen sofort (Mise-en-Place + Step-
+   Highlighting-Chips beziehen sich auf diese Session-Zahl, nicht
+   mehr auf den Detail-Page-Slider).
+3. **Mise-en-Place-Screen (Step 0)**: Zutaten als Checkliste,
+   scaled mit der in Step −1 gewählten Portionszahl. Je Zutat ein
+   grosser Tap-Target (~52 px) der abhakt. Oben ein kleiner
+   "X Portionen"-Chip der bei Tap zurück zur Portionen-Wahl führt
+   (seltener Fall — falls der User merkt dass er sich verrechnet hat).
+   Unten Button "Los geht's".
 3. **Step-Screens (1..N)**: volle Viewport-Stage. Header mit
    "Schritt X/N" + Progress-Dots. Body mit der Step-Nummerierung +
    dem Text in grosser Typo (Inter 22–26 px, line-height 1.5).
@@ -47,9 +59,13 @@ Wake-Lock verhindert dass das Display einschläft.
 - **Navigation-Shortcuts**: Swipe-Left/Right zwischen Steps.
   Keyboard `→ / ← / Space`. Volume-Buttons (nice-to-have, braucht
   ScreenOrientation-API-Hack).
-- **Portionen-Scaler bleibt aktiv**: gleicher Slider-State wie auf
-  Detail-Page. User wechselt Portionen → Zutaten werden on-the-fly
-  rescaled.
+- **Session-Portionsstand**: in Step −1 gesetzt, überlebt alle
+  Step-Navigation, wird aber NICHT zurück in den Detail-Page-Slider
+  synchronisiert (das Rezept bleibt "objektiv" in seiner gespeicherten
+  Default-Menge, nur diese eine Kochsession läuft skaliert). Zutaten-
+  Menge = `ingredient.quantity * (sessionPortions / recipe.defaultServings)`.
+  Non-skalierbare Zutaten (Prise / nach Geschmack / confidence=missing)
+  bleiben unverändert, mit kleinem "i"-Hinweis "nach Gefühl".
 - **Exit**: top-left "X" + Browser-Back → Bestätigungs-Dialog
   "Kochmodus wirklich beenden? Fortschritt geht verloren."
   (soft-warning, User kann aber immer abbrechen).
@@ -60,22 +76,30 @@ Wake-Lock verhindert dass das Display einschläft.
 
 - Route: `/groups/:groupId/recipes/:recipeId/cook`
 - Component: `CookModePage` in `apps/web/src/features/recipes/cook/`
-- Reuses: `useRecipeDetail`, `useRatePortionSlider` (or equivalent
-  shared portion-state) — liest aus dem Recipe-Cache via TanStack
+- Reuses: `useRecipeDetail` — liest aus dem Recipe-Cache via TanStack
   Query, muss keinen neuen Fetch machen wenn Cache warm.
-- State lokal pro Cook-Session (currentStep, checkedIngredients,
-  activeTimers) — nicht persistiert.
+- State lokal pro Cook-Session (sessionPortions, currentStep,
+  checkedIngredients, activeTimers) — nicht persistiert. `sessionPortions`
+  defaulted auf `useRecipePortionPreference(recipeId)` (existierender
+  Hook, falls vorhanden — sonst `recipe.defaultServings`).
+- Re-use the existing scaling helper that the Detail-Page already has
+  (`scaleIngredient(ingredient, factor)` oder ähnlich — grep
+  `scaleIngredients` / `scalePortion`). KEINE neue Mathe-Logik im
+  CookMode; identische Rundung + Einheiten-Formatierung wie auf der
+  Detail-Page.
 
 ### Komponenten-Tree
 
 ```
 CookModePage
-├─ CookTopBar (X-Close + Step-Count)
+├─ CookTopBar (X-Close + Step-Count + Portions-Chip)
 ├─ CookStepStage
+│   ├─ (step=-1) PortionsPickerOverlay
+│   │   └─ StepperInput (− / N / +, default=recipe.defaultServings)
 │   ├─ (step=0) MiseEnPlaceList
-│   │   └─ IngredientCheckRow (tap-to-check)
+│   │   └─ IngredientCheckRow (scaled qty, tap-to-check)
 │   └─ (step=1..N) CookStepCard
-│       ├─ StepText (big typo + regex-chip highlighting)
+│       ├─ StepText (big typo + regex-chip highlighting, scaled qty)
 │       └─ InlineTimerChip (optional)
 ├─ CookBottomBar (← Zurück | Weiter/Fertig →)
 └─ WakeLockEffect (hook)
