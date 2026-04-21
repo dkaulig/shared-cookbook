@@ -119,4 +119,48 @@ describe('<AppLayout />', () => {
     expect(screen.queryByRole('banner')).toBeNull()
     expect(screen.getByTestId('recipe-new-child')).toBeInTheDocument()
   })
+
+  // ───────── TABLET-0 — SideRail wiring ─────────
+
+  it('mounts the SideRail navigation landmark alongside the BottomNav', () => {
+    renderAt('/')
+    // Both nav landmarks exist in the DOM; Tailwind responsive classes
+    // decide which is visible at the active viewport.
+    expect(screen.getByRole('navigation', { name: /seitenleiste/i })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: /hauptnavigation/i })).toBeInTheDocument()
+  })
+
+  it('scopes the SideRail to the tablet zone via `hidden md:flex xl:hidden`', () => {
+    renderAt('/')
+    const rail = screen.getByRole('navigation', { name: /seitenleiste/i })
+    // `hidden` at < md, `md:flex` from 768, `xl:hidden` from 1280+
+    expect(rail.className).toMatch(/\bhidden\b/)
+    expect(rail.className).toMatch(/\bmd:flex\b/)
+    expect(rail.className).toMatch(/\bxl:hidden\b/)
+  })
+
+  it('renders <SideRail /> as a flex-sibling of <main> so the rail consumes width only when visible', () => {
+    const { container } = renderAt('/')
+    const main = container.querySelector('main[data-app-shell="true"]') as HTMLElement | null
+    const rail = screen.getByRole('navigation', { name: /seitenleiste/i })
+    expect(main).not.toBeNull()
+    // Shared parent: the horizontal band between TopNav and BottomNav.
+    expect(rail.parentElement).toBe(main?.parentElement)
+    // That parent is the flex row carrying `flex-1 min-h-0` so SideRail
+    // and <main> share the vertical axis between the top/bottom chrome.
+    const band = rail.parentElement
+    expect(band?.className).toMatch(/\bflex\b/)
+    expect(band?.className).toMatch(/\bflex-1\b/)
+    expect(band?.className).toMatch(/\bmin-h-0\b/)
+  })
+
+  it('keeps the hoppr-style `fixed inset-0 flex-col overflow-hidden` root intact with SideRail mounted (BUG-039 regression)', () => {
+    const { container } = renderAt('/')
+    const root = container.firstElementChild as HTMLElement | null
+    expect(root).not.toBeNull()
+    expect(root?.className).toMatch(/\bfixed\b/)
+    expect(root?.className).toMatch(/\binset-0\b/)
+    expect(root?.className).toMatch(/\bflex-col\b/)
+    expect(root?.className).toMatch(/\boverflow-hidden\b/)
+  })
 })

@@ -115,6 +115,23 @@
    * regardless of status-bar overlay.
    */
   --topnav-height: calc(env(safe-area-inset-top, 0px) + 60px);
+
+  /*
+   * TABLET-0 — tablet-zone layout tokens.
+   *
+   * --side-rail-width reserves the sticky-left nav column rendered by
+   * <SideRail /> in the `md:`–`xl:` viewport zone (768–1279 px). `<main>`
+   * pads its left edge by the same amount so page content doesn't slide
+   * under the rail.
+   *
+   * --split-left-width is the default width of the list column in the
+   * upcoming TABLET-1+ split-view primitive (GroupDetail / MealPlan /
+   * Shopping / Chat). Declared here so it's in place when those slices
+   * land — zero runtime cost today because no stylesheet consumes it
+   * yet.
+   */
+  --side-rail-width: 72px;
+  --split-left-width: 340px;
 }
 
 .dark {
