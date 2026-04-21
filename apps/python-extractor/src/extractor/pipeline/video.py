@@ -448,9 +448,11 @@ class FasterWhisperTranscriber:
 
     - Model: ``large-v3`` at int8 CPU quantisation (the Hetzner VPS has
       no GPU; int8 trades ~5 percent WER for ~2x speed).
-    - The model weights are baked into the Docker image at build time,
-      so ``WhisperModel("large-v3")`` hits the local cache - never the
-      network at runtime.
+    - The model weights live in a named docker volume mounted at
+      ``$HF_HOME`` (see docker-compose*.yml). First container boot
+      streams the ~3 GB download from HuggingFace; every subsequent
+      start hits the volume cache. ``main.py`` kicks off a background
+      prefetch on startup so the first real transcribe isn't blocked.
     - Blocking transcription runs in a thread so the event loop doesn't
       stall on 30-60 s of CPU.
     """
