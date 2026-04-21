@@ -1253,9 +1253,7 @@ class TestExtractFromUrlSignals:
                 thumbnail_url=None,
             )
         )
-        transcriber = StubTranscriber(
-            transcript="Mehl und Wasser mischen und backen."
-        )
+        transcriber = StubTranscriber(transcript="Mehl und Wasser mischen und backen.")
 
         mock = _AnyCallMock(_canonical_llm_response())
         result = await extract_from_url(
@@ -1312,9 +1310,9 @@ class TestExtractFromUrlSignals:
     ) -> None:
         """Caption carrying an external recipe URL + a successful blog
         fetch lights up both ``had_caption_url`` and ``had_blog_source``."""
-        fixture = (
-            Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html"
-        ).read_text(encoding="utf-8")
+        fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+            encoding="utf-8"
+        )
         respx.get("https://blog.example/carbonara").mock(
             return_value=httpx.Response(
                 200,
@@ -1334,9 +1332,7 @@ class TestExtractFromUrlSignals:
                 thumbnail_url=None,
             )
         )
-        transcriber = StubTranscriber(
-            transcript="Speck und Ei zusammen in der Pfanne anbraten."
-        )
+        transcriber = StubTranscriber(transcript="Speck und Ei zusammen in der Pfanne anbraten.")
 
         mock = _AnyCallMock(_canonical_llm_response())
         result = await extract_from_url(
@@ -1356,9 +1352,7 @@ class TestExtractFromUrlSignals:
         """Caption URL present but blog returns 404 → ``had_caption_url``
         stays True (URL was extracted) but ``had_blog_source`` is False
         (no non-empty blog text was actually captured)."""
-        respx.get("https://blog.example/gone").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.get("https://blog.example/gone").mock(return_value=httpx.Response(404))
 
         mp4 = tmp_path / "video.mp4"
         mp4.write_bytes(b"stub")
@@ -1389,9 +1383,7 @@ class TestExtractFromUrlSignals:
         # At least one signal true → no_recipe_detected, not no_usable_source.
         assert result["empty_reason"] == "no_recipe_detected"
 
-    async def test_short_transcript_does_not_count_as_had_transcript(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_short_transcript_does_not_count_as_had_transcript(self, tmp_path: Path) -> None:
         """Transcripts under the ~20-char threshold are noise (Whisper
         picked up background babble) — they should not light up the
         ``had_transcript`` signal."""
@@ -1425,9 +1417,9 @@ class TestExtractFromUrlSignals:
         self, tmp_path: Path, _fake_public_dns: None
     ) -> None:
         """Direct blog URL → ``had_blog_source`` True if the fetch works."""
-        fixture = (
-            Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html"
-        ).read_text(encoding="utf-8")
+        fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+            encoding="utf-8"
+        )
         respx.get("https://example.com/spaghetti").mock(
             return_value=httpx.Response(
                 200,
