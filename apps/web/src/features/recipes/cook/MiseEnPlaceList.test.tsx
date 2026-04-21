@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { useState } from 'react'
+import { act } from '@testing-library/react'
 import type { IngredientDto } from '@familien-kochbuch/shared'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -85,6 +86,89 @@ describe('MiseEnPlaceList', () => {
       // Tailwind class — row guarantees a tap-target height regardless
       // of check state.
       expect(row.className).toMatch(/min-h-\[72px\]/)
+    })
+  })
+})
+
+describe('MiseEnPlaceList — highlight state (COOK-2)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    // jsdom doesn't implement scrollIntoView — stub it.
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('applies a ring highlight class to the matching row', () => {
+    render(
+      <MiseEnPlaceList
+        ingredients={INGREDIENTS}
+        defaultServings={4}
+        sessionServings={4}
+        checked={new Set()}
+        onToggle={vi.fn()}
+        highlightedIngredientId="i1"
+      />,
+    )
+    const rows = screen.getAllByRole('checkbox')
+    expect(rows[0]!.className).toMatch(/ring-2/)
+    expect(rows[0]!.className).toMatch(/ring-\[hsl\(var\(--primary\)\)\]/)
+  })
+
+  it('removes the highlight class after 1.5 seconds', () => {
+    render(
+      <MiseEnPlaceList
+        ingredients={INGREDIENTS}
+        defaultServings={4}
+        sessionServings={4}
+        checked={new Set()}
+        onToggle={vi.fn()}
+        highlightedIngredientId="i1"
+      />,
+    )
+    const row = screen.getAllByRole('checkbox')[0]!
+    expect(row.className).toMatch(/ring-2/)
+    act(() => {
+      vi.advanceTimersByTime(1500)
+    })
+    expect(row.className).not.toMatch(/ring-2/)
+  })
+
+  it('scrolls the highlighted row into view when the prop is set', () => {
+    const scrollSpy = vi.fn()
+    Element.prototype.scrollIntoView = scrollSpy
+    render(
+      <MiseEnPlaceList
+        ingredients={INGREDIENTS}
+        defaultServings={4}
+        sessionServings={4}
+        checked={new Set()}
+        onToggle={vi.fn()}
+        highlightedIngredientId="i2"
+      />,
+    )
+    expect(scrollSpy).toHaveBeenCalled()
+    const callArg = scrollSpy.mock.calls[0]![0]
+    expect(callArg).toMatchObject({ block: 'nearest', behavior: 'smooth' })
+  })
+
+  it('does not crash when highlightedIngredientId is null', () => {
+    expect(() =>
+      render(
+        <MiseEnPlaceList
+          ingredients={INGREDIENTS}
+          defaultServings={4}
+          sessionServings={4}
+          checked={new Set()}
+          onToggle={vi.fn()}
+          highlightedIngredientId={null}
+        />,
+      ),
+    ).not.toThrow()
+    const rows = screen.getAllByRole('checkbox')
+    rows.forEach((row) => {
+      expect(row.className).not.toMatch(/ring-2/)
     })
   })
 })

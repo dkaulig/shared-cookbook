@@ -1,8 +1,9 @@
 import { Fragment, useMemo } from 'react'
 import type { RecipeStepDto } from '@familien-kochbuch/shared'
 import { renderInlineMarkdown } from '../markdownRenderer'
-import { extractTimers } from './extractTimers'
+import { IngredientChip } from './IngredientChip'
 import { TimerChip, type TimerChipState } from './TimerChip'
+import { tokeniseStepText } from './tokeniseStepText'
 
 export interface CookStepCardProps {
   /** Current step DTO (already sorted by position by the parent). */
@@ -20,17 +21,33 @@ export interface CookStepCardProps {
    */
   timerStates?: Map<string, TimerChipState>
   onTimerStateChange?: (key: string, next: TimerChipState) => void
+  /**
+   * COOK-2 — recipe ingredient list, used to highlight ingredient
+   * names that appear in the step text as tap-able chips.
+   */
+  ingredients?: Array<{ id: string; name: string }>
+  /**
+   * COOK-2 — called when the user taps an ingredient chip. The parent
+   * (CookModePage) uses this to navigate back to Mise-en-Place with
+   * the row flashed (`Option A` from the plan).
+   */
+  onIngredientActivate?: (ingredientId: string) => void
 }
 
 /**
- * COOK-0 + COOK-1 Step Card (Step 1..N).
+ * COOK-0 + COOK-1 + COOK-2 Step Card (Step 1..N).
  *
  * Immersive single-step view: oversized serif step number, big-type
- * markdown-rendered body. COOK-1 adds inline TimerChips at every
- * German time expression the `extractTimers` helper finds. Timer
- * state is lifted into the CookModePage via the optional
- * `timerStates` / `onTimerStateChange` props so running timers
- * survive step-transitions.
+ * markdown-rendered body. COOK-1 adds inline TimerChips for every
+ * German time expression. COOK-2 adds inline IngredientChips for every
+ * ingredient name that appears in the step text. Tokenisation is
+ * unified through `tokeniseStepText` so the timer-vs-ingredient
+ * overlap is resolved in one place (timers win).
+ *
+ * Timer state is lifted into the CookModePage via the optional
+ * `timerStates` / `onTimerStateChange` props so running timers survive
+ * step transitions. Ingredient-chip activation bubbles via
+ * `onIngredientActivate`.
  *
  * Typography target: 22–26 px body on a 1.55 line-height, 30–38 px
  * heading. `max-w-[52ch]` caps reading width so long steps don't run
@@ -42,51 +59,69 @@ export function CookStepCard({
   totalSteps,
   timerStates,
   onTimerStateChange,
+  ingredients,
+  onIngredientActivate,
 }: CookStepCardProps) {
-  const timers = useMemo(() => extractTimers(step.content), [step.content])
+  const tokens = useMemo(
+    () => tokeniseStepText(step.content, ingredients ?? []),
+    [step.content, ingredients],
+  )
 
-  // Build a ordered token list of text slices + timer chips. When no
-  // timers were found we just delegate to the existing inline-Markdown
-  // renderer for 1-to-1 parity with COOK-0.
   const body = useMemo(() => {
-    if (timers.length === 0) {
+    // When the tokeniser finds neither timers nor ingredients it
+    // returns a single `text` token. In that case we hand the raw
+    // string to the inline-Markdown renderer for 1-to-1 parity with
+    // COOK-0's plain rendering (bold, italic, lists).
+    if (tokens.length === 1 && tokens[0]!.type === 'text') {
       return renderInlineMarkdown(step.content)
     }
     const nodes: React.ReactNode[] = []
-    let cursor = 0
-    timers.forEach((timer, index) => {
-      if (timer.matchStart > cursor) {
-        const textSlice = step.content.slice(cursor, timer.matchStart)
+    tokens.forEach((token, index) => {
+      if (token.type === 'text') {
         nodes.push(
-          <Fragment key={`t-${index}-text`}>
-            {renderInlineMarkdown(textSlice)}
+          <Fragment key={`txt-${index}`}>
+            {renderInlineMarkdown(token.value)}
           </Fragment>,
         )
+        return
       }
-      const key = `${step.id}:${timer.matchStart}`
-      const existing = timerStates?.get(key)
-      const handleStateChange = onTimerStateChange
-        ? (next: TimerChipState) => onTimerStateChange(key, next)
-        : undefined
-      nodes.push(
-        <TimerChip
-          key={`t-${index}-chip`}
-          label={timer.label}
-          initialSeconds={timer.seconds}
-          state={existing}
-          onStateChange={handleStateChange}
-        />,
-      )
-      cursor = timer.matchEnd
+      if (token.type === 'timer') {
+        const key = `${step.id}:${token.key}`
+        const existing = timerStates?.get(key)
+        const handleStateChange = onTimerStateChange
+          ? (next: TimerChipState) => onTimerStateChange(key, next)
+          : undefined
+        nodes.push(
+          <TimerChip
+            key={`timer-${index}`}
+            label={token.label}
+            initialSeconds={token.seconds}
+            state={existing}
+            onStateChange={handleStateChange}
+          />,
+        )
+        return
+      }
+      if (token.type === 'ingredient') {
+        nodes.push(
+          <IngredientChip
+            key={`ing-${index}`}
+            text={token.text}
+            ingredientId={token.ingredientId}
+            onActivate={(id) => onIngredientActivate?.(id)}
+          />,
+        )
+      }
     })
-    if (cursor < step.content.length) {
-      const rest = step.content.slice(cursor)
-      nodes.push(
-        <Fragment key="t-tail">{renderInlineMarkdown(rest)}</Fragment>,
-      )
-    }
     return nodes
-  }, [step.content, step.id, timers, timerStates, onTimerStateChange])
+  }, [
+    tokens,
+    step.content,
+    step.id,
+    timerStates,
+    onTimerStateChange,
+    onIngredientActivate,
+  ])
 
   return (
     <article

@@ -116,12 +116,19 @@ describe('CookModePage — full happy flow', () => {
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     await screen.findByTestId('cook-step-card')
     expect(screen.getByText(/Schritt 1 von 3/i)).toBeInTheDocument()
-    expect(screen.getByText('Mehl in eine Schüssel geben.')).toBeInTheDocument()
+    // "Mehl" is rendered inside an IngredientChip (COOK-2), the
+    // remainder of the sentence is a separate text node — match on
+    // the testid + the chip presence.
+    expect(screen.getByTestId('cook-step-content')).toHaveTextContent(
+      'Mehl in eine Schüssel geben.',
+    )
 
     // → step 2
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     expect(screen.getByText(/Schritt 2 von 3/i)).toBeInTheDocument()
-    expect(screen.getByText('Eier hinzufügen.')).toBeInTheDocument()
+    expect(screen.getByTestId('cook-step-content')).toHaveTextContent(
+      'Eier hinzufügen.',
+    )
 
     // → step 3 (last — button label flips to "Fertig")
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
@@ -248,6 +255,54 @@ describe('CookModePage — wake lock (COOK-1)', () => {
     await waitFor(() => {
       expect(release).toHaveBeenCalled()
     })
+  })
+})
+
+describe('CookModePage — ingredient-chip navigation (COOK-2)', () => {
+  beforeEach(() => {
+    // jsdom doesn't implement scrollIntoView — stub it globally.
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+
+  it('tapping an ingredient chip from a step navigates back to mise-en-place with highlight', async () => {
+    const recipeWithIngredientInStep: RecipeDetailDto = {
+      ...recipe,
+      steps: [
+        { id: 's1', position: 0, content: 'Vorbereitung.' },
+        { id: 's2', position: 1, content: 'Mehl einrühren.' },
+        { id: 's3', position: 2, content: 'Fertigstellen.' },
+      ],
+    }
+    server.use(
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json(recipeWithIngredientInStep),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    // Advance past picker → mise
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    // → step 1
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByTestId('cook-step-card')
+    // → step 2 (the one with "Mehl")
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByText(/Schritt 2 von 3/i)
+
+    // Tap the ingredient chip for "Mehl" — expected: navigate back to
+    // mise-en-place with the row highlighted.
+    const chip = await screen.findByTestId('ingredient-chip')
+    await user.click(chip)
+
+    await screen.findByTestId('cook-mise-en-place')
+    // The highlighted ingredient row gets the ring class.
+    const rows = screen.getAllByRole('checkbox')
+    const mehlRow = rows.find((r) => r.textContent?.includes('Mehl'))!
+    expect(mehlRow.className).toMatch(/ring-2/)
   })
 })
 

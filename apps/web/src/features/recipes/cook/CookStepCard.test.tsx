@@ -102,6 +102,67 @@ describe('CookStepCard — inline timer chips', () => {
   })
 })
 
+describe('CookStepCard — ingredient chips (COOK-2)', () => {
+  it('renders a TimerChip + IngredientChip for a step containing both', () => {
+    const onActivate = vi.fn()
+    render(
+      <CookStepCard
+        step={{
+          id: 's2',
+          position: 1,
+          content: 'Butter schmelzen, 5 Minuten ziehen lassen.',
+        }}
+        stepNumber={2}
+        totalSteps={3}
+        ingredients={[{ id: 'i1', name: 'Butter' }]}
+        onIngredientActivate={onActivate}
+      />,
+    )
+    expect(screen.getByTestId('timer-chip')).toBeInTheDocument()
+    const ingredientChip = screen.getByTestId('ingredient-chip')
+    expect(ingredientChip).toBeInTheDocument()
+    expect(ingredientChip).toHaveTextContent('Butter')
+  })
+
+  it('fires onIngredientActivate with the ingredientId when the chip is tapped', async () => {
+    const user = userEvent.setup()
+    const onActivate = vi.fn()
+    render(
+      <CookStepCard
+        step={{
+          id: 's2',
+          position: 1,
+          content: 'Butter unterrühren.',
+        }}
+        stepNumber={1}
+        totalSteps={1}
+        ingredients={[{ id: 'i1', name: 'Butter' }]}
+        onIngredientActivate={onActivate}
+      />,
+    )
+    await user.click(screen.getByTestId('ingredient-chip'))
+    expect(onActivate).toHaveBeenCalledWith('i1')
+  })
+
+  it('renders only plain text when no ingredients / timers match', () => {
+    render(
+      <CookStepCard
+        step={{
+          id: 's3',
+          position: 2,
+          content: 'Nach Geschmack würzen.',
+        }}
+        stepNumber={3}
+        totalSteps={3}
+        ingredients={[{ id: 'i1', name: 'Butter' }]}
+      />,
+    )
+    expect(screen.queryByTestId('ingredient-chip')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('timer-chip')).not.toBeInTheDocument()
+    expect(screen.getByText('Nach Geschmack würzen.')).toBeInTheDocument()
+  })
+})
+
 describe('CookStepCard — timer state survives step transitions', () => {
   beforeEach(() => {
     vi.useFakeTimers()

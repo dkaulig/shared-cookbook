@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { useMarkAsCooked, useRecipe } from '../hooks'
@@ -59,6 +59,13 @@ export function CookModePage() {
   const [timerStates, setTimerStates] = useState<Map<string, TimerChipState>>(
     () => new Map(),
   )
+  // COOK-2 — ingredient-highlight state. When the user taps an
+  // ingredient chip inside a step we navigate back to mise-en-place
+  // (step 0) and let MiseEnPlaceList flash the matching row. Cleared
+  // after 1.5 s so re-tapping the same chip re-triggers the flash.
+  const [highlightedIngredientId, setHighlightedIngredientId] = useState<
+    string | null
+  >(null)
 
   // COOK-1 — keep the screen on while the user is actually cooking.
   // Active once the portions picker has been confirmed (step moves to 0
@@ -81,6 +88,23 @@ export function CookModePage() {
     },
     [],
   )
+
+  // COOK-2 — Option A: ingredient tap navigates back to mise-en-place
+  // with the highlight primed. User can Zurück to continue the step.
+  const handleIngredientActivate = useCallback((ingredientId: string) => {
+    setHighlightedIngredientId(ingredientId)
+    setStep(0)
+  }, [])
+
+  // Clear the highlight after the MiseEnPlaceList's flash duration
+  // (1.5 s) so re-tapping the same ingredient retriggers the flash.
+  useEffect(() => {
+    if (highlightedIngredientId == null) return
+    const timeout = setTimeout(() => {
+      setHighlightedIngredientId(null)
+    }, 1500)
+    return () => clearTimeout(timeout)
+  }, [highlightedIngredientId])
 
   if (!recipeId) return <Navigate to={`/groups/${groupId}`} replace />
 
@@ -201,6 +225,7 @@ export function CookModePage() {
             sessionServings={portions}
             checked={checkedIngredientIds}
             onToggle={toggleChecked}
+            highlightedIngredientId={highlightedIngredientId}
           />
         )}
 
@@ -211,6 +236,11 @@ export function CookModePage() {
             totalSteps={totalSteps}
             timerStates={timerStates}
             onTimerStateChange={handleTimerStateChange}
+            ingredients={recipe.ingredients.map((i) => ({
+              id: i.id ?? `pos-${i.position}`,
+              name: i.name,
+            }))}
+            onIngredientActivate={handleIngredientActivate}
           />
         )}
 
