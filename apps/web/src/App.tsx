@@ -24,6 +24,7 @@ import { ChatIndexRedirect } from '@/features/chat/ChatIndexRedirect'
 import { ChatRouteOutlet } from '@/features/chat/ChatRouteOutlet'
 import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
 import { MealPlanPage } from '@/features/mealplanning/MealPlanPage'
+import { MealPlanSlotDetailPage } from '@/features/mealplanning/MealPlanSlotDetailPage'
 import { ShoppingListPage } from '@/features/shoppinglist/ShoppingListPage'
 import { WochenplanStub } from '@/features/stubs/WochenplanStub'
 import { ProfilStub } from '@/features/stubs/ProfilStub'
@@ -82,10 +83,23 @@ export default function App() {
               path="/groups/:groupId/mealplan/:weekStart/shopping-list"
               element={<ShoppingListPage />}
             />
+            {/*
+              TABLET-2 — MealPlan now owns a nested `slots/:slotId` child
+              that renders inside the SplitPane's right column at md:+.
+              The flat `/mealplan` (no weekStart) route has NO nested
+              children because it immediately <Navigate>s to the current
+              Monday, so there's no point in mounting an empty Outlet
+              for a URL the user never actually sees.
+            */}
             <Route
               path="/groups/:groupId/mealplan/:weekStart"
               element={<MealPlanPage />}
-            />
+            >
+              <Route
+                path="slots/:slotId"
+                element={<MealPlanSlotDetailPage />}
+              />
+            </Route>
             <Route path="/groups/:groupId/mealplan" element={<MealPlanPage />} />
             <Route
               path="/groups/:groupId/recipes/new"

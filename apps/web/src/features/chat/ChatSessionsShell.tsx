@@ -4,6 +4,7 @@ import { MessageSquare, X } from 'lucide-react'
 import type { ChatSessionListItem } from '@familien-kochbuch/shared'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/useIsMobile'
+import { SplitPane } from '@/components/layout/SplitPane'
 import { useConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { ChatSessionsList } from './ChatSessionsList'
 import { RenameSessionDialog } from './RenameSessionDialog'
@@ -130,25 +131,40 @@ export function ChatSessionsShell({
 
   const sessions = sessionsQuery.data ?? []
 
-  // ── Desktop layout (md+): fixed sidebar + content side-by-side ─────
+  // ── Desktop layout (md+): shared <SplitPane /> primitive ───────────
+  //
+  // TABLET-2 — the sessions sidebar + conversation pane migrated off
+  // the local `flex h-full w-full` scaffold onto <SplitPane /> so any
+  // future tweak to `--split-left-width` or the divider styling lands
+  // on every md:+ two-column page at once. The outer `<aside>` landmark
+  // is retained (nested inside the left pane) so assistive tech still
+  // sees the "Unterhaltungen" complementary region, and the left-
+  // slot's "Sitzungen-Liste" landmark from SplitPane augments it.
   if (!isMobile) {
     return (
-      <div className="flex h-full w-full">
-        <aside
-          aria-label="Unterhaltungen"
-          className="hidden w-[280px] flex-shrink-0 flex-col border-r border-border/60 bg-card/30 md:flex"
-        >
-          <ChatSessionsList
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelect={handleSelect}
-            onRename={handleRename}
-            onDelete={handleDelete}
-            onCreateNew={handleCreateNew}
-            isCreating={createMutation.isPending}
-          />
-        </aside>
-        <div className="min-w-0 flex-1">{children}</div>
+      <>
+        <SplitPane
+          leftLabel="Sitzungen-Liste"
+          rightLabel="Aktuelle Unterhaltung"
+          left={
+            <aside
+              aria-label="Unterhaltungen"
+              className="flex h-full flex-col bg-card/30"
+            >
+              <ChatSessionsList
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                onSelect={handleSelect}
+                onRename={handleRename}
+                onDelete={handleDelete}
+                onCreateNew={handleCreateNew}
+                isCreating={createMutation.isPending}
+              />
+            </aside>
+          }
+          right={<div className="min-w-0 h-full">{children}</div>}
+          className="h-full"
+        />
 
         {/* Portal-like dialogs live at the root so they aren't clipped. */}
         <RenameSessionDialog
@@ -165,7 +181,7 @@ export function ChatSessionsShell({
           error={renameError}
         />
         {ConfirmDialogElement}
-      </div>
+      </>
     )
   }
 

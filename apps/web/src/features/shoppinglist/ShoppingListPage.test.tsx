@@ -536,6 +536,119 @@ describe('<ShoppingListPage />', () => {
     // Second call must carry an If-Match against the new server version 7.
     expect(ifMatchHeaders[1]).toMatch(/W\/"[^"]+-7"/)
   })
+
+  // ── TABLET-2 — SplitPane adoption ────────────────────────────────
+
+  /**
+   * At md:+ the page wraps the list in a <SplitPane /> so a selected
+   * item's detail can dock in the right column. Selection is client-
+   * state (useState); the list stays URL-driven so reloads / shared
+   * links never land in a half-opened detail pane.
+   */
+  it('TABLET-2 md+: renders both SplitPane regions (Einkaufsliste + Eintrag-Detail)', async () => {
+    server.use(respondWithPlan(), respondWithList([]))
+    render(withProviders())
+    await screen.findByRole('heading', { level: 1, name: /KW 17/i })
+
+    expect(
+      screen.getByRole('region', { name: /einkaufsliste/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: /eintrag-detail/i, hidden: true }),
+    ).toBeInTheDocument()
+  })
+
+  it('TABLET-2 md+: empty-state prompt in the detail slot when no item is selected', async () => {
+    server.use(
+      respondWithPlan(),
+      respondWithList([makeItem({ id: '1', name: 'Milch' })]),
+    )
+    render(withProviders())
+    await screen.findByText('Milch')
+    const detail = screen.getByRole('region', {
+      name: /eintrag-detail/i,
+      hidden: true,
+    })
+    expect(detail.textContent ?? '').toMatch(/W(?:ä|ae)hle einen Eintrag/i)
+  })
+
+  it('TABLET-2 md+: clicking an item row surfaces its metadata in the detail slot', async () => {
+    const user = userEvent.setup()
+    server.use(
+      respondWithPlan(),
+      respondWithList([
+        makeItem({
+          id: 'i-1',
+          name: 'Vollmilch',
+          category: 'Molkerei',
+          quantity: '2',
+          unit: 'l',
+          note: 'Bio-Qualität bevorzugt',
+        }),
+      ]),
+    )
+    render(withProviders())
+    // Row itself is a <li>, not a button — we click the item name span.
+    const label = await screen.findByText('Vollmilch')
+    await user.click(label)
+
+    const detail = await screen.findByRole('region', {
+      name: /eintrag-detail/i,
+      hidden: true,
+    })
+    await waitFor(() => {
+      expect(detail.textContent ?? '').toContain('Vollmilch')
+    })
+    expect(detail.textContent ?? '').toContain('Bio-Qualität bevorzugt')
+    // Empty state gone.
+    expect(detail.textContent ?? '').not.toMatch(
+      /W(?:ä|ae)hle einen Eintrag/i,
+    )
+  })
+
+  it('TABLET-2 mobile: no SplitPane regions — single-column fallback', async () => {
+    const originalMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes('max-width: 767px'),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    })
+    try {
+      server.use(
+        respondWithPlan(),
+        respondWithList([makeItem({ id: '1', name: 'Milch' })]),
+      )
+      render(withProviders())
+      // List content still renders so the mobile flow is intact.
+      await screen.findByText('Milch')
+      // SplitPane regions must be absent entirely so the mobile DOM stays
+      // single-column.
+      expect(
+        screen.queryByRole('region', { name: /einkaufsliste/i }),
+      ).toBeNull()
+      expect(
+        screen.queryByRole('region', {
+          name: /eintrag-detail/i,
+          hidden: true,
+        }),
+      ).toBeNull()
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      })
+    }
+  })
 })
 
 // BUG-032 — source-level grep gate. See MealPlanPage.test.tsx for the

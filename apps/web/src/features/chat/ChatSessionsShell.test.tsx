@@ -108,6 +108,24 @@ describe('<ChatSessionsShell /> — desktop', () => {
     ).not.toBeInTheDocument()
   })
 
+  // ── TABLET-2 — SplitPane adoption ────────────────────────────────
+  //
+  // Per the TABLET-2 spec, the desktop sidebar+conversation layout is
+  // migrated off the ad-hoc `flex h-full w-full` scaffold onto the
+  // shared <SplitPane /> primitive so future width-token tweaks apply
+  // uniformly across every md:+ two-column page.
+  it('TABLET-2 md+: renders the Unterhaltungen + Unterhaltung SplitPane regions', async () => {
+    renderShell({ isMobile: false })
+    await screen.findByRole('complementary', { name: /Unterhaltungen/ })
+    // Two named landmark regions straight from <SplitPane />.
+    expect(
+      screen.getByRole('region', { name: /sitzungen-liste/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: /aktuelle unterhaltung/i }),
+    ).toBeInTheDocument()
+  })
+
   it('navigates to /chat/:sessionId when a row is clicked', async () => {
     const user = userEvent.setup()
     renderShell({ isMobile: false, activeSessionId: 's1' })
