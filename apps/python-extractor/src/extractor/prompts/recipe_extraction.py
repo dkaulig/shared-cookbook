@@ -197,11 +197,27 @@ SYSTEM_PROMPT_DE: Final[str] = (
     "1 piece = 1 Stück. "
     'Gib ausschließlich die umgerechnete Einheit zurück — niemals "oz", '
     '"cup", "tbsp" etc. im Output. '
-    "Falls die Quelle sichtbar mehrere Rezept-Blöcke hat (z.B. "
-    "'Ingredients (Sauce)' oder 'For the Main:'), zerlege das Rezept in "
-    "mehrere `components` mit dem jeweiligen `label`. Andernfalls gib "
-    "genau eine Komponente mit `label: null` zurück, die alle Zutaten "
-    "und Schritte enthält. "
+    # COMP-FIX — hardened component-splitting rules. The earlier soft
+    # "Falls die Quelle sichtbar ..." wording let gpt-4.1-mini ignore
+    # visible block separators and lump everything into a single
+    # "Hauptzutaten" component. The rewrite below pins three things:
+    # a HARD rule (MUSST), an enumerated forbidden-label blacklist, and
+    # a compact concrete mini-example.
+    "WENN du ≥ 2 unterschiedliche Zutaten-Blöcke in der Caption oder im "
+    "Transkript siehst (erkennbar an getrennten Überschriften, Emojis, "
+    "Einrückungen oder Sätzen wie 'For the X:' / 'X ingredients:' / "
+    "'Ingredients (Y):' / 'Für die Sauce:'), DANN MUSST du ≥ 2 Einträge "
+    "im Feld `components` emittieren — jeweils mit dem eigenen `label` "
+    "des Blocks. WENN du genau 1 Eintrag in `components` emittierst, "
+    "MUSS `label` den Wert `null` haben. Setze NIE ein generisches "
+    "Platzhalter-Label wie 'Hauptzutaten', 'Zutaten', 'Hauptgericht', "
+    "'Ingredients', 'Main', 'Main Ingredients' oder 'Recipe'. "
+    "Beispiel — eine Quesadilla-Quelle mit zwei sichtbaren Blöcken "
+    "('For the filling:' und 'Honey Chipotle Sauce:') ergibt zwei "
+    "`components`: "
+    '(1) `label: "Hähnchen und Füllung"`, (2) `label: "Honey Chipotle '
+    'Sauce"`. Eine einzelne Apfelmus-Quelle ohne weitere Blöcke ergibt '
+    "einen `components`-Eintrag mit `label: null`. "
     "Schätze pro Portion die Nährwerte (kcal, protein_g, carbs_g, "
     "fat_g) als ganze Zahlen und gib sie im Feld `nutrition_estimate` "
     "zurück. Die Werte beziehen sich auf EINE Portion (nicht das ganze "

@@ -241,6 +241,85 @@ async def test_extract_structured_schema_mismatch_on_invalid_json(
     assert exc_info.value.code == "schema_mismatch"
 
 
+@respx.mock
+async def test_extract_structured_pins_temperature_zero(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """COMP-FIX: the structured-extraction payload pins ``temperature: 0``.
+
+    Rationale — identical FB-reel inputs were producing different
+    component-splits across runs (2 components one day, 1 lumped
+    "Hauptzutaten" the next). The delta is pure LLM stochasticity; the
+    gpt-4.1-mini deployment used for structured extraction accepts
+    ``temperature=0`` so we pin it for determinism. The chat deployment
+    (gpt-5.1-chat) is untouched because it rejects non-default
+    temperatures — that path stays silent per existing contract.
+    """
+    route = respx.post(_URL).mock(
+        return_value=httpx.Response(200, json=_structured_payload({"x": 1}))
+    )
+
+    await provider.extract_structured(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "x"}],
+        json_schema={"type": "object", "properties": {"x": {"type": "integer"}}},
+    )
+
+    body = json.loads(route.calls.last.request.content)
+    assert body.get("temperature") == 0, (
+        "extract_structured must pin temperature=0 for deterministic "
+        "component-splitting on gpt-4.1-mini (COMP-FIX)"
+    )
+
+
+@respx.mock
+async def test_vision_extract_pins_temperature_zero(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """COMP-FIX: the vision-extraction payload also pins ``temperature: 0``.
+
+    ``vision_extract`` uses the same structuring deployment
+    (gpt-4.1-mini) and suffers the same stochasticity risk on the
+    photo-path. Kept consistent with ``extract_structured`` so both
+    paths are deterministic for the same reason.
+    """
+    route = respx.post(_URL).mock(
+        return_value=httpx.Response(200, json=_structured_payload({"t": "Brot"}))
+    )
+
+    await provider.vision_extract(
+        system_prompt="sys",
+        images=[{"image_url": "https://cdn.test/a.jpg", "detail": "auto"}],
+        instruction="x",
+        json_schema={"type": "object"},
+    )
+
+    body = json.loads(route.calls.last.request.content)
+    assert body.get("temperature") == 0
+
+
+@respx.mock
+async def test_chat_omits_temperature(provider: AzureOpenAIProvider) -> None:
+    """COMP-FIX: the ``chat`` path must NOT set ``temperature``.
+
+    ``AzureOpenAIChatClient`` runs on a different deployment
+    (gpt-5.1-chat) that rejects non-default temperature values. The
+    structuring-path temperature pin is strictly scoped to the
+    structured-output + vision payloads.
+    """
+    route = respx.post(_URL).mock(return_value=httpx.Response(200, json=_responses_payload("ok")))
+
+    await provider.chat(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "x"}],
+    )
+
+    body = json.loads(route.calls.last.request.content)
+    assert "temperature" not in body, (
+        "chat() must not pin temperature — gpt-5.1-chat rejects non-default values"
+    )
+
+
 # ---------- chat ----------
 
 

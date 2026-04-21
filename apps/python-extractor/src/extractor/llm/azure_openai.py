@@ -204,6 +204,13 @@ class AzureOpenAIProvider(LLMProvider):
             system_prompt=system_prompt,
             input_messages=[self._chat_message_to_input(m) for m in messages],
             json_schema=json_schema,
+            # COMP-FIX — pin ``temperature=0`` on the structured-extraction
+            # deployment (gpt-4.1-mini). Identical FB-reel inputs were
+            # producing different component-splits across runs; the delta
+            # was pure LLM stochasticity. gpt-4.1-mini accepts temperature
+            # overrides; the chat-path (gpt-5.1-chat) does NOT and keeps
+            # the default.
+            temperature=0,
         )
         response_body = await self._post_with_retries(body)
         text = self._extract_output_text(response_body)
@@ -259,6 +266,12 @@ class AzureOpenAIProvider(LLMProvider):
             system_prompt=system_prompt,
             input_messages=[{"role": "user", "content": content_parts}],
             json_schema=json_schema,
+            # COMP-FIX — vision_extract shares the gpt-4.1-mini structuring
+            # deployment with extract_structured. Same stochasticity risk
+            # on the photo-path (two back-to-back scans of the same
+            # handwritten page should produce the same extraction), so
+            # the temperature pin applies here too.
+            temperature=0,
         )
         response_body = await self._post_with_retries(body)
         text = self._extract_output_text(response_body)
@@ -299,17 +312,25 @@ class AzureOpenAIProvider(LLMProvider):
         system_prompt: str,
         input_messages: list[dict[str, Any]],
         json_schema: dict[str, Any] | None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         """Assemble the Responses-API JSON body.
 
         Broken out so tests can introspect the shape and so the three
         public methods share one code path for the fiddly parts.
+
+        ``temperature`` — when not ``None``, the value is pinned on the
+        request. Only set for the structured-extraction + vision paths
+        (gpt-4.1-mini supports low-temp); the chat path on gpt-5.1-chat
+        omits it because that deployment rejects non-default values.
         """
         body: dict[str, Any] = {
             "model": model,
             "instructions": system_prompt,
             "input": input_messages,
         }
+        if temperature is not None:
+            body["temperature"] = temperature
         if json_schema is not None:
             # Responses API: structured output lives under ``text.format``.
             # Azure deprecated the old top-level ``response_format`` (and
