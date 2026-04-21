@@ -67,11 +67,19 @@ export type {
   UpsertRatingResponse,
 } from './ratings.ts'
 export type {
+  GlobalSearchSort,
   RandomRecipeResponse,
+  RecipeGlobalSearchItem,
+  RecipeGlobalSearchParams,
+  RecipeGlobalSearchResult,
   RecipeSearchParams,
   RecipeSearchResult,
   SearchResult,
   SearchSort,
+} from './search.ts'
+export {
+  DEFAULT_GLOBAL_SEARCH_PAGE_SIZE,
+  DEFAULT_GLOBAL_SEARCH_SORT,
 } from './search.ts'
 export type {
   ConfidenceLevel,

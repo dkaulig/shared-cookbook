@@ -94,4 +94,30 @@ describe('<RecipeGridCard />', () => {
     const photo = screen.getByTestId('recipe-photo')
     expect(photo.getAttribute('style') ?? '').toContain('gradient')
   })
+
+  // SEARCH-1 — optional groupChip prop. When the card is rendered on the
+  // cross-group /suche page, we surface the owning group's name as a
+  // small badge linking to /groups/{id}. On the per-group pages (where
+  // every card belongs to the same group), the prop is omitted and no
+  // badge renders — avoiding visual noise where the context is implicit.
+  it('renders the groupChip badge as a link to /groups/{id} when the prop is set (SEARCH-1)', () => {
+    render(
+      withRouter(
+        <RecipeGridCard
+          recipe={base}
+          tags={tags}
+          prepTimeMinutes={null}
+          groupChip={{ id: 'g1', name: 'Example Family' }}
+        />,
+      ),
+    )
+    const chip = screen.getByRole('link', { name: /familie kaulig/i })
+    expect(chip).toHaveAttribute('href', '/groups/g1')
+  })
+
+  it('does not render the groupChip badge when the prop is omitted (SEARCH-1)', () => {
+    render(withRouter(<RecipeGridCard recipe={base} tags={tags} prepTimeMinutes={45} />))
+    // The only <a> in this tree is the card body itself.
+    expect(screen.queryByRole('link', { name: /familie kaulig/i })).toBeNull()
+  })
 })

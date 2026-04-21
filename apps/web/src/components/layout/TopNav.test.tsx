@@ -46,19 +46,19 @@ describe('<TopNav />', () => {
     expect(banner.querySelector('svg')).not.toBeNull()
   })
 
-  // BF1 #4 — search has no real implementation yet; the icon shouldn't
-  // navigate to /groups any more. Render it as a disabled button with an
-  // explanatory tooltip so the user still gets a hint that search is on
-  // the way without being teleported into the groups list.
-  it('renders the Suchen icon as a disabled button with a "bald verfügbar" tooltip', () => {
+  // SEARCH-1 — the Suchen icon is now an active <Link to="/suche"> that
+  // routes to the cross-group search page. The old disabled-button
+  // placeholder ("bald verfügbar") is gone: global search is live.
+  it('renders the Suchen icon as an active Link to /suche (SEARCH-1)', () => {
     server.use(http.get('/api/groups/invites', () => HttpResponse.json([])))
     renderTopNav()
 
-    const search = screen.getByRole('button', { name: /suche \(bald verfügbar\)/i })
-    expect(search).toBeDisabled()
-    expect(search).toHaveAttribute('title', 'Suche kommt bald')
-    // Belt-and-braces: confirm the old NavLink was removed.
-    expect(screen.queryByRole('link', { name: /suchen/i })).toBeNull()
+    const search = screen.getByRole('link', { name: /suche/i })
+    expect(search).toHaveAttribute('href', '/suche')
+    // Belt-and-braces: the disabled placeholder must be gone.
+    expect(
+      screen.queryByRole('button', { name: /suche \(bald verfügbar\)/i }),
+    ).toBeNull()
   })
 
   it('shows the avatar initial pulled from useAuth().user.displayName', () => {

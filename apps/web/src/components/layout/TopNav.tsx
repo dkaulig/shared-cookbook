@@ -6,18 +6,20 @@ import { useAuth } from '@/features/auth/useAuth'
 import { cn } from '@/lib/utils'
 
 /**
- * DS3 top navigation bar (retinted for DS8 Sage Modern, trimmed for BF1).
+ * DS3 top navigation bar (retinted for DS8 Sage Modern, trimmed for BF1,
+ * SEARCH-1 enables the Suche link).
  *
  * Mirrors `.topnav` in `docs/mockups/variant-a-home.html`:
  * - Brand lockup (sage-tile chef-hat + display name) on the left.
- * - Suchen icon (disabled placeholder) + avatar chip on the right.
+ * - Suchen icon (links to `/suche`) + avatar chip on the right.
  * - Sticky at `top: 0` with a neutral/blur background so scrolled
  *   content floats underneath.
  *
- * BF1 changes:
- * - The Suchen icon used to navigate to `/groups`, which was a confusing
- *   teleport rather than a real search. Render it as a disabled button
- *   with a "bald verfügbar" tooltip until a proper search lands.
+ * SEARCH-1 — the Suchen icon is now an active <Link to="/suche">. The
+ * pre-SEARCH-1 "bald verfügbar" disabled-button placeholder is gone —
+ * global cross-group search is live.
+ *
+ * BF1 history:
  * - The Benachrichtigungen bell had no backing notification feature; it
  *   was removed entirely and will return in Phase 2 alongside the real
  *   notification API.
@@ -61,15 +63,14 @@ export function TopNav() {
         {/* OFF2 — offline + queued-replay indicator. Silent when online
             and queue is empty so the happy-path UI stays quiet. */}
         <NetworkIndicator />
-        <button
-          type="button"
-          disabled
-          aria-label="Suche (bald verfügbar)"
-          title="Suche kommt bald"
-          className="grid h-10 w-10 cursor-not-allowed place-items-center rounded-[10px] text-muted-foreground/70"
+        <Link
+          to="/suche"
+          aria-label="Suche"
+          title="Rezepte suchen"
+          className="grid h-10 w-10 place-items-center rounded-[10px] text-muted-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <Search className="h-5 w-5" aria-hidden="true" />
-        </button>
+        </Link>
         <Link
           to="/profil"
           aria-label="Dein Profil"

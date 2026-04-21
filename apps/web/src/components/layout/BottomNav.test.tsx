@@ -74,16 +74,40 @@ describe('<BottomNav />', () => {
     useAuthStore.getState().clear()
   })
 
-  it('renders all five navigation items in the expected order', () => {
+  it('renders all six navigation items in the expected order (SEARCH-1 adds Suche)', () => {
     renderAt('/')
     const nav = screen.getByRole('navigation', { name: /hauptnavigation/i })
-    // Now the FAB is a `<button>` and the four nav items are `<a>`s.
+    // Now the FAB is a `<button>` and the five nav items are `<a>`s.
     const labels = Array.from(nav.querySelectorAll('a, button')).map(
       (el) => el.getAttribute('aria-label') ?? el.textContent?.trim(),
     )
     expect(labels).toEqual(
-      expect.arrayContaining(['Start', 'Gruppen', 'Neues Rezept', 'Wochenplan', 'Profil']),
+      expect.arrayContaining([
+        'Start',
+        'Gruppen',
+        'Neues Rezept',
+        'Suche',
+        'Wochenplan',
+        'Profil',
+      ]),
     )
+  })
+
+  // SEARCH-1 — /suche surfaces in the BottomNav between Gruppen and
+  // Wochenplan so the global-search affordance is always one tap away
+  // on mobile. The BottomNav is intentionally allowed to grow to 6
+  // slots (5 NavLinks + the central "Neues Rezept" FAB) — the items
+  // still fit on a 390 px viewport (~65 px each).
+  it('renders a Suche link that routes to /suche (SEARCH-1)', () => {
+    renderAt('/')
+    const suche = screen.getByRole('link', { name: /suche/i })
+    expect(suche).toHaveAttribute('href', '/suche')
+  })
+
+  it('marks Suche as active on /suche (SEARCH-1)', () => {
+    renderAt('/suche')
+    const suche = screen.getByRole('link', { name: /suche/i })
+    expect(suche).toHaveAttribute('aria-current', 'page')
   })
 
   it('marks Start as active (aria-current=page) when route is "/"', () => {

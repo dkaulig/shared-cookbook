@@ -26,6 +26,7 @@ import { TagManagementPage } from '@/features/tagManagement/TagManagementPage'
 import { MealPlanPage } from '@/features/mealplanning/MealPlanPage'
 import { MealPlanSlotDetailPage } from '@/features/mealplanning/MealPlanSlotDetailPage'
 import { ShoppingListPage } from '@/features/shoppinglist/ShoppingListPage'
+import { SearchPage } from '@/features/search/SearchPage'
 import { WochenplanStub } from '@/features/stubs/WochenplanStub'
 import { ProfilStub } from '@/features/stubs/ProfilStub'
 import { AiUsagePage } from '@/features/admin/AiUsagePage'
@@ -130,6 +131,7 @@ export default function App() {
               <Route index element={<ChatIndexRedirect />} />
               <Route path=":sessionId" element={<ChatPage />} />
             </Route>
+            <Route path="/suche" element={<SearchPage />} />
             <Route path="/wochenplan" element={<WochenplanStub />} />
             <Route path="/profil" element={<ProfilStub />} />
           </Route>
