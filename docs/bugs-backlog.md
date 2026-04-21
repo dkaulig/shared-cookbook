@@ -1783,7 +1783,15 @@ Gering — reine CSS-Layer-Korrekturen, keine Daten/API-Änderungen.
 ## BUG-033 · Video-Caption-URL: Kein Rezept extrahiert obwohl Link in Caption
 **Reported:** 2026-04-20 (URL: `facebook.com/share/r/18nmn8B7mU/?mibextid=wwXIfr`
 — User vermutet "war ein Link in der Caption")
-**Status:** `[ ] open`
+**Status:** `[x] fixed` (2026-04-21 — **Hypothese 2 bestätigt**: die
+Caption war `"I can't stop making these"` — kein Link, kein
+Shortener, kein Blog. Repro heute ergab dieselbe leere Extraktion.
+Die shortener-Resolution-Logik (`_resolve_shortener` +
+`_SHORTENER_HOSTS` + Logging, Fix-Plan-Schritte 1+3) war bereits
+seit 2026-04-20 landed, wird aber für dieses Video gar nicht
+getriggert weil keine URL in der Caption existiert. Folge-Slice
+(BUG-034) surft den leeren-Extract-Fall mit klarer UX-Meldung statt
+"Unbekanntes Rezept".)
 **Severity:** medium (Feature-Lücke — Caption-Link-Follow existiert via
 P2-2.1, aber greift nicht für alle FB-Reel-Muster).
 **Where:**
