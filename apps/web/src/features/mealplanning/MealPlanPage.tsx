@@ -442,7 +442,7 @@ export function MealPlanPage() {
             vom {formatWeekRange(weekStart)}
           </p>
         </div>
-        <div className="inline-flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             type="button"
             variant="outline"
