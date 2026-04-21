@@ -47,6 +47,26 @@ from extractor.pipeline.types import (
 # numbers aligned guards against drift.
 _COMPONENT_LABEL_MAX: int = 50
 
+# COMP-FIX — defence-in-depth safeguard against generic placeholder
+# labels. The hardened prompt instructs the LLM to emit ``label: null``
+# for single-component recipes, but if one of these strings slips
+# through we normalise to ``None`` so the UI convention (1 component +
+# null label = no header) survives. Strings are compared
+# case-insensitive after ``.strip()``; the set itself is internal and
+# never renders, so no escaping / Unicode normalisation beyond lowercase
+# is needed.
+_GENERIC_COMPONENT_LABEL_BLACKLIST: Final[frozenset[str]] = frozenset(
+    {
+        "hauptzutaten",
+        "zutaten",
+        "hauptgericht",
+        "ingredients",
+        "main",
+        "main ingredients",
+        "recipe",
+    }
+)
+
 _SERVINGS_MIN: int = 1
 _SERVINGS_MAX: int = 20
 
@@ -441,6 +461,22 @@ def _normalise_components(raw_components: Any) -> list[ExtractedComponent]:
 
     if not normalised:
         normalised.append(_default_component())
+
+    # COMP-FIX safeguard — when exactly one component is left AND its
+    # label matches the generic-placeholder blacklist, rewrite the label
+    # to ``None`` so the frontend suppresses the component header. The
+    # hardened prompt already instructs the LLM to emit ``null`` in this
+    # case, but drift happens and the UI contract (1 component + null
+    # label = no header) is load-bearing. Intentionally scoped to the
+    # single-component branch: a multi-component recipe where one block
+    # happens to carry "Hauptzutaten" is a legitimate split and keeps
+    # its label.
+    if len(normalised) == 1:
+        only = normalised[0]
+        if only["label"] is not None and only["label"].strip().lower() in (
+            _GENERIC_COMPONENT_LABEL_BLACKLIST
+        ):
+            only["label"] = None
 
     return normalised
 

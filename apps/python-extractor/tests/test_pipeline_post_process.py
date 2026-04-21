@@ -1249,6 +1249,149 @@ def test_comp1_empty_label_string_coerced_to_null() -> None:
     assert components[0]["label"] is None
 
 
+# ─────────────────────────────────────────────────────────────────────
+# COMP-FIX — generic-placeholder label safeguard
+# ─────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "placeholder",
+    [
+        "Hauptzutaten",
+        "Zutaten",
+        "Hauptgericht",
+        "Ingredients",
+        "Main",
+        "Main Ingredients",
+        "Recipe",
+        # Case-insensitive + trim invariants — same blacklist, uglier input.
+        "HAUPTZUTATEN",
+        "  Hauptzutaten  ",
+        "ingredients",
+        "main ingredients",
+    ],
+)
+def test_compfix_single_component_generic_label_normalised_to_null(
+    placeholder: str,
+) -> None:
+    """COMP-FIX defence-in-depth: when the LLM emits exactly 1 component
+    whose label matches the generic-placeholder blacklist, post-process
+    rewrites the label to ``None``.
+
+    The UI convention is "1 component + null label = no component header".
+    A placeholder like ``"Hauptzutaten"`` produces a dead-end header box
+    that signals nothing. The hardened prompt should prevent these from
+    being emitted, but if one slips through the safeguard preserves the
+    UI contract.
+
+    Blacklist is case-insensitive and trim-first so typo variants
+    (``"  Hauptzutaten  "``, ``"INGREDIENTS"``) don't evade it.
+    """
+    data = _base_recipe_dict()
+    data["components"] = [
+        {
+            "label": placeholder,
+            "position": 0,
+            "ingredients": [
+                {
+                    "name": "Mehl",
+                    "quantity": "250",
+                    "unit": "g",
+                    "note": None,
+                    "confidence": "high",
+                }
+            ],
+            "steps": [
+                {"position": 1, "content": "Schritt.", "confidence": "high"},
+            ],
+        }
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    assert len(components) == 1
+    assert components[0]["label"] is None, (
+        f"COMP-FIX safeguard must normalise generic placeholder "
+        f"{placeholder!r} to None on single-component recipes"
+    )
+
+
+def test_compfix_safeguard_does_not_fire_on_multi_component_recipes() -> None:
+    """The safeguard is strictly scoped to the single-component case.
+
+    If the LLM emits multiple components AND one of them happens to
+    carry a blacklist label, leaving the labels alone is safer — a
+    multi-component recipe with one block literally titled
+    "Hauptzutaten" is a valid split that deserves to render its header.
+    The rule only rewrites when exactly 1 component is present because
+    THAT is the case where the label is a useless placeholder.
+    """
+    data = _base_recipe_dict()
+    data["components"] = [
+        {
+            "label": "Hauptzutaten",
+            "position": 0,
+            "ingredients": [
+                {
+                    "name": "Mehl",
+                    "quantity": "250",
+                    "unit": "g",
+                    "note": None,
+                    "confidence": "high",
+                }
+            ],
+            "steps": [],
+        },
+        {
+            "label": "Sauce",
+            "position": 1,
+            "ingredients": [
+                {
+                    "name": "Öl",
+                    "quantity": "50",
+                    "unit": "ml",
+                    "note": None,
+                    "confidence": "high",
+                }
+            ],
+            "steps": [],
+        },
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    assert len(components) == 2
+    # Labels survive verbatim — the rewrite is scoped to single-component recipes.
+    assert components[0]["label"] == "Hauptzutaten"
+    assert components[1]["label"] == "Sauce"
+
+
+def test_compfix_safeguard_preserves_meaningful_single_component_labels() -> None:
+    """A legitimately-named single component (e.g. "Hähnchen und Füllung")
+    survives the safeguard unchanged — the blacklist is tight and does
+    not match real recipe-block names.
+    """
+    data = _base_recipe_dict()
+    data["components"] = [
+        {
+            "label": "Hähnchen und Füllung",
+            "position": 0,
+            "ingredients": [
+                {
+                    "name": "Hähnchenbrust",
+                    "quantity": "500",
+                    "unit": "g",
+                    "note": None,
+                    "confidence": "high",
+                }
+            ],
+            "steps": [],
+        },
+    ]
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    components = result["recipe"]["components"]
+    assert len(components) == 1
+    assert components[0]["label"] == "Hähnchen und Füllung"
+
+
 def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
     """Plan §2.5 post-process: step positions must be 1..N in input order
     even when the LLM returns gapped (1, 3, 5) or mis-ordered values.

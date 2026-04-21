@@ -700,3 +700,69 @@ def test_system_prompt_teaches_component_grouping() -> None:
         or "label=null" in SYSTEM_PROMPT_DE
         or '"label": null' in SYSTEM_PROMPT_DE
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# COMP-FIX — hardened component-grouping directives
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_system_prompt_has_hard_component_split_rule() -> None:
+    """COMP-FIX: when the LLM sees ≥ 2 distinct ingredient-blocks in the
+    caption/transcript, it MUST emit ≥ 2 components. The soft
+    ``Falls die Quelle …`` wording from COMP-1 was too permissive — the
+    model would ignore visible separators (emojis, "For the X:" headers)
+    and lump everything into one component. The hardened rule uses
+    ``MUSST`` so the directive cannot be interpreted as optional.
+    """
+    # Mandatory-action keyword must appear somewhere tied to components.
+    assert "MUSST" in SYSTEM_PROMPT_DE, (
+        "COMP-FIX: prompt must include a HARD rule (MUSST) for "
+        "component splitting — the soft ``Falls ...`` wording leaves "
+        "splitting up to the LLM's mood"
+    )
+    # At least one of the English-header markers that FB reels commonly
+    # use must appear as a concrete trigger the LLM can recognise.
+    header_markers = ("For the", "Ingredients (", "ingredients:")
+    assert any(marker in SYSTEM_PROMPT_DE for marker in header_markers), (
+        "COMP-FIX: prompt must list concrete block-separator markers "
+        "(e.g. 'For the X:' / 'Ingredients (Y):') so the LLM recognises "
+        "the split signal in English captions"
+    )
+
+
+def test_system_prompt_forbids_generic_placeholder_labels() -> None:
+    """COMP-FIX: single-component recipes must carry ``label: null`` —
+    never a generic placeholder like "Hauptzutaten" or "Ingredients".
+    The production bug we're fixing: the LLM emitted 1 component with
+    ``label="Hauptzutaten"`` and the frontend rendered the dead-end
+    header. The prompt now enumerates the forbidden strings explicitly.
+    """
+    # The hard-NO marker for the label rule.
+    assert "NIE" in SYSTEM_PROMPT_DE or "NIEMALS" in SYSTEM_PROMPT_DE
+    # At minimum the two repeat-offender strings must appear as
+    # negative examples somewhere in the prompt.
+    forbidden_labels = ("Hauptzutaten", "Hauptgericht")
+    for label in forbidden_labels:
+        assert label in SYSTEM_PROMPT_DE, (
+            f"COMP-FIX: prompt must list {label!r} as a forbidden "
+            f"placeholder label so the LLM doesn't emit it"
+        )
+
+
+def test_system_prompt_shows_concrete_split_example() -> None:
+    """COMP-FIX: prompt carries a concrete mini-example demonstrating
+    the Quesadilla-style split. Few-shot anchoring fights stochasticity
+    better than pure rules. The example must be compact (not a full
+    fixture dump) but must show at least two labelled blocks."""
+    # Example anchor — we check for the archetypal Quesadilla-style
+    # split labels the prompt references. Either the Honey Chipotle
+    # sauce or the "Sauce" / "Teig" / similar concrete label.
+    example_anchors = ("Honey Chipotle", "Chipotle Sauce", "Teig", "Füllung")
+    hits = sum(1 for anchor in example_anchors if anchor in SYSTEM_PROMPT_DE)
+    assert hits >= 2, (
+        "COMP-FIX: prompt must carry a concrete multi-component mini-"
+        "example (at least 2 distinct sub-recipe labels) to anchor the "
+        "LLM's splitting behaviour — found "
+        f"{hits} of: {example_anchors}"
+    )
