@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Plus, Star } from 'lucide-react'
 import type {
@@ -102,16 +102,29 @@ export function RecipeFilterPanel({ groupId }: { groupId: string }) {
     update({ tags: next.length === 0 ? undefined : next })
   }
 
-  const tagsByCategory = useMemo(() => {
+  // Live filter for the tag chip grid — keeps the panel manageable once
+  // a group has many tags. Selected chips always stay visible so the
+  // user can see + toggle their current selection even while typing.
+  const [tagQuery, setTagQuery] = useState('')
+
+  const selectedTagIds = new Set(filters.tags ?? [])
+
+  // Plain per-render compute — at realistic tag counts (≤100) the cost
+  // is trivial and the React-compiler bails out on a memo wrapper here
+  // because `filters.tags` is a fresh array per render.
+  const tagsByCategory = (() => {
+    const normalised = tagQuery.trim().toLowerCase()
     const map = new Map<TagCategory, TagDto[]>()
     for (const tag of tagsQuery.data ?? []) {
+      const matchesQuery =
+        normalised === '' || tag.name.toLowerCase().includes(normalised)
+      const isSelected = selectedTagIds.has(tag.id)
+      if (!matchesQuery && !isSelected) continue
       if (!map.has(tag.category)) map.set(tag.category, [])
       map.get(tag.category)!.push(tag)
     }
     return map
-  }, [tagsQuery.data])
-
-  const selectedTagIds = new Set(filters.tags ?? [])
+  })()
 
   return (
     <div className="space-y-3">
@@ -139,6 +152,14 @@ export function RecipeFilterPanel({ groupId }: { groupId: string }) {
             <p className="text-xs text-[hsl(var(--muted-foreground))]">Lade Tags …</p>
           ) : (
             <div className="space-y-2.5">
+              <input
+                type="text"
+                aria-label="Tag suchen"
+                placeholder="Tag suchen"
+                value={tagQuery}
+                onChange={(e) => setTagQuery(e.target.value)}
+                className="w-full rounded-[10px] border border-[hsl(var(--input))] bg-transparent px-3 py-2 text-[13px] placeholder:text-[hsl(var(--muted-foreground))] focus:border-primary focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.25)]"
+              />
               {CATEGORY_ORDER.filter((c) => tagsByCategory.has(c)).map((category) => (
                 <div key={category}>
                   <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.04em] text-[hsl(var(--muted-foreground))]">
