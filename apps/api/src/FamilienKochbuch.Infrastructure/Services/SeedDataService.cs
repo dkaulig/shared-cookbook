@@ -53,6 +53,48 @@ public class SeedDataService(
         // it's expected on every environment that has ORCHESTRATOR_PASSWORD
         // configured, including ones that already have real users.
         await SeedOrchestratorBotAsync(ct);
+
+        // CFG-0 — idempotent seed of the extractor-config registry.
+        // The production Postgres migration handles this via raw INSERT
+        // OR IGNORE / ON CONFLICT DO NOTHING, so this call is a no-op
+        // there. It matters for the SQLite test harness which calls
+        // EnsureCreatedAsync() (schema-from-model, skips migrations),
+        // and for any future fresh env that boots without migrations.
+        await SeedExtractorConfigAsync(ct);
+    }
+
+    /// <summary>
+    /// CFG-0 — inserts one row per entry in
+    /// <see cref="ExtractorConfigDefaults"/> if it's missing. Existing
+    /// rows are left untouched so a manual admin edit never gets
+    /// stomped by a re-run of this seeder.
+    /// </summary>
+    private async Task SeedExtractorConfigAsync(CancellationToken ct)
+    {
+        var present = await db.ExtractorConfigs
+            .Select(c => c.Key)
+            .ToListAsync(ct);
+        var presentSet = new HashSet<string>(present, StringComparer.Ordinal);
+
+        var now = DateTimeOffset.UtcNow;
+        var added = 0;
+        foreach (var entry in ExtractorConfigDefaults.All)
+        {
+            if (presentSet.Contains(entry.Key)) continue;
+            db.ExtractorConfigs.Add(new ExtractorConfig(
+                key: entry.Key,
+                valueJson: entry.DefaultValueJson,
+                valueType: entry.ValueType,
+                updatedAt: now,
+                updatedBy: null));
+            added++;
+        }
+        if (added > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "Seeded {Count} extractor-config defaults.", added);
+        }
     }
 
     private async Task SeedAdminAsync(CancellationToken ct)

@@ -236,6 +236,11 @@ builder.Services.AddHttpClient<IAzureOpenAIChatClient, AzureOpenAIChatClient>(
     AzureOpenAIChatClient.HttpClientName,
     client => client.Timeout = TimeSpan.FromSeconds(120));
 builder.Services.AddScoped<ChatTitleService>();
+
+// CFG-0 — per-key validator for the admin extractor-config PUT
+// endpoint. Stateless; singleton keeps the compiled regex + rule
+// tables alive for the process lifetime.
+builder.Services.AddSingleton<ConfigKeyValidator>();
 // PF1 — hourly sweep job that reaps abandoned staged photos (>24h old,
 // never promoted onto a recipe). Registered as a recurring job below
 // after the Hangfire dashboard is mounted.
@@ -548,6 +553,8 @@ app.MapImportEndpoints();
 app.MapInternalImportProgressEndpoints();
 app.MapChatEndpoints();
 app.MapAdminAiUsageEndpoints();
+app.MapAdminExtractorConfigEndpoints();
+app.MapInternalExtractorConfigEndpoints();
 app.MapMealPlanEndpoints();
 app.MapShoppingListEndpoints();
 
