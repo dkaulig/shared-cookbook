@@ -122,6 +122,15 @@ services:
       AZURE_OPENAI_DEPLOYMENT_STRUCTURING: ${AZURE_OPENAI_DEPLOYMENT_STRUCTURING:-gpt-4.1-mini}
       AZURE_OPENAI_DEPLOYMENT_CHAT: ${AZURE_OPENAI_DEPLOYMENT_CHAT:-gpt-5.1-chat}
       EXTRACTOR_SHARED_SECRET: ${EXTRACTOR_SHARED_SECRET}
+      # OPS — HuggingFace cache lives on the named volume below so the
+      # large-v3 weights survive image redeploys. faster-whisper +
+      # huggingface_hub honour HF_HOME for all on-disk lookups.
+      HF_HOME: /home/app/.cache/huggingface
+    volumes:
+      # OPS — Whisper model weights out of the image. First boot with a
+      # fresh volume streams ~3 GB from HuggingFace; subsequent boots
+      # hit the cache on disk. See Dockerfile HEALTHCHECK start_period.
+      - whisper-models:/home/app/.cache/huggingface
     expose:
       - "8000"
     depends_on:
@@ -171,3 +180,7 @@ volumes:
   seaweedfs-data:
   caddy-data:
   caddy-config:
+  # OPS — Persistent HuggingFace cache for the python-extractor
+  # service. Keeps the faster-whisper large-v3 weights out of the
+  # docker image layer; survives container + image rebuilds.
+  whisper-models:

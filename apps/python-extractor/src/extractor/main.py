@@ -22,13 +22,15 @@ transcriber) without touching real Azure / real yt-dlp / real Whisper.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Annotated, Final, Literal
+from typing import Annotated, AsyncIterator, Final, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Response
@@ -467,6 +469,52 @@ def _apply_usage_headers(response: Response, usage: TokenUsage) -> None:
 # ─────────────────────────────────────────────────────────────────────
 
 
+async def _prefetch_whisper_model() -> None:
+    """Resolve the faster-whisper weights into the HF cache off the hot path.
+
+    Runs in a thread (the constructor is blocking + CPU-bound on the
+    CTranslate2 load) so uvicorn's event loop stays free while the
+    ~3 GB download streams in on first container boot. Failures log a
+    warning and are swallowed — the first real transcription call will
+    re-attempt the download at that point. This only exists to keep the
+    first-user-facing request from blocking on HuggingFace.
+    """
+    try:
+        from extractor.pipeline.video import FasterWhisperTranscriber
+    except ImportError:  # pragma: no cover — faster-whisper optional at dev-time
+        logger.warning("whisper prefetch skipped: faster-whisper import failed")
+        return
+    logger.info("whisper prefetch started")
+    try:
+        await asyncio.to_thread(FasterWhisperTranscriber)
+    except Exception as exc:  # noqa: BLE001 — best-effort prefetch; real call re-tries
+        logger.warning("whisper prefetch failed (will retry on first transcribe): %s", exc)
+        return
+    logger.info("whisper prefetch completed")
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """FastAPI lifespan: kick off the Whisper model prefetch.
+
+    The prefetch runs as a fire-and-forget background task — startup
+    never blocks on it. The task reference is stashed on the app state
+    so garbage collection can't reap it mid-download; the task is
+    cancelled cleanly on shutdown if the download hasn't finished yet.
+    """
+    task = asyncio.create_task(_prefetch_whisper_model(), name="whisper-prefetch")
+    _app.state.whisper_prefetch_task = task
+    try:
+        yield
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
 def _resolve_version() -> str:
     """Resolve the package version from installed metadata.
 
@@ -502,6 +550,7 @@ def create_app() -> FastAPI:
             "the .NET API proxies all requests."
         ),
         version=_resolve_version(),
+        lifespan=_lifespan,
     )
 
     # HMAC verification middleware — skips ``/health`` so the Docker
