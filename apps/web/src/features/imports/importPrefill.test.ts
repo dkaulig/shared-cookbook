@@ -211,6 +211,24 @@ describe('extractedRecipeToPrefill', () => {
     })
   })
 
+  // ── BUG-045 — AI tag names surfaced onto the prefill ───────────
+
+  it('surfaces AI tag names onto the prefill so the form can pre-select them', () => {
+    // User quote: "bisher wurde noch nie ein tag beim rezept import aus
+    // videos ausgewählt". The extractor emits tags; the frontend never
+    // carried them onto the prefill, so the form had nothing to pre-
+    // select. This test pins the prefill-level shape.
+    const out = extractedRecipeToPrefill(
+      recipe({ tags: ['vegetarisch', 'schnell'] }),
+    )
+    expect(out.tags).toEqual(['vegetarisch', 'schnell'])
+  })
+
+  it('defaults tags to [] when the extractor returned an empty array', () => {
+    const out = extractedRecipeToPrefill(recipe({ tags: [] }))
+    expect(out.tags).toEqual([])
+  })
+
   // ── BUG-018 — auto-attached video-thumbnail staged-photo id ─────
 
   it('defaults thumbnailStagedPhotoId to null when no envelope is supplied', () => {

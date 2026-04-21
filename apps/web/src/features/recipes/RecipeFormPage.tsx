@@ -542,6 +542,44 @@ function RecipeFormInner({
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     () => initial?.tags.map((t) => t.id) ?? [],
   )
+  // BUG-045 — the extractor returns tag names (lowercase German slugs)
+  // but chip selection is id-keyed; we can only resolve names → ids
+  // once the tag catalogue (`useGroupTags`) has loaded. This block
+  // follows React's "Adjusting State on Props Change" pattern: during
+  // render we check a one-shot flag and, when the catalogue is ready,
+  // resolve-and-setState inline so the next render sees the merged
+  // selection without a second paint. The `prefillTagsApplied` flag
+  // ensures we only seed once — user toggles after that are preserved.
+  const prefillTagNames = prefill?.tags
+  const [prefillTagsApplied, setPrefillTagsApplied] = useState(false)
+  if (
+    !prefillTagsApplied
+    && prefillTagNames !== undefined
+    && prefillTagNames.length > 0
+    && tagsQuery.data !== undefined
+  ) {
+    const nameToId = new Map<string, string>()
+    for (const tag of tagsQuery.data) {
+      nameToId.set(tag.name.toLowerCase(), tag.id)
+    }
+    const resolvedIds: string[] = []
+    for (const name of prefillTagNames) {
+      const id = nameToId.get(name.trim().toLowerCase())
+      if (id && !resolvedIds.includes(id)) resolvedIds.push(id)
+    }
+    setPrefillTagsApplied(true)
+    if (resolvedIds.length > 0) {
+      // Merge (don't clobber) so any edit-mode `initial.tags` that
+      // happen to share ids stay selected. Duplicates are filtered.
+      setSelectedTagIds((prev) => {
+        const merged = [...prev]
+        for (const id of resolvedIds) {
+          if (!merged.includes(id)) merged.push(id)
+        }
+        return merged
+      })
+    }
+  }
   // P2-10: prefill-only read-only state. The form doesn't allow editing
   // nutrition at create-time (the PRD says "user can edit on
   // DetailPage after save"); this state is just a pass-through to the

@@ -87,6 +87,16 @@ export interface ImportPrefill {
    * copy. `null` iff `recipeEmpty === false`.
    */
   emptyReason: EmptyReason | null
+  /**
+   * BUG-045 — raw AI-extracted tag names (lowercase German slugs, e.g.
+   * `['vegetarisch', 'schnell']`). The form resolves them against the
+   * group's tag catalogue by case-insensitive name match and pre-
+   * selects the corresponding chips. Names that don't resolve to a
+   * catalogue tag are silently dropped (the user can still add them
+   * manually via "Neuen Tag erstellen"). Empty array when the
+   * extractor found no tags.
+   */
+  tags: string[]
 }
 
 /** Form default when the source is silent on servings. */
@@ -240,6 +250,9 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
     // "not empty" default so they skip the explainer branch.
     recipeEmpty: false,
     emptyReason: null,
+    // BUG-045 — surface the AI-extracted tag names; `r.tags ?? []` so
+    // older wire payloads (pre-tags field) don't crash the mapper.
+    tags: r.tags ?? [],
   }
 }
 
