@@ -26,13 +26,15 @@ as a synthetic ``source_url`` ("chat:<id>") on the structured recipe.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Sequence
 from typing import Final
 
-from extractor.llm import ChatMessage, LLMProvider
+from extractor.config_loader import ExtractorConfig, get_flag, get_float, get_int, get_str
+from extractor.llm import ChatMessage, LLMProvider, TokenUsage
 from extractor.pipeline.post_process import post_process
-from extractor.pipeline.types import ExtractionResult
+from extractor.pipeline.types import ConfigSnapshot, ExtractionResult
 from extractor.prompts.chat import (
     RECIPE_SCHEMA,
     TO_RECIPE_SYSTEM_PROMPT_DE,
@@ -73,6 +75,7 @@ async def chat_to_recipe(
     provider: LLMProvider,
     *,
     session_id: str,
+    config: ExtractorConfig | None = None,
 ) -> ExtractionResult:
     """Verdichte die Konversation zu einem strukturierten Rezept.
 
@@ -88,6 +91,9 @@ async def chat_to_recipe(
         Opaque client-provided identifier. Used as the synthetic
         ``source_url`` ("chat:<session_id>") on the structured
         recipe so the downstream UI has a stable reference.
+    config
+        CFG-1 :class:`ExtractorConfig` — hot params for the
+        structured extraction + nutrition flag. ``None`` keeps defaults.
 
     Raises
     ------
@@ -97,19 +103,72 @@ async def chat_to_recipe(
     """
     _validate_messages(messages)
     logger.info("chat_to_recipe start session_id=%s turns=%d", session_id, len(messages))
-    llm_output, usage = await provider.extract_structured(
-        system_prompt=TO_RECIPE_SYSTEM_PROMPT_DE,
+
+    # CFG-1 — the to-recipe conversion reuses the structured-extraction
+    # knob set (same deployment, same temperature pin). A dedicated
+    # ``llm.chat.*`` knob set covers conversational chat turns, but that
+    # endpoint lives on the .NET side (out of scope here).
+    system_prompt = await get_str(
+        config, "llm.structured.system_prompt", TO_RECIPE_SYSTEM_PROMPT_DE
+    )
+    temperature = await get_float(config, "llm.structured.temperature", 0.0)
+    max_completion_tokens = await get_int(config, "llm.structured.max_completion_tokens", 2048)
+    deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1-mini")
+    nutrition_enabled = await get_flag(config, "feature.nutrition_estimate_enabled", True)
+    component_label_max = await get_int(config, "pipeline.component_label_max", 50)
+
+    llm_output, usage = await _call_extract_structured(
+        provider,
+        system_prompt=system_prompt,
         messages=messages,
         json_schema=RECIPE_SCHEMA,
+        temperature=temperature,
+        max_completion_tokens=max_completion_tokens,
+        deployment=deployment,
     )
+    snapshot: ConfigSnapshot = {
+        "prompt_hash": "sha256:" + hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16],
+        "temperature": temperature,
+        "max_completion_tokens": max_completion_tokens,
+        "deployment": deployment,
+        "prompt_version": (config.version_of("llm.structured.system_prompt") if config else None),
+    }
     result = post_process(
         llm_output,
         original_url=f"chat:{session_id}",
         fallback_thumbnail=None,
         usage=usage,
+        nutrition_enabled=nutrition_enabled,
+        component_label_max=component_label_max,
+        config_snapshot=snapshot,
     )
     logger.info("chat_to_recipe done session_id=%s", session_id)
     return result
+
+
+async def _call_extract_structured(
+    provider: LLMProvider,
+    *,
+    system_prompt: str,
+    messages: Sequence[ChatMessage],
+    json_schema: dict[str, object],
+    temperature: float,
+    max_completion_tokens: int,
+    deployment: str | None,
+) -> tuple[dict[str, object], TokenUsage]:
+    """Forward CFG-1 overrides on Azure, drop them for mocks."""
+    from extractor.llm.azure_openai import AzureOpenAIProvider
+
+    if isinstance(provider, AzureOpenAIProvider):
+        return await provider.extract_structured(
+            system_prompt,
+            messages,
+            json_schema,
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            deployment=deployment,
+        )
+    return await provider.extract_structured(system_prompt, messages, json_schema)
 
 
 __all__ = [

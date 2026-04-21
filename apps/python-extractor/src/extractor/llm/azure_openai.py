@@ -57,6 +57,16 @@ _REQUEST_TIMEOUT_SECONDS: float = 120.0
 _DEFAULT_MAX_RETRIES: int = 3
 _DEFAULT_RETRY_WAIT_SECONDS: float = 2.0
 
+# CFG-1 — default per-call params used when the caller doesn't override.
+# The values mirror the pre-CFG-1 hardcoded constants; the config loader
+# ships the same values in its fallback path so the pipeline is a no-op
+# until the admin UI flips a value.
+_DEFAULT_STRUCTURED_TEMPERATURE: float = 0.0
+_DEFAULT_STRUCTURED_MAX_COMPLETION_TOKENS: int = 2048
+_DEFAULT_CHAT_MAX_COMPLETION_TOKENS: int = 2048
+_DEFAULT_VISION_TEMPERATURE: float = 0.0
+_DEFAULT_VISION_MAX_COMPLETION_TOKENS: int = 2048
+
 
 class _RetryableLLMError(Exception):
     """Internal exception wrapping retryable LLM failures.
@@ -198,9 +208,14 @@ class AzureOpenAIProvider(LLMProvider):
         system_prompt: str,
         messages: Sequence[ChatMessage],
         json_schema: dict[str, Any],
+        *,
+        temperature: float = _DEFAULT_STRUCTURED_TEMPERATURE,
+        max_completion_tokens: int = _DEFAULT_STRUCTURED_MAX_COMPLETION_TOKENS,
+        deployment: str | None = None,
     ) -> tuple[dict[str, Any], TokenUsage]:
+        effective_deployment = deployment or self._deployment_structuring
         body = self._build_request(
-            model=self._deployment_structuring,
+            model=effective_deployment,
             system_prompt=system_prompt,
             input_messages=[self._chat_message_to_input(m) for m in messages],
             json_schema=json_schema,
@@ -209,8 +224,10 @@ class AzureOpenAIProvider(LLMProvider):
             # producing different component-splits across runs; the delta
             # was pure LLM stochasticity. gpt-4.1-mini accepts temperature
             # overrides; the chat-path (gpt-5.1-chat) does NOT and keeps
-            # the default.
-            temperature=0,
+            # the default. CFG-1: admin can change via
+            # ``llm.structured.temperature``.
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
         )
         response_body = await self._post_with_retries(body)
         text = self._extract_output_text(response_body)
@@ -226,23 +243,31 @@ class AzureOpenAIProvider(LLMProvider):
                 "Azure response JSON is not a JSON object (expected dict at top level)",
                 code="schema_mismatch",
             )
-        usage = self._extract_usage(response_body, fallback_model=self._deployment_structuring)
+        usage = self._extract_usage(response_body, fallback_model=effective_deployment)
         return parsed, usage
 
     async def chat(
         self,
         system_prompt: str,
         messages: Sequence[ChatMessage],
+        *,
+        max_completion_tokens: int = _DEFAULT_CHAT_MAX_COMPLETION_TOKENS,
+        deployment: str | None = None,
     ) -> tuple[str, TokenUsage]:
+        effective_deployment = deployment or self._deployment_chat
         body = self._build_request(
-            model=self._deployment_chat,
+            model=effective_deployment,
             system_prompt=system_prompt,
             input_messages=[self._chat_message_to_input(m) for m in messages],
             json_schema=None,
+            # gpt-5.1-chat rejects non-default temperature, so we don't
+            # forward one here even when the admin sets it — the CFG key
+            # for chat deliberately omits ``temperature``.
+            max_completion_tokens=max_completion_tokens,
         )
         response_body = await self._post_with_retries(body)
         text = self._extract_output_text(response_body)
-        usage = self._extract_usage(response_body, fallback_model=self._deployment_chat)
+        usage = self._extract_usage(response_body, fallback_model=effective_deployment)
         return text, usage
 
     async def vision_extract(
@@ -251,7 +276,12 @@ class AzureOpenAIProvider(LLMProvider):
         images: Sequence[VisionInput],
         instruction: str,
         json_schema: dict[str, Any],
+        *,
+        temperature: float = _DEFAULT_VISION_TEMPERATURE,
+        max_completion_tokens: int = _DEFAULT_VISION_MAX_COMPLETION_TOKENS,
+        deployment: str | None = None,
     ) -> tuple[dict[str, Any], TokenUsage]:
+        effective_deployment = deployment or self._deployment_structuring
         content_parts: list[dict[str, Any]] = [{"type": "input_text", "text": instruction}]
         for image in images:
             content_parts.append(
@@ -262,7 +292,7 @@ class AzureOpenAIProvider(LLMProvider):
                 }
             )
         body = self._build_request(
-            model=self._deployment_structuring,
+            model=effective_deployment,
             system_prompt=system_prompt,
             input_messages=[{"role": "user", "content": content_parts}],
             json_schema=json_schema,
@@ -270,8 +300,10 @@ class AzureOpenAIProvider(LLMProvider):
             # deployment with extract_structured. Same stochasticity risk
             # on the photo-path (two back-to-back scans of the same
             # handwritten page should produce the same extraction), so
-            # the temperature pin applies here too.
-            temperature=0,
+            # the temperature pin applies here too. CFG-1: admin can
+            # change via ``llm.vision.temperature``.
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
         )
         response_body = await self._post_with_retries(body)
         text = self._extract_output_text(response_body)
@@ -287,7 +319,7 @@ class AzureOpenAIProvider(LLMProvider):
                 "Azure vision response JSON is not a JSON object",
                 code="schema_mismatch",
             )
-        usage = self._extract_usage(response_body, fallback_model=self._deployment_structuring)
+        usage = self._extract_usage(response_body, fallback_model=effective_deployment)
         return parsed, usage
 
     # -- helpers ---------------------------------------------------------
@@ -313,6 +345,7 @@ class AzureOpenAIProvider(LLMProvider):
         input_messages: list[dict[str, Any]],
         json_schema: dict[str, Any] | None,
         temperature: float | None = None,
+        max_completion_tokens: int | None = None,
     ) -> dict[str, Any]:
         """Assemble the Responses-API JSON body.
 
@@ -323,6 +356,12 @@ class AzureOpenAIProvider(LLMProvider):
         request. Only set for the structured-extraction + vision paths
         (gpt-4.1-mini supports low-temp); the chat path on gpt-5.1-chat
         omits it because that deployment rejects non-default values.
+
+        ``max_completion_tokens`` — CFG-1 hot-configurable upper bound
+        on the model's reply. Azure Responses API rejects values > 8192
+        on gpt-4.1-mini / > 16384 on gpt-5.1-chat; the backend validator
+        (CFG-0) rejects out-of-range admin PUTs so by the time a value
+        lands here it's already legal.
         """
         body: dict[str, Any] = {
             "model": model,
@@ -331,6 +370,8 @@ class AzureOpenAIProvider(LLMProvider):
         }
         if temperature is not None:
             body["temperature"] = temperature
+        if max_completion_tokens is not None:
+            body["max_output_tokens"] = max_completion_tokens
         if json_schema is not None:
             # Responses API: structured output lives under ``text.format``.
             # Azure deprecated the old top-level ``response_format`` (and

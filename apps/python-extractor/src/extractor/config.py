@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     # HMAC shared secret for the .NET ↔ Python bridge (P2-6).
     extractor_shared_secret: str = ""
 
+    # CFG-1: base URL of the .NET API's internal extractor-config
+    # endpoint. Defaults to the docker-compose service name so the
+    # in-cluster happy path needs no env override. Leave blank to
+    # disable config-fetching entirely (e.g. in tests or local hacking
+    # where the .NET API isn't running) — the loader then falls back to
+    # hardcoded defaults on every ``.get`` call.
+    extractor_config_api_base: str = "http://api:8080"
+
+    # CFG-1: TTL (seconds) on the extractor-config cache. 60 s is the
+    # design-doc default; tune via env without a rebuild when iterating
+    # on prompts (shorter TTL → faster feedback loop).
+    extractor_config_ttl_seconds: float = 60.0
+
     # `env_file=None`: we rely on docker-compose + the VPS .env handling
     # for real runs, not a per-service .env file. Tests override via
     # monkeypatch on os.environ.

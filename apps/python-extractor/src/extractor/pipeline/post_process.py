@@ -27,6 +27,7 @@ from typing import Any, Final
 from extractor.llm.provider import TokenUsage
 from extractor.pipeline.types import (
     ConfidenceLevel,
+    ConfigSnapshot,
     EmptyReason,
     ExtractedComponent,
     ExtractedIngredient,
@@ -40,31 +41,31 @@ from extractor.pipeline.types import (
     StepConfidenceLevel,
 )
 
-# COMP-1 — component label cap. The label renders on the detail page so
-# a hostile LLM must not be able to emit a long free-form string that
-# pokes at the frontend renderer. 50 chars mirrors the tag-name cap and
-# the JSON schema's component.label.maxLength — keeping the three
-# numbers aligned guards against drift.
-_COMPONENT_LABEL_MAX: int = 50
+# COMP-1 — hardcoded fallback for the component-label cap. CFG-1 moved
+# the live value to the ``pipeline.component_label_max`` config key; the
+# caller passes an override via :func:`post_process`'s
+# ``component_label_max`` argument, which lands here on the module
+# helpers' ``label_max=`` parameter. 50 chars mirrors the tag-name cap
+# and the JSON schema's ``component.label.maxLength`` — keeping the
+# three numbers aligned guards against drift.
+COMPONENT_LABEL_MAX_DEFAULT: Final[int] = 50
 
-# COMP-FIX — defence-in-depth safeguard against generic placeholder
-# labels. The hardened prompt instructs the LLM to emit ``label: null``
-# for single-component recipes, but if one of these strings slips
-# through we normalise to ``None`` so the UI convention (1 component +
-# null label = no header) survives. Strings are compared
+# COMP-FIX — hardcoded fallback for the generic-label blacklist. CFG-1
+# moved the live value to ``pipeline.generic_label_blacklist``. When the
+# caller doesn't pass an override, this default applies so the prod
+# pipeline keeps working with the admin-UI values and the test pipeline
+# keeps working without touching config. Strings are compared
 # case-insensitive after ``.strip()``; the set itself is internal and
 # never renders, so no escaping / Unicode normalisation beyond lowercase
 # is needed.
-_GENERIC_COMPONENT_LABEL_BLACKLIST: Final[frozenset[str]] = frozenset(
-    {
-        "hauptzutaten",
-        "zutaten",
-        "hauptgericht",
-        "ingredients",
-        "main",
-        "main ingredients",
-        "recipe",
-    }
+GENERIC_COMPONENT_LABEL_BLACKLIST_DEFAULT: Final[tuple[str, ...]] = (
+    "hauptzutaten",
+    "zutaten",
+    "hauptgericht",
+    "ingredients",
+    "main",
+    "main ingredients",
+    "recipe",
 )
 
 _SERVINGS_MIN: int = 1
@@ -187,6 +188,10 @@ def post_process(
     extra_notes: list[str] | None = None,
     usage: TokenUsage | None = None,
     signals: ExtractionSignals | None = None,
+    nutrition_enabled: bool = True,
+    component_label_max: int = COMPONENT_LABEL_MAX_DEFAULT,
+    generic_label_blacklist: list[str] | tuple[str, ...] | None = None,
+    config_snapshot: ConfigSnapshot | None = None,
 ) -> ExtractionResult:
     """Apply the defensive rules and return an :class:`ExtractionResult`.
 
@@ -215,9 +220,38 @@ def post_process(
         :data:`EmptyReason` classifier when the recipe is empty: all
         three flags false → ``no_usable_source``; any flag true →
         ``no_recipe_detected``.
+    nutrition_enabled
+        CFG-1 feature flag. When ``False``, the recipe's
+        ``nutrition_estimate`` is null-ed out regardless of what Azure
+        returned — the admin UI toggle for turning off nutrition
+        estimation without touching the prompt.
+    component_label_max
+        CFG-1 — ``pipeline.component_label_max``. Overrides the 50-char
+        default for per-component label length. Caller fetches from
+        :class:`ExtractorConfig` and passes through.
+    generic_label_blacklist
+        CFG-1 — ``pipeline.generic_label_blacklist``. Replaces the
+        default blacklist that null-outs single-component labels like
+        "Hauptzutaten", "Ingredients", etc. Matched case-insensitive on
+        the stripped label.
+    config_snapshot
+        CFG-1 — the snapshot of the active LLM config that produced
+        ``llm_output``. Attached to the result verbatim so the .NET
+        side persists it in ``ResultJson`` for reproducibility.
     """
     raw_servings = llm_output.get("servings")
     servings = _clamp_servings(raw_servings)
+
+    # CFG-1 — the generic-label blacklist defaults to the hardcoded
+    # tuple but the admin UI can override via
+    # ``pipeline.generic_label_blacklist``. Normalise to a frozenset
+    # once so the per-component check stays O(1).
+    blacklist_source = (
+        generic_label_blacklist
+        if generic_label_blacklist is not None
+        else GENERIC_COMPONENT_LABEL_BLACKLIST_DEFAULT
+    )
+    generic_label_set: frozenset[str] = frozenset(s.strip().lower() for s in blacklist_source)
 
     # COMP-1 — normalise the nested components array. The helper
     # - drops malformed entries,
@@ -231,7 +265,11 @@ def post_process(
     #   ingredients: [], steps: []}`` when the LLM emitted zero so the
     #   .NET side's COMP-0 domain invariant (≥1 component per recipe)
     #   is satisfied.
-    components = _normalise_components(llm_output.get("components"))
+    components = _normalise_components(
+        llm_output.get("components"),
+        label_max=component_label_max,
+        generic_label_blacklist=generic_label_set,
+    )
 
     # BUG-022 + BUG-028 — the description guards compare against the
     # first step's content and scan for mass leaks. Components scope
@@ -255,7 +293,14 @@ def post_process(
         llm_thumbnail if isinstance(llm_thumbnail, str) and llm_thumbnail else fallback_thumbnail
     )
 
-    nutrition_estimate = _normalise_nutrition_estimate(llm_output.get("nutrition_estimate"))
+    # CFG-1 — ``feature.nutrition_estimate_enabled`` kill-switch. When
+    # off, force ``nutrition_estimate=None`` regardless of what Azure
+    # emitted so the admin can disable the section UI-wide without
+    # rewriting the prompt.
+    if nutrition_enabled:
+        nutrition_estimate = _normalise_nutrition_estimate(llm_output.get("nutrition_estimate"))
+    else:
+        nutrition_estimate = None
 
     recipe: ExtractedRecipe = {
         "title": str(llm_output.get("title") or "Unbenanntes Rezept"),
@@ -334,6 +379,8 @@ def post_process(
     }
     if usage is not None:
         result["usage"] = usage
+    if config_snapshot is not None:
+        result["config_snapshot"] = config_snapshot
     return result
 
 
@@ -357,28 +404,34 @@ def _default_component() -> ExtractedComponent:
     }
 
 
-def _normalise_component_label(raw: Any) -> str | None:
+def _normalise_component_label(raw: Any, *, label_max: int) -> str | None:
     """Trim + length-cap a component label.
 
     - Non-strings and whitespace-only strings → ``None`` (the frontend
       uses ``None`` as the "suppress the header" sentinel).
     - Valid strings get ``.strip()``'d and hard-truncated to
-      :data:`_COMPONENT_LABEL_MAX` (50 chars, matches the tag-name cap).
+      ``label_max`` chars (default 50, matches the tag-name cap).
       Truncation is a defensive guard against a hostile LLM emitting
       long free-form text; the JSON schema caps at the same length so
-      well-behaved LLMs never get their output rewritten.
+      well-behaved LLMs never get their output rewritten. CFG-1 wires
+      the cap to ``pipeline.component_label_max``.
     """
     if not isinstance(raw, str):
         return None
     stripped = raw.strip()
     if not stripped:
         return None
-    if len(stripped) > _COMPONENT_LABEL_MAX:
-        return stripped[:_COMPONENT_LABEL_MAX]
+    if len(stripped) > label_max:
+        return stripped[:label_max]
     return stripped
 
 
-def _normalise_components(raw_components: Any) -> list[ExtractedComponent]:
+def _normalise_components(
+    raw_components: Any,
+    *,
+    label_max: int = COMPONENT_LABEL_MAX_DEFAULT,
+    generic_label_blacklist: frozenset[str] = frozenset(GENERIC_COMPONENT_LABEL_BLACKLIST_DEFAULT),
+) -> list[ExtractedComponent]:
     """Normalise the LLM's ``components`` array to a trustable shape.
 
     Rules (in order):
@@ -420,7 +473,7 @@ def _normalise_components(raw_components: Any) -> list[ExtractedComponent]:
     seen_labels: set[str] = set()
     normalised: list[ExtractedComponent] = []
     for _, raw in entries:
-        label = _normalise_component_label(raw.get("label"))
+        label = _normalise_component_label(raw.get("label"), label_max=label_max)
         if label is not None:
             if label in seen_labels:
                 # Duplicate label — drop the higher-position entry.
@@ -473,9 +526,7 @@ def _normalise_components(raw_components: Any) -> list[ExtractedComponent]:
     # its label.
     if len(normalised) == 1:
         only = normalised[0]
-        if only["label"] is not None and only["label"].strip().lower() in (
-            _GENERIC_COMPONENT_LABEL_BLACKLIST
-        ):
+        if only["label"] is not None and only["label"].strip().lower() in (generic_label_blacklist):
             only["label"] = None
 
     return normalised
