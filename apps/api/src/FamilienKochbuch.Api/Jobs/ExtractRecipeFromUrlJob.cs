@@ -126,6 +126,7 @@ public class ExtractRecipeFromUrlJob
             && !string.IsNullOrWhiteSpace(import.ResultJson))
         {
             var targetRecipe = await _db.Recipes
+                .Include(r => r.Components)
                 .Include(r => r.Ingredients)
                 .Include(r => r.Steps)
                 .Include(r => r.RecipeTags)
@@ -185,40 +186,49 @@ public class ExtractRecipeFromUrlJob
                 || (t.GroupId == null && normalizedAiNames.Contains(t.Name)))
             .ToListAsync(ct);
 
-        // Mirror the existing UpdateRecipeAsync two-phase write:
-        //   1. Mutate Recipe metadata + delete existing children in one
-        //      SaveChanges pass (the Recipe-UPDATE carries the Version
-        //      concurrency-token bump; child DELETEs fan out via EF).
-        //   2. Insert the fresh child rows in a second pass, added via
-        //      the DbSet directly (NOT through the recipe's navigation
-        //      collection) so EF doesn't re-register a Recipe-level
-        //      modification alongside the insert batch.
-        //
-        // The domain method writes metadata + NutritionEstimate in step
-        // 1 and handles the tag-merge (Custom-wins) on the navigation
-        // collection in the same pass. We pass empty child lists to
-        // UpdateFromImport so the Ingredients/Steps collections are
-        // cleared by the method; step 2 below does the fresh inserts.
-        var existingIngredients = await _db.Ingredients
-            .Where(i => i.RecipeId == target.Id)
-            .ToListAsync(ct);
-        _db.Ingredients.RemoveRange(existingIngredients);
-        var existingSteps = await _db.RecipeSteps
-            .Where(s => s.RecipeId == target.Id)
-            .ToListAsync(ct);
-        _db.RecipeSteps.RemoveRange(existingSteps);
-        var existingRecipeTags = await _db.RecipeTags
-            .Where(rt => rt.RecipeId == target.Id)
-            .ToListAsync(ct);
-        _db.RecipeTags.RemoveRange(existingRecipeTags);
+        // COMP-0 — two-phase clear-then-replace, mirroring
+        // UpdateRecipeAsync. The domain method first runs the aggregate
+        // invariants on the fresh component tree; we detach the nav
+        // collections immediately after so the two-phase write can
+        // DELETE old rows + INSERT new ones without EF re-sending the
+        // whole aggregate as modified.
+        var newComponents = new List<RecipeComponent>();
+        var newIngredients = new List<Ingredient>();
+        var newSteps = new List<RecipeStep>();
+        foreach (var parsedComponent in parsed.Components)
+        {
+            var component = new RecipeComponent(
+                recipeId: target.Id,
+                position: parsedComponent.Position,
+                label: parsedComponent.Label);
+            newComponents.Add(component);
 
-        // Seed the recipe's RecipeTags navigation collection with the
-        // pre-delete rows (the RemoveRange above detaches them from
-        // the DbSet but they still sit on `target.RecipeTags`) so the
-        // domain method's Custom-wins merge sees the full picture.
-        // UpdateFromImport will Clear() the navigation collection
-        // internally and re-add only the Custom / new-AI entries.
+            foreach (var ing in parsedComponent.Ingredients.Select((v, idx) => (v, idx)))
+            {
+                newIngredients.Add(new Ingredient(
+                    recipeId: target.Id,
+                    componentId: component.Id,
+                    position: ing.idx,
+                    quantity: ing.v.Quantity,
+                    unit: ing.v.Unit,
+                    name: ing.v.Name,
+                    note: ing.v.Note,
+                    scalable: ing.v.Scalable));
+            }
+            foreach (var step in parsedComponent.Steps.Select((v, idx) => (v, idx)))
+            {
+                newSteps.Add(new RecipeStep(
+                    recipeId: target.Id,
+                    componentId: component.Id,
+                    position: step.idx,
+                    content: step.v.Content));
+            }
+        }
 
+        // Domain validation + tag merge via UpdateFromImport. The method
+        // delegates to ReplaceComponents for the ≥1-component /
+        // unique-position / FK invariants; it also writes Title,
+        // Description, Nutrition, and bumps Version exactly once.
         var now = _clock.GetUtcNow();
         target.UpdateFromImport(
             title: parsed.Title,
@@ -227,33 +237,57 @@ public class ExtractRecipeFromUrlJob
             prepTimeMinutes: parsed.PrepMinutes,
             cookTimeMinutes: parsed.CookMinutes,
             difficulty: parsed.Difficulty,
-            newIngredients: Array.Empty<Ingredient>(),
-            newSteps: Array.Empty<RecipeStep>(),
+            newComponents: newComponents,
+            newIngredients: newIngredients,
+            newSteps: newSteps,
             newAiTagNames: normalizedAiNames,
             existingAndNewTags: candidateTags,
             nutrition: parsed.Nutrition,
             now: now);
 
+        // Snapshot the freshly-validated navigation state, then clear
+        // the aggregate's collections so the two-phase write can DELETE
+        // the pre-existing child rows without EF trying to re-send the
+        // new ones as part of the Recipe UPDATE batch.
+        var mergedTagLinks = target.RecipeTags.ToArray();
+        target.Components.Clear();
+        target.Ingredients.Clear();
+        target.Steps.Clear();
+        target.RecipeTags.Clear();
+
+        // Phase 1 — DELETE the pre-existing Ingredient / Step / Component
+        // / RecipeTag rows. Ingredient + Step FK-depend on Component so
+        // they go first. The Recipe-level UPDATE carries the Version
+        // concurrency-token bump + the new metadata.
+        var existingIngredients = await _db.Ingredients
+            .Where(i => i.RecipeId == target.Id)
+            .ToListAsync(ct);
+        _db.Ingredients.RemoveRange(existingIngredients);
+        var existingSteps = await _db.RecipeSteps
+            .Where(s => s.RecipeId == target.Id)
+            .ToListAsync(ct);
+        _db.RecipeSteps.RemoveRange(existingSteps);
+        var existingComponents = await _db.RecipeComponents
+            .Where(c => c.RecipeId == target.Id)
+            .ToListAsync(ct);
+        _db.RecipeComponents.RemoveRange(existingComponents);
+        var existingRecipeTags = await _db.RecipeTags
+            .Where(rt => rt.RecipeId == target.Id)
+            .ToListAsync(ct);
+        _db.RecipeTags.RemoveRange(existingRecipeTags);
         await _db.SaveChangesAsync(ct);
 
-        foreach (var ing in parsed.Ingredients.Select((v, idx) => (v, idx)))
-        {
-            _db.Ingredients.Add(new Ingredient(
-                recipeId: target.Id,
-                position: ing.idx,
-                quantity: ing.v.Quantity,
-                unit: ing.v.Unit,
-                name: ing.v.Name,
-                note: ing.v.Note,
-                scalable: ing.v.Scalable));
-        }
-        foreach (var step in parsed.Steps.Select((v, idx) => (v, idx)))
-        {
-            _db.RecipeSteps.Add(new RecipeStep(
-                recipeId: target.Id,
-                position: step.idx,
-                content: step.v.Content));
-        }
+        // Phase 2 — INSERT the fresh Component + Ingredient + Step +
+        // RecipeTag rows via the DbSet so EF doesn't re-emit the
+        // Recipe row.
+        foreach (var component in newComponents)
+            _db.RecipeComponents.Add(component);
+        foreach (var ingredient in newIngredients)
+            _db.Ingredients.Add(ingredient);
+        foreach (var step in newSteps)
+            _db.RecipeSteps.Add(step);
+        foreach (var tagLink in mergedTagLinks)
+            _db.RecipeTags.Add(tagLink);
         await _db.SaveChangesAsync(ct);
 
         // BUG-048 — auto-attach the extracted thumbnail onto the target
@@ -397,6 +431,14 @@ internal static class ReimportResultParser
 
     internal sealed record ParsedStep(string Content);
 
+    /// <summary>COMP-0 — one sub-recipe group inside the extractor's
+    /// <c>components</c> array. <see cref="Position"/> is 0-based.</summary>
+    internal sealed record ParsedComponent(
+        int Position,
+        string? Label,
+        IReadOnlyList<ParsedIngredient> Ingredients,
+        IReadOnlyList<ParsedStep> Steps);
+
     internal sealed record ParsedResult(
         string Title,
         string? Description,
@@ -404,8 +446,7 @@ internal static class ReimportResultParser
         int? Difficulty,
         int? PrepMinutes,
         int? CookMinutes,
-        IReadOnlyList<ParsedIngredient> Ingredients,
-        IReadOnlyList<ParsedStep> Steps,
+        IReadOnlyList<ParsedComponent> Components,
         IReadOnlyList<string> TagNames,
         string? ThumbnailUrl,
         NutritionEstimate? Nutrition);
@@ -431,33 +472,34 @@ internal static class ReimportResultParser
         var cookMinutes = GetNullableInt(recipe, "cook_minutes");
         var thumbnailUrl = GetNullableString(recipe, "thumbnail_url");
 
-        var ingredients = new List<ParsedIngredient>();
-        if (recipe.TryGetProperty("ingredients", out var ings)
-            && ings.ValueKind == JsonValueKind.Array)
+        // COMP-0 — components is the only supported shape. A flat
+        // top-level `ingredients` / `steps` is a protocol violation
+        // (the Python extractor emits components per the new schema).
+        // Missing / empty → yields a single default component with no
+        // children so the domain's ≥1-component invariant still holds.
+        var components = new List<ParsedComponent>();
+        if (recipe.TryGetProperty("components", out var componentsEl)
+            && componentsEl.ValueKind == JsonValueKind.Array)
         {
-            foreach (var i in ings.EnumerateArray())
+            int fallbackPosition = 0;
+            foreach (var comp in componentsEl.EnumerateArray())
             {
-                var name = GetStringOrEmpty(i, "name");
-                if (string.IsNullOrWhiteSpace(name)) continue;
-                var unit = GetNullableString(i, "unit") ?? string.Empty;
-                var note = GetNullableString(i, "note");
-                var quantityText = GetNullableString(i, "quantity");
-                var quantity = TryParseDecimal(quantityText);
-                var scalable = quantity is > 0m;
-                ingredients.Add(new ParsedIngredient(name.Trim(), quantity, unit, note, scalable));
+                var label = GetNullableString(comp, "label");
+                var position = GetNullableInt(comp, "position") ?? fallbackPosition;
+                fallbackPosition = position + 1;
+
+                var compIngredients = ParseIngredients(comp);
+                var compSteps = ParseSteps(comp);
+                components.Add(new ParsedComponent(
+                    position, label, compIngredients, compSteps));
             }
         }
-
-        var steps = new List<ParsedStep>();
-        if (recipe.TryGetProperty("steps", out var stepsEl)
-            && stepsEl.ValueKind == JsonValueKind.Array)
+        if (components.Count == 0)
         {
-            foreach (var s in stepsEl.EnumerateArray())
-            {
-                var content = GetStringOrEmpty(s, "content");
-                if (string.IsNullOrWhiteSpace(content)) continue;
-                steps.Add(new ParsedStep(content.Trim()));
-            }
+            components.Add(new ParsedComponent(
+                0, null,
+                Array.Empty<ParsedIngredient>(),
+                Array.Empty<ParsedStep>()));
         }
 
         var tagNames = new List<string>();
@@ -495,11 +537,51 @@ internal static class ReimportResultParser
             Difficulty: difficulty,
             PrepMinutes: prepMinutes,
             CookMinutes: cookMinutes,
-            Ingredients: ingredients,
-            Steps: steps,
+            Components: components.OrderBy(c => c.Position).ToList(),
             TagNames: tagNames,
             ThumbnailUrl: thumbnailUrl,
             Nutrition: nutrition);
+    }
+
+    private static IReadOnlyList<ParsedIngredient> ParseIngredients(JsonElement owner)
+    {
+        var ingredients = new List<ParsedIngredient>();
+        if (!owner.TryGetProperty("ingredients", out var ings)
+            || ings.ValueKind != JsonValueKind.Array)
+        {
+            return ingredients;
+        }
+
+        foreach (var i in ings.EnumerateArray())
+        {
+            var name = GetStringOrEmpty(i, "name");
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var unit = GetNullableString(i, "unit") ?? string.Empty;
+            var note = GetNullableString(i, "note");
+            var quantityText = GetNullableString(i, "quantity");
+            var quantity = TryParseDecimal(quantityText);
+            var scalable = quantity is > 0m;
+            ingredients.Add(new ParsedIngredient(name.Trim(), quantity, unit, note, scalable));
+        }
+        return ingredients;
+    }
+
+    private static IReadOnlyList<ParsedStep> ParseSteps(JsonElement owner)
+    {
+        var steps = new List<ParsedStep>();
+        if (!owner.TryGetProperty("steps", out var stepsEl)
+            || stepsEl.ValueKind != JsonValueKind.Array)
+        {
+            return steps;
+        }
+
+        foreach (var s in stepsEl.EnumerateArray())
+        {
+            var content = GetStringOrEmpty(s, "content");
+            if (string.IsNullOrWhiteSpace(content)) continue;
+            steps.Add(new ParsedStep(content.Trim()));
+        }
+        return steps;
     }
 
     private static string GetStringOrEmpty(JsonElement obj, string key)

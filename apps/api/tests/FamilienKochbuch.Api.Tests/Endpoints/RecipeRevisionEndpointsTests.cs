@@ -120,15 +120,21 @@ public class RecipeRevisionEndpointsTests : IClassFixture<FamilienKochbuchWebApp
             PrepTimeMinutes: 30,
             Difficulty: 1,
             SourceUrl: null,
-            Ingredients: new[]
+            Components: new[]
             {
-                new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
-                new RecipeEndpoints.IngredientRequest(1, 3m, "Stück", "Eier", null, true),
-            },
-            Steps: new[]
-            {
-                new RecipeEndpoints.StepRequest(0, "Schritt eins."),
-                new RecipeEndpoints.StepRequest(1, "Schritt zwei."),
+                new RecipeEndpoints.RecipeComponentRequest(
+                    Position: 0,
+                    Label: null,
+                    Ingredients: new[]
+                    {
+                        new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
+                        new RecipeEndpoints.IngredientRequest(1, 3m, "Stück", "Eier", null, true),
+                    },
+                    Steps: new[]
+                    {
+                        new RecipeEndpoints.StepRequest(0, "Schritt eins."),
+                        new RecipeEndpoints.StepRequest(1, "Schritt zwei."),
+                    }),
             },
             TagIds: Array.Empty<Guid>());
 
@@ -142,22 +148,28 @@ public class RecipeRevisionEndpointsTests : IClassFixture<FamilienKochbuchWebApp
             PrepTimeMinutes: 30,
             Difficulty: 1,
             SourceUrl: null,
-            Ingredients: ingredientChange == IngredientChange.AddOne
-                ? new[]
-                {
-                    new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
-                    new RecipeEndpoints.IngredientRequest(1, 3m, "Stück", "Eier", null, true),
-                    new RecipeEndpoints.IngredientRequest(2, 100m, "g", "Salz", null, true),
-                }
-                : new[]
-                {
-                    new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
-                    new RecipeEndpoints.IngredientRequest(1, 3m, "Stück", "Eier", null, true),
-                },
-            Steps: new[]
+            Components: new[]
             {
-                new RecipeEndpoints.StepRequest(0, "Schritt eins."),
-                new RecipeEndpoints.StepRequest(1, "Schritt zwei."),
+                new RecipeEndpoints.RecipeComponentRequest(
+                    Position: 0,
+                    Label: null,
+                    Ingredients: ingredientChange == IngredientChange.AddOne
+                        ? new[]
+                        {
+                            new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
+                            new RecipeEndpoints.IngredientRequest(1, 3m, "Stück", "Eier", null, true),
+                            new RecipeEndpoints.IngredientRequest(2, 100m, "g", "Salz", null, true),
+                        }
+                        : new[]
+                        {
+                            new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
+                            new RecipeEndpoints.IngredientRequest(1, 3m, "Stück", "Eier", null, true),
+                        },
+                    Steps: new[]
+                    {
+                        new RecipeEndpoints.StepRequest(0, "Schritt eins."),
+                        new RecipeEndpoints.StepRequest(1, "Schritt zwei."),
+                    }),
             },
             TagIds: Array.Empty<Guid>());
 

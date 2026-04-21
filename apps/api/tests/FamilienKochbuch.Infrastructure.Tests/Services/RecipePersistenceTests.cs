@@ -11,6 +11,9 @@ namespace FamilienKochbuch.Infrastructure.Tests.Services;
 /// Persistence-level tests for the Recipe aggregate: composite-position
 /// uniqueness, cascade-delete from Recipe to its Ingredients/Steps/RecipeTags,
 /// and tag-index uniqueness. SQLite in-memory backs every test.
+///
+/// COMP-0 — every ingredient + step now carries a ComponentId FK, seeded
+/// through <see cref="Recipe.ReplaceComponents"/> on the aggregate.
 /// </summary>
 public class RecipePersistenceTests : IAsyncLifetime
 {
@@ -66,32 +69,51 @@ public class RecipePersistenceTests : IAsyncLifetime
         return recipe;
     }
 
+    /// <summary>COMP-0 — seeds a single default component so subsequent
+    /// ingredient / step inserts have a valid ComponentId target.</summary>
+    private static RecipeComponent AttachDefaultComponent(Recipe recipe)
+    {
+        var component = new RecipeComponent(recipe.Id, 0, null);
+        recipe.ReplaceComponents(
+            new[] { component },
+            Array.Empty<Ingredient>(),
+            Array.Empty<RecipeStep>());
+        return component;
+    }
+
     [Fact]
     public async Task Recipe_With_Ingredients_And_Steps_Round_Trips()
     {
         var recipe = AddSimpleRecipe();
-        recipe.Ingredients.Add(new Ingredient(recipe.Id, 0, 500m, "g", "Kartoffeln", null, true));
-        recipe.Ingredients.Add(new Ingredient(recipe.Id, 1, null, "Prise", "Salz", null, false));
-        recipe.Steps.Add(new RecipeStep(recipe.Id, 0, "Kartoffeln kochen."));
-        recipe.Steps.Add(new RecipeStep(recipe.Id, 1, "Abgießen."));
+        var component = AttachDefaultComponent(recipe);
+        recipe.Ingredients.Add(new Ingredient(recipe.Id, component.Id, 0, 500m, "g", "Kartoffeln", null, true));
+        recipe.Ingredients.Add(new Ingredient(recipe.Id, component.Id, 1, null, "Prise", "Salz", null, false));
+        recipe.Steps.Add(new RecipeStep(recipe.Id, component.Id, 0, "Kartoffeln kochen."));
+        recipe.Steps.Add(new RecipeStep(recipe.Id, component.Id, 1, "Abgießen."));
         await _db.SaveChangesAsync();
 
         var reloaded = await _db.Recipes
+            .Include(r => r.Components)
             .Include(r => r.Ingredients)
             .Include(r => r.Steps)
             .SingleAsync(r => r.Id == recipe.Id);
 
+        Assert.Single(reloaded.Components);
         Assert.Equal(2, reloaded.Ingredients.Count);
         Assert.Equal(2, reloaded.Steps.Count);
         Assert.Contains(reloaded.Ingredients, i => i.Name == "Salz" && !i.Scalable);
+        // Every child row carries the seeded ComponentId.
+        Assert.All(reloaded.Ingredients, i => Assert.Equal(component.Id, i.ComponentId));
+        Assert.All(reloaded.Steps, s => Assert.Equal(component.Id, s.ComponentId));
     }
 
     [Fact]
     public async Task Ingredient_Position_Is_Unique_Per_Recipe()
     {
         var recipe = AddSimpleRecipe();
-        recipe.Ingredients.Add(new Ingredient(recipe.Id, 0, 500m, "g", "Kartoffeln", null, true));
-        recipe.Ingredients.Add(new Ingredient(recipe.Id, 0, 2m, "", "Eier", null, true));
+        var component = AttachDefaultComponent(recipe);
+        recipe.Ingredients.Add(new Ingredient(recipe.Id, component.Id, 0, 500m, "g", "Kartoffeln", null, true));
+        recipe.Ingredients.Add(new Ingredient(recipe.Id, component.Id, 0, 2m, "", "Eier", null, true));
 
         await Assert.ThrowsAnyAsync<DbUpdateException>(() => _db.SaveChangesAsync());
     }
@@ -100,21 +122,37 @@ public class RecipePersistenceTests : IAsyncLifetime
     public async Task RecipeStep_Position_Is_Unique_Per_Recipe()
     {
         var recipe = AddSimpleRecipe();
-        recipe.Steps.Add(new RecipeStep(recipe.Id, 0, "Kochen."));
-        recipe.Steps.Add(new RecipeStep(recipe.Id, 0, "Dup-Position."));
+        var component = AttachDefaultComponent(recipe);
+        recipe.Steps.Add(new RecipeStep(recipe.Id, component.Id, 0, "Kochen."));
+        recipe.Steps.Add(new RecipeStep(recipe.Id, component.Id, 0, "Dup-Position."));
 
         await Assert.ThrowsAnyAsync<DbUpdateException>(() => _db.SaveChangesAsync());
     }
 
     [Fact]
-    public async Task Deleting_Recipe_Cascades_To_Ingredients_Steps_And_RecipeTags()
+    public async Task RecipeComponent_Position_Is_Unique_Per_Recipe()
+    {
+        var recipe = AddSimpleRecipe();
+        await _db.SaveChangesAsync();
+
+        // Bypass ReplaceComponents so the DB-level unique index is what
+        // trips: two rows with the same (RecipeId, Position) must violate.
+        _db.RecipeComponents.Add(new RecipeComponent(recipe.Id, 0, "A"));
+        _db.RecipeComponents.Add(new RecipeComponent(recipe.Id, 0, "B"));
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(() => _db.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Deleting_Recipe_Cascades_To_Components_Ingredients_Steps_And_RecipeTags()
     {
         var tag = Tag.CreateGlobal("schnell", TagCategory.Aufwand);
         _db.Tags.Add(tag);
 
         var recipe = AddSimpleRecipe();
-        recipe.Ingredients.Add(new Ingredient(recipe.Id, 0, 500m, "g", "Kartoffeln", null, true));
-        recipe.Steps.Add(new RecipeStep(recipe.Id, 0, "Kochen."));
+        var component = AttachDefaultComponent(recipe);
+        recipe.Ingredients.Add(new Ingredient(recipe.Id, component.Id, 0, 500m, "g", "Kartoffeln", null, true));
+        recipe.Steps.Add(new RecipeStep(recipe.Id, component.Id, 0, "Kochen."));
         await _db.SaveChangesAsync();
 
         _db.RecipeTags.Add(new RecipeTag(recipe.Id, tag.Id));
@@ -123,6 +161,7 @@ public class RecipePersistenceTests : IAsyncLifetime
         _db.Recipes.Remove(recipe);
         await _db.SaveChangesAsync();
 
+        Assert.Empty(await _db.RecipeComponents.Where(c => c.RecipeId == recipe.Id).ToListAsync());
         Assert.Empty(await _db.Ingredients.Where(i => i.RecipeId == recipe.Id).ToListAsync());
         Assert.Empty(await _db.RecipeSteps.Where(s => s.RecipeId == recipe.Id).ToListAsync());
         Assert.Empty(await _db.RecipeTags.Where(t => t.RecipeId == recipe.Id).ToListAsync());
@@ -132,12 +171,29 @@ public class RecipePersistenceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Deleting_Component_Cascades_To_Its_Ingredients_And_Steps()
+    {
+        var recipe = AddSimpleRecipe();
+        var component = AttachDefaultComponent(recipe);
+        recipe.Ingredients.Add(new Ingredient(recipe.Id, component.Id, 0, 500m, "g", "Kartoffeln", null, true));
+        recipe.Steps.Add(new RecipeStep(recipe.Id, component.Id, 0, "Kochen."));
+        await _db.SaveChangesAsync();
+
+        _db.RecipeComponents.Remove(component);
+        await _db.SaveChangesAsync();
+
+        Assert.Empty(await _db.Ingredients.Where(i => i.RecipeId == recipe.Id).ToListAsync());
+        Assert.Empty(await _db.RecipeSteps.Where(s => s.RecipeId == recipe.Id).ToListAsync());
+    }
+
+    [Fact]
     public async Task Deleting_Tag_Cascades_To_RecipeTags()
     {
         var tag = Tag.CreateGlobal("vegan", TagCategory.Diaet);
         _db.Tags.Add(tag);
 
         var recipe = AddSimpleRecipe();
+        AttachDefaultComponent(recipe);
         await _db.SaveChangesAsync();
         _db.RecipeTags.Add(new RecipeTag(recipe.Id, tag.Id));
         await _db.SaveChangesAsync();

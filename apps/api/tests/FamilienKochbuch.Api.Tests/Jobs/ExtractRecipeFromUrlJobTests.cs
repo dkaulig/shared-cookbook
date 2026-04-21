@@ -866,11 +866,17 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             "difficulty": 2,
             "prep_minutes": 15,
             "cook_minutes": null,
-            "ingredients": [
-              { "name": "Mehl", "quantity": "500", "unit": "g", "note": null, "confidence": "high" }
-            ],
-            "steps": [
-              { "position": 1, "content": "Vermengen.", "confidence": "high" }
+            "components": [
+              {
+                "position": 0,
+                "label": null,
+                "ingredients": [
+                  { "name": "Mehl", "quantity": "500", "unit": "g", "note": null, "confidence": "high" }
+                ],
+                "steps": [
+                  { "position": 1, "content": "Vermengen.", "confidence": "high" }
+                ]
+              }
             ],
             "tags": ["schnell"],
             "source_url": "https://example.com/rezept",
@@ -950,8 +956,9 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             "difficulty": 1,
             "prep_minutes": null,
             "cook_minutes": null,
-            "ingredients": [],
-            "steps": [],
+            "components": [
+              { "position": 0, "label": null, "ingredients": [], "steps": [] }
+            ],
             "tags": [],
             "source_url": "https://example.com/rezept",
             "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"
@@ -1066,6 +1073,120 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         Assert.Empty(reloaded.Photos);
         Assert.Empty(_thumbnailHandler.Requests);
         Assert.Empty(await freshDb.StagedPhotos.AsNoTracking().ToListAsync());
+    }
+
+    // ── COMP-0 — reimport replaces single-default with multi-component
+    //    while preserving Photos + Custom-Tags ─────────────────────────
+
+    /// <summary>Result JSON with TWO components — a main dish + a
+    /// sauce — so the reimport contract test can verify that an existing
+    /// recipe with one default component is overwritten with the
+    /// multi-component shape, photos stay attached, and the user's
+    /// custom tag survives.</summary>
+    private const string ReimportResultWithTwoComponents = """
+        {
+          "recipe": {
+            "title": "Quesadillas + Sauce",
+            "description": null,
+            "servings": 2,
+            "difficulty": 2,
+            "prep_minutes": 20,
+            "cook_minutes": null,
+            "components": [
+              {
+                "position": 0,
+                "label": "Hauptgericht",
+                "ingredients": [
+                  { "name": "Hähnchen", "quantity": "500", "unit": "g", "note": null, "confidence": "high" }
+                ],
+                "steps": [
+                  { "position": 1, "content": "Anbraten.", "confidence": "high" }
+                ]
+              },
+              {
+                "position": 1,
+                "label": "Chipotle Sauce",
+                "ingredients": [
+                  { "name": "Chipotle", "quantity": "50", "unit": "g", "note": null, "confidence": "high" },
+                  { "name": "Mayo", "quantity": "100", "unit": "g", "note": null, "confidence": "high" }
+                ],
+                "steps": [
+                  { "position": 1, "content": "Pürieren.", "confidence": "high" }
+                ]
+              }
+            ],
+            "tags": [],
+            "source_url": "https://example.com/rezept",
+            "thumbnail_url": null
+          },
+          "confidence": { "overall": "high", "notes": [] },
+          "recipe_empty": false,
+          "empty_reason": null
+        }
+        """;
+
+    [Fact]
+    public async Task COMP0_Reimport_Replaces_Single_Default_With_TwoComponent_Shape_Preserving_Photos_And_CustomTags()
+    {
+        // Seed a target recipe with one default component + three
+        // pre-COMP-0-shaped ingredients + one attached photo + one
+        // custom tag. After reimport the Photo + Custom tag must
+        // survive; Components/Ingredients/Steps must be overwritten
+        // with the fresh 2-component shape.
+        var customTag = Tag.CreateGroupScoped(_userId, _groupId, "Lieblingsessen");
+        _db.Tags.Add(customTag);
+        await _db.SaveChangesAsync();
+
+        var target = await SeedTargetRecipeAsync();
+        target.AddPhoto("recipes/preserved.jpg");
+        await _db.SaveChangesAsync();
+
+        // Seed the single-default component + 3 pre-COMP-0-shaped
+        // ingredients via the DbSet so the save doesn't have to
+        // reconcile navigation mutations against the tracked Recipe.
+        var defaultComponent = new RecipeComponent(target.Id, 0, null);
+        _db.RecipeComponents.Add(defaultComponent);
+        _db.Ingredients.Add(new Ingredient(target.Id, defaultComponent.Id, 0, 100m, "g", "Alt-A", null, true));
+        _db.Ingredients.Add(new Ingredient(target.Id, defaultComponent.Id, 1, 200m, "g", "Alt-B", null, true));
+        _db.Ingredients.Add(new Ingredient(target.Id, defaultComponent.Id, 2, 300m, "g", "Alt-C", null, true));
+        _db.RecipeTags.Add(new RecipeTag(target.Id, customTag.Id));
+        await _db.SaveChangesAsync();
+
+        var import = await SeedReimportAsync(target);
+        _handler.QueueResponse(HttpStatusCode.OK, ReimportResultWithTwoComponents);
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        using var freshDb = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await freshDb.Recipes
+            .Include(r => r.Components)
+            .Include(r => r.Ingredients)
+            .Include(r => r.Steps)
+            .Include(r => r.RecipeTags)
+            .SingleAsync(r => r.Id == target.Id);
+
+        // Title updated; two components now instead of one.
+        Assert.Equal("Quesadillas + Sauce", reloaded.Title);
+        Assert.Equal(2, reloaded.Components.Count);
+        Assert.Contains(reloaded.Components, c => c.Label == "Hauptgericht");
+        Assert.Contains(reloaded.Components, c => c.Label == "Chipotle Sauce");
+
+        // Three fresh ingredients (1 main + 2 sauce); no trace of the
+        // Alt-A/B/C names from before.
+        Assert.Equal(3, reloaded.Ingredients.Count);
+        Assert.DoesNotContain(reloaded.Ingredients, i => i.Name.StartsWith("Alt-"));
+
+        // Each ingredient references one of the new component ids.
+        var componentIds = reloaded.Components.Select(c => c.Id).ToHashSet();
+        Assert.All(reloaded.Ingredients, i => Assert.Contains(i.ComponentId, componentIds));
+
+        // Photos preserved.
+        Assert.Single(reloaded.Photos);
+        Assert.Equal("recipes/preserved.jpg", reloaded.Photos[0]);
+
+        // Custom tag preserved.
+        Assert.Contains(reloaded.RecipeTags, rt => rt.TagId == customTag.Id);
     }
 
     [Fact]

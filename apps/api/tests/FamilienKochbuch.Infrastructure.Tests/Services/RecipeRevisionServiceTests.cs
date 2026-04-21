@@ -77,10 +77,20 @@ public class RecipeRevisionServiceTests : IAsyncLifetime
             forkOfRecipeId: null,
             createdAt: _now);
 
-        recipe.Ingredients.Add(new Ingredient(recipe.Id, 0, 500m, "g", "Mehl", null, true));
-        recipe.Ingredients.Add(new Ingredient(recipe.Id, 1, 3m, "Stück", "Eier", null, true));
-        recipe.Steps.Add(new RecipeStep(recipe.Id, 0, "Mehl vermengen."));
-        recipe.Steps.Add(new RecipeStep(recipe.Id, 1, "Eier zugeben."));
+        // COMP-0 — seed a single default component + its ingredients + steps
+        // via the aggregate's ReplaceComponents so the invariant checks run.
+        var defaultComponent = new RecipeComponent(recipe.Id, 0, null);
+        var seededIngredients = new[]
+        {
+            new Ingredient(recipe.Id, defaultComponent.Id, 0, 500m, "g", "Mehl", null, true),
+            new Ingredient(recipe.Id, defaultComponent.Id, 1, 3m, "Stück", "Eier", null, true),
+        };
+        var seededSteps = new[]
+        {
+            new RecipeStep(recipe.Id, defaultComponent.Id, 0, "Mehl vermengen."),
+            new RecipeStep(recipe.Id, defaultComponent.Id, 1, "Eier zugeben."),
+        };
+        recipe.ReplaceComponents(new[] { defaultComponent }, seededIngredients, seededSteps);
 
         configure?.Invoke(recipe);
 
@@ -222,7 +232,14 @@ public class RecipeRevisionServiceTests : IAsyncLifetime
                 updatedAt: _now.AddMinutes(1));
             await mutationDb.SaveChangesAsync();
 
-            mutationDb.Ingredients.Add(new Ingredient(recipe.Id, 2, 100m, "g", "Salz", null, true));
+            // COMP-0 — add the new ingredient under the existing default
+            // component so the ComponentId FK stays valid.
+            var existingComponentId = await mutationDb.RecipeComponents
+                .Where(c => c.RecipeId == recipe.Id)
+                .Select(c => c.Id)
+                .FirstAsync();
+            mutationDb.Ingredients.Add(
+                new Ingredient(recipe.Id, existingComponentId, 2, 100m, "g", "Salz", null, true));
             await mutationDb.SaveChangesAsync();
 
             var firstStep = await mutationDb.RecipeSteps

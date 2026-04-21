@@ -34,6 +34,7 @@ public class RecipeRevisionService(AppDbContext db) : IRecipeRevisionService
         string? sourceDescription = null)
     {
         var recipe = await db.Recipes
+            .Include(r => r.Components)
             .Include(r => r.Ingredients)
             .Include(r => r.Steps)
             .Include(r => r.RecipeTags)

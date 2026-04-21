@@ -134,8 +134,13 @@ public class SearchEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             PrepTimeMinutes: prepTimeMinutes,
             Difficulty: 1,
             SourceUrl: null,
-            Ingredients: ingredients,
-            Steps: new[] { new RecipeEndpoints.StepRequest(0, "Kochen.") },
+            Components: new[]
+            {
+                new RecipeEndpoints.RecipeComponentRequest(
+                    Position: 0, Label: null,
+                    Ingredients: ingredients,
+                    Steps: new[] { new RecipeEndpoints.StepRequest(0, "Kochen.") }),
+            },
             TagIds: tagIds ?? Array.Empty<Guid>());
     }
 

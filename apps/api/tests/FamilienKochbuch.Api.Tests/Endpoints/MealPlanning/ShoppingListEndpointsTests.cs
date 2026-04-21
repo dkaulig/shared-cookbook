@@ -142,15 +142,20 @@ public class ShoppingListEndpointsTests : IClassFixture<FamilienKochbuchWebAppli
             sourceType: RecipeSourceType.Manual,
             forkOfRecipeId: null,
             createdAt: DateTimeOffset.UtcNow);
+        // COMP-0 — seed one default component and anchor every
+        // test ingredient on it via the aggregate's invariant enforcer.
+        var defaultComponent = new RecipeComponent(recipe.Id, 0, null);
+        var materialized = new List<Ingredient>();
         for (var i = 0; i < ingredients.Length; i++)
         {
             var (qty, unit, name) = ingredients[i];
             var scalable = qty.HasValue && qty.Value > 0m;
-            recipe.Ingredients.Add(new Ingredient(
-                recipeId: recipe.Id, position: i,
+            materialized.Add(new Ingredient(
+                recipeId: recipe.Id, componentId: defaultComponent.Id, position: i,
                 quantity: qty, unit: unit, name: name,
                 note: null, scalable: scalable));
         }
+        recipe.ReplaceComponents(new[] { defaultComponent }, materialized, Array.Empty<RecipeStep>());
         db.Recipes.Add(recipe);
         await db.SaveChangesAsync();
         return recipe.Id;

@@ -113,6 +113,15 @@ public class Recipe : IVersionedEntity
 
     // ── Aggregated children ─────────────────────────────────────────
 
+    /// <summary>
+    /// COMP-0 — sub-recipe grouping. Every ingredient + step belongs to
+    /// exactly one <see cref="RecipeComponent"/>; a single-block recipe
+    /// carries one default component with <c>Label = null</c> and
+    /// <c>Position = 0</c>. Enforced via <see cref="ReplaceComponents"/>
+    /// (≥ 1 component, unique positions).
+    /// </summary>
+    public ICollection<RecipeComponent> Components { get; private set; } = new List<RecipeComponent>();
+
     public ICollection<Ingredient> Ingredients { get; private set; } = new List<Ingredient>();
     public ICollection<RecipeStep> Steps { get; private set; } = new List<RecipeStep>();
     public ICollection<RecipeTag> RecipeTags { get; private set; } = new List<RecipeTag>();
@@ -195,6 +204,112 @@ public class Recipe : IVersionedEntity
     }
 
     /// <summary>
+    /// COMP-0 — atomically replaces the recipe's component set plus the
+    /// ingredients + steps each component owns. Called on create and
+    /// update paths (and from <see cref="UpdateFromImport"/>) so the
+    /// ≥1-component + unique-position + cross-recipe FK invariants live
+    /// in one place.
+    ///
+    /// <para>
+    /// <paramref name="components"/> must be ordered by
+    /// <see cref="RecipeComponent.Position"/> and contain:
+    /// <list type="bullet">
+    /// <item>at least one component,</item>
+    /// <item>unique positions across the set,</item>
+    /// <item>components whose <see cref="RecipeComponent.RecipeId"/>
+    /// matches <see cref="Id"/>,</item>
+    /// <item>ingredients/steps whose <see cref="Ingredient.ComponentId"/>
+    /// / <see cref="RecipeStep.ComponentId"/> references one of the
+    /// components in the set AND whose <see cref="Ingredient.RecipeId"/>
+    /// / <see cref="RecipeStep.RecipeId"/> equals <see cref="Id"/>.</item>
+    /// </list>
+    /// Any violation throws <see cref="ArgumentException"/>.
+    /// </para>
+    /// </summary>
+    public void ReplaceComponents(
+        IReadOnlyList<RecipeComponent> components,
+        IReadOnlyList<Ingredient> ingredients,
+        IReadOnlyList<RecipeStep> steps)
+    {
+        if (components is null) throw new ArgumentNullException(nameof(components));
+        if (ingredients is null) throw new ArgumentNullException(nameof(ingredients));
+        if (steps is null) throw new ArgumentNullException(nameof(steps));
+
+        if (components.Count == 0)
+            throw new ArgumentException(
+                "A recipe must have at least one component.", nameof(components));
+
+        var positions = new HashSet<int>();
+        var componentIds = new HashSet<Guid>();
+        foreach (var component in components)
+        {
+            if (component.RecipeId != Id)
+                throw new ArgumentException(
+                    $"Component {component.Id} does not belong to recipe {Id}.", nameof(components));
+            if (!positions.Add(component.Position))
+                throw new ArgumentException(
+                    $"Duplicate component position {component.Position}.", nameof(components));
+            componentIds.Add(component.Id);
+        }
+
+        // COMP-0 — ingredient / step positions are 0-based per component,
+        // not per recipe (two components can each start at position 0).
+        var ingredientPositionsByComponent = new Dictionary<Guid, HashSet<int>>();
+        foreach (var ingredient in ingredients)
+        {
+            if (ingredient.RecipeId != Id)
+                throw new ArgumentException(
+                    $"Ingredient {ingredient.Id} does not belong to recipe {Id}.", nameof(ingredients));
+            if (!componentIds.Contains(ingredient.ComponentId))
+                throw new ArgumentException(
+                    $"Ingredient {ingredient.Id} references unknown component {ingredient.ComponentId}.",
+                    nameof(ingredients));
+            if (!ingredientPositionsByComponent.TryGetValue(ingredient.ComponentId, out var positionsForComponent))
+            {
+                positionsForComponent = new HashSet<int>();
+                ingredientPositionsByComponent[ingredient.ComponentId] = positionsForComponent;
+            }
+            if (!positionsForComponent.Add(ingredient.Position))
+                throw new ArgumentException(
+                    $"Duplicate ingredient position {ingredient.Position} within component {ingredient.ComponentId}.",
+                    nameof(ingredients));
+        }
+
+        var stepPositionsByComponent = new Dictionary<Guid, HashSet<int>>();
+        foreach (var step in steps)
+        {
+            if (step.RecipeId != Id)
+                throw new ArgumentException(
+                    $"Step {step.Id} does not belong to recipe {Id}.", nameof(steps));
+            if (!componentIds.Contains(step.ComponentId))
+                throw new ArgumentException(
+                    $"Step {step.Id} references unknown component {step.ComponentId}.",
+                    nameof(steps));
+            if (!stepPositionsByComponent.TryGetValue(step.ComponentId, out var positionsForComponent))
+            {
+                positionsForComponent = new HashSet<int>();
+                stepPositionsByComponent[step.ComponentId] = positionsForComponent;
+            }
+            if (!positionsForComponent.Add(step.Position))
+                throw new ArgumentException(
+                    $"Duplicate step position {step.Position} within component {step.ComponentId}.",
+                    nameof(steps));
+        }
+
+        Components.Clear();
+        foreach (var component in components)
+            Components.Add(component);
+
+        Ingredients.Clear();
+        foreach (var ingredient in ingredients)
+            Ingredients.Add(ingredient);
+
+        Steps.Clear();
+        foreach (var step in steps)
+            Steps.Add(step);
+    }
+
+    /// <summary>
     /// REIMPORT-0 — overwrites the recipe's mutable body with a fresh
     /// extraction result. Preserves identity (<see cref="Id"/>, <see cref="GroupId"/>,
     /// <see cref="CreatedAt"/>, <see cref="CreatedByUserId"/>), user-owned
@@ -241,6 +356,7 @@ public class Recipe : IVersionedEntity
         int? prepTimeMinutes,
         int? cookTimeMinutes,
         int? difficulty,
+        IReadOnlyList<RecipeComponent> newComponents,
         IReadOnlyList<Ingredient> newIngredients,
         IReadOnlyList<RecipeStep> newSteps,
         IReadOnlyList<string> newAiTagNames,
@@ -248,6 +364,7 @@ public class Recipe : IVersionedEntity
         NutritionEstimate? nutrition,
         DateTimeOffset now)
     {
+        if (newComponents is null) throw new ArgumentNullException(nameof(newComponents));
         if (newIngredients is null) throw new ArgumentNullException(nameof(newIngredients));
         if (newSteps is null) throw new ArgumentNullException(nameof(newSteps));
         if (newAiTagNames is null) throw new ArgumentNullException(nameof(newAiTagNames));
@@ -272,16 +389,12 @@ public class Recipe : IVersionedEntity
         Difficulty = diff;
         NutritionEstimate = nutrition;
 
-        // Children: clear-and-add. EF tracks the removals so a
-        // subsequent SaveChanges issues DELETEs for the old rows via
-        // the recipe's cascade-FK config.
-        Ingredients.Clear();
-        foreach (var ing in newIngredients)
-            Ingredients.Add(ing);
-
-        Steps.Clear();
-        foreach (var step in newSteps)
-            Steps.Add(step);
+        // Children: clear-and-add through the shared invariant-enforcer
+        // so the ≥1-component + unique-position + component-FK rules
+        // apply symmetrically to create and reimport. EF tracks the
+        // removals so a subsequent SaveChanges issues DELETEs for the
+        // old rows via the recipe's cascade-FK config.
+        ReplaceComponents(newComponents, newIngredients, newSteps);
 
         // Tag merge — see xmldoc above. We split existingAndNewTags into
         // a lookup by Id and a lookup by normalized name so the decision

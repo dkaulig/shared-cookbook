@@ -25,6 +25,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<GroupMembership> GroupMemberships => Set<GroupMembership>();
     public DbSet<GroupInvite> GroupInvites => Set<GroupInvite>();
     public DbSet<Recipe> Recipes => Set<Recipe>();
+    public DbSet<RecipeComponent> RecipeComponents => Set<RecipeComponent>();
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
     public DbSet<RecipeStep> RecipeSteps => Set<RecipeStep>();
     public DbSet<Tag> Tags => Set<Tag>();
@@ -225,6 +226,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 .HasForeignKey(r => r.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            e.HasMany(r => r.Components)
+                .WithOne()
+                .HasForeignKey(c => c.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             e.HasMany(r => r.Ingredients)
                 .WithOne()
                 .HasForeignKey(i => i.RecipeId)
@@ -241,6 +247,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        // COMP-0 — sub-recipe grouping table. Position is unique per
+        // recipe so the 0-based ordering is enforced at the DB level
+        // (matching the domain invariant in Recipe.ReplaceComponents).
+        builder.Entity<RecipeComponent>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Label).HasMaxLength(RecipeComponent.LabelMaxLength);
+            e.HasIndex(c => c.RecipeId);
+            e.HasIndex(c => new { c.RecipeId, c.Position }).IsUnique();
+        });
+
         builder.Entity<Ingredient>(e =>
         {
             e.HasKey(i => i.Id);
@@ -249,7 +266,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.Property(i => i.Note).HasMaxLength(Ingredient.NoteMaxLength);
             e.Property(i => i.Quantity).HasColumnType("numeric(12,3)");
             e.HasIndex(i => i.RecipeId);
-            e.HasIndex(i => new { i.RecipeId, i.Position }).IsUnique();
+            // COMP-0 — Position uniqueness is scoped to the owning
+            // component now, not the recipe: two components in the same
+            // recipe can each carry their own 0-based ingredient list.
+            e.HasIndex(i => new { i.ComponentId, i.Position }).IsUnique();
+            // COMP-0 — FK on ComponentId. Cascade-delete matches the
+            // Recipe→Component cascade so removing a component sweeps
+            // its ingredient rows.
+            e.HasOne<RecipeComponent>()
+                .WithMany()
+                .HasForeignKey(i => i.ComponentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<RecipeStep>(e =>
@@ -257,7 +284,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.HasKey(s => s.Id);
             e.Property(s => s.Content).IsRequired().HasMaxLength(RecipeStep.ContentMaxLength);
             e.HasIndex(s => s.RecipeId);
-            e.HasIndex(s => new { s.RecipeId, s.Position }).IsUnique();
+            // COMP-0 — Position unique per component (see Ingredient).
+            e.HasIndex(s => new { s.ComponentId, s.Position }).IsUnique();
+            // COMP-0 — FK on ComponentId, symmetric to Ingredient.
+            e.HasOne<RecipeComponent>()
+                .WithMany()
+                .HasForeignKey(s => s.ComponentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<Tag>(e =>

@@ -97,11 +97,17 @@ public class RecipeSearchServiceTests : IAsyncLifetime
             sourceType: RecipeSourceType.Manual,
             forkOfRecipeId: null,
             createdAt: DateTimeOffset.UtcNow.AddMinutes(offsetMinutes));
+        // COMP-0 — every ingredient belongs to exactly one component.
+        // Seed a single default component and anchor every test-driven
+        // ingredient on it.
+        var defaultComponent = new RecipeComponent(recipe.Id, 0, null);
+        var ingredients = new List<Ingredient>();
         int pos = 0;
         foreach (var name in ingredientNames)
         {
-            recipe.Ingredients.Add(new Ingredient(recipe.Id, pos++, 100m, "g", name, null, true));
+            ingredients.Add(new Ingredient(recipe.Id, defaultComponent.Id, pos++, 100m, "g", name, null, true));
         }
+        recipe.ReplaceComponents(new[] { defaultComponent }, ingredients, Array.Empty<RecipeStep>());
         _db.Recipes.Add(recipe);
         return recipe;
     }

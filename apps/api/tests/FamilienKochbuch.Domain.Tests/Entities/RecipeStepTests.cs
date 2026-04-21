@@ -13,10 +13,12 @@ public class RecipeStepTests
     public void Constructor_Sets_Fields()
     {
         var recipeId = Guid.NewGuid();
-        var step = new RecipeStep(recipeId, position: 0, content: "Mehl sieben.");
+        var componentId = Guid.NewGuid();
+        var step = new RecipeStep(recipeId, componentId, position: 0, content: "Mehl sieben.");
 
         Assert.NotEqual(Guid.Empty, step.Id);
         Assert.Equal(recipeId, step.RecipeId);
+        Assert.Equal(componentId, step.ComponentId);
         Assert.Equal(0, step.Position);
         Assert.Equal("Mehl sieben.", step.Content);
     }
@@ -28,14 +30,14 @@ public class RecipeStepTests
     public void Constructor_Rejects_Blank_Content(string? invalid)
     {
         Assert.Throws<ArgumentException>(() =>
-            new RecipeStep(Guid.NewGuid(), 0, invalid!));
+            new RecipeStep(Guid.NewGuid(), Guid.NewGuid(), 0, invalid!));
     }
 
     [Fact]
     public void Constructor_Rejects_Negative_Position()
     {
         Assert.Throws<ArgumentException>(() =>
-            new RecipeStep(Guid.NewGuid(), -1, "Mehl sieben."));
+            new RecipeStep(Guid.NewGuid(), Guid.NewGuid(), -1, "Mehl sieben."));
     }
 
     [Fact]
@@ -44,7 +46,7 @@ public class RecipeStepTests
         var tooLong = new string('x', 5001);
 
         Assert.Throws<ArgumentException>(() =>
-            new RecipeStep(Guid.NewGuid(), 0, tooLong));
+            new RecipeStep(Guid.NewGuid(), Guid.NewGuid(), 0, tooLong));
     }
 
     [Fact]
@@ -52,8 +54,22 @@ public class RecipeStepTests
     {
         var boundary = new string('x', 5000);
 
-        var step = new RecipeStep(Guid.NewGuid(), 0, boundary);
+        var step = new RecipeStep(Guid.NewGuid(), Guid.NewGuid(), 0, boundary);
 
         Assert.Equal(boundary, step.Content);
+    }
+
+    [Fact]
+    public void Constructor_Rejects_Empty_RecipeId()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new RecipeStep(Guid.Empty, Guid.NewGuid(), 0, "Mehl sieben."));
+    }
+
+    [Fact]
+    public void Constructor_Rejects_Empty_ComponentId()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new RecipeStep(Guid.NewGuid(), Guid.Empty, 0, "Mehl sieben."));
     }
 }
