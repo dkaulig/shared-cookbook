@@ -1381,9 +1381,10 @@ public static class RecipeEndpoints
     /// strictly scoped to the saved SourceUrl.</item>
     /// <item>404 (IDOR-hide) is returned for both a missing recipe AND
     /// a member-mismatch so a non-member can't probe recipe ids.</item>
-    /// <item>OFF3 <c>If-Match: W/"{id}-{version}"</c> enforced — a stale
-    /// header yields 409 with the current DTO payload, matching the PUT
-    /// + PATCH endpoints' contract.</item>
+    /// <item>OFF3 <c>If-Match: W/"{id}-{version}"</c> honoured when
+    /// supplied; an absent header is tolerated for parity with PUT /
+    /// PATCH / DELETE. A stale value yields 409 with the current DTO
+    /// payload, matching the other endpoints' contract.</item>
     /// <item>Photo-imported recipes are refused up front (400
     /// <c>photo_import_reimport_not_supported</c>) — the photo
     /// pipeline has no URL to re-fetch; the sentinel
