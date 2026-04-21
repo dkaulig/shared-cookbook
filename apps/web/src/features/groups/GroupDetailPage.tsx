@@ -221,16 +221,20 @@ export function GroupDetailPage() {
   // Same target (`/groups/:id/recipes/new`), just folded into the
   // shared BottomNav container so there's no overlap math per page.
   //
-  // TABLET-1 — when a nested recipe route is active on mobile, the
-  // child RecipeDetailPage's `useBottomZoneSlot(RecipeActionBar)` wins
-  // (child effects commit after the parent). On navigation BACK from
-  // the recipe to `/groups/:id`, GroupDetailPage stays mounted (it's
-  // now the parent route), so we MUST re-run this slot effect when
-  // the outlet disappears — otherwise the "Neues Rezept" FAB never
-  // gets re-asserted. `outletNode != null` is the right dep.
+  // TABLET-1 + 2026-04-21 slot-conflict fix — when a nested recipe
+  // route is active, the child RecipeDetailPage ALSO calls
+  // `useBottomZoneSlot(RecipeActionBar)`. React fires effects in
+  // depth-first post-order (child first, THEN parent on a combined
+  // render), which means GroupDetailPage's "Neues Rezept" slot-set
+  // overwrites the child's RecipeActionBar — user lands on a recipe
+  // and still sees the create-new button, never the cook/plan
+  // buttons. Passing `null` when an outlet is active lets the child
+  // own the slot unopposed. When the user navigates BACK and the
+  // outlet disappears (`hasOutlet` flips to false), this effect
+  // re-runs and re-asserts the "Neues Rezept" Link.
   const hasOutlet = outletNode != null
   useBottomZoneSlot(
-    groupId ? (
+    groupId && !hasOutlet ? (
       <Link
         to={`/groups/${groupId}/recipes/new`}
         aria-label="Neues Rezept anlegen"
