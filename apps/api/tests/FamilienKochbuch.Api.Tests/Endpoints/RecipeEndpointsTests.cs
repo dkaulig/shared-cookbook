@@ -171,6 +171,9 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         string title = "Spätzle",
         IReadOnlyList<Guid>? tagIds = null)
     {
+        // COMP-0 — single-default-component shape. Three ingredients +
+        // two steps scoped to the one component; Label is null to
+        // preserve the "simple recipe" UX.
         var ingredients = new[]
         {
             new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
@@ -182,6 +185,8 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             new RecipeEndpoints.StepRequest(0, "Mehl in eine Schüssel geben."),
             new RecipeEndpoints.StepRequest(1, "Eier und Salz hinzufügen, verquirlen."),
         };
+        var component = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0, Label: null, Ingredients: ingredients, Steps: steps);
         return new RecipeEndpoints.CreateRecipeRequest(
             Title: title,
             Description: "Selbstgemachte Spätzle",
@@ -189,10 +194,55 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             PrepTimeMinutes: 30,
             Difficulty: 1,
             SourceUrl: null,
-            Ingredients: ingredients,
-            Steps: steps,
+            Components: new[] { component },
             TagIds: tagIds?.ToArray() ?? Array.Empty<Guid>());
     }
+
+    /// <summary>COMP-0 — short-hand for building an update request with a
+    /// single default component carrying the supplied flat ingredient /
+    /// step arrays. Mirrors the previous pre-COMP-0 shape so existing
+    /// tests stay expressive.</summary>
+    private static RecipeEndpoints.UpdateRecipeRequest BuildSingleComponentUpdate(
+        string title,
+        string? description,
+        int defaultServings,
+        int? prepTimeMinutes,
+        int difficulty,
+        string? sourceUrl,
+        RecipeEndpoints.IngredientRequest[] ingredients,
+        RecipeEndpoints.StepRequest[] steps,
+        Guid[] tagIds)
+    {
+        var component = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0, Label: null, Ingredients: ingredients, Steps: steps);
+        return new RecipeEndpoints.UpdateRecipeRequest(
+            Title: title,
+            Description: description,
+            DefaultServings: defaultServings,
+            PrepTimeMinutes: prepTimeMinutes,
+            Difficulty: difficulty,
+            SourceUrl: sourceUrl,
+            Components: new[] { component },
+            TagIds: tagIds);
+    }
+
+    /// <summary>COMP-0 — flattens the response's nested Components array
+    /// back to a single flat list of ingredients (ordered globally by
+    /// Component.Position then Ingredient.Position). Matches the pre-
+    /// COMP-0 assertion style so existing tests read naturally.</summary>
+    private static RecipeEndpoints.IngredientDto[] AllIngredients(
+        RecipeEndpoints.RecipeDetailDto detail) =>
+        detail.Components
+            .OrderBy(c => c.Position)
+            .SelectMany(c => c.Ingredients.OrderBy(i => i.Position))
+            .ToArray();
+
+    private static RecipeEndpoints.StepDto[] AllSteps(
+        RecipeEndpoints.RecipeDetailDto detail) =>
+        detail.Components
+            .OrderBy(c => c.Position)
+            .SelectMany(c => c.Steps.OrderBy(s => s.Position))
+            .ToArray();
 
     // ── POST /api/groups/{groupId}/recipes ──────────────────────────
 
@@ -211,10 +261,206 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
         Assert.Equal("Spätzle", body.Title);
-        Assert.Equal(3, body.Ingredients.Length);
-        Assert.Equal(2, body.Steps.Length);
+        var allIngs = AllIngredients(body);
+        var allSteps = AllSteps(body);
+        Assert.Single(body.Components);
+        Assert.Null(body.Components[0].Label);
+        Assert.Equal(3, allIngs.Length);
+        Assert.Equal(2, allSteps.Length);
         Assert.Equal(3, body.Tags.Length);
-        Assert.Contains(body.Ingredients, i => i.Name == "Salz" && i.Quantity == null && !i.Scalable);
+        Assert.Contains(allIngs, i => i.Name == "Salz" && i.Quantity == null && !i.Scalable);
+    }
+
+    // ── COMP-0 — multi-component create + validation ────────────────
+
+    [Fact]
+    public async Task CreateRecipe_With_Two_Components_Roundtrips_Nested_Shape()
+    {
+        var (_, token) = await SignupAndLoginAsync("two-comp@ex.com", "T");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var main = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0,
+            Label: "Hauptgericht",
+            Ingredients: new[]
+            {
+                new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Hähnchen", null, true),
+            },
+            Steps: new[] { new RecipeEndpoints.StepRequest(0, "Anbraten.") });
+        var sauce = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 1,
+            Label: "Chipotle Sauce",
+            Ingredients: new[]
+            {
+                new RecipeEndpoints.IngredientRequest(0, 50m, "g", "Chipotle", null, true),
+                new RecipeEndpoints.IngredientRequest(1, 100m, "g", "Mayo", null, true),
+            },
+            Steps: new[] { new RecipeEndpoints.StepRequest(0, "Pürieren.") });
+
+        var request = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "Chipotle Quesadillas",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: 20,
+            Difficulty: 2,
+            SourceUrl: null,
+            Components: new[] { main, sauce },
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", request);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+        Assert.Equal(2, body.Components.Length);
+
+        var returnedMain = body.Components.Single(c => c.Label == "Hauptgericht");
+        Assert.Equal(0, returnedMain.Position);
+        Assert.Single(returnedMain.Ingredients);
+        Assert.Equal("Hähnchen", returnedMain.Ingredients[0].Name);
+        Assert.Single(returnedMain.Steps);
+
+        var returnedSauce = body.Components.Single(c => c.Label == "Chipotle Sauce");
+        Assert.Equal(1, returnedSauce.Position);
+        Assert.Equal(2, returnedSauce.Ingredients.Length);
+        Assert.Single(returnedSauce.Steps);
+
+        // Round-trip via GET.
+        var detail = await _client.GetFromJsonAsync<RecipeEndpoints.RecipeDetailDto>(
+            $"/api/recipes/{body.Id}");
+        Assert.Equal(2, detail!.Components.Length);
+        Assert.Equal("Hauptgericht", detail.Components.OrderBy(c => c.Position).First().Label);
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_On_Empty_Components_Array()
+    {
+        var (_, token) = await SignupAndLoginAsync("empty-comp@ex.com", "E");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var request = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "Ohne Komponenten",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: Array.Empty<RecipeEndpoints.RecipeComponentRequest>(),
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_On_Duplicate_Component_Positions()
+    {
+        var (_, token) = await SignupAndLoginAsync("dup-comp@ex.com", "D");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var a = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0, Label: "A",
+            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            Steps: Array.Empty<RecipeEndpoints.StepRequest>());
+        var b = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0, Label: "B", // same position → invalid
+            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            Steps: Array.Empty<RecipeEndpoints.StepRequest>());
+
+        var request = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "Dup",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: new[] { a, b },
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateRecipe_Multi_To_Single_Component_Replaces_All()
+    {
+        var (_, token) = await SignupAndLoginAsync("multi-single@ex.com", "MS");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // Create a recipe with two components…
+        var createReq = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "Zweiteilig",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: new[]
+            {
+                new RecipeEndpoints.RecipeComponentRequest(0, "Teig",
+                    new[] { new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true) },
+                    new[] { new RecipeEndpoints.StepRequest(0, "Kneten.") }),
+                new RecipeEndpoints.RecipeComponentRequest(1, "Soße",
+                    new[] { new RecipeEndpoints.IngredientRequest(0, 100m, "g", "Tomaten", null, true) },
+                    new[] { new RecipeEndpoints.StepRequest(0, "Köcheln.") }),
+            },
+            TagIds: Array.Empty<Guid>());
+        var create = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", createReq);
+        create.EnsureSuccessStatusCode();
+        var created = (await create.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        // …then PUT with a single flat component. Old structure wiped.
+        var updateReq = BuildSingleComponentUpdate(
+            title: "Einteilig",
+            description: null,
+            defaultServings: 2,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: null,
+            ingredients: new[] { new RecipeEndpoints.IngredientRequest(0, 200m, "g", "Zucker", null, true) },
+            steps: new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") },
+            tagIds: Array.Empty<Guid>());
+        var put = await _client.PutAsJsonAsync($"/api/recipes/{created.Id}", updateReq);
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        var after = await _client.GetFromJsonAsync<RecipeEndpoints.RecipeDetailDto>(
+            $"/api/recipes/{created.Id}");
+        Assert.Single(after!.Components);
+        Assert.Null(after.Components[0].Label);
+        Assert.Single(after.Components[0].Ingredients);
+        Assert.Equal("Zucker", after.Components[0].Ingredients[0].Name);
+    }
+
+    [Fact]
+    public async Task UpdateRecipe_400_On_Empty_Components_Array()
+    {
+        var (_, token) = await SignupAndLoginAsync("update-empty@ex.com", "UE");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Orig"));
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var update = new RecipeEndpoints.UpdateRecipeRequest(
+            Title: "Kaputt",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: Array.Empty<RecipeEndpoints.RecipeComponentRequest>(),
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PutAsJsonAsync($"/api/recipes/{created.Id}", update);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -503,11 +749,13 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
         Assert.Equal("Pizza", body.Title);
-        Assert.Equal(3, body.Ingredients.Length);
-        Assert.Equal(2, body.Steps.Length);
+        var allIngs = AllIngredients(body);
+        var allSteps = AllSteps(body);
+        Assert.Equal(3, allIngs.Length);
+        Assert.Equal(2, allSteps.Length);
         // Steps must be ordered by Position.
-        Assert.Equal(0, body.Steps[0].Position);
-        Assert.Equal(1, body.Steps[1].Position);
+        Assert.Equal(0, allSteps[0].Position);
+        Assert.Equal(1, allSteps[1].Position);
     }
 
     [Fact]
@@ -606,17 +854,18 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var create = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", BuildCreateRequest("Orig"));
         var created = (await create.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
 
-        // PUT with just 1 ingredient + 1 step.
-        var replace = new RecipeEndpoints.UpdateRecipeRequest(
-            Title: "Updated",
-            Description: null,
-            DefaultServings: 2,
-            PrepTimeMinutes: 10,
-            Difficulty: 2,
-            SourceUrl: null,
-            Ingredients: new[] { new RecipeEndpoints.IngredientRequest(0, 100m, "g", "Zucker", null, true) },
-            Steps: new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") },
-            TagIds: Array.Empty<Guid>());
+        // PUT with just 1 ingredient + 1 step inside a single default
+        // component.
+        var replace = BuildSingleComponentUpdate(
+            title: "Updated",
+            description: null,
+            defaultServings: 2,
+            prepTimeMinutes: 10,
+            difficulty: 2,
+            sourceUrl: null,
+            ingredients: new[] { new RecipeEndpoints.IngredientRequest(0, 100m, "g", "Zucker", null, true) },
+            steps: new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") },
+            tagIds: Array.Empty<Guid>());
 
         var put = await _client.PutAsJsonAsync($"/api/recipes/{created.Id}", replace);
         Assert.Equal(HttpStatusCode.OK, put.StatusCode);
@@ -624,9 +873,11 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var after = await _client.GetFromJsonAsync<RecipeEndpoints.RecipeDetailDto>(
             $"/api/recipes/{created.Id}");
         Assert.Equal("Updated", after!.Title);
-        Assert.Single(after.Ingredients);
-        Assert.Equal("Zucker", after.Ingredients[0].Name);
-        Assert.Single(after.Steps);
+        var afterIngs = AllIngredients(after);
+        var afterSteps = AllSteps(after);
+        Assert.Single(afterIngs);
+        Assert.Equal("Zucker", afterIngs[0].Name);
+        Assert.Single(afterSteps);
         Assert.Empty(after.Tags);
     }
 
@@ -644,11 +895,12 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         using var clientB = _factory.CreateRateLimitBypassingClient();
         AuthorizeClient(clientB, bTok);
         var put = await clientB.PutAsJsonAsync($"/api/recipes/{created.Id}",
-            new RecipeEndpoints.UpdateRecipeRequest(
-                "Hack", null, 4, null, 1, null,
-                Array.Empty<RecipeEndpoints.IngredientRequest>(),
-                Array.Empty<RecipeEndpoints.StepRequest>(),
-                Array.Empty<Guid>()));
+            BuildSingleComponentUpdate(
+                title: "Hack", description: null, defaultServings: 4,
+                prepTimeMinutes: null, difficulty: 1, sourceUrl: null,
+                ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+                steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+                tagIds: Array.Empty<Guid>()));
         Assert.Equal(HttpStatusCode.Forbidden, put.StatusCode);
     }
 
@@ -1304,30 +1556,36 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal(original.DefaultServings, forked.DefaultServings);
         Assert.Equal(original.PrepTimeMinutes, forked.PrepTimeMinutes);
         Assert.Equal(original.Difficulty, forked.Difficulty);
-        Assert.Equal(original.Ingredients.Length, forked.Ingredients.Length);
-        Assert.Equal(original.Steps.Length, forked.Steps.Length);
+        var origIngs = AllIngredients(original);
+        var forkIngs = AllIngredients(forked);
+        var origSteps = AllSteps(original);
+        var forkSteps = AllSteps(forked);
+        Assert.Equal(origIngs.Length, forkIngs.Length);
+        Assert.Equal(origSteps.Length, forkSteps.Length);
+        // Component structure preserved too (same count + label shape).
+        Assert.Equal(original.Components.Length, forked.Components.Length);
         Assert.Equal(original.Tags.Length, forked.Tags.Length);
         // Global tag ids preserved verbatim.
         var originalTagIds = original.Tags.Select(t => t.Id).OrderBy(x => x).ToArray();
         var forkedTagIds = forked.Tags.Select(t => t.Id).OrderBy(x => x).ToArray();
         Assert.Equal(originalTagIds, forkedTagIds);
 
-        // Ingredient & step order preserved.
-        for (int i = 0; i < original.Ingredients.Length; i++)
+        // Ingredient & step order preserved. Fork creates new row ids
+        // (source row stays untouched on the source recipe).
+        for (int i = 0; i < origIngs.Length; i++)
         {
-            Assert.Equal(original.Ingredients[i].Position, forked.Ingredients[i].Position);
-            Assert.Equal(original.Ingredients[i].Name, forked.Ingredients[i].Name);
-            Assert.Equal(original.Ingredients[i].Quantity, forked.Ingredients[i].Quantity);
-            Assert.Equal(original.Ingredients[i].Unit, forked.Ingredients[i].Unit);
-            Assert.Equal(original.Ingredients[i].Scalable, forked.Ingredients[i].Scalable);
-            // New row → different id.
-            Assert.NotEqual(original.Ingredients[i].Id, forked.Ingredients[i].Id);
+            Assert.Equal(origIngs[i].Position, forkIngs[i].Position);
+            Assert.Equal(origIngs[i].Name, forkIngs[i].Name);
+            Assert.Equal(origIngs[i].Quantity, forkIngs[i].Quantity);
+            Assert.Equal(origIngs[i].Unit, forkIngs[i].Unit);
+            Assert.Equal(origIngs[i].Scalable, forkIngs[i].Scalable);
+            Assert.NotEqual(origIngs[i].Id, forkIngs[i].Id);
         }
-        for (int i = 0; i < original.Steps.Length; i++)
+        for (int i = 0; i < origSteps.Length; i++)
         {
-            Assert.Equal(original.Steps[i].Position, forked.Steps[i].Position);
-            Assert.Equal(original.Steps[i].Content, forked.Steps[i].Content);
-            Assert.NotEqual(original.Steps[i].Id, forked.Steps[i].Id);
+            Assert.Equal(origSteps[i].Position, forkSteps[i].Position);
+            Assert.Equal(origSteps[i].Content, forkSteps[i].Content);
+            Assert.NotEqual(origSteps[i].Id, forkSteps[i].Id);
         }
     }
 
@@ -1707,16 +1965,16 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             $"/api/groups/{groupId}/recipes", BuildCreateRequest("Org"));
         var dto = (await created.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
 
-        var update = new RecipeEndpoints.UpdateRecipeRequest(
-            Title: "Geändert",
-            Description: dto.Description,
-            DefaultServings: dto.DefaultServings,
-            PrepTimeMinutes: dto.PrepTimeMinutes,
-            Difficulty: dto.Difficulty,
-            SourceUrl: dto.SourceUrl,
-            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
-            Steps: Array.Empty<RecipeEndpoints.StepRequest>(),
-            TagIds: Array.Empty<Guid>());
+        var update = BuildSingleComponentUpdate(
+            title: "Geändert",
+            description: dto.Description,
+            defaultServings: dto.DefaultServings,
+            prepTimeMinutes: dto.PrepTimeMinutes,
+            difficulty: dto.Difficulty,
+            sourceUrl: dto.SourceUrl,
+            ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+            tagIds: Array.Empty<Guid>());
         using var req = new HttpRequestMessage(HttpMethod.Put, $"/api/recipes/{dto.Id}")
         {
             Content = JsonContent.Create(update),
@@ -1742,16 +2000,16 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         var staleVersion = dto.Version; // 0
 
         // Move the server forward with a no-If-Match PUT.
-        var intermediate = new RecipeEndpoints.UpdateRecipeRequest(
-            Title: "Zwischenstand",
-            Description: null,
-            DefaultServings: 2,
-            PrepTimeMinutes: null,
-            Difficulty: 1,
-            SourceUrl: null,
-            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
-            Steps: Array.Empty<RecipeEndpoints.StepRequest>(),
-            TagIds: Array.Empty<Guid>());
+        var intermediate = BuildSingleComponentUpdate(
+            title: "Zwischenstand",
+            description: null,
+            defaultServings: 2,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: null,
+            ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+            tagIds: Array.Empty<Guid>());
         var firstPut = await _client.PutAsJsonAsync($"/api/recipes/{dto.Id}", intermediate);
         firstPut.EnsureSuccessStatusCode();
 
@@ -1782,16 +2040,12 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             $"/api/groups/{groupId}/recipes", BuildCreateRequest("ohne-ifmatch"));
         var dto = (await created.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
 
-        var update = new RecipeEndpoints.UpdateRecipeRequest(
-            Title: "ohne-ifmatch-neu",
-            Description: null,
-            DefaultServings: 2,
-            PrepTimeMinutes: null,
-            Difficulty: 1,
-            SourceUrl: null,
-            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
-            Steps: Array.Empty<RecipeEndpoints.StepRequest>(),
-            TagIds: Array.Empty<Guid>());
+        var update = BuildSingleComponentUpdate(
+            title: "ohne-ifmatch-neu", description: null, defaultServings: 2,
+            prepTimeMinutes: null, difficulty: 1, sourceUrl: null,
+            ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+            tagIds: Array.Empty<Guid>());
         var res = await _client.PutAsJsonAsync($"/api/recipes/{dto.Id}", update);
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
@@ -1807,12 +2061,12 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             $"/api/groups/{groupId}/recipes", BuildCreateRequest("Mehrfach"));
         var dto = (await created.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
 
-        var update = new RecipeEndpoints.UpdateRecipeRequest(
-            Title: "A", Description: null, DefaultServings: 2,
-            PrepTimeMinutes: null, Difficulty: 1, SourceUrl: null,
-            Ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
-            Steps: Array.Empty<RecipeEndpoints.StepRequest>(),
-            TagIds: Array.Empty<Guid>());
+        var update = BuildSingleComponentUpdate(
+            title: "A", description: null, defaultServings: 2,
+            prepTimeMinutes: null, difficulty: 1, sourceUrl: null,
+            ingredients: Array.Empty<RecipeEndpoints.IngredientRequest>(),
+            steps: Array.Empty<RecipeEndpoints.StepRequest>(),
+            tagIds: Array.Empty<Guid>());
         (await _client.PutAsJsonAsync($"/api/recipes/{dto.Id}", update)).EnsureSuccessStatusCode();
         (await _client.PutAsJsonAsync($"/api/recipes/{dto.Id}", update with { Title = "B" })).EnsureSuccessStatusCode();
 

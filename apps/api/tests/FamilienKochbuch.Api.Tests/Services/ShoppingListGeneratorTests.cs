@@ -36,12 +36,18 @@ public class ShoppingListGeneratorTests
             sourceType: RecipeSourceType.Manual,
             forkOfRecipeId: null,
             createdAt: Anchor);
+        // COMP-0 — every ingredient belongs to a component. Build a
+        // single default component and anchor the test ingredients on it.
+        var defaultComponent = new RecipeComponent(recipe.Id, 0, null);
+        var components = new[] { defaultComponent };
+        var materializedIngredients = new List<Ingredient>();
         for (var i = 0; i < ingredients.Length; i++)
         {
             var (qty, unit, name) = ingredients[i];
             var scalable = qty.HasValue && qty.Value > 0m;
-            recipe.Ingredients.Add(new Ingredient(
+            materializedIngredients.Add(new Ingredient(
                 recipeId: recipe.Id,
+                componentId: defaultComponent.Id,
                 position: i,
                 quantity: qty,
                 unit: unit,
@@ -49,6 +55,7 @@ public class ShoppingListGeneratorTests
                 note: null,
                 scalable: scalable));
         }
+        recipe.ReplaceComponents(components, materializedIngredients, Array.Empty<RecipeStep>());
         return recipe;
     }
 
@@ -452,8 +459,13 @@ public class ShoppingListGeneratorTests
             title: "A", description: null, defaultServings: 2, prepTimeMinutes: 10,
             difficulty: 1, sourceUrl: null, sourceType: RecipeSourceType.Manual,
             forkOfRecipeId: null, createdAt: Anchor);
-        r1.Ingredients.Add(new Ingredient(
-            r1.Id, 0, 100m, "g", "Mehl", "Typ 405", scalable: true));
+        var r1DefaultComponent = new RecipeComponent(r1.Id, 0, null);
+        var r1Ingredient = new Ingredient(
+            r1.Id, r1DefaultComponent.Id, 0, 100m, "g", "Mehl", "Typ 405", scalable: true);
+        r1.ReplaceComponents(
+            new[] { r1DefaultComponent },
+            new[] { r1Ingredient },
+            Array.Empty<RecipeStep>());
         var plan = BuildPlan();
         AddSlot(plan, r1.Id, servings: 2);
 

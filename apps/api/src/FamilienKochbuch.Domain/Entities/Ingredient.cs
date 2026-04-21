@@ -7,6 +7,14 @@ namespace FamilienKochbuch.Domain.Entities;
 ///     quantified.
 ///   * When scalable, the quantity must be strictly positive so
 ///     proportional math stays sane.
+///
+/// COMP-0 — every ingredient now belongs to exactly one
+/// <see cref="RecipeComponent"/>. The aggregate's
+/// <see cref="Recipe.ReplaceComponents"/> method is responsible for
+/// guaranteeing that the <see cref="ComponentId"/> references a component
+/// whose <see cref="RecipeComponent.RecipeId"/> matches this ingredient's
+/// <see cref="RecipeId"/>; the FK + the <see cref="AppDbContext"/> config
+/// harden that invariant at the persistence layer as well.
 /// </summary>
 public class Ingredient
 {
@@ -20,6 +28,7 @@ public class Ingredient
 
     public Ingredient(
         Guid recipeId,
+        Guid componentId,
         int position,
         decimal? quantity,
         string unit,
@@ -27,6 +36,10 @@ public class Ingredient
         string? note,
         bool scalable)
     {
+        if (recipeId == Guid.Empty)
+            throw new ArgumentException("RecipeId must not be empty.", nameof(recipeId));
+        if (componentId == Guid.Empty)
+            throw new ArgumentException("ComponentId must not be empty.", nameof(componentId));
         if (position < 0)
             throw new ArgumentException("Position must not be negative.", nameof(position));
 
@@ -71,6 +84,7 @@ public class Ingredient
 
         Id = Guid.NewGuid();
         RecipeId = recipeId;
+        ComponentId = componentId;
         Position = position;
         Quantity = quantity;
         Unit = safeUnit;
@@ -81,6 +95,7 @@ public class Ingredient
 
     public Guid Id { get; private set; }
     public Guid RecipeId { get; private set; }
+    public Guid ComponentId { get; private set; }
     public int Position { get; private set; }
     public decimal? Quantity { get; private set; }
     public string Unit { get; private set; } = string.Empty;

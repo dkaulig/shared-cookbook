@@ -59,6 +59,22 @@ public static class RecipeEndpoints
     public record StepRequest(int Position, string Content);
 
     /// <summary>
+    /// COMP-0 — one sub-recipe group inside the nested
+    /// <see cref="CreateRecipeRequest.Components"/> /
+    /// <see cref="UpdateRecipeRequest.Components"/> arrays. <see cref="Label"/>
+    /// is nullable — a single-block recipe carries one component with
+    /// <c>Label = null</c> and <c>Position = 0</c>, while recipes with
+    /// visible sub-blocks ("Ingredients (Sauce):") surface with multiple
+    /// components in emit-order. Per-component <see cref="Ingredients"/>
+    /// + <see cref="Steps"/> replace the previous flat arrays.
+    /// </summary>
+    public record RecipeComponentRequest(
+        int Position,
+        string? Label,
+        IngredientRequest[] Ingredients,
+        StepRequest[] Steps);
+
+    /// <summary>
     /// Per-portion nutrition estimate (P2-10). Mirrors the
     /// <see cref="Domain.Entities.NutritionEstimate"/> shape so the
     /// endpoint can hand the four fields straight to the domain record.
@@ -77,8 +93,11 @@ public static class RecipeEndpoints
         int? PrepTimeMinutes,
         int Difficulty,
         string? SourceUrl,
-        IngredientRequest[] Ingredients,
-        StepRequest[] Steps,
+        // COMP-0 — nested-components shape replaces the previous flat
+        // Ingredients + Steps arrays. Must contain ≥1 component; each
+        // component carries its own ingredients + steps. See design doc
+        // docs/plans/2026-04-21-recipe-components-design.md.
+        RecipeComponentRequest[] Components,
         Guid[] TagIds,
         // P2-10: optional per-portion nutrition estimate. ``null`` when
         // the caller can't supply one (manual recipe, legacy client).
@@ -96,8 +115,8 @@ public static class RecipeEndpoints
         int? PrepTimeMinutes,
         int Difficulty,
         string? SourceUrl,
-        IngredientRequest[] Ingredients,
-        StepRequest[] Steps,
+        // COMP-0 — see CreateRecipeRequest.Components.
+        RecipeComponentRequest[] Components,
         Guid[] TagIds);
 
     public record NutritionEstimateDto(
@@ -116,6 +135,19 @@ public static class RecipeEndpoints
         bool Scalable);
 
     public record StepDto(Guid Id, int Position, string Content);
+
+    /// <summary>
+    /// COMP-0 — nested-component projection of a <see cref="RecipeComponent"/>
+    /// on detail / create / update responses. <see cref="Ingredients"/>
+    /// and <see cref="Steps"/> are already scoped to this component and
+    /// ordered by <c>Position</c>.
+    /// </summary>
+    public record RecipeComponentDto(
+        Guid Id,
+        int Position,
+        string? Label,
+        IngredientDto[] Ingredients,
+        StepDto[] Steps);
 
     public record TagDto(
         Guid Id,
@@ -315,8 +347,10 @@ public static class RecipeEndpoints
         // the If-Match header on subsequent PUT/PATCH/DELETE. Starts at
         // 0 on a freshly created recipe; bumps once per mutation.
         int Version,
-        IngredientDto[] Ingredients,
-        StepDto[] Steps,
+        // COMP-0 — nested-components replace the flat Ingredients + Steps
+        // arrays. Single-default recipes surface as `[{label:null,
+        // position:0, ingredients:[...], steps:[...]}]`.
+        RecipeComponentDto[] Components,
         TagDto[] Tags,
         // P2-10: nullable per-portion nutrition estimate — always
         // present on the response (null when unset) so the frontend
@@ -433,6 +467,7 @@ public static class RecipeEndpoints
 
     private static async Task<Recipe?> LoadRecipeWithChildrenAsync(AppDbContext db, Guid id, CancellationToken ct) =>
         await db.Recipes
+            .Include(r => r.Components)
             .Include(r => r.Ingredients)
             .Include(r => r.Steps)
             .Include(r => r.RecipeTags)
@@ -464,14 +499,28 @@ public static class RecipeEndpoints
             .ThenBy(t => t.Name, StringComparer.CurrentCulture)
             .ToArray();
 
-        var ingredients = recipe.Ingredients
-            .OrderBy(i => i.Position)
-            .Select(i => new IngredientDto(i.Id, i.Position, i.Quantity, i.Unit, i.Name, i.Note, i.Scalable))
-            .ToArray();
-
-        var steps = recipe.Steps
-            .OrderBy(s => s.Position)
-            .Select(s => new StepDto(s.Id, s.Position, s.Content))
+        // COMP-0 — group ingredients + steps by component so the response
+        // mirrors the nested request shape. Order components by their
+        // own Position; inside each component the child arrays stay
+        // ordered by their respective Position.
+        var ingredientsByComponent = recipe.Ingredients
+            .GroupBy(i => i.ComponentId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(i => i.Position).ToArray());
+        var stepsByComponent = recipe.Steps
+            .GroupBy(s => s.ComponentId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(s => s.Position).ToArray());
+        var components = recipe.Components
+            .OrderBy(c => c.Position)
+            .Select(c => new RecipeComponentDto(
+                c.Id,
+                c.Position,
+                c.Label,
+                ingredientsByComponent.TryGetValue(c.Id, out var ings)
+                    ? ings.Select(i => new IngredientDto(i.Id, i.Position, i.Quantity, i.Unit, i.Name, i.Note, i.Scalable)).ToArray()
+                    : Array.Empty<IngredientDto>(),
+                stepsByComponent.TryGetValue(c.Id, out var sts)
+                    ? sts.Select(s => new StepDto(s.Id, s.Position, s.Content)).ToArray()
+                    : Array.Empty<StepDto>()))
             .ToArray();
 
         // Photos are stored as bare paths in the DB; project them through
@@ -507,8 +556,7 @@ public static class RecipeEndpoints
             recipe.CreatedAt,
             recipe.UpdatedAt,
             recipe.Version,
-            ingredients,
-            steps,
+            components,
             tags,
             nutritionDto,
             partialPhotoFailures);
@@ -554,22 +602,13 @@ public static class RecipeEndpoints
                 forkOfRecipeId: null,
                 createdAt: now);
 
-            foreach (var ing in body.Ingredients.OrderBy(i => i.Position))
-            {
-                recipe.Ingredients.Add(new Ingredient(
-                    recipeId: recipe.Id,
-                    position: ing.Position,
-                    quantity: ing.Quantity,
-                    unit: ing.Unit,
-                    name: ing.Name,
-                    note: ing.Note,
-                    scalable: ing.Scalable));
-            }
-
-            foreach (var step in body.Steps.OrderBy(s => s.Position))
-            {
-                recipe.Steps.Add(new RecipeStep(recipe.Id, step.Position, step.Content));
-            }
+            // COMP-0 — materialize the nested components + children then
+            // hand them to the aggregate's invariant-enforcing
+            // ReplaceComponents method. Any rule violation (empty set,
+            // duplicate positions, foreign-recipe FK) bubbles out as a
+            // 400 invalid_input below.
+            var (components, ingredients, steps) = MaterializeComponents(recipe.Id, body.Components);
+            recipe.ReplaceComponents(components, ingredients, steps);
 
             foreach (var tagId in body.TagIds.Distinct())
             {
@@ -789,6 +828,63 @@ public static class RecipeEndpoints
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// COMP-0 — materialize the nested component request shape into domain
+    /// entities. Does no persistence: returns three lists the caller
+    /// (create + update endpoints) hands to
+    /// <see cref="Recipe.ReplaceComponents"/>. Thrown
+    /// <see cref="ArgumentException"/> instances surface as 400
+    /// <c>invalid_input</c> upstream.
+    /// </summary>
+    internal static (List<RecipeComponent> Components, List<Ingredient> Ingredients, List<RecipeStep> Steps)
+        MaterializeComponents(Guid recipeId, RecipeComponentRequest[]? componentRequests)
+    {
+        if (componentRequests is null || componentRequests.Length == 0)
+            throw new ArgumentException(
+                "A recipe must have at least one component.", nameof(componentRequests));
+
+        var components = new List<RecipeComponent>();
+        var ingredients = new List<Ingredient>();
+        var steps = new List<RecipeStep>();
+        foreach (var componentReq in componentRequests.OrderBy(c => c.Position))
+        {
+            var component = new RecipeComponent(
+                recipeId: recipeId,
+                position: componentReq.Position,
+                label: componentReq.Label);
+            components.Add(component);
+
+            if (componentReq.Ingredients is { } ings)
+            {
+                foreach (var ing in ings.OrderBy(i => i.Position))
+                {
+                    ingredients.Add(new Ingredient(
+                        recipeId: recipeId,
+                        componentId: component.Id,
+                        position: ing.Position,
+                        quantity: ing.Quantity,
+                        unit: ing.Unit,
+                        name: ing.Name,
+                        note: ing.Note,
+                        scalable: ing.Scalable));
+                }
+            }
+
+            if (componentReq.Steps is { } sts)
+            {
+                foreach (var step in sts.OrderBy(s => s.Position))
+                {
+                    steps.Add(new RecipeStep(
+                        recipeId: recipeId,
+                        componentId: component.Id,
+                        position: step.Position,
+                        content: step.Content));
+                }
+            }
+        }
+        return (components, ingredients, steps);
     }
 
     private static async Task<bool> AreTagIdsValidForGroupAsync(
@@ -1251,31 +1347,55 @@ public static class RecipeEndpoints
                 sourceType: recipe.SourceType,
                 updatedAt: now);
 
-            // Wholesale replace: delete existing children in one pass, save,
-            // then insert the replacement set. Doing it in two SaveChanges
-            // calls avoids optimistic-concurrency and unique-index conflicts
-            // when positions overlap between the old and new sets.
+            // COMP-0 — build the fresh children set up front so any
+            // invariant violation (empty components array, cross-recipe
+            // FK, duplicate component position) throws BEFORE we issue
+            // any DELETEs. Keeps the 400 path side-effect-free.
+            var (newComponents, newIngredients, newSteps) =
+                MaterializeComponents(recipe.Id, body.Components);
+            // Run the domain aggregate's invariant-enforcer against the
+            // fresh set so the ≥1-component + unique-position + FK rules
+            // fire BEFORE we touch the DB. We detach the resulting
+            // entities from the aggregate below so the two-phase write
+            // doesn't re-send them as Recipe modifications.
+            recipe.ReplaceComponents(newComponents, newIngredients, newSteps);
+            recipe.Components.Clear();
+            recipe.Ingredients.Clear();
+            recipe.Steps.Clear();
+
+            // Wholesale replace: delete existing children in one pass,
+            // save, then insert the replacement set. Doing it in two
+            // SaveChanges calls avoids optimistic-concurrency and
+            // unique-index conflicts when positions overlap between the
+            // old and new sets. Mirrors the pre-COMP-0 UpdateRecipeAsync
+            // pattern that existing endpoint tests rely on.
+            //
+            // Order matters: Ingredients + Steps before Components so
+            // the ComponentId FK is already gone by the time we drop
+            // the component rows (SQLite enforces FK constraints
+            // immediately).
             var existingIngredients = await db.Ingredients.Where(i => i.RecipeId == recipe.Id).ToListAsync(ct);
             db.Ingredients.RemoveRange(existingIngredients);
             var existingSteps = await db.RecipeSteps.Where(s => s.RecipeId == recipe.Id).ToListAsync(ct);
             db.RecipeSteps.RemoveRange(existingSteps);
+            var existingComponents = await db.RecipeComponents.Where(c => c.RecipeId == recipe.Id).ToListAsync(ct);
+            db.RecipeComponents.RemoveRange(existingComponents);
             var existingTags = await db.RecipeTags.Where(rt => rt.RecipeId == recipe.Id).ToListAsync(ct);
             db.RecipeTags.RemoveRange(existingTags);
             await db.SaveChangesAsync(ct);
 
-            foreach (var ing in body.Ingredients.OrderBy(i => i.Position))
-            {
-                db.Ingredients.Add(new Ingredient(
-                    recipe.Id, ing.Position, ing.Quantity, ing.Unit, ing.Name, ing.Note, ing.Scalable));
-            }
-            foreach (var step in body.Steps.OrderBy(s => s.Position))
-            {
-                db.RecipeSteps.Add(new RecipeStep(recipe.Id, step.Position, step.Content));
-            }
+            // Second phase: insert new components + their children +
+            // tag links. Add through the DbSet (not through the
+            // aggregate's navigation collection) so EF doesn't register
+            // a Recipe-level modification alongside the INSERT batch.
+            foreach (var component in newComponents)
+                db.RecipeComponents.Add(component);
+            foreach (var ingredient in newIngredients)
+                db.Ingredients.Add(ingredient);
+            foreach (var step in newSteps)
+                db.RecipeSteps.Add(step);
             foreach (var tagId in body.TagIds.Distinct())
-            {
                 db.RecipeTags.Add(new RecipeTag(recipe.Id, tagId));
-            }
             await db.SaveChangesAsync(ct);
         }
         catch (ArgumentException ex)
@@ -1629,10 +1749,28 @@ public static class RecipeEndpoints
                 forkOfRecipeId: source.Id,
                 createdAt: now);
 
+            // COMP-0 — clone each source component onto the fork and
+            // re-wire ingredients + steps through the new ComponentIds.
+            // The mapping keeps the same positions so the detail-page
+            // ordering is preserved on the fork.
+            var sourceToForkComponentId = new Dictionary<Guid, Guid>();
+            var forkComponents = new List<RecipeComponent>();
+            foreach (var comp in source.Components.OrderBy(c => c.Position))
+            {
+                var forked = new RecipeComponent(fork.Id, comp.Position, comp.Label);
+                sourceToForkComponentId[comp.Id] = forked.Id;
+                forkComponents.Add(forked);
+            }
+
+            var forkIngredients = new List<Ingredient>();
             foreach (var ing in source.Ingredients.OrderBy(i => i.Position))
             {
-                fork.Ingredients.Add(new Ingredient(
+                if (!sourceToForkComponentId.TryGetValue(ing.ComponentId, out var forkComponentId))
+                    throw new InvalidOperationException(
+                        $"Source recipe {source.Id} carries an orphan ingredient {ing.Id}; aborting fork.");
+                forkIngredients.Add(new Ingredient(
                     recipeId: fork.Id,
+                    componentId: forkComponentId,
                     position: ing.Position,
                     quantity: ing.Quantity,
                     unit: ing.Unit,
@@ -1641,10 +1779,20 @@ public static class RecipeEndpoints
                     scalable: ing.Scalable));
             }
 
+            var forkSteps = new List<RecipeStep>();
             foreach (var step in source.Steps.OrderBy(s => s.Position))
             {
-                fork.Steps.Add(new RecipeStep(fork.Id, step.Position, step.Content));
+                if (!sourceToForkComponentId.TryGetValue(step.ComponentId, out var forkComponentId))
+                    throw new InvalidOperationException(
+                        $"Source recipe {source.Id} carries an orphan step {step.Id}; aborting fork.");
+                forkSteps.Add(new RecipeStep(
+                    recipeId: fork.Id,
+                    componentId: forkComponentId,
+                    position: step.Position,
+                    content: step.Content));
             }
+
+            fork.ReplaceComponents(forkComponents, forkIngredients, forkSteps);
 
             // Photos: copy path references verbatim. Source and fork share
             // the underlying files in object storage — see Deviations: this

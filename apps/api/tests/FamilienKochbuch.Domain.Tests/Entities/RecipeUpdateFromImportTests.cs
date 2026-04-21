@@ -12,10 +12,14 @@ namespace FamilienKochbuch.Domain.Tests.Entities;
 /// the mutable body in place. Preserved: Id, GroupId, CreatedAt,
 /// CreatedByUserId, Photos, Ratings, TimesCooked, LastCookedAt,
 /// SlotAssignments. Overwritten: Title, Description, DefaultServings,
-/// PrepTimeMinutes, Difficulty, Ingredients, Steps, NutritionEstimate.
-/// Tags: existing Custom-category tags stay; AI tags (non-Custom) are
-/// replaced with the new list, with a Custom-wins rule on name collision.
-/// Version bumps exactly once per call.
+/// PrepTimeMinutes, Difficulty, Components, Ingredients, Steps,
+/// NutritionEstimate. Tags: existing Custom-category tags stay; AI tags
+/// (non-Custom) are replaced with the new list, with a Custom-wins rule
+/// on name collision. Version bumps exactly once per call.
+///
+/// COMP-0 — the method now takes a <c>newComponents</c> list and delegates
+/// to <see cref="Recipe.ReplaceComponents"/> for the invariant checks
+/// (≥1 component, unique positions, FK guards).
 /// </summary>
 public class RecipeUpdateFromImportTests
 {
@@ -37,10 +41,11 @@ public class RecipeUpdateFromImportTests
             createdAt: createdAt ?? DateTimeOffset.UtcNow);
     }
 
-    private static Ingredient NewIngredient(Guid recipeId, int position, string name, decimal? quantity = 100m, string unit = "g")
+    private static Ingredient NewIngredient(Guid recipeId, Guid componentId, int position, string name, decimal? quantity = 100m, string unit = "g")
     {
         return new Ingredient(
             recipeId: recipeId,
+            componentId: componentId,
             position: position,
             quantity: quantity,
             unit: unit,
@@ -49,8 +54,11 @@ public class RecipeUpdateFromImportTests
             scalable: quantity.HasValue && quantity.Value > 0m);
     }
 
-    private static RecipeStep NewStep(Guid recipeId, int position, string content)
-        => new RecipeStep(recipeId, position, content);
+    private static RecipeStep NewStep(Guid recipeId, Guid componentId, int position, string content)
+        => new RecipeStep(recipeId, componentId, position, content);
+
+    private static RecipeComponent DefaultComponent(Guid recipeId)
+        => new RecipeComponent(recipeId, 0, null);
 
     private static Tag NewCustomTag(string name)
         => Tag.CreateGroupScoped(Guid.NewGuid(), Guid.NewGuid(), name);
@@ -61,22 +69,35 @@ public class RecipeUpdateFromImportTests
         // "category != Custom" matters for the domain method.
         => Tag.CreateGlobal(name, TagCategory.Typ);
 
+    /// <summary>Seeds the starting state for "the recipe had some
+    /// pre-existing children before we reimported it." Matches the
+    /// two-stage create: a component + its ingredients/steps committed
+    /// via <see cref="Recipe.ReplaceComponents"/>.</summary>
+    private static (RecipeComponent Component, Ingredient Ingredient, RecipeStep Step) SeedInitial(Recipe recipe)
+    {
+        var component = DefaultComponent(recipe.Id);
+        var ingredient = NewIngredient(recipe.Id, component.Id, 0, "Alte Zutat");
+        var step = NewStep(recipe.Id, component.Id, 0, "Alter Schritt");
+        recipe.ReplaceComponents(new[] { component }, new[] { ingredient }, new[] { step });
+        return (component, ingredient, step);
+    }
+
     [Fact]
     public void UpdateFromImport_Replaces_Title_Description_And_Numeric_Metadata()
     {
         var recipe = NewRecipe();
-        recipe.Ingredients.Add(NewIngredient(recipe.Id, 0, "Alte Zutat"));
-        recipe.Steps.Add(NewStep(recipe.Id, 0, "Alter Schritt"));
+        SeedInitial(recipe);
 
+        var newComponent = DefaultComponent(recipe.Id);
         var newIng = new List<Ingredient>
         {
-            NewIngredient(recipe.Id, 0, "Mehl", 500m, "g"),
-            NewIngredient(recipe.Id, 1, "Wasser", 250m, "ml"),
+            NewIngredient(recipe.Id, newComponent.Id, 0, "Mehl", 500m, "g"),
+            NewIngredient(recipe.Id, newComponent.Id, 1, "Wasser", 250m, "ml"),
         };
         var newSteps = new List<RecipeStep>
         {
-            NewStep(recipe.Id, 0, "Vermengen."),
-            NewStep(recipe.Id, 1, "Ruhen lassen."),
+            NewStep(recipe.Id, newComponent.Id, 0, "Vermengen."),
+            NewStep(recipe.Id, newComponent.Id, 1, "Ruhen lassen."),
         };
         var now = new DateTimeOffset(2026, 4, 21, 12, 0, 0, TimeSpan.Zero);
 
@@ -87,6 +108,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: 20,
             cookTimeMinutes: null,
             difficulty: 2,
+            newComponents: new[] { newComponent },
             newIngredients: newIng,
             newSteps: newSteps,
             newAiTagNames: Array.Empty<string>(),
@@ -101,6 +123,7 @@ public class RecipeUpdateFromImportTests
         Assert.Equal(2, recipe.Difficulty);
         Assert.Equal(2, recipe.Ingredients.Count);
         Assert.Equal(2, recipe.Steps.Count);
+        Assert.Single(recipe.Components);
         Assert.Equal("Mehl", recipe.Ingredients.OrderBy(i => i.Position).First().Name);
         Assert.Equal("Vermengen.", recipe.Steps.OrderBy(s => s.Position).First().Content);
     }
@@ -112,6 +135,7 @@ public class RecipeUpdateFromImportTests
         recipe.AddPhoto("recipes/abc.jpg");
         recipe.AddPhoto("recipes/def.jpg");
         var versionBefore = recipe.Version;
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "X",
@@ -120,6 +144,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: Array.Empty<string>(),
@@ -141,6 +166,7 @@ public class RecipeUpdateFromImportTests
         var recipe = NewRecipe();
         var cookedAt = new DateTimeOffset(2026, 4, 10, 18, 0, 0, TimeSpan.Zero);
         recipe.MarkCooked(cookedAt);
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "X",
@@ -149,6 +175,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: Array.Empty<string>(),
@@ -167,6 +194,7 @@ public class RecipeUpdateFromImportTests
         var origId = recipe.Id;
         var origGroup = recipe.GroupId;
         var origCreator = recipe.CreatedByUserId;
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "X",
@@ -175,6 +203,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: Array.Empty<string>(),
@@ -198,6 +227,7 @@ public class RecipeUpdateFromImportTests
         recipe.RecipeTags.Add(new RecipeTag(recipe.Id, oldAiTag.Id));
 
         var newAiTag = NewAiTag("vegetarisch");
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "Neu",
@@ -206,6 +236,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: new[] { "vegetarisch" },
@@ -231,6 +262,7 @@ public class RecipeUpdateFromImportTests
         recipe.RecipeTags.Add(new RecipeTag(recipe.Id, customTag.Id));
 
         var shadowedAiTag = NewAiTag("komfortfood");
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "Neu",
@@ -239,6 +271,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: new[] { "komfortfood" },
@@ -256,6 +289,7 @@ public class RecipeUpdateFromImportTests
     {
         var recipe = NewRecipe();
         var versionBefore = recipe.Version;
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "Neu",
@@ -264,6 +298,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: Array.Empty<string>(),
@@ -279,6 +314,7 @@ public class RecipeUpdateFromImportTests
     {
         var recipe = NewRecipe();
         var now = new DateTimeOffset(2026, 5, 1, 9, 30, 0, TimeSpan.Zero);
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "Neu",
@@ -287,6 +323,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: Array.Empty<string>(),
@@ -298,11 +335,11 @@ public class RecipeUpdateFromImportTests
     }
 
     [Fact]
-    public void UpdateFromImport_With_Zero_Ingredients_And_Steps_Does_Not_Crash()
+    public void UpdateFromImport_With_Empty_Children_Keeps_Single_Default_Component()
     {
         var recipe = NewRecipe();
-        recipe.Ingredients.Add(NewIngredient(recipe.Id, 0, "Alte Zutat"));
-        recipe.Steps.Add(NewStep(recipe.Id, 0, "Alter Schritt"));
+        SeedInitial(recipe);
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "Leer",
@@ -311,7 +348,9 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
-            // no-op overwrite — still must clear children without crashing.
+            // The reimport's recipe_empty case still yields a single
+            // default component with zero ingredients / zero steps.
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: Array.Empty<string>(),
@@ -319,8 +358,31 @@ public class RecipeUpdateFromImportTests
             nutrition: null,
             now: DateTimeOffset.UtcNow);
 
+        Assert.Single(recipe.Components);
         Assert.Empty(recipe.Ingredients);
         Assert.Empty(recipe.Steps);
+    }
+
+    [Fact]
+    public void UpdateFromImport_Rejects_Empty_Components_Array()
+    {
+        var recipe = NewRecipe();
+        SeedInitial(recipe);
+
+        Assert.Throws<ArgumentException>(() => recipe.UpdateFromImport(
+            title: "Ohne Komponenten",
+            description: null,
+            defaultServings: 1,
+            prepTimeMinutes: null,
+            cookTimeMinutes: null,
+            difficulty: 1,
+            newComponents: Array.Empty<RecipeComponent>(),
+            newIngredients: Array.Empty<Ingredient>(),
+            newSteps: Array.Empty<RecipeStep>(),
+            newAiTagNames: Array.Empty<string>(),
+            existingAndNewTags: Array.Empty<Tag>(),
+            nutrition: null,
+            now: DateTimeOffset.UtcNow));
     }
 
     [Fact]
@@ -329,6 +391,7 @@ public class RecipeUpdateFromImportTests
         var recipe = NewRecipe();
         recipe.SetNutritionEstimate(new NutritionEstimate(200, 5, 20, 3), DateTimeOffset.UtcNow);
         var newEstimate = new NutritionEstimate(450, 22, 40, 12);
+        var newComponent = DefaultComponent(recipe.Id);
 
         recipe.UpdateFromImport(
             title: "Neu",
@@ -337,6 +400,7 @@ public class RecipeUpdateFromImportTests
             prepTimeMinutes: null,
             cookTimeMinutes: null,
             difficulty: 1,
+            newComponents: new[] { newComponent },
             newIngredients: Array.Empty<Ingredient>(),
             newSteps: Array.Empty<RecipeStep>(),
             newAiTagNames: Array.Empty<string>(),

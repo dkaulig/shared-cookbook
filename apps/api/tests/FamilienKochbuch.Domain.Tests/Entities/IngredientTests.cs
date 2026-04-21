@@ -20,6 +20,7 @@ public class IngredientTests
     {
         return new Ingredient(
             recipeId: Guid.NewGuid(),
+            componentId: Guid.NewGuid(),
             position: position,
             quantity: quantity,
             unit: unit,
@@ -32,8 +33,10 @@ public class IngredientTests
     public void Constructor_Sets_Basic_Fields()
     {
         var recipeId = Guid.NewGuid();
+        var componentId = Guid.NewGuid();
         var ingredient = new Ingredient(
             recipeId: recipeId,
+            componentId: componentId,
             position: 0,
             quantity: 250m,
             unit: "g",
@@ -43,6 +46,7 @@ public class IngredientTests
 
         Assert.NotEqual(Guid.Empty, ingredient.Id);
         Assert.Equal(recipeId, ingredient.RecipeId);
+        Assert.Equal(componentId, ingredient.ComponentId);
         Assert.Equal(0, ingredient.Position);
         Assert.Equal(250m, ingredient.Quantity);
         Assert.Equal("g", ingredient.Unit);

@@ -123,8 +123,14 @@ public class RatingEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
             PrepTimeMinutes: 30,
             Difficulty: 1,
             SourceUrl: null,
-            Ingredients: new[] { new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true) },
-            Steps: new[] { new RecipeEndpoints.StepRequest(0, "Kochen.") },
+            Components: new[]
+            {
+                new RecipeEndpoints.RecipeComponentRequest(
+                    Position: 0,
+                    Label: null,
+                    Ingredients: new[] { new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true) },
+                    Steps: new[] { new RecipeEndpoints.StepRequest(0, "Kochen.") }),
+            },
             TagIds: Array.Empty<Guid>());
 
     private async Task<Guid> CreateRecipeAsync(HttpClient client, Guid groupId, string title = "Spätzle")
