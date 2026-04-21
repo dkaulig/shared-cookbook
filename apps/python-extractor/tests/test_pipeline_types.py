@@ -146,6 +146,11 @@ def test_extraction_result_shape() -> None:
         "confidence": {"overall": "medium", "notes": ["Keine Mengen erkannt"]},
         "recipe_empty": False,
         "empty_reason": None,
+        "signals": {
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": False,
+        },
     }
     assert result["recipe"]["title"] == "Kaiserschmarrn"
     assert result["confidence"]["overall"] == "medium"

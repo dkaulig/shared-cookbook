@@ -190,9 +190,9 @@ public sealed class AzureOpenAIChatClient : IAzureOpenAIChatClient
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private sealed record RequestConfig(string Endpoint, string ApiVersion, string Deployment);
+    internal sealed record RequestConfig(string Endpoint, string ApiVersion, string Deployment);
 
-    private bool TryBuildRequest(
+    internal bool TryBuildRequest(
         IReadOnlyList<ChatCompletionMessage> messages,
         bool stream,
         out HttpRequestMessage request,
@@ -216,11 +216,17 @@ public sealed class AzureOpenAIChatClient : IAzureOpenAIChatClient
         var uri = $"{endpoint}/openai/deployments/{Uri.EscapeDataString(deployment)}"
                   + $"/chat/completions?api-version={Uri.EscapeDataString(apiVersion)}";
 
+        // 2026-04-21 — Azure's newer GPT-5.x-chat deployments (under
+        // 2025-04-01-preview+) reject `max_tokens` with code
+        // `unsupported_parameter` and require `max_completion_tokens`
+        // instead. They also reject any non-default `temperature`
+        // (`Only the default (1) value is supported`). Drop
+        // `temperature` from the payload and rename the cap — older
+        // deployments still accept `max_completion_tokens`.
         var payload = new Dictionary<string, object?>
         {
             ["messages"] = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray(),
-            ["max_tokens"] = 2048,
-            ["temperature"] = 0.7,
+            ["max_completion_tokens"] = 2048,
         };
         if (stream)
         {
