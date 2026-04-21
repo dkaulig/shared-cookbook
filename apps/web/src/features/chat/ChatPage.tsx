@@ -512,8 +512,50 @@ export function ChatPage() {
   const sendDisabled =
     isStreaming || input.trim().length === 0 || turnCap === 'blocked'
 
+  // 2026-04-21 iOS-PWA keyboard fix. When the soft keyboard opens on
+  // a standalone PWA, iOS does not always honour
+  // `interactive-widget=resizes-content` on the <meta viewport>, so
+  // the layout viewport (and our `fixed inset-0` root) doesn't shrink
+  // and the sticky composer gets pushed behind the keyboard. Reading
+  // `window.visualViewport.height` and pinning this chat shell's
+  // height to that value forces the inner flex-column to reflow:
+  // messages shrink, composer sits at the bottom of the visible area.
+  // Browser tab (non-PWA) already resizes correctly — the effect is a
+  // no-op there because visualViewport.height === parent height.
+  const chatShellRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const vv = window.visualViewport
+    if (!vv) return
+    // Capture the current ref target so the cleanup can reach the same
+    // element even if React has re-mounted it by then.
+    const el = chatShellRef.current
+    let rafId = 0
+    const apply = () => {
+      rafId = 0
+      if (!el) return
+      el.style.height = `${vv.height}px`
+    }
+    const schedule = () => {
+      if (rafId !== 0) return
+      rafId = window.requestAnimationFrame(apply)
+    }
+    schedule()
+    vv.addEventListener('resize', schedule)
+    vv.addEventListener('scroll', schedule)
+    return () => {
+      vv.removeEventListener('resize', schedule)
+      vv.removeEventListener('scroll', schedule)
+      if (rafId !== 0) window.cancelAnimationFrame(rafId)
+      if (el) el.style.height = ''
+    }
+  }, [])
+
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 md:px-6">
+    <div
+      ref={chatShellRef}
+      className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 md:px-6"
+    >
       <ChatTopBar
         title={session?.title ?? null}
         onBack={() => navigate(-1)}

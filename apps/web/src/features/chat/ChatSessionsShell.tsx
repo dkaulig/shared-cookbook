@@ -196,7 +196,15 @@ export function ChatSessionsShell({
         aria-haspopup="dialog"
         aria-expanded={drawerOpen}
         onClick={() => setDrawerOpen(true)}
-        className="fixed left-4 top-[72px] z-30 inline-flex h-10 items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 text-[13px] font-semibold text-foreground shadow-[0_2px_8px_-2px_rgba(28,25,23,0.15)] backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
+        // 2026-04-21 — push below the sticky chat header. The viewport
+        // stack on mobile from the top edge is: safe-area inset → the
+        // brand/avatar TopNav (~60 px) → the chat screen's own sticky
+        // sub-header with back arrow + title + rename (~56 px). The
+        // old 72 px offset landed in the middle of the sub-header and
+        // covered the title. The calc here clears safe-area + both
+        // sticky bars with an 8 px gap so the FAB floats inside the
+        // messages area instead of on top of the chat header.
+        className="fixed left-4 top-[calc(env(safe-area-inset-top,0px)+128px)] z-30 inline-flex h-10 items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 text-[13px] font-semibold text-foreground shadow-[0_2px_8px_-2px_rgba(28,25,23,0.15)] backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
         data-testid="chat-sessions-drawer-trigger"
       >
         <MessageSquare className="h-4 w-4" aria-hidden="true" />
