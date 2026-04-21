@@ -39,6 +39,7 @@ ExtractionErrorCode = Literal[
     "source_unavailable",
     "transcription_failed",
     "invalid_input",
+    "feature_disabled",
 ]
 """Discriminator for :class:`ExtractionError`.
 
@@ -52,6 +53,9 @@ on them to decide retry vs user-visible error.
   validation rule (e.g. 0 or >10 photos for the P2-3 Vision path).
   Maps to HTTP 422. Kept on the shared ``ExtractionError`` class so
   endpoint handlers only need one ``except`` clause across slices.
+- ``feature_disabled`` — CFG-1: the admin turned the feature off via
+  the extractor-config admin UI. Maps to HTTP 422 with the German
+  message the pipeline emitted, which the frontend renders verbatim.
 """
 
 

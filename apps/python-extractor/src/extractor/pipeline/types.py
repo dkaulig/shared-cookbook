@@ -236,6 +236,34 @@ class ExtractionSignals(TypedDict):
     had_transcript: bool
 
 
+class ConfigSnapshot(TypedDict):
+    """CFG-1 — snapshot of the active LLM config at extraction time.
+
+    Recorded on every structured-extraction ``ResultJson`` so
+    reproducibility is trivial when debugging a bad extraction: the
+    operator can look at the persisted row and see exactly which prompt
+    version / temperature / deployment ran.
+
+    - ``prompt_hash`` — ``"sha256:<first 16 hex chars>"`` of the active
+      system prompt string. Truncated to keep the JSON compact while
+      staying collision-resistant enough to spot prompt drift.
+    - ``temperature`` — the numeric value the provider was asked to pin.
+      Ints (``0``) pass through unchanged; floats (``0.5``) too.
+    - ``max_completion_tokens`` — upper bound on the provider's reply
+      length.
+    - ``deployment`` — Azure deployment name (``"gpt-4.1-mini"``).
+    - ``prompt_version`` — the ``Version`` integer the CFG-0 API
+      returned for the prompt's config row. ``None`` when the loader's
+      cache hasn't seen this key yet (cold-start / fetch failure).
+    """
+
+    prompt_hash: str
+    temperature: float
+    max_completion_tokens: int
+    deployment: str
+    prompt_version: int | None
+
+
 class ExtractionResult(TypedDict):
     """Top-level response body for ``POST /extract/url``.
 
@@ -269,6 +297,10 @@ class ExtractionResult(TypedDict):
     # didn't observe any source) so the frontend can render variant copy
     # without null-guards. See :class:`ExtractionSignals`.
     signals: ExtractionSignals
+    # CFG-1 — optional config snapshot for reproducibility. Optional on
+    # the wire so non-LLM paths (cache hit, error degraded) can still
+    # return an ``ExtractionResult`` without fabricating a snapshot.
+    config_snapshot: NotRequired[ConfigSnapshot]
 
 
 __all__ = [
@@ -277,6 +309,7 @@ __all__ = [
     "INGREDIENT_CONFIDENCE_LEVELS",
     "STEP_CONFIDENCE_LEVELS",
     "ConfidenceLevel",
+    "ConfigSnapshot",
     "EmptyReason",
     "ExtractedComponent",
     "ExtractedIngredient",

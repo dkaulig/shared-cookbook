@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import hashlib
 import ipaddress
 import json
 import logging
@@ -65,14 +66,25 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 
+from extractor.config_loader import (
+    ExtractorConfig,
+    get_flag,
+    get_float,
+    get_int,
+    get_list,
+    get_str,
+)
 from extractor.llm import ChatMessage, LLMProvider, TokenUsage
 from extractor.pipeline.blog import (
     extract_bs4_fallback,
     extract_jsonld,
     extract_recipe_scrapers,
 )
-from extractor.pipeline.post_process import post_process
-from extractor.pipeline.types import ExtractionResult, ExtractionSignals
+from extractor.pipeline.post_process import (
+    GENERIC_COMPONENT_LABEL_BLACKLIST_DEFAULT,
+    post_process,
+)
+from extractor.pipeline.types import ConfigSnapshot, ExtractionResult, ExtractionSignals
 from extractor.pipeline.video import (
     ExtractionError,
     Transcriber,
@@ -166,38 +178,36 @@ _BLOCKED_HOSTNAMES: frozenset[str] = frozenset(
 # graceful-failure handler.
 _URL_IN_CAPTION_RE: re.Pattern[str] = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
 
-# Known URL-shortener hosts. FB reels commonly hide the real recipe
-# blog behind a ``bit.ly`` / ``linktr.ee`` link; BUG-033 changed the
-# handling from "drop silently" to "HEAD-resolve one or more hops and
-# apply the video-host / same-host filters on the resolved URL". The
-# regex set still needs to match so we know to resolve rather than
-# follow verbatim. ``youtu.be`` is already covered via ``_VIDEO_HOSTS``.
-_SHORTENER_HOSTS: frozenset[str] = frozenset(
-    {
-        "bit.ly",
-        "tinyurl.com",
-        "lnk.bio",
-        "linktr.ee",
-        "t.co",
-        "ow.ly",
-        "buff.ly",
-        "goo.gl",
-    }
-)
+# CFG-1 — hardcoded fallbacks for the four pipeline tunables that used
+# to live as ``_SHORTENER_*`` / ``_MIN_TRANSCRIPT_CHARS`` module
+# constants. The live values now flow through :class:`ExtractorConfig`;
+# these defaults are the 2nd arg of every ``config.get(...)`` so the
+# pipeline stays functional when the config API is unreachable (docker-
+# compose boot, CFG-0 not yet deployed, etc).
+_SHORTENER_HOSTS_DEFAULT: Final[list[str]] = [
+    "bit.ly",
+    "tinyurl.com",
+    "lnk.bio",
+    "linktr.ee",
+    "t.co",
+    "ow.ly",
+    "buff.ly",
+    "goo.gl",
+]
 
 # BUG-033 — shortener-resolution client config. HEAD only (never GET;
 # SSRF + bandwidth risks), short per-hop timeout, and a cap on the
 # number of redirect hops we chase. Shorteners typically resolve in
 # one hop; three allows stacked shorteners (bit.ly → tinyurl → blog).
-_SHORTENER_HEAD_TIMEOUT: float = 5.0
-_SHORTENER_MAX_REDIRECTS: int = 3
+_SHORTENER_HEAD_TIMEOUT_DEFAULT: Final[float] = 5.0
+_SHORTENER_MAX_REDIRECTS_DEFAULT: Final[int] = 3
 
 # BUG-034 — minimum characters of non-whitespace Whisper output before
 # we consider the video to have produced a usable transcript. Below
 # this the audio is almost certainly background babble ("hi", "uhh")
 # that doesn't help the LLM; treating it as ``had_transcript=False``
 # lets the signal-aware explainer tell the user "no audio" honestly.
-_MIN_TRANSCRIPT_CHARS: Final[int] = 20
+_MIN_TRANSCRIPT_CHARS_DEFAULT: Final[int] = 20
 
 
 class SsrfBlockedError(RuntimeError):
@@ -293,7 +303,7 @@ async def _resolve_shortener(
     url: str,
     *,
     client: httpx.AsyncClient,
-    max_redirects: int = _SHORTENER_MAX_REDIRECTS,
+    max_redirects: int = _SHORTENER_MAX_REDIRECTS_DEFAULT,
 ) -> str | None:
     """HEAD-follow a shortener URL up to ``max_redirects`` hops.
 
@@ -379,6 +389,9 @@ async def _extract_caption_blog_url(
     *,
     source_url: str,
     client: httpx.AsyncClient | None = None,
+    blog_follow_enabled: bool = True,
+    shortener_hosts: frozenset[str] | None = None,
+    shortener_max_redirects: int = _SHORTENER_MAX_REDIRECTS_DEFAULT,
 ) -> str | None:
     """Return the first external recipe-blog URL from the caption, or ``None``.
 
@@ -388,11 +401,18 @@ async def _extract_caption_blog_url(
       the Facebook post we started from).
     - URLs on known video hosts in :data:`_VIDEO_HOSTS` (don't recurse
       into TikTok / Instagram / YouTube from an FB caption).
-    - URLs on known shorteners (:data:`_SHORTENER_HOSTS`). When a
-      ``client`` is supplied, BUG-033 enables HEAD-resolution to the
-      final URL and re-applies the same-host / video-host / shortener
-      filters on the resolved target. Without a client (legacy sync
-      callers), shorteners are skipped — same behaviour as before.
+    - URLs on known shorteners (``shortener_hosts``). When a ``client``
+      is supplied, BUG-033 enables HEAD-resolution to the final URL and
+      re-applies the same-host / video-host / shortener filters on the
+      resolved target. Without a client (legacy sync callers),
+      shorteners are skipped — same behaviour as before.
+
+    CFG-1 — when ``blog_follow_enabled`` is False the whole function
+    short-circuits to ``None`` (``feature.blog_follow_enabled`` kill
+    switch). The admin can disable caption-blog follow without touching
+    the video-import path. ``shortener_hosts`` comes from
+    ``pipeline.shortener_hosts``; ``shortener_max_redirects`` from
+    ``pipeline.shortener_max_redirects``.
 
     Trailing prose punctuation (``.,;:!?``) is trimmed before parsing
     so ``"Rezept: https://blog.example/recipe."`` yields the URL
@@ -405,6 +425,12 @@ async def _extract_caption_blog_url(
     """
     if not caption:
         return None
+    if not blog_follow_enabled:
+        logger.info("caption_url_skipped reason=blog_follow_disabled")
+        return None
+    active_shortener_hosts: frozenset[str] = (
+        shortener_hosts if shortener_hosts is not None else frozenset(_SHORTENER_HOSTS_DEFAULT)
+    )
     source_host = _safe_host(source_url)
     had_matches = False
     for match in _URL_IN_CAPTION_RE.finditer(caption):
@@ -425,7 +451,7 @@ async def _extract_caption_blog_url(
                 host,
             )
             continue
-        if host in _SHORTENER_HOSTS:
+        if host in active_shortener_hosts:
             if client is None:
                 # Legacy sync callers — behave exactly as before BUG-033.
                 logger.info(
@@ -433,7 +459,9 @@ async def _extract_caption_blog_url(
                     host,
                 )
                 continue
-            resolved = await _resolve_shortener(raw, client=client)
+            resolved = await _resolve_shortener(
+                raw, client=client, max_redirects=shortener_max_redirects
+            )
             if resolved is None:
                 logger.info(
                     "caption_url_skipped reason=shortener_unresolved src_host=%s",
@@ -462,7 +490,7 @@ async def _extract_caption_blog_url(
                     resolved_host,
                 )
                 continue
-            if resolved_host in _SHORTENER_HOSTS:
+            if resolved_host in active_shortener_hosts:
                 # Resolution bounced into another shortener we can't
                 # follow further (max-hops cap or the resolver returned
                 # a 200 Location that is itself a shortener host).
@@ -514,6 +542,7 @@ async def extract_from_url(
     downloader: VideoDownloader | None = None,
     transcriber: Transcriber | None = None,
     reporter: ProgressReporter | None = None,
+    config: ExtractorConfig | None = None,
 ) -> ExtractionResult:
     """Run the full URL → structured-recipe pipeline.
 
@@ -538,8 +567,41 @@ async def extract_from_url(
         to the .NET side. Defaults to a :class:`NullProgressReporter`
         which incurs zero HTTP traffic — existing tests that don't care
         about progress pass nothing.
+    config
+        Optional :class:`ExtractorConfig` for hot-configurable knobs
+        (CFG-1). When ``None``, every ``config.get`` call falls back to
+        the hardcoded defaults — tests + legacy callers stay working.
+        Production wires the singleton via FastAPI dependency in
+        :mod:`extractor.main`.
     """
     active_reporter: ProgressReporter = reporter or NullProgressReporter()
+
+    # CFG-1 — fetch every live tunable ONCE at the top so a mid-run
+    # TTL-expiry or refresh failure can't shift behaviour between phases.
+    # The ``config is None`` branch returns the literal defaults, so
+    # legacy callers + unit tests that never build a config behave
+    # exactly as they always did.
+    video_enabled = await get_flag(config, "feature.video_import_enabled", True)
+    blog_follow_enabled = await get_flag(config, "feature.blog_follow_enabled", True)
+    nutrition_enabled = await get_flag(config, "feature.nutrition_estimate_enabled", True)
+    shortener_hosts = frozenset(
+        await get_list(config, "pipeline.shortener_hosts", _SHORTENER_HOSTS_DEFAULT)
+    )
+    shortener_max_redirects = await get_int(
+        config, "pipeline.shortener_max_redirects", _SHORTENER_MAX_REDIRECTS_DEFAULT
+    )
+    shortener_head_timeout = await get_float(
+        config, "pipeline.shortener_head_timeout_seconds", _SHORTENER_HEAD_TIMEOUT_DEFAULT
+    )
+    min_transcript_chars = await get_int(
+        config, "pipeline.min_transcript_chars", _MIN_TRANSCRIPT_CHARS_DEFAULT
+    )
+    component_label_max = await get_int(config, "pipeline.component_label_max", 50)
+    generic_label_blacklist = await get_list(
+        config,
+        "pipeline.generic_label_blacklist",
+        list(GENERIC_COMPONENT_LABEL_BLACKLIST_DEFAULT),
+    )
 
     kind = classify_url(url)
     logger.info("extract_from_url start host=%s kind=%s", _redact_host(url), kind)
@@ -565,6 +627,14 @@ async def extract_from_url(
     # the previous task internally so we don't leak.
     try:
         if kind == "video":
+            # CFG-1 — ``feature.video_import_enabled`` kill switch. Raise
+            # BEFORE we boot yt-dlp / Whisper so a disabled feature adds
+            # zero import cost. Maps to HTTP 422 in main.py.
+            if not video_enabled:
+                raise ExtractionError(
+                    "feature_disabled",
+                    "Video-Import ist aktuell deaktiviert.",
+                )
             (transcript, caption, thumbnail_url) = await _run_video_path(
                 url=url,
                 downloader=downloader,
@@ -575,7 +645,7 @@ async def extract_from_url(
             # it's substantive. A 3-char "Hi" is Whisper noise and the
             # user shouldn't be told "we transcribed your video" when
             # we really got one word.
-            had_transcript = bool(transcript and len(transcript.strip()) >= _MIN_TRANSCRIPT_CHARS)
+            had_transcript = bool(transcript and len(transcript.strip()) >= min_transcript_chars)
             # P2-2.1 — if the caption references an external recipe blog,
             # fetch it once and attach its flattened text as another source
             # for the LLM. Ingredient quantities often live only on the
@@ -587,13 +657,16 @@ async def extract_from_url(
             # Lives only for the duration of this extraction so we don't
             # hold sockets open longer than needed.
             async with httpx.AsyncClient(
-                timeout=_SHORTENER_HEAD_TIMEOUT,
+                timeout=shortener_head_timeout,
                 follow_redirects=False,
             ) as shortener_client:
                 external_url = await _extract_caption_blog_url(
                     caption,
                     source_url=url,
                     client=shortener_client,
+                    blog_follow_enabled=blog_follow_enabled,
+                    shortener_hosts=shortener_hosts,
+                    shortener_max_redirects=shortener_max_redirects,
                 )
             if external_url is not None:
                 # BUG-034 — a caption URL resolved through all filters;
@@ -621,11 +694,19 @@ async def extract_from_url(
                     blog_text is not None,
                 )
         else:
-            (blog_text, thumbnail_url, notes) = await _run_blog_path(url, untrusted=False)
-            # BUG-034 — direct blog URL; the blog is the only signal
-            # source (no caption, no audio) so map a non-empty fetch
-            # result onto ``had_blog_source``.
-            had_blog_source = bool(blog_text and blog_text.strip())
+            # CFG-1 — direct blog URL honours the blog-follow kill switch
+            # too. When disabled we skip the blog fetch entirely and hand
+            # the LLM nothing but the URL itself; the empty-reason
+            # classifier + signal-aware copy explains the situation to
+            # the user.
+            if blog_follow_enabled:
+                (blog_text, thumbnail_url, notes) = await _run_blog_path(url, untrusted=False)
+                # BUG-034 — direct blog URL; the blog is the only signal
+                # source (no caption, no audio) so map a non-empty fetch
+                # result onto ``had_blog_source``.
+                had_blog_source = bool(blog_text and blog_text.strip())
+            else:
+                logger.info("blog_follow_skipped reason=feature_disabled")
 
         # Structuring phase — an async LLM call that yields no in-flight
         # granularity, so a single "phase starts" event is enough. The
@@ -634,6 +715,17 @@ async def extract_from_url(
         # ticking during the (potentially 10-20 s) Azure call.
         await active_reporter.report(ProgressEvent(phase="structuring", phase_progress=0))
         await active_reporter.start_heartbeat("structuring")
+
+        # CFG-1 — resolve the structured-extraction params via config.
+        # The hardcoded prompt / deployment / temperature / max_tokens
+        # remain as defaults so tests + cold-start pipelines stay
+        # working, and admin-UI changes surface here on the next 60 s
+        # TTL tick.
+        system_prompt = await get_str(config, "llm.structured.system_prompt", SYSTEM_PROMPT_DE)
+        temperature = await get_float(config, "llm.structured.temperature", 0.0)
+        max_completion_tokens = await get_int(config, "llm.structured.max_completion_tokens", 2048)
+        deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1-mini")
+
         llm_output, usage = await _run_llm_structuring(
             provider=provider,
             transcript=transcript,
@@ -641,6 +733,10 @@ async def extract_from_url(
             blog_text=blog_text,
             thumbnail_url=thumbnail_url,
             blog_text_untrusted=blog_text_untrusted,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            deployment=deployment,
         )
 
         await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
@@ -660,6 +756,14 @@ async def extract_from_url(
             had_blog_source,
             had_transcript,
         )
+        snapshot = _build_config_snapshot(
+            config=config,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            deployment=deployment,
+            prompt_version_key="llm.structured.system_prompt",
+        )
         return post_process(
             llm_output,
             original_url=url,
@@ -667,6 +771,10 @@ async def extract_from_url(
             extra_notes=notes,
             usage=usage,
             signals=signals,
+            nutrition_enabled=nutrition_enabled,
+            component_label_max=component_label_max,
+            generic_label_blacklist=generic_label_blacklist,
+            config_snapshot=snapshot,
         )
     finally:
         # Always tear down the heartbeat — even on exception — so a
@@ -1104,6 +1212,10 @@ async def _run_llm_structuring(
     blog_text: str | None,
     thumbnail_url: str | None,
     blog_text_untrusted: bool = False,
+    system_prompt: str = SYSTEM_PROMPT_DE,
+    temperature: float = 0.0,
+    max_completion_tokens: int = 2048,
+    deployment: str | None = None,
 ) -> tuple[dict[str, Any], TokenUsage]:
     """Compose the user message, call the provider, return parsed JSON + usage.
 
@@ -1111,6 +1223,13 @@ async def _run_llm_structuring(
     ``<untrusted_blog>…</untrusted_blog>`` delimiters so the system
     prompt's anti-prompt-injection rule applies. Only the caption-linked
     branch sets this flag; user-typed blog URLs are trusted.
+
+    CFG-1 — ``system_prompt``, ``temperature``, ``max_completion_tokens``
+    and ``deployment`` are fetched from config by the caller and passed
+    through to the provider. Non-``AzureOpenAIProvider`` implementations
+    (``MockLLMProvider``, ``NullProvider``) accept the base signature
+    only; the extra kwargs land via ``_call_extract_structured`` which
+    forwards them on Azure and drops them on the mock.
     """
     effective_blog_text: str | None = blog_text
     if blog_text_untrusted and blog_text is not None:
@@ -1125,9 +1244,51 @@ async def _run_llm_structuring(
     logger.info("llm_structuring start")
     # User content — DEBUG only.
     logger.debug("llm user_message (truncated): %s", user_message[:400])
-    result, usage = await provider.extract_structured(SYSTEM_PROMPT_DE, messages, RECIPE_SCHEMA)
+    result, usage = await _call_extract_structured(
+        provider,
+        system_prompt=system_prompt,
+        messages=messages,
+        json_schema=RECIPE_SCHEMA,
+        temperature=temperature,
+        max_completion_tokens=max_completion_tokens,
+        deployment=deployment,
+    )
     logger.info("llm_structuring done keys=%d", len(result))
     return result, usage
+
+
+async def _call_extract_structured(
+    provider: LLMProvider,
+    *,
+    system_prompt: str,
+    messages: list[ChatMessage],
+    json_schema: dict[str, Any],
+    temperature: float,
+    max_completion_tokens: int,
+    deployment: str | None,
+) -> tuple[dict[str, Any], TokenUsage]:
+    """Bridge the generic :class:`LLMProvider` API with Azure-specific overrides.
+
+    :class:`AzureOpenAIProvider.extract_structured` accepts optional
+    ``temperature`` / ``max_completion_tokens`` / ``deployment`` kwargs
+    (CFG-1); the mock / null providers don't. Detect the capability via
+    ``getattr`` on the class's signature rather than isinstance-check so
+    future provider implementations can opt in by adding the kwarg.
+    """
+    # Late import to avoid a cycle — ``llm.azure_openai`` imports nothing
+    # from this module but the factory chain does.
+    from extractor.llm.azure_openai import AzureOpenAIProvider
+
+    if isinstance(provider, AzureOpenAIProvider):
+        return await provider.extract_structured(
+            system_prompt,
+            messages,
+            json_schema,
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            deployment=deployment,
+        )
+    return await provider.extract_structured(system_prompt, messages, json_schema)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1144,6 +1305,34 @@ def _redact_host(url: str) -> str:
     host = (parsed.hostname or "unknown").lower()
     scheme = parsed.scheme or "https"
     return f"{scheme}://{host}"
+
+
+def _build_config_snapshot(
+    *,
+    config: ExtractorConfig | None,
+    system_prompt: str,
+    temperature: float,
+    max_completion_tokens: int,
+    deployment: str,
+    prompt_version_key: str,
+) -> ConfigSnapshot:
+    """Build a :class:`ConfigSnapshot` for the active extraction.
+
+    Hash is SHA-256 of the prompt string, truncated to the first 16 hex
+    chars for compactness. ``prompt_version`` comes from the loader's
+    version-table (falls back to ``None`` when the cache is cold).
+    """
+    prompt_hash = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16]
+    prompt_version: int | None = None
+    if config is not None:
+        prompt_version = config.version_of(prompt_version_key)
+    return {
+        "prompt_hash": f"sha256:{prompt_hash}",
+        "temperature": temperature,
+        "max_completion_tokens": max_completion_tokens,
+        "deployment": deployment,
+        "prompt_version": prompt_version,
+    }
 
 
 __all__ = [

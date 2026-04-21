@@ -30,10 +30,12 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from typing import Annotated, Final, Literal
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from extractor.config import Settings
+from extractor.config_loader import ExtractorConfig
 from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, TokenUsage, build_provider
 from extractor.pipeline.chat import (
     EmptyMessagesError,
@@ -315,6 +317,41 @@ def get_llm_provider() -> LLMProvider:
     return build_provider(_get_settings())
 
 
+# CFG-1 — process-wide ExtractorConfig + the httpx client that backs it.
+# Both singletons live for the lifetime of the FastAPI app so the 60 s
+# TTL cache survives across requests (the whole point). Tests override
+# :func:`get_extractor_config` via FastAPI ``dependency_overrides`` to
+# inject a fake pre-seeded config.
+_extractor_config_client: httpx.AsyncClient | None = None
+_extractor_config_singleton: ExtractorConfig | None = None
+
+
+def get_extractor_config() -> ExtractorConfig | None:
+    """FastAPI dependency returning the :class:`ExtractorConfig` singleton.
+
+    Returns ``None`` when ``extractor_config_api_base`` is empty — that
+    signals "don't fetch, just use defaults" for hermetic test + local
+    hacking runs without the .NET side.
+    """
+    global _extractor_config_singleton, _extractor_config_client
+    if _extractor_config_singleton is not None:
+        return _extractor_config_singleton
+    settings = _get_settings()
+    base = settings.extractor_config_api_base.strip()
+    if not base:
+        logger.info(
+            "ExtractorConfig disabled (EXTRACTOR_CONFIG_API_BASE empty) —"
+            " pipeline uses hardcoded defaults."
+        )
+        return None
+    _extractor_config_client = httpx.AsyncClient(base_url=base)
+    _extractor_config_singleton = ExtractorConfig(
+        client=_extractor_config_client,
+        ttl_seconds=settings.extractor_config_ttl_seconds,
+    )
+    return _extractor_config_singleton
+
+
 def get_video_stack() -> VideoStack | None:
     """FastAPI dependency for the video-path stack.
 
@@ -367,10 +404,13 @@ def _http_from_extraction_error(exc: ExtractionError) -> HTTPException:
 
     - ``source_unavailable`` (dead/private URL) → 422.
     - ``invalid_input`` (P2-3: bad photo count / bad scheme) → 422.
+    - ``feature_disabled`` (CFG-1 kill switch) → 422 with the German
+      message the pipeline emitted verbatim.
     - ``transcription_failed`` — Whisper model trouble → 500.
     """
-    if exc.code in ("source_unavailable", "invalid_input"):
-        # Caller-side mistakes — surface the German message verbatim.
+    if exc.code in ("source_unavailable", "invalid_input", "feature_disabled"):
+        # Caller-side mistakes OR admin-disabled features — surface the
+        # German message verbatim so the frontend can render it.
         return HTTPException(status_code=422, detail=str(exc))
     # transcription_failed — model trouble. 500.
     return HTTPException(status_code=500, detail=str(exc))
@@ -497,6 +537,7 @@ def create_app() -> FastAPI:
         response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
         video_stack: Annotated[VideoStack | None, Depends(get_video_stack)],
+        config: Annotated[ExtractorConfig | None, Depends(get_extractor_config)],
     ) -> ExtractionResult:
         """Run the URL → structured-recipe pipeline.
 
@@ -532,6 +573,7 @@ def create_app() -> FastAPI:
                     downloader=downloader,
                     transcriber=transcriber,
                     reporter=reporter,
+                    config=config,
                 )
             except LLMProviderError as exc:
                 raise _http_from_llm_error(exc) from exc
@@ -552,6 +594,7 @@ def create_app() -> FastAPI:
         request: ExtractPhotosRequest,
         response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+        config: Annotated[ExtractorConfig | None, Depends(get_extractor_config)],
     ) -> ExtractionResult:
         """Run the photos → structured-recipe pipeline (P2-3).
 
@@ -587,7 +630,12 @@ def create_app() -> FastAPI:
         )
         try:
             try:
-                result = await extract_from_photos(urls, provider=provider, reporter=reporter)
+                result = await extract_from_photos(
+                    urls,
+                    provider=provider,
+                    reporter=reporter,
+                    config=config,
+                )
             except ExtractionError as exc:
                 raise _http_from_extraction_error(exc) from exc
             except LLMProviderError as exc:
@@ -606,6 +654,7 @@ def create_app() -> FastAPI:
         request: ChatToRecipeRequest,
         response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+        config: Annotated[ExtractorConfig | None, Depends(get_extractor_config)],
     ) -> ExtractionResult:
         """Verdichte den Dialog zu einem strukturierten Rezept.
 
@@ -624,7 +673,7 @@ def create_app() -> FastAPI:
         )
         messages = _as_chat_messages(request.messages)
         try:
-            result = await chat_to_recipe(messages, provider, session_id=session_id)
+            result = await chat_to_recipe(messages, provider, session_id=session_id, config=config)
         except EmptyMessagesError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except MessagesTooLongError as exc:
