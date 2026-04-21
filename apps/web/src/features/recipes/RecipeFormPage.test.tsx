@@ -123,6 +123,97 @@ describe('RecipeFormPage (create)', () => {
     expect(screen.getByText('Komponente')).toBeInTheDocument()
   })
 
+  // BUG-044 regression — a German-locale "0,25" in a quantity input used
+  // to flow through Number() as NaN → JSON.stringify serialised NaN as
+  // null → backend rejected with 400 invalid_input ("Nach Geschmack
+  // entries cannot be scalable") because the frontend still sent
+  // `scalable: true`. Fix: normalise comma→dot before Number(); guard
+  // NaN → null + force scalable false.
+  it('parses German comma-decimal quantity and flips scalable off on NaN (BUG-044)', async () => {
+    const user = userEvent.setup()
+    let capturedPayload: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        capturedPayload = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-bug044',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-21T00:00:00Z',
+            updatedAt: '2026-04-21T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Birne-Test')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Asiatische Birne')
+    await user.type(screen.getByLabelText(/Zutat 1 Menge/i), '0,25')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Schälen.')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    await waitFor(() => expect(capturedPayload).not.toBeNull())
+    const ing = capturedPayload!.ingredients[0]!
+    // Comma normalised → 0.25, not NaN / null.
+    expect(ing.quantity).toBe(0.25)
+    // Real number ⇒ scalable stays as whatever the row had (default true
+    // for the freshly-added manual row).
+    expect(ing.scalable).toBe(true)
+  })
+
+  it('treats garbage quantity ("abc") as missing + forces scalable=false (BUG-044)', async () => {
+    const user = userEvent.setup()
+    let capturedPayload: CreateRecipeRequest | null = null
+    server.use(
+      http.post('/api/groups/g1/recipes', async ({ request }) => {
+        capturedPayload = (await request.json()) as CreateRecipeRequest
+        return HttpResponse.json(
+          {
+            id: 'r-bug044-b',
+            groupId: 'g1',
+            createdByUserId: 'u1',
+            createdByDisplayName: 'U',
+            title: 'Ok',
+            defaultServings: 4,
+            difficulty: 1,
+            sourceType: 'Manual',
+            photos: [],
+            createdAt: '2026-04-21T00:00:00Z',
+            updatedAt: '2026-04-21T00:00:00Z',
+            ingredients: [],
+            steps: [],
+            tags: [],
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Abc-Test')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Zutat 1 Menge/i), 'abc')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Mehl reinkippen.')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    await waitFor(() => expect(capturedPayload).not.toBeNull())
+    const ing = capturedPayload!.ingredients[0]!
+    expect(ing.quantity).toBeNull()
+    expect(ing.scalable).toBe(false)
+  })
+
   it('POSTs to /api/groups/g1/recipes on submit and navigates to detail', async () => {
     const user = userEvent.setup()
     let posted = false

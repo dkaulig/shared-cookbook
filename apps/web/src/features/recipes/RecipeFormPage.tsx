@@ -720,15 +720,23 @@ function RecipeFormInner({
       // quantity (the renderer shows italic "nach Geschmack" text and
       // the scaler skips the row).
       const noQty = trimmed === '' || row.unit === 'nach Geschmack'
-      const quantity = noQty ? null : Number(trimmed)
+      // BUG-044 — normalise German comma-decimal before Number().
+      // `Number("0,25")` is NaN → JSON.stringify serialises NaN as
+      // `null` → backend sees `{quantity: null, scalable: true}` and
+      // throws because "unscalable requires null quantity". Result
+      // was a 400 invalid_input on any import that surfaced a
+      // fractional quantity from a German-language source.
+      const parsed = noQty ? null : Number(trimmed.replace(',', '.'))
+      // Fallthrough safety: if the user typed garbage ("abc"), parsed
+      // is NaN too — treat as missing quantity + force scalable=false
+      // so the payload stays schema-valid.
+      const quantity = parsed != null && Number.isFinite(parsed) ? parsed : null
       return {
         position: idx,
         quantity,
         unit: row.unit.trim(),
         name: row.name.trim(),
         note: row.note.trim() === '' ? undefined : row.note.trim(),
-        // scaleIngredients() throws on 0/negative quantities — a missing
-        // quantity auto-flips scalable off so the downstream math is safe.
         scalable: quantity == null ? false : row.scalable,
       }
     })
