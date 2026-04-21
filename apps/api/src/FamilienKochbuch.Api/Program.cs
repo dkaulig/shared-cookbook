@@ -241,6 +241,11 @@ builder.Services.AddScoped<ChatTitleService>();
 // endpoint. Stateless; singleton keeps the compiled regex + rule
 // tables alive for the process lifetime.
 builder.Services.AddSingleton<ConfigKeyValidator>();
+// CFG-3 — read-only feature-flag reader over the ExtractorConfig
+// table. Scoped so it shares the request's AppDbContext lifetime;
+// the two call-sites (ThumbnailAttacher, ChatEndpoints.TurnAsync)
+// issue one PK lookup per user-facing action, so no caching layer.
+builder.Services.AddScoped<IExtractorConfigReader, ExtractorConfigReader>();
 // PF1 — hourly sweep job that reaps abandoned staged photos (>24h old,
 // never promoted onto a recipe). Registered as a recurring job below
 // after the Hangfire dashboard is mounted.

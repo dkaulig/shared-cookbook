@@ -52,6 +52,13 @@ namespace FamilienKochbuch.Api.Endpoints;
 /// </summary>
 public static class ChatEndpoints
 {
+    /// <summary>CFG-3 — extractor-config key that gates
+    /// <see cref="TurnAsync"/>. When the admin flips this to
+    /// <c>false</c>, the handler returns 503 with the
+    /// <c>feature_disabled</c> code before any DB write or Azure call.
+    /// Seeded default is <c>true</c>.</summary>
+    public const string FeatureFlagKey = "feature.chat_enabled";
+
     // ── DTOs ─────────────────────────────────────────────────────────
 
     /// <summary>Row shape returned by <c>GET /api/chat/sessions</c>.
@@ -338,9 +345,22 @@ public static class ChatEndpoints
         IServiceScopeFactory scopeFactory,
         TimeProvider clock,
         ILoggerFactory loggerFactory,
+        IExtractorConfigReader configReader,
         CancellationToken ct)
     {
         var logger = loggerFactory.CreateLogger("FamilienKochbuch.Api.Chat.Turn");
+
+        // CFG-3 — kill switch. Fires BEFORE TryGetCallerId / DB lookup
+        // / Azure call so an admin disable takes effect instantly and
+        // cannot be bypassed by a user who's already past auth.
+        // Fallback default matches the seed (true).
+        if (!await configReader.GetFeatureFlagAsync(
+                FeatureFlagKey, defaultValue: true, ct))
+        {
+            await WriteJsonErrorAsync(ctx, StatusCodes.Status503ServiceUnavailable,
+                "feature_disabled", "Chat ist aktuell deaktiviert.", ct);
+            return;
+        }
 
         if (!TryGetCallerId(ctx, out var callerId))
         {

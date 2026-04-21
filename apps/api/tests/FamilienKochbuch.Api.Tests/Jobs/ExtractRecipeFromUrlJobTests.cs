@@ -44,6 +44,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     private FakeTimeProvider _clock = null!;
     private ImportProgressTokenService _progressTokens = null!;
     private FakePhotoStorage _photoStorage = null!;
+    private StubExtractorConfigReader _configReader = null!;
 
     public async Task InitializeAsync()
     {
@@ -86,9 +87,16 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         // a private-IP resolver.
         ThumbnailHostResolver publicResolver = (_, _) =>
             Task.FromResult(new[] { System.Net.IPAddress.Parse("93.184.216.34") });
+        // CFG-3 — feature-flag reader. Default behaviour is "flag on"
+        // (row missing → fallback true), which keeps every pre-CFG-3
+        // test green without touching assertions. Tests that need the
+        // kill-switch path construct the attacher themselves with a
+        // reader pre-set to false.
+        _configReader = new StubExtractorConfigReader();
         var thumbnailAttacher = new ThumbnailAttacher(
             _db, factory, _photoStorage, _clock,
             NullLogger<ThumbnailAttacher>.Instance,
+            _configReader,
             publicResolver);
         _job = new ExtractRecipeFromUrlJob(
             _db, runner, thumbnailAttacher, _photoStorage, _clock,
@@ -728,6 +736,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var attacker = new ThumbnailAttacher(
             _db, factory, _photoStorage, _clock,
             NullLogger<ThumbnailAttacher>.Instance,
+            _configReader,
             privateResolver);
         var job = new ExtractRecipeFromUrlJob(_db, new PythonExtractorRunner(
             _db, factory,
@@ -1211,5 +1220,95 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         Assert.Contains("recipe_deleted", reloaded.ErrorMessage ?? string.Empty);
         // Python was never called — the guard fires before the runner.
         Assert.Empty(_handler.Requests);
+    }
+
+    // ── CFG-3: feature.thumbnail_auto_attach_enabled kill switch ───
+
+    [Fact]
+    public async Task CFG3_Feature_Flag_False_Skips_Download_And_Insert()
+    {
+        // Admin flipped the kill switch — TryAttachAsync must return
+        // null before any HTTP GET / DB insert, even though the
+        // extraction result carries a valid whitelisted thumbnail URL.
+        _configReader.Set(ThumbnailAttacher.FeatureFlagKey, false);
+
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
+        // Deliberately do NOT queue a response on _thumbnailHandler —
+        // any GET would blow up, which makes the assertion strict.
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        // No HTTP call to the CDN — the flag short-circuits before
+        // DownloadAsync is reached.
+        Assert.Empty(_thumbnailHandler.Requests);
+        // No staged-photo row was inserted either.
+        Assert.Empty(_db.StagedPhotos);
+    }
+
+    [Fact]
+    public async Task CFG3_Feature_Flag_True_Runs_Attacher_As_Before()
+    {
+        // Belt-and-braces: an explicit true in the reader must leave
+        // the existing download + stage behaviour untouched.
+        _configReader.Set(ThumbnailAttacher.FeatureFlagKey, true);
+
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
+        var bytes = FakePngBytes();
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, bytes, "image/png");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+        Assert.Single(_thumbnailHandler.Requests);
+    }
+
+    [Fact]
+    public async Task CFG3_Flag_Row_Missing_Defaults_On()
+    {
+        // Pristine reader with no keys configured — the
+        // defaultValue=true argument kicks in and behaviour matches
+        // the pre-CFG-3 baseline.
+        var freshReader = new StubExtractorConfigReader();
+        var factory = new StubHttpClientFactory(_handler, new Uri("http://python/"));
+        factory.RegisterNamedHandler(ThumbnailAttacher.HttpClientName, _thumbnailHandler);
+        ThumbnailHostResolver publicResolver = (_, _) =>
+            Task.FromResult(new[] { System.Net.IPAddress.Parse("93.184.216.34") });
+        var attacher = new ThumbnailAttacher(
+            _db, factory, _photoStorage, _clock,
+            NullLogger<ThumbnailAttacher>.Instance,
+            freshReader,
+            publicResolver);
+
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
+        var bytes = FakePngBytes();
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, bytes, "image/png");
+
+        // Drive the new attacher through the same extraction path.
+        var job = new ExtractRecipeFromUrlJob(
+            _db,
+            new PythonExtractorRunner(
+                _db, factory,
+                new ExtractorHmacSigner(
+                    Options.Create(new ExtractorOptions { SharedSecret = "test-secret" }),
+                    _clock),
+                _progressTokens, new NullLiveSyncPublisher(), _clock,
+                NullLogger<PythonExtractorRunner>.Instance),
+            attacher, _photoStorage, _clock,
+            NullLogger<ExtractRecipeFromUrlJob>.Instance);
+        await job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
     }
 }

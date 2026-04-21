@@ -81,12 +81,19 @@ public sealed class ThumbnailAttacher
         ".redditmedia.com",
     };
 
+    /// <summary>CFG-3 — extractor-config key that gates this service.
+    /// When the admin flips this flag to <c>false</c> in the admin UI,
+    /// <see cref="TryAttachAsync"/> becomes a no-op that returns
+    /// <c>null</c> before any HTTP fetch or DB write.</summary>
+    public const string FeatureFlagKey = "feature.thumbnail_auto_attach_enabled";
+
     private readonly AppDbContext _db;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IPhotoStorage _photoStorage;
     private readonly TimeProvider _clock;
     private readonly ILogger<ThumbnailAttacher> _logger;
     private readonly ThumbnailHostResolver _resolveHost;
+    private readonly IExtractorConfigReader _configReader;
 
     public ThumbnailAttacher(
         AppDbContext db,
@@ -94,6 +101,7 @@ public sealed class ThumbnailAttacher
         IPhotoStorage photoStorage,
         TimeProvider clock,
         ILogger<ThumbnailAttacher> logger,
+        IExtractorConfigReader configReader,
         ThumbnailHostResolver? resolveHost = null)
     {
         _db = db;
@@ -101,6 +109,7 @@ public sealed class ThumbnailAttacher
         _photoStorage = photoStorage;
         _clock = clock;
         _logger = logger;
+        _configReader = configReader;
         // Default to the framework's Dns resolver. The delegate
         // boundary exists so tests can avoid a real network call.
         _resolveHost = resolveHost ?? Dns.GetHostAddressesAsync;
@@ -124,6 +133,22 @@ public sealed class ThumbnailAttacher
         CancellationToken ct)
     {
         if (import is null) throw new ArgumentNullException(nameof(import));
+
+        // CFG-3 — read-only kill switch. When an admin has flipped
+        // feature.thumbnail_auto_attach_enabled = false in the admin
+        // UI, short-circuit before any HTTP fetch / DB insert. The
+        // parent import still completes (thumbnails are "best effort",
+        // never load-bearing); we just don't auto-stage a photo.
+        // Fallback default matches the seed (true) so a missing row on
+        // a fresh DB behaves as "feature on".
+        if (!await _configReader.GetFeatureFlagAsync(
+                FeatureFlagKey, defaultValue: true, ct))
+        {
+            _logger.LogInformation(
+                "Thumbnail attach skipped for import {ImportId} — feature disabled.",
+                import.Id);
+            return null;
+        }
 
         var thumbnailUrl = ExtractThumbnailUrl(resultJson);
         if (string.IsNullOrWhiteSpace(thumbnailUrl))

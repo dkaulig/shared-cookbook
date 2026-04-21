@@ -60,6 +60,28 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         var nonAdmin = db.Users.Where(u => u.Email != "admin@test.local");
         db.Users.RemoveRange(nonAdmin);
         await db.SaveChangesAsync();
+
+        // CFG-3 — the class-fixture SQLite connection persists between
+        // tests; restore the chat feature-flag row to its seed default
+        // (true) so a test that disabled / deleted it doesn't poison
+        // the next test's assertions.
+        var flag = await db.ExtractorConfigs
+            .FirstOrDefaultAsync(c => c.Key == ChatEndpoints.FeatureFlagKey);
+        if (flag is null)
+        {
+            db.ExtractorConfigs.Add(new FamilienKochbuch.Domain.Entities.ExtractorConfig(
+                ChatEndpoints.FeatureFlagKey,
+                "true",
+                FamilienKochbuch.Domain.Entities.ExtractorConfigValueType.Bool,
+                _factory.Clock.GetUtcNow(),
+                updatedBy: null));
+            await db.SaveChangesAsync();
+        }
+        else if (flag.ValueJson != "true")
+        {
+            flag.UpdateValue("true", _factory.Clock.GetUtcNow(), updatedBy: null);
+            await db.SaveChangesAsync();
+        }
     }
 
     // ── Auth helpers (same pattern as the P2-6 suite) ───────────────
@@ -881,6 +903,131 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         Assert.Equal(sessionId.ToString("D"), log.SessionId);
         Assert.Equal(2000, log.PromptTokens);
         Assert.Equal("gpt-4.1-mini", log.ModelDeployment);
+    }
+
+    // ── CFG-3: feature.chat_enabled kill switch ────────────────────
+
+    /// <summary>Flip <c>feature.chat_enabled</c> to
+    /// <paramref name="enabled"/> by upserting the config row directly.
+    /// Exercises the real
+    /// <see cref="FamilienKochbuch.Api.Services.ExtractorConfigReader"/>
+    /// end-to-end against the in-memory SQLite — the same code path
+    /// the admin PUT goes through in prod. Upsert (rather than mutate)
+    /// because sibling CFG-3 tests that delete the row share the class
+    /// fixture's SQLite connection.</summary>
+    private async Task SetChatFeatureFlagAsync(bool enabled)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var row = await db.ExtractorConfigs
+            .FirstOrDefaultAsync(c => c.Key == ChatEndpoints.FeatureFlagKey);
+        if (row is null)
+        {
+            db.ExtractorConfigs.Add(new FamilienKochbuch.Domain.Entities.ExtractorConfig(
+                ChatEndpoints.FeatureFlagKey,
+                enabled ? "true" : "false",
+                FamilienKochbuch.Domain.Entities.ExtractorConfigValueType.Bool,
+                _factory.Clock.GetUtcNow(),
+                updatedBy: null));
+        }
+        else
+        {
+            row.UpdateValue(
+                enabled ? "true" : "false",
+                _factory.Clock.GetUtcNow(),
+                updatedBy: null);
+        }
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>Delete the <c>feature.chat_enabled</c> row entirely so
+    /// the reader hits its row-missing fallback branch. Idempotent —
+    /// sibling tests may already have deleted it.</summary>
+    private async Task DeleteChatFeatureFlagRowAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var row = await db.ExtractorConfigs
+            .FirstOrDefaultAsync(c => c.Key == ChatEndpoints.FeatureFlagKey);
+        if (row is not null)
+        {
+            db.ExtractorConfigs.Remove(row);
+            await db.SaveChangesAsync();
+        }
+    }
+
+    [Fact]
+    public async Task CFG3_Turn_Returns_503_When_Feature_Disabled()
+    {
+        var (userId, token) = await SignupAsync("cfg3-turn-off@ex.com", "Chat");
+        var sessionId = await SeedSessionAsync(userId);
+        await SetChatFeatureFlagAsync(enabled: false);
+
+        _factory.AzureOpenAi.QueueTokens("should", " never", " stream");
+
+        using var req = Authed(HttpMethod.Post,
+            $"/api/chat/sessions/{sessionId}/turn", token);
+        req.Content = JsonContent.Create(new { content = "Hi" });
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        Assert.Equal("feature_disabled",
+            doc.RootElement.GetProperty("code").GetString());
+        Assert.Equal("Chat ist aktuell deaktiviert.",
+            doc.RootElement.GetProperty("message").GetString());
+
+        // No DB write — user's message must not be persisted.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.Equal(0, await db.ChatMessages.CountAsync(m => m.SessionId == sessionId));
+        }
+        // No Azure call — the fake would record a Complete/Stream call.
+        Assert.Empty(_factory.AzureOpenAi.StreamCalls);
+    }
+
+    [Fact]
+    public async Task CFG3_Turn_Works_When_Feature_Enabled()
+    {
+        // Explicit true — belt-and-braces that the gate doesn't break
+        // the happy path when the seed default is confirmed.
+        var (userId, token) = await SignupAsync("cfg3-turn-on@ex.com", "Chat");
+        var sessionId = await SeedSessionAsync(userId);
+        await SetChatFeatureFlagAsync(enabled: true);
+
+        _factory.AzureOpenAi
+            .QueueTokens("Hallo", "!")
+            .QueueUsage(10, 2, 0);
+
+        using var req = Authed(HttpMethod.Post,
+            $"/api/chat/sessions/{sessionId}/turn", token);
+        req.Content = JsonContent.Create(new { content = "Hi" });
+        var response = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var events = await ReadSseAsync(response);
+        Assert.Contains(events, e => e.Name == "done");
+    }
+
+    [Fact]
+    public async Task CFG3_Turn_Row_Missing_Defaults_On()
+    {
+        var (userId, token) = await SignupAsync("cfg3-turn-missing@ex.com", "Chat");
+        var sessionId = await SeedSessionAsync(userId);
+        await DeleteChatFeatureFlagRowAsync();
+
+        _factory.AzureOpenAi
+            .QueueTokens("ok")
+            .QueueUsage(5, 2, 0);
+
+        using var req = Authed(HttpMethod.Post,
+            $"/api/chat/sessions/{sessionId}/turn", token);
+        req.Content = JsonContent.Create(new { content = "Hi" });
+        var response = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     // ── Backward-compat break: POST /api/chat is gone ──────────────
