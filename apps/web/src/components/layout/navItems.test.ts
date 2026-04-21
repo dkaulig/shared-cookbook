@@ -19,13 +19,32 @@ function readSource(rel: string): string {
 }
 
 describe('navItems — shared source of truth', () => {
-  it('exposes the four primary routes in the documented order', () => {
-    expect(navItems.map((item) => item.to)).toEqual(['/', '/groups', '/wochenplan', '/profil'])
+  it('exposes the five primary routes in the documented order (SEARCH-1 adds Suche between Gruppen and Wochenplan)', () => {
+    expect(navItems.map((item) => item.to)).toEqual([
+      '/',
+      '/groups',
+      '/suche',
+      '/wochenplan',
+      '/profil',
+    ])
   })
 
   it('ships German labels for every item', () => {
     const labels = navItems.map((item) => item.label)
-    expect(labels).toEqual(['Start', 'Gruppen', 'Wochenplan', 'Profil'])
+    expect(labels).toEqual(['Start', 'Gruppen', 'Suche', 'Wochenplan', 'Profil'])
+  })
+
+  it('includes a Suche entry with the Lucide Search icon (SEARCH-1)', () => {
+    const suche = navItems.find((item) => item.to === '/suche')
+    expect(suche).toBeDefined()
+    expect(suche?.label).toBe('Suche')
+    // Lucide icons expose a `displayName` under test conditions; fall
+    // back to `name` for the forwardRef form.
+    const iconName =
+      (suche?.icon as { displayName?: string; name?: string }).displayName ??
+      (suche?.icon as { displayName?: string; name?: string }).name ??
+      ''
+    expect(iconName).toMatch(/Search/i)
   })
 
   it('every item carries a Lucide icon component', () => {

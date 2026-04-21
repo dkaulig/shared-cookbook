@@ -69,6 +69,13 @@ describe('<SideRail />', () => {
     expect(screen.getByRole('link', { name: /profil/i })).toHaveAttribute('aria-current', 'page')
   })
 
+  // SEARCH-1 — global search is now a first-class nav entry, surfaced
+  // on every nav affordance (BottomNav, SideRail, DesktopTopNav).
+  it('marks Suche as active on /suche (SEARCH-1)', () => {
+    renderAt('/suche')
+    expect(screen.getByRole('link', { name: /suche/i })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('carries the 72 px side-rail width token + border-r + bg-background + vertical flex', () => {
     renderAt('/')
     const nav = screen.getByRole('navigation', { name: /seitenleiste/i })

@@ -72,6 +72,12 @@ describe('<DesktopTopNav />', () => {
     expect(screen.getByRole('link', { name: /profil/i })).toHaveAttribute('aria-current', 'page')
   })
 
+  // SEARCH-1 — global search surfaces on the desktop primary-nav row too.
+  it('marks Suche as active on /suche (SEARCH-1)', () => {
+    renderAt('/suche')
+    expect(screen.getByRole('link', { name: /suche/i })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('is scoped to the desktop zone via `hidden xl:flex`', () => {
     renderAt('/')
     const nav = screen.getByRole('navigation', { name: /desktop-navigation/i })
