@@ -178,6 +178,54 @@ public class RecipeImportPersistenceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RecipeImport_Round_Trips_TargetRecipeId_When_Set()
+    {
+        // REIMPORT-0: a reimport row carries the in-place update target
+        // so the job's extract-URL branch can resolve "overwrite vs
+        // create" without an extra lookup. The column is nullable so
+        // legacy new-import rows stay untouched.
+        var targetId = Guid.NewGuid();
+        var import = new RecipeImport(
+            userId: _userId,
+            groupId: _groupId,
+            source: ImportSource.Url,
+            sourceUrl: "https://example.com/rezept",
+            createdAt: DateTimeOffset.UtcNow,
+            targetRecipeId: targetId);
+        _db.RecipeImports.Add(import);
+        await _db.SaveChangesAsync();
+
+        using var fresh = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await fresh.RecipeImports.SingleAsync(r => r.Id == import.Id);
+
+        Assert.Equal(targetId, reloaded.TargetRecipeId);
+    }
+
+    [Fact]
+    public async Task RecipeImport_Round_Trips_TargetRecipeId_As_Null_For_Regular_Imports()
+    {
+        // Non-reimport path: the existing URL/photo enqueue endpoints
+        // never set TargetRecipeId, so fresh imports must still round-
+        // trip with the column NULL. Regression guard for the column
+        // addition.
+        var import = new RecipeImport(
+            userId: _userId,
+            groupId: _groupId,
+            source: ImportSource.Url,
+            sourceUrl: "https://example.com/rezept",
+            createdAt: DateTimeOffset.UtcNow);
+        _db.RecipeImports.Add(import);
+        await _db.SaveChangesAsync();
+
+        using var fresh = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await fresh.RecipeImports.SingleAsync(r => r.Id == import.Id);
+
+        Assert.Null(reloaded.TargetRecipeId);
+    }
+
+    [Fact]
     public async Task Query_By_User_Filters_To_Owner()
     {
         var t0 = DateTimeOffset.UtcNow;

@@ -1,5 +1,7 @@
+using System.Text.Json;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
+using FamilienKochbuch.Domain.Enums;
 using FamilienKochbuch.Infrastructure.Persistence;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
@@ -9,15 +11,22 @@ namespace FamilienKochbuch.Api.Jobs;
 /// <summary>
 /// Hangfire job that drives a URL-based recipe extraction end-to-end.
 ///
-/// This class is a thin wrapper — all transport + progress + retry
-/// logic lives on <see cref="PythonExtractorRunner"/>. The job's job
-/// is to load the import, sanity-check it's a URL source, and hand off
-/// to the shared runner with the right relative URL + body.
+/// Two modes:
+/// <list type="bullet">
+/// <item><b>New-import</b> (default): the job lets the Python pipeline
+/// extract a fresh recipe; the frontend's review-flow ultimately calls
+/// <c>POST /api/recipes</c> to insert a new row.</item>
+/// <item><b>Reimport</b> (REIMPORT-0): when <see cref="RecipeImport.TargetRecipeId"/>
+/// is set, the job loads that recipe and overwrites its mutable body
+/// in place via <see cref="Recipe.UpdateFromImport"/>. No new row is
+/// created, photos/ratings/last-cooked history are preserved.</item>
+/// </list>
 ///
-/// The <c>[AutomaticRetry]</c> attribute with <c>Attempts = 3</c>
-/// covers transient 5xx + network errors only; terminal 4xx errors
-/// throw an <see cref="PythonExtractorException"/> with
-/// <c>IsTerminal = true</c>.
+/// Transport + progress + retry live on <see cref="PythonExtractorRunner"/>.
+/// The <c>[AutomaticRetry]</c> attribute with <c>Attempts = 3</c> covers
+/// transient 5xx + network errors only; terminal 4xx errors throw with
+/// <see cref="PythonExtractorException.IsTerminal"/>=true so Hangfire
+/// stops retrying.
 /// </summary>
 [AutomaticRetry(Attempts = 3)]
 public class ExtractRecipeFromUrlJob
@@ -25,18 +34,30 @@ public class ExtractRecipeFromUrlJob
     /// <summary>Named HttpClient registered against the Python service.</summary>
     public const string HttpClientName = "python-extractor";
 
+    /// <summary>
+    /// REIMPORT-0 — error code stored on <see cref="RecipeImport.ErrorMessage"/>
+    /// when the reimport's target was deleted between enqueue and run.
+    /// The frontend surfaces this verbatim in the progress-page error
+    /// banner with German copy; kept as a code here so the web layer
+    /// owns the exact wording.
+    /// </summary>
+    public const string RecipeDeletedErrorCode = "recipe_deleted";
+
     private readonly AppDbContext _db;
     private readonly PythonExtractorRunner _runner;
     private readonly ThumbnailAttacher _thumbnailAttacher;
+    private readonly TimeProvider _clock;
 
     public ExtractRecipeFromUrlJob(
         AppDbContext db,
         PythonExtractorRunner runner,
-        ThumbnailAttacher thumbnailAttacher)
+        ThumbnailAttacher thumbnailAttacher,
+        TimeProvider clock)
     {
         _db = db;
         _runner = runner;
         _thumbnailAttacher = thumbnailAttacher;
+        _clock = clock;
     }
 
     /// <summary>Entry point invoked by Hangfire. Public for EF's DI
@@ -57,6 +78,23 @@ public class ExtractRecipeFromUrlJob
             throw new InvalidOperationException(
                 $"RecipeImport {importId} has no SourceUrl; cannot dispatch URL extraction.");
 
+        // REIMPORT-0 — the target-existence guard runs BEFORE the
+        // Python call so a deleted-since-enqueue recipe short-circuits
+        // without paying for Whisper/Azure tokens. If the recipe is
+        // gone the import lands in Error with `recipe_deleted`.
+        if (import.TargetRecipeId is Guid targetId)
+        {
+            var exists = await _db.Recipes
+                .AsNoTracking()
+                .AnyAsync(r => r.Id == targetId && r.DeletedAt == null, ct);
+            if (!exists)
+            {
+                import.MarkError(RecipeDeletedErrorCode, _clock.GetUtcNow());
+                await _db.SaveChangesAsync(ct);
+                return;
+            }
+        }
+
         await _runner.RunAsync(
             import,
             relativeUrl: "/extract/url",
@@ -67,14 +105,40 @@ public class ExtractRecipeFromUrlJob
             },
             ct);
 
-        // BUG-018 — once the import is in Done state with the structured
-        // recipe persisted in ResultJson, opportunistically download the
-        // extracted video thumbnail and stage it as a recipe photo. The
-        // attacher swallows every failure mode (timeout, oversize,
-        // non-image, host-allowlist reject) and just returns null — the
-        // import row stays Done, just without an auto-attached photo.
+        // REIMPORT-0 — on success, apply the fresh extraction result
+        // onto the existing recipe row rather than letting the PF1
+        // promote-flow insert a new one. Photos are preserved, with
+        // opportunistic auto-attach of a new thumbnail (dedupe by URL).
         //
-        // Skipped on the retry-after-success path (ThumbnailStagedPhotoId
+        // Load the target AFTER the runner's SaveChanges cycle so
+        // there's no risk of a stale concurrency token from the
+        // multiple import-row UPDATEs the runner issues during
+        // progress reporting.
+        if (import.TargetRecipeId is Guid postTargetId
+            && import.Status == ImportStatus.Done
+            && !string.IsNullOrWhiteSpace(import.ResultJson))
+        {
+            var targetRecipe = await _db.Recipes
+                .Include(r => r.Ingredients)
+                .Include(r => r.Steps)
+                .Include(r => r.RecipeTags)
+                .FirstOrDefaultAsync(r => r.Id == postTargetId && r.DeletedAt == null, ct);
+            if (targetRecipe is null)
+            {
+                // Deleted during extraction — import is Done but apply
+                // is a no-op. We can't flip Done→Error per the domain
+                // invariants, so the row stays Done with ResultJson set
+                // (the frontend detects recipe-not-found on redirect).
+                return;
+            }
+            await ApplyReimportAsync(import, targetRecipe, ct);
+            return;
+        }
+
+        // BUG-018 — standard new-import path: opportunistically
+        // download the extracted video thumbnail and stage it as a
+        // recipe photo the frontend's promote-flow can adopt.
+        // Skipped on retry-after-success (ThumbnailStagedPhotoId
         // already set) and on the error path (Status != Done).
         if (import.Status == ImportStatus.Done
             && import.ThumbnailStagedPhotoId is null
@@ -82,5 +146,275 @@ public class ExtractRecipeFromUrlJob
         {
             await _thumbnailAttacher.TryAttachAsync(import, import.ResultJson, ct);
         }
+    }
+
+    /// <summary>
+    /// REIMPORT-0 — parses the extractor's ResultJson and overwrites
+    /// the target recipe's mutable body in place. Ingredients / steps /
+    /// AI-tags replaced; Custom tags preserved by the domain method;
+    /// photos preserved; a thumbnail URL on the fresh result attaches
+    /// only when the recipe doesn't already carry that same URL.
+    /// </summary>
+    private async Task ApplyReimportAsync(
+        RecipeImport import, Recipe target, CancellationToken ct)
+    {
+        var parsed = ReimportResultParser.Parse(import.ResultJson!);
+
+        // Resolve the AI-tag Tag entities the domain method needs for
+        // the name→id lookup. Global seeded tags live at
+        // CreatedByUserId/GroupId NULL; we also pull whatever tags the
+        // recipe already carries so the domain method can classify
+        // existing Custom vs AI rows.
+        var existingTagIds = target.RecipeTags.Select(rt => rt.TagId).ToArray();
+        var normalizedAiNames = parsed.TagNames
+            .Select(n => n.Trim())
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var candidateTags = await _db.Tags
+            .Where(t => existingTagIds.Contains(t.Id)
+                || (t.GroupId == null && normalizedAiNames.Contains(t.Name)))
+            .ToListAsync(ct);
+
+        // Mirror the existing UpdateRecipeAsync two-phase write:
+        //   1. Mutate Recipe metadata + delete existing children in one
+        //      SaveChanges pass (the Recipe-UPDATE carries the Version
+        //      concurrency-token bump; child DELETEs fan out via EF).
+        //   2. Insert the fresh child rows in a second pass, added via
+        //      the DbSet directly (NOT through the recipe's navigation
+        //      collection) so EF doesn't re-register a Recipe-level
+        //      modification alongside the insert batch.
+        //
+        // The domain method writes metadata + NutritionEstimate in step
+        // 1 and handles the tag-merge (Custom-wins) on the navigation
+        // collection in the same pass. We pass empty child lists to
+        // UpdateFromImport so the Ingredients/Steps collections are
+        // cleared by the method; step 2 below does the fresh inserts.
+        var existingIngredients = await _db.Ingredients
+            .Where(i => i.RecipeId == target.Id)
+            .ToListAsync(ct);
+        _db.Ingredients.RemoveRange(existingIngredients);
+        var existingSteps = await _db.RecipeSteps
+            .Where(s => s.RecipeId == target.Id)
+            .ToListAsync(ct);
+        _db.RecipeSteps.RemoveRange(existingSteps);
+        var existingRecipeTags = await _db.RecipeTags
+            .Where(rt => rt.RecipeId == target.Id)
+            .ToListAsync(ct);
+        _db.RecipeTags.RemoveRange(existingRecipeTags);
+
+        // Seed the recipe's RecipeTags navigation collection with the
+        // pre-delete rows (the RemoveRange above detaches them from
+        // the DbSet but they still sit on `target.RecipeTags`) so the
+        // domain method's Custom-wins merge sees the full picture.
+        // UpdateFromImport will Clear() the navigation collection
+        // internally and re-add only the Custom / new-AI entries.
+
+        var now = _clock.GetUtcNow();
+        target.UpdateFromImport(
+            title: parsed.Title,
+            description: parsed.Description,
+            defaultServings: parsed.Servings,
+            prepTimeMinutes: parsed.PrepMinutes,
+            cookTimeMinutes: parsed.CookMinutes,
+            difficulty: parsed.Difficulty,
+            newIngredients: Array.Empty<Ingredient>(),
+            newSteps: Array.Empty<RecipeStep>(),
+            newAiTagNames: normalizedAiNames,
+            existingAndNewTags: candidateTags,
+            nutrition: parsed.Nutrition,
+            now: now);
+
+        await _db.SaveChangesAsync(ct);
+
+        foreach (var ing in parsed.Ingredients.Select((v, idx) => (v, idx)))
+        {
+            _db.Ingredients.Add(new Ingredient(
+                recipeId: target.Id,
+                position: ing.idx,
+                quantity: ing.v.Quantity,
+                unit: ing.v.Unit,
+                name: ing.v.Name,
+                note: ing.v.Note,
+                scalable: ing.v.Scalable));
+        }
+        foreach (var step in parsed.Steps.Select((v, idx) => (v, idx)))
+        {
+            _db.RecipeSteps.Add(new RecipeStep(
+                recipeId: target.Id,
+                position: step.idx,
+                content: step.v.Content));
+        }
+        await _db.SaveChangesAsync(ct);
+
+        // Thumbnail dedupe: only attach a fresh thumbnail if the
+        // recipe doesn't already have a photo whose stored value
+        // matches the extracted URL verbatim. Mirrors the BUG-018
+        // attacher but targets the recipe's Photos collection
+        // directly (rather than staging for frontend promote).
+        if (!string.IsNullOrWhiteSpace(parsed.ThumbnailUrl)
+            && !target.Photos.Contains(parsed.ThumbnailUrl!, StringComparer.Ordinal))
+        {
+            await _thumbnailAttacher.TryAttachAsync(import, import.ResultJson!, ct);
+        }
+    }
+}
+
+/// <summary>
+/// REIMPORT-0 — pure JSON → structured-data parser for the Python
+/// pipeline's <c>ExtractionResult</c>. Lives next to the job because
+/// it's a job-internal concern (the frontend consumes the same JSON
+/// through its own TypeScript mapper); extracting it here as a
+/// separate class keeps the job method short and makes the parsing
+/// rules reviewable in isolation.
+/// </summary>
+internal static class ReimportResultParser
+{
+    internal sealed record ParsedIngredient(
+        string Name, decimal? Quantity, string Unit, string? Note, bool Scalable);
+
+    internal sealed record ParsedStep(string Content);
+
+    internal sealed record ParsedResult(
+        string Title,
+        string? Description,
+        int? Servings,
+        int? Difficulty,
+        int? PrepMinutes,
+        int? CookMinutes,
+        IReadOnlyList<ParsedIngredient> Ingredients,
+        IReadOnlyList<ParsedStep> Steps,
+        IReadOnlyList<string> TagNames,
+        string? ThumbnailUrl,
+        NutritionEstimate? Nutrition);
+
+    public static ParsedResult Parse(string resultJson)
+    {
+        using var doc = JsonDocument.Parse(resultJson);
+        if (!doc.RootElement.TryGetProperty("recipe", out var recipe)
+            || recipe.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException(
+                "Extraction result has no `recipe` object; refusing to reimport blind.");
+        }
+
+        var title = GetStringOrEmpty(recipe, "title");
+        if (string.IsNullOrWhiteSpace(title))
+            throw new InvalidOperationException("Extraction result is missing a recipe title.");
+
+        var description = GetNullableString(recipe, "description");
+        var servings = GetNullableInt(recipe, "servings");
+        var difficulty = GetNullableInt(recipe, "difficulty");
+        var prepMinutes = GetNullableInt(recipe, "prep_minutes");
+        var cookMinutes = GetNullableInt(recipe, "cook_minutes");
+        var thumbnailUrl = GetNullableString(recipe, "thumbnail_url");
+
+        var ingredients = new List<ParsedIngredient>();
+        if (recipe.TryGetProperty("ingredients", out var ings)
+            && ings.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var i in ings.EnumerateArray())
+            {
+                var name = GetStringOrEmpty(i, "name");
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                var unit = GetNullableString(i, "unit") ?? string.Empty;
+                var note = GetNullableString(i, "note");
+                var quantityText = GetNullableString(i, "quantity");
+                var quantity = TryParseDecimal(quantityText);
+                var scalable = quantity is > 0m;
+                ingredients.Add(new ParsedIngredient(name.Trim(), quantity, unit, note, scalable));
+            }
+        }
+
+        var steps = new List<ParsedStep>();
+        if (recipe.TryGetProperty("steps", out var stepsEl)
+            && stepsEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var s in stepsEl.EnumerateArray())
+            {
+                var content = GetStringOrEmpty(s, "content");
+                if (string.IsNullOrWhiteSpace(content)) continue;
+                steps.Add(new ParsedStep(content.Trim()));
+            }
+        }
+
+        var tagNames = new List<string>();
+        if (recipe.TryGetProperty("tags", out var tagsEl)
+            && tagsEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var t in tagsEl.EnumerateArray())
+            {
+                if (t.ValueKind == JsonValueKind.String)
+                {
+                    var raw = t.GetString();
+                    if (!string.IsNullOrWhiteSpace(raw)) tagNames.Add(raw!.Trim().ToLowerInvariant());
+                }
+            }
+        }
+
+        NutritionEstimate? nutrition = null;
+        if (recipe.TryGetProperty("nutrition_estimate", out var nut)
+            && nut.ValueKind == JsonValueKind.Object)
+        {
+            var kcal = GetNullableInt(nut, "kcal");
+            var protein = GetNullableInt(nut, "protein_g");
+            var carbs = GetNullableInt(nut, "carbs_g");
+            var fat = GetNullableInt(nut, "fat_g");
+            if (kcal is not null && protein is not null && carbs is not null && fat is not null)
+            {
+                nutrition = new NutritionEstimate(kcal.Value, protein.Value, carbs.Value, fat.Value);
+            }
+        }
+
+        return new ParsedResult(
+            Title: title.Trim(),
+            Description: description,
+            Servings: servings,
+            Difficulty: difficulty,
+            PrepMinutes: prepMinutes,
+            CookMinutes: cookMinutes,
+            Ingredients: ingredients,
+            Steps: steps,
+            TagNames: tagNames,
+            ThumbnailUrl: thumbnailUrl,
+            Nutrition: nutrition);
+    }
+
+    private static string GetStringOrEmpty(JsonElement obj, string key)
+    {
+        if (!obj.TryGetProperty(key, out var el)) return string.Empty;
+        return el.ValueKind == JsonValueKind.String ? el.GetString() ?? string.Empty : string.Empty;
+    }
+
+    private static string? GetNullableString(JsonElement obj, string key)
+    {
+        if (!obj.TryGetProperty(key, out var el)) return null;
+        if (el.ValueKind != JsonValueKind.String) return null;
+        var s = el.GetString();
+        return string.IsNullOrWhiteSpace(s) ? null : s;
+    }
+
+    private static int? GetNullableInt(JsonElement obj, string key)
+    {
+        if (!obj.TryGetProperty(key, out var el)) return null;
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n)) return n;
+        if (el.ValueKind == JsonValueKind.String
+            && int.TryParse(el.GetString(), System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        {
+            return parsed;
+        }
+        return null;
+    }
+
+    private static decimal? TryParseDecimal(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        if (decimal.TryParse(raw, System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture, out var d))
+        {
+            return d;
+        }
+        return null;
     }
 }

@@ -50,6 +50,17 @@ internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<Recip
         // import row's audit trail.
         e.Property(r => r.ThumbnailStagedPhotoId);
 
+        // REIMPORT-0 — optional FK-like column pointing at the target
+        // Recipe the URL-extract job should update in place. Nullable so
+        // every pre-reimport import stays valid without backfill; no
+        // index because the value is read exclusively inside the job
+        // that already has the import row loaded (low cardinality + no
+        // hot query path). Intentionally no cascading FK to Recipes —
+        // a hard-deleted recipe leaves the import row's
+        // TargetRecipeId dangling; the job handles the null-target case
+        // explicitly with a `recipe_deleted` error.
+        e.Property(r => r.TargetRecipeId);
+
         e.Property(r => r.SourceUrl).HasMaxLength(RecipeImport.SourceUrlMaxLength);
 
         // ResultJson is arbitrary length (could be ~50KB for a big

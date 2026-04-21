@@ -194,6 +194,155 @@ public class Recipe : IVersionedEntity
         BumpVersion();
     }
 
+    /// <summary>
+    /// REIMPORT-0 — overwrites the recipe's mutable body with a fresh
+    /// extraction result. Preserves identity (<see cref="Id"/>, <see cref="GroupId"/>,
+    /// <see cref="CreatedAt"/>, <see cref="CreatedByUserId"/>), user-owned
+    /// artefacts (<see cref="Photos"/>, <see cref="LastCookedAt"/>,
+    /// ratings, meal-plan slot assignments) and user-curated custom tags;
+    /// replaces metadata, ingredients, steps, AI tags and the nutrition
+    /// estimate in-place.
+    ///
+    /// <para>
+    /// Tag merge rule: entries in <see cref="RecipeTags"/> that resolve
+    /// against <paramref name="existingAndNewTags"/> to a tag with
+    /// <see cref="TagCategory.Custom"/> stay on the recipe. Every other
+    /// existing tag link is dropped. For each name in
+    /// <paramref name="newAiTagNames"/> we look up the matching Tag in
+    /// <paramref name="existingAndNewTags"/> (case-insensitive), skip it
+    /// when a preserved custom tag already carries that name ("custom
+    /// wins"), and otherwise append a fresh <see cref="RecipeTag"/> link.
+    /// Duplicate names inside the AI list collapse to one row.
+    /// </para>
+    ///
+    /// <para>
+    /// The caller is responsible for having already loaded the <see cref="Ingredients"/>
+    /// / <see cref="Steps"/> / <see cref="RecipeTags"/> collections and
+    /// staged fresh child rows (<paramref name="newIngredients"/> /
+    /// <paramref name="newSteps"/>) against this recipe's id. EF cascade-
+    /// delete sweeps the detached old rows when the context is saved.
+    /// Bumps <see cref="Version"/> exactly once.
+    /// </para>
+    ///
+    /// <para>
+    /// <paramref name="cookTimeMinutes"/> is accepted for future
+    /// forward-compatibility with extractor results that split prep +
+    /// cook; the current entity has no dedicated column for it. REIMPORT-0
+    /// deliberately ignores the value rather than folding it into
+    /// <see cref="PrepTimeMinutes"/> behind the user's back — a later
+    /// schema slice will introduce the column and the flow can thread
+    /// the value through.
+    /// </para>
+    /// </summary>
+    public void UpdateFromImport(
+        string title,
+        string? description,
+        int? defaultServings,
+        int? prepTimeMinutes,
+        int? cookTimeMinutes,
+        int? difficulty,
+        IReadOnlyList<Ingredient> newIngredients,
+        IReadOnlyList<RecipeStep> newSteps,
+        IReadOnlyList<string> newAiTagNames,
+        IReadOnlyList<Tag> existingAndNewTags,
+        NutritionEstimate? nutrition,
+        DateTimeOffset now)
+    {
+        if (newIngredients is null) throw new ArgumentNullException(nameof(newIngredients));
+        if (newSteps is null) throw new ArgumentNullException(nameof(newSteps));
+        if (newAiTagNames is null) throw new ArgumentNullException(nameof(newAiTagNames));
+        if (existingAndNewTags is null) throw new ArgumentNullException(nameof(existingAndNewTags));
+
+        // Domain validations mirror the create-time ctor. An extractor
+        // that drifts out of these bounds is caller's problem — surfaced
+        // as an ArgumentException for the endpoint to translate.
+        var trimmedTitle = ValidateTitle(title);
+        var normalizedDescription = ValidateDescription(description);
+        var servings = defaultServings ?? DefaultServings;
+        ValidateDefaultServings(servings);
+        ValidatePrepTime(prepTimeMinutes);
+        var diff = difficulty ?? Difficulty;
+        ValidateDifficulty(diff);
+        _ = cookTimeMinutes; // forward-compat placeholder — see xmldoc.
+
+        Title = trimmedTitle;
+        Description = normalizedDescription;
+        DefaultServings = servings;
+        PrepTimeMinutes = prepTimeMinutes;
+        Difficulty = diff;
+        NutritionEstimate = nutrition;
+
+        // Children: clear-and-add. EF tracks the removals so a
+        // subsequent SaveChanges issues DELETEs for the old rows via
+        // the recipe's cascade-FK config.
+        Ingredients.Clear();
+        foreach (var ing in newIngredients)
+            Ingredients.Add(ing);
+
+        Steps.Clear();
+        foreach (var step in newSteps)
+            Steps.Add(step);
+
+        // Tag merge — see xmldoc above. We split existingAndNewTags into
+        // a lookup by Id and a lookup by normalized name so the decision
+        // per RecipeTag / AI-name is O(1).
+        var tagById = new Dictionary<Guid, Tag>();
+        foreach (var tag in existingAndNewTags)
+        {
+            // Last writer wins on duplicate ids — callers should not
+            // hand in duplicate Tag instances, but we don't blow up.
+            tagById[tag.Id] = tag;
+        }
+
+        // Preserve the ids of existing Custom tags on the recipe. Every
+        // RecipeTag whose Tag is either non-Custom or unknown to the
+        // lookup is dropped.
+        var preservedTagIds = new HashSet<Guid>();
+        var preservedCustomNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rt in RecipeTags)
+        {
+            if (tagById.TryGetValue(rt.TagId, out var tag) && tag.Category == TagCategory.Custom)
+            {
+                preservedTagIds.Add(rt.TagId);
+                preservedCustomNames.Add(tag.Name);
+            }
+        }
+
+        // Index AI-candidate tags by normalized name — we match on the
+        // lower-cased trimmed form so "vegetarisch" against a seeded
+        // "Vegetarisch" tag still resolves.
+        var tagByName = new Dictionary<string, Tag>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tag in existingAndNewTags)
+        {
+            // Don't index Custom tags under the AI-name map — Custom-wins
+            // is enforced explicitly below via preservedCustomNames.
+            if (tag.Category == TagCategory.Custom) continue;
+            tagByName.TryAdd(tag.Name.Trim(), tag);
+        }
+
+        RecipeTags.Clear();
+        foreach (var preservedId in preservedTagIds)
+            RecipeTags.Add(new RecipeTag(Id, preservedId));
+
+        // Add new AI tags, honouring the custom-wins rule + intra-list
+        // de-dup. AI names are already lower-cased per the method
+        // contract; we Trim() defensively.
+        var seenAiTagIds = new HashSet<Guid>();
+        foreach (var rawName in newAiTagNames)
+        {
+            if (string.IsNullOrWhiteSpace(rawName)) continue;
+            var name = rawName.Trim();
+            if (preservedCustomNames.Contains(name)) continue; // Custom wins.
+            if (!tagByName.TryGetValue(name, out var aiTag)) continue;
+            if (!seenAiTagIds.Add(aiTag.Id)) continue;
+            if (preservedTagIds.Contains(aiTag.Id)) continue;
+            RecipeTags.Add(new RecipeTag(Id, aiTag.Id));
+        }
+
+        UpdatedAt = now;
+        BumpVersion();
+    }
+
     // ── Validation helpers ─────────────────────────────────────────
 
     private static string ValidateTitle(string title)
