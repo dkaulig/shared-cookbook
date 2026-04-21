@@ -972,15 +972,20 @@ describe('MealPlanPage sticky sub-nav (BUG-032)', () => {
   const HERE = dirname(fileURLToPath(import.meta.url))
   const SOURCE = readFileSync(resolve(HERE, 'MealPlanPage.tsx'), 'utf8')
 
-  it('uses sticky top-[var(--topnav-height)] — no hard-coded sticky top-[56px]', () => {
-    expect(SOURCE).toContain('sticky top-[var(--topnav-height)]')
-    // The literal `top-[56px]` can still appear in comments (they
-    // document what we migrated away FROM), but MUST NOT show up on a
-    // sticky-positioned element again.
+  it('uses sticky top-0 so it docks flush below TopNav (BUG-042)', () => {
+    // BUG-039 made <main> the sole scroll container. Sticky positions
+    // resolve against the nearest scroll ancestor — main's top is
+    // already directly below TopNav, so the sticky offset must be 0.
+    // The pre-BUG-042 `top-[var(--topnav-height)]` produced a
+    // double-offset gap (topnav-height PLUS main.top) on scroll.
+    expect(SOURCE).toMatch(/sticky\s+top-0\b/)
+    // Hard-coded literal `top-[56px]` stays banned so the old BUG-032
+    // regression can't sneak back.
     expect(SOURCE).not.toMatch(/sticky\s+top-\[56px\]/)
+    expect(SOURCE).not.toMatch(/sticky\s+top-\[var\(--topnav-height\)\]/)
   })
 
   it('sub-nav nav element sits below TopNav (z-10, not z-20)', () => {
-    expect(SOURCE).toMatch(/sticky top-\[var\(--topnav-height\)\] z-10/)
+    expect(SOURCE).toMatch(/sticky top-0 z-10/)
   })
 })

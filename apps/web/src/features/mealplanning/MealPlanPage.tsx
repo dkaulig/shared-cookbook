@@ -400,7 +400,7 @@ export function MealPlanPage() {
           (the user report: "schieben dich übereinander"). */}
       <nav
         className={cn(
-          'sticky top-[var(--topnav-height)] z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
+          'sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
         aria-label="Wochenplan-Navigation"

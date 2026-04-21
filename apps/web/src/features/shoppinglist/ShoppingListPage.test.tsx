@@ -545,14 +545,17 @@ describe('ShoppingListPage sticky sub-nav (BUG-032)', () => {
   const HERE = dirname(fileURLToPath(import.meta.url))
   const SOURCE = readFileSync(resolve(HERE, 'ShoppingListPage.tsx'), 'utf8')
 
-  it('uses sticky top-[var(--topnav-height)] — no hard-coded sticky top-[56px]', () => {
-    expect(SOURCE).toContain('sticky top-[var(--topnav-height)]')
-    // See MealPlanPage's gate test for why we match the sticky-classname
-    // pattern rather than substring-search for `top-[56px]` alone.
+  it('uses sticky top-0 so it docks flush below TopNav (BUG-042)', () => {
+    // BUG-039 made <main> the sole scroll container; sticky offsets
+    // resolve against it and `main.top` is already topnav-bottom, so
+    // the correct offset is 0. Old `top-[var(--topnav-height)]` caused
+    // a visible double-offset gap.
+    expect(SOURCE).toMatch(/sticky\s+top-0\b/)
     expect(SOURCE).not.toMatch(/sticky\s+top-\[56px\]/)
+    expect(SOURCE).not.toMatch(/sticky\s+top-\[var\(--topnav-height\)\]/)
   })
 
   it('sub-nav nav element sits below TopNav (z-10, not z-20)', () => {
-    expect(SOURCE).toMatch(/sticky top-\[var\(--topnav-height\)\] z-10/)
+    expect(SOURCE).toMatch(/sticky top-0 z-10/)
   })
 })
