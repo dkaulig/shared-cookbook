@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
+import { useMediaQuery } from '@/lib/useIsMobile'
 import { useMarkAsCooked, useRecipe } from '../hooks'
 import { CookBottomBar } from './CookBottomBar'
 import { CookFinishCard } from './CookFinishCard'
@@ -10,6 +11,20 @@ import { MiseEnPlaceList } from './MiseEnPlaceList'
 import { PortionsPickerOverlay } from './PortionsPickerOverlay'
 import type { TimerChipState } from './TimerChip'
 import { useWakeLock } from './useWakeLock'
+
+/**
+ * TABLET-4 — the Cook-Now stage switches to a two-pane layout on tablet
+ * landscape (≥ 768 px AND landscape orientation). Left pane keeps the
+ * mise-en-place list always visible, right pane holds the current
+ * step — so the cook doesn't have to tab-switch mid-step to see the
+ * ingredients. Portrait + mobile keep the v0.9.0 single-pane tab flow.
+ *
+ * Scoped to this component via `useMediaQuery` — no global CSS variable,
+ * no new Tailwind variant. The query mirrors the wording the TABLET-4
+ * tests assert against (`min-width: 768px` + `orientation: landscape`).
+ */
+const COOK_LANDSCAPE_QUERY =
+  '(min-width: 768px) and (orientation: landscape)'
 
 /**
  * COOK-0 — "Jetzt kochen" Modus.
@@ -79,6 +94,9 @@ export function CookModePage() {
   // or higher). We don't acquire on the picker itself — reading "how
   // many portions?" is a fast interaction, no need for a lock there.
   const wakeLock = useWakeLock(step > -1)
+
+  // TABLET-4 — render two panes when the tablet is in landscape.
+  const isLandscape = useMediaQuery(COOK_LANDSCAPE_QUERY)
 
   const sortedSteps = useMemo(() => {
     if (!detail.data) return []
@@ -254,6 +272,11 @@ export function CookModePage() {
 
   const stepLabel = computeStepLabel(step, totalSteps)
   const showBottomBar = step >= 0 && step <= totalSteps
+  // TABLET-4 — two-pane layout is only on step 1..N in landscape.
+  // Mise-en-place (step 0) stays full-width so the user focuses on
+  // prep; finish (step totalSteps+1) collapses to the celebration card.
+  const onStepPane = step >= 1 && step <= totalSteps
+  const showTwoPane = isLandscape && onStepPane
 
   return (
     <div
@@ -281,28 +304,54 @@ export function CookModePage() {
           />
         )}
 
-        {step === 0 && (
-          <MiseEnPlaceList
-            ingredients={recipe.ingredients}
-            defaultServings={recipe.defaultServings}
-            sessionServings={portions}
-            checked={checkedIngredientIds}
-            onToggle={toggleChecked}
-            highlightedIngredientId={highlight?.id ?? null}
-            highlightNonce={highlight?.nonce ?? 0}
-          />
-        )}
+        {showBottomBar && (
+          <div
+            data-testid="cook-stage-body"
+            // TABLET-4 — landscape on step 1..N splits the stage into
+            // a two-column CSS grid (40% mise / 60% step). Everywhere
+            // else (portrait, mobile, step 0, finish) stays a plain
+            // block so the single-pane flow from v0.9.0 is byte-
+            // identical.
+            className={
+              showTwoPane
+                ? 'grid h-full grid-cols-[2fr_3fr] divide-x divide-border'
+                : ''
+            }
+          >
+            {(step === 0 || showTwoPane) && (
+              <div
+                data-testid="cook-pane-mise"
+                className={showTwoPane ? 'h-full overflow-y-auto py-6' : ''}
+              >
+                <MiseEnPlaceList
+                  ingredients={recipe.ingredients}
+                  defaultServings={recipe.defaultServings}
+                  sessionServings={portions}
+                  checked={checkedIngredientIds}
+                  onToggle={toggleChecked}
+                  highlightedIngredientId={highlight?.id ?? null}
+                  highlightNonce={highlight?.nonce ?? 0}
+                />
+              </div>
+            )}
 
-        {step >= 1 && step <= totalSteps && sortedSteps[step - 1] && (
-          <CookStepCard
-            step={sortedSteps[step - 1]!}
-            stepNumber={step}
-            totalSteps={totalSteps}
-            timerStates={timerStates}
-            onTimerStateChange={handleTimerStateChange}
-            ingredients={stepIngredients}
-            onIngredientActivate={handleIngredientActivate}
-          />
+            {onStepPane && sortedSteps[step - 1] && (
+              <div
+                data-testid="cook-pane-step"
+                className={showTwoPane ? 'h-full overflow-y-auto py-6' : ''}
+              >
+                <CookStepCard
+                  step={sortedSteps[step - 1]!}
+                  stepNumber={step}
+                  totalSteps={totalSteps}
+                  timerStates={timerStates}
+                  onTimerStateChange={handleTimerStateChange}
+                  ingredients={stepIngredients}
+                  onIngredientActivate={handleIngredientActivate}
+                />
+              </div>
+            )}
+          </div>
         )}
 
         {step === totalSteps + 1 && (

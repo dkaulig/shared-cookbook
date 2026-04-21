@@ -492,3 +492,116 @@ describe('CookModePage — keyboard navigation (→ / ← / Space)', () => {
     input.remove()
   })
 })
+
+// TABLET-4 — on tablet landscape (>= 768 px AND orientation: landscape)
+// the Cook-Now stage renders BOTH the mise-en-place ingredients list
+// AND the current step pane at the same time, so the cook never has
+// to tab-switch to see the ingredients mid-step. Portrait / mobile
+// stays the single-pane tab layout from v0.9.0.
+describe('CookModePage — tablet landscape two-pane layout (TABLET-4)', () => {
+  const originalMatchMedia = window.matchMedia
+
+  /**
+   * Mock `window.matchMedia` so any query that contains BOTH
+   * `min-width: 768px` AND `orientation: landscape` reports `true`.
+   * Every other query (including the plain `(max-width: 767px)` the
+   * `useIsMobile` hook uses) falls back to `false`. jsdom doesn't
+   * track a real viewport, so this is the cleanest way to force the
+   * landscape branch without touching the component's CSS layer.
+   */
+  function mockLandscape(active: boolean) {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches:
+          active &&
+          query.includes('min-width: 768px') &&
+          query.includes('landscape'),
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => true,
+      }),
+    })
+  }
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: originalMatchMedia,
+    })
+  })
+
+  it('renders BOTH the mise-en-place list AND the current step card on tablet landscape while on step 1', async () => {
+    mockLandscape(true)
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+
+    // Past the picker → mise (step 0) → step 1.
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+
+    // Both panes are simultaneously present — the step is on the right,
+    // the ingredients list on the left.
+    await screen.findByTestId('cook-step-card')
+    expect(screen.getByTestId('cook-mise-en-place')).toBeInTheDocument()
+    expect(screen.getByText(/Schritt 1 von 3/i)).toBeInTheDocument()
+  })
+
+  it('step nav on tablet landscape updates only the right pane — left pane stays visible', async () => {
+    mockLandscape(true)
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByText(/Schritt 1 von 3/i)
+
+    // Advance to step 2 → right pane flips, left pane still there.
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    expect(screen.getByText(/Schritt 2 von 3/i)).toBeInTheDocument()
+    expect(screen.getByTestId('cook-mise-en-place')).toBeInTheDocument()
+  })
+
+  it('still renders the mise-en-place tab single-pane on portrait (no matchMedia match)', async () => {
+    // Default jsdom matchMedia returns false for every query → portrait.
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    // Advance to step 1 — in portrait, the mise-en-place must NOT remain mounted.
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByTestId('cook-step-card')
+    expect(screen.queryByTestId('cook-mise-en-place')).not.toBeInTheDocument()
+  })
+
+  it('on the finish screen the mise-en-place pane is hidden even in landscape', async () => {
+    mockLandscape(true)
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook'))
+
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+    // Click through all 3 steps → Fertig button → finish card.
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /^Fertig$/i }))
+    await screen.findByTestId('cook-finish-card')
+
+    // Left pane collapses on the finish screen so the celebration is full-width.
+    expect(screen.queryByTestId('cook-mise-en-place')).not.toBeInTheDocument()
+  })
+})
