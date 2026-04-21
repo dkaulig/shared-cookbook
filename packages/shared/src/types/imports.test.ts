@@ -7,6 +7,7 @@ import type {
   ExtractedStep,
   ExtractionConfidence,
   ExtractionResult,
+  ExtractionSignals,
   ImportEnqueueResponse,
   ImportSourceKind,
   ImportStatus,
@@ -129,6 +130,11 @@ describe('imports.ts DTOs', () => {
       confidence,
       recipe_empty: false,
       empty_reason: null,
+      signals: {
+        had_caption_url: false,
+        had_blog_source: false,
+        had_transcript: false,
+      },
     }
     expect(result.confidence.overall).toBe('high')
     expect(result.recipe_empty).toBe(false)
@@ -142,10 +148,11 @@ describe('imports.ts DTOs', () => {
   it('BUG-034: ExtractionResult round-trips recipe_empty + empty_reason via JSON', () => {
     const reasons: EmptyReason[] = [
       'no_recipe_detected',
+      'no_usable_source',
       'empty_transcript',
       'extractor_error',
     ]
-    expect(reasons).toHaveLength(3)
+    expect(reasons).toHaveLength(4)
 
     const source: ExtractionResult = {
       recipe: {
@@ -164,6 +171,11 @@ describe('imports.ts DTOs', () => {
       confidence: { overall: 'low', notes: [] },
       recipe_empty: true,
       empty_reason: 'no_recipe_detected',
+      signals: {
+        had_caption_url: false,
+        had_blog_source: false,
+        had_transcript: true,
+      },
     }
     const wire = JSON.stringify(source)
     const parsed = JSON.parse(wire) as ExtractionResult
@@ -171,6 +183,29 @@ describe('imports.ts DTOs', () => {
     expect(parsed.empty_reason).toBe('no_recipe_detected')
     expect(parsed.recipe.ingredients).toEqual([])
     expect(parsed.recipe.steps).toEqual([])
+    expect(parsed.signals.had_transcript).toBe(true)
+    expect(parsed.signals.had_caption_url).toBe(false)
+    expect(parsed.signals.had_blog_source).toBe(false)
+  })
+
+  // BUG-034 (signal-aware follow-up) — three boolean signal flags let
+  // the frontend render a signal-aware German explainer. Drift guard:
+  // a rename on the Python TypedDict triggers the .NET bridge +
+  // frontend mirror to shift in lockstep.
+  it('BUG-034: ExtractionSignals shape pins the three boolean flags', () => {
+    const signals: ExtractionSignals = {
+      had_caption_url: true,
+      had_blog_source: false,
+      had_transcript: true,
+    }
+    expect(signals.had_caption_url).toBe(true)
+    expect(signals.had_blog_source).toBe(false)
+    expect(signals.had_transcript).toBe(true)
+  })
+
+  it('BUG-034: no_usable_source is a valid EmptyReason literal', () => {
+    const reason: EmptyReason = 'no_usable_source'
+    expect(reason).toBe('no_usable_source')
   })
 
   it('RecipeImportDto carries the full status shape the client exposes', () => {

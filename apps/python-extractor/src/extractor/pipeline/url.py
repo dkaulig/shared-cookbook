@@ -72,7 +72,7 @@ from extractor.pipeline.blog import (
     extract_recipe_scrapers,
 )
 from extractor.pipeline.post_process import post_process
-from extractor.pipeline.types import ExtractionResult
+from extractor.pipeline.types import ExtractionResult, ExtractionSignals
 from extractor.pipeline.video import (
     ExtractionError,
     Transcriber,
@@ -191,6 +191,13 @@ _SHORTENER_HOSTS: frozenset[str] = frozenset(
 # one hop; three allows stacked shorteners (bit.ly → tinyurl → blog).
 _SHORTENER_HEAD_TIMEOUT: float = 5.0
 _SHORTENER_MAX_REDIRECTS: int = 3
+
+# BUG-034 — minimum characters of non-whitespace Whisper output before
+# we consider the video to have produced a usable transcript. Below
+# this the audio is almost certainly background babble ("hi", "uhh")
+# that doesn't help the LLM; treating it as ``had_transcript=False``
+# lets the signal-aware explainer tell the user "no audio" honestly.
+_MIN_TRANSCRIPT_CHARS: Final[int] = 20
 
 
 class SsrfBlockedError(RuntimeError):
@@ -543,6 +550,13 @@ async def extract_from_url(
     thumbnail_url: str | None = None
     notes: list[str] = []
     blog_text_untrusted: bool = False
+    # BUG-034 — observability of the three source signals. Flipped at
+    # the points where each signal becomes non-empty and later threaded
+    # into ``post_process`` for the empty-reason classifier + the
+    # frontend's signal-aware copy.
+    had_caption_url: bool = False
+    had_blog_source: bool = False
+    had_transcript: bool = False
 
     # BUG-027: wrap the rest of the pipeline in a try/finally so the
     # heartbeat task is always cancelled even on failure. Each phase
@@ -556,6 +570,13 @@ async def extract_from_url(
                 downloader=downloader,
                 transcriber=transcriber,
                 reporter=active_reporter,
+            )
+            # BUG-034 — treat the transcript as a real signal only when
+            # it's substantive. A 3-char "Hi" is Whisper noise and the
+            # user shouldn't be told "we transcribed your video" when
+            # we really got one word.
+            had_transcript = bool(
+                transcript and len(transcript.strip()) >= _MIN_TRANSCRIPT_CHARS
             )
             # P2-2.1 — if the caption references an external recipe blog,
             # fetch it once and attach its flattened text as another source
@@ -577,6 +598,13 @@ async def extract_from_url(
                     client=shortener_client,
                 )
             if external_url is not None:
+                # BUG-034 — a caption URL resolved through all filters;
+                # the user gave us a pointer. Light the signal
+                # regardless of whether the subsequent blog fetch
+                # succeeds — the filtering upstream already rejected
+                # non-candidates (same-host, shorteners unresolved,
+                # video hosts).
+                had_caption_url = True
                 (blog_text, caption_thumbnail, caption_notes) = await _run_blog_path(
                     external_url, untrusted=True
                 )
@@ -587,6 +615,7 @@ async def extract_from_url(
                 # delimiter tags so the system prompt's anti-injection rule
                 # applies.
                 blog_text_untrusted = blog_text is not None
+                had_blog_source = bool(blog_text and blog_text.strip())
                 logger.info(
                     "caption_blog_fetched src=%s linked=%s has_text=%s",
                     _redact_host(url),
@@ -595,6 +624,10 @@ async def extract_from_url(
                 )
         else:
             (blog_text, thumbnail_url, notes) = await _run_blog_path(url, untrusted=False)
+            # BUG-034 — direct blog URL; the blog is the only signal
+            # source (no caption, no audio) so map a non-empty fetch
+            # result onto ``had_blog_source``.
+            had_blog_source = bool(blog_text and blog_text.strip())
 
         # Structuring phase — an async LLM call that yields no in-flight
         # granularity, so a single "phase starts" event is enough. The
@@ -613,12 +646,29 @@ async def extract_from_url(
         )
 
         await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
+        signals: ExtractionSignals = {
+            "had_caption_url": had_caption_url,
+            "had_blog_source": had_blog_source,
+            "had_transcript": had_transcript,
+        }
+        # BUG-034 — log at INFO so the signal state is grep-able when
+        # diagnosing "why is the extract empty?" questions in prod. Host
+        # only; never the URL itself.
+        logger.info(
+            "extract_from_url signals host=%s had_caption_url=%s"
+            " had_blog_source=%s had_transcript=%s",
+            _redact_host(url),
+            had_caption_url,
+            had_blog_source,
+            had_transcript,
+        )
         return post_process(
             llm_output,
             original_url=url,
             fallback_thumbnail=thumbnail_url,
             extra_notes=notes,
             usage=usage,
+            signals=signals,
         )
     finally:
         # Always tear down the heartbeat — even on exception — so a

@@ -272,6 +272,11 @@ describe('extractedRecipeToPrefill', () => {
         confidence: { overall: 'high', notes: [] },
         recipe_empty: false,
         empty_reason: null,
+        signals: {
+          had_caption_url: false,
+          had_blog_source: false,
+          had_transcript: false,
+        },
         ...over,
       }
     }
@@ -323,6 +328,41 @@ describe('extractedRecipeToPrefill', () => {
       expect(out.title).toBe('Apfelkuchen')
       expect(out.ingredients).toHaveLength(1)
       expect(out.ingredients[0]?.name).toBe('Mehl')
+    })
+
+    // BUG-034 (signal-aware follow-up) — the three signal flags flow
+    // from `ExtractionResult.signals` onto the prefill so the wrapper
+    // can hand them to `EmptyExtractionExplainer` for variant copy.
+    it('carries ExtractionResult.signals onto the prefill', () => {
+      const out = extractedResultToPrefill(
+        result({
+          recipe_empty: true,
+          empty_reason: 'no_recipe_detected',
+          signals: {
+            had_caption_url: true,
+            had_blog_source: false,
+            had_transcript: true,
+          },
+        }),
+      )
+      expect(out.signals).toEqual({
+        had_caption_url: true,
+        had_blog_source: false,
+        had_transcript: true,
+      })
+    })
+
+    it('defaults signals to all-false when the server omitted them (legacy payload)', () => {
+      // Legacy payload + signal-aware explainer branch: when the field
+      // is missing, default to "all sources empty" so the explainer
+      // doesn't claim we had signals we didn't actually capture.
+      const legacy = { recipe: recipe(), confidence: { overall: 'high', notes: [] } }
+      const out = extractedResultToPrefill(legacy as unknown as ExtractionResult)
+      expect(out.signals).toEqual({
+        had_caption_url: false,
+        had_blog_source: false,
+        had_transcript: false,
+      })
     })
   })
 })

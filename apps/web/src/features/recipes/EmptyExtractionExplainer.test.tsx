@@ -3,12 +3,23 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EmptyExtractionExplainer } from './EmptyExtractionExplainer'
 
+const ALL_FALSE_SIGNALS = {
+  had_caption_url: false,
+  had_blog_source: false,
+  had_transcript: false,
+} as const
+
 describe('EmptyExtractionExplainer (BUG-034)', () => {
   it('renders the heading, icon and default no_recipe_detected copy', () => {
     render(
       <EmptyExtractionExplainer
         reason="no_recipe_detected"
         sourceUrl={null}
+        signals={{
+          had_caption_url: false,
+          had_blog_source: false,
+          had_transcript: true,
+        }}
         onProceedEmpty={() => {}}
         onTryAnother={() => {}}
       />,
@@ -17,7 +28,7 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       screen.getByRole('heading', { name: /kein rezept erkannt/i }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/kein kochrezept|zutaten und schritte zu erkennen/i),
+      screen.getByText(/keine zutaten oder schritte erkannt|manuell ausfüllen/i),
     ).toBeInTheDocument()
   })
 
@@ -26,12 +37,13 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       <EmptyExtractionExplainer
         reason={null}
         sourceUrl={null}
+        signals={ALL_FALSE_SIGNALS}
         onProceedEmpty={() => {}}
         onTryAnother={() => {}}
       />,
     )
     expect(
-      screen.getByText(/kein kochrezept|zutaten und schritte zu erkennen/i),
+      screen.getByRole('heading', { name: /kein rezept erkannt/i }),
     ).toBeInTheDocument()
   })
 
@@ -40,6 +52,7 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       <EmptyExtractionExplainer
         reason="empty_transcript"
         sourceUrl={null}
+        signals={ALL_FALSE_SIGNALS}
         onProceedEmpty={() => {}}
         onTryAnother={() => {}}
       />,
@@ -54,6 +67,7 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       <EmptyExtractionExplainer
         reason="extractor_error"
         sourceUrl={null}
+        signals={ALL_FALSE_SIGNALS}
         onProceedEmpty={() => {}}
         onTryAnother={() => {}}
       />,
@@ -66,6 +80,7 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       <EmptyExtractionExplainer
         reason="no_recipe_detected"
         sourceUrl={null}
+        signals={ALL_FALSE_SIGNALS}
         onProceedEmpty={() => {}}
         onTryAnother={() => {}}
       />,
@@ -78,6 +93,11 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       <EmptyExtractionExplainer
         reason="no_recipe_detected"
         sourceUrl="https://example.com/video/123"
+        signals={{
+          had_caption_url: false,
+          had_blog_source: false,
+          had_transcript: true,
+        }}
         onProceedEmpty={() => {}}
         onTryAnother={() => {}}
       />,
@@ -95,6 +115,7 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       <EmptyExtractionExplainer
         reason="no_recipe_detected"
         sourceUrl={null}
+        signals={ALL_FALSE_SIGNALS}
         onProceedEmpty={onProceedEmpty}
         onTryAnother={() => {}}
       />,
@@ -112,6 +133,7 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       <EmptyExtractionExplainer
         reason="no_recipe_detected"
         sourceUrl={null}
+        signals={ALL_FALSE_SIGNALS}
         onProceedEmpty={() => {}}
         onTryAnother={onTryAnother}
       />,
@@ -120,5 +142,98 @@ describe('EmptyExtractionExplainer (BUG-034)', () => {
       screen.getByRole('button', { name: /anderes video probieren/i }),
     )
     expect(onTryAnother).toHaveBeenCalledTimes(1)
+  })
+
+  // BUG-034 (signal-aware) — the explainer tells the user WHICH
+  // source signals came up empty so they know whether it's their fault,
+  // the video's fault, or the extractor's fault.
+  describe('signal-aware copy', () => {
+    it('renders no_usable_source copy when all three signals are false', () => {
+      render(
+        <EmptyExtractionExplainer
+          reason="no_usable_source"
+          sourceUrl={null}
+          signals={ALL_FALSE_SIGNALS}
+          onProceedEmpty={() => {}}
+          onTryAnother={() => {}}
+        />,
+      )
+      // Copy template (spec):
+      // "Wir konnten dieses Video nicht automatisch als Rezept auswerten:
+      //  kein Beschreibungstext mit Link, keine Caption und keine Sprachspur
+      //  gefunden. Du kannst das Rezept manuell ausfüllen oder ein anderes
+      //  Video ausprobieren."
+      expect(
+        screen.getByText(
+          /kein beschreibungstext.*keine caption.*keine sprachspur/i,
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('renders mixed-signal copy highlighting the transcript when only audio was captured', () => {
+      render(
+        <EmptyExtractionExplainer
+          reason="no_recipe_detected"
+          sourceUrl={null}
+          signals={{
+            had_caption_url: false,
+            had_blog_source: false,
+            had_transcript: true,
+          }}
+          onProceedEmpty={() => {}}
+          onTryAnother={() => {}}
+        />,
+      )
+      // The mixed copy mentions the signals that WERE present so the
+      // user understands "we had audio, the AI just didn't find a
+      // recipe in it". German phrasing per the spec.
+      expect(
+        screen.getByText(/eine audiosprache|sprachspur/i),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/keine zutaten oder schritte/i)).toBeInTheDocument()
+    })
+
+    it('renders mixed-signal copy highlighting both audio and blog when both were captured', () => {
+      render(
+        <EmptyExtractionExplainer
+          reason="no_recipe_detected"
+          sourceUrl={null}
+          signals={{
+            had_caption_url: false,
+            had_blog_source: true,
+            had_transcript: true,
+          }}
+          onProceedEmpty={() => {}}
+          onTryAnother={() => {}}
+        />,
+      )
+      // Both signals in the signal-list.
+      expect(
+        screen.getByText(/audiosprache|sprachspur/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(/blog|webseite/i),
+      ).toBeInTheDocument()
+    })
+
+    it('renders mixed-signal copy for caption URL only (blog fetch failed)', () => {
+      render(
+        <EmptyExtractionExplainer
+          reason="no_recipe_detected"
+          sourceUrl={null}
+          signals={{
+            had_caption_url: true,
+            had_blog_source: false,
+            had_transcript: false,
+          }}
+          onProceedEmpty={() => {}}
+          onTryAnother={() => {}}
+        />,
+      )
+      // Spec: the copy should mention the caption-link signal.
+      expect(
+        screen.getByText(/link|blog-link/i),
+      ).toBeInTheDocument()
+    })
   })
 })

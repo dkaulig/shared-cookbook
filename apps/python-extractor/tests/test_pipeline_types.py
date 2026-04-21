@@ -11,14 +11,17 @@ from typing import get_args
 
 from extractor.pipeline.types import (
     CONFIDENCE_LEVELS,
+    EMPTY_REASONS,
     INGREDIENT_CONFIDENCE_LEVELS,
     STEP_CONFIDENCE_LEVELS,
     ConfidenceLevel,
+    EmptyReason,
     ExtractedIngredient,
     ExtractedRecipe,
     ExtractedStep,
     ExtractionConfidence,
     ExtractionResult,
+    ExtractionSignals,
     IngredientConfidenceLevel,
     NutritionEstimate,
     StepConfidenceLevel,
@@ -195,6 +198,74 @@ def test_extracted_recipe_accepts_nutrition_estimate() -> None:
     }
     assert recipe["nutrition_estimate"] is not None
     assert recipe["nutrition_estimate"]["kcal"] == 300
+
+
+def test_empty_reason_literal_contains_no_usable_source() -> None:
+    """BUG-034 (signal-aware extract) — ``no_usable_source`` joins the
+    existing three values so the post-processor can distinguish "all
+    three signal sources were empty" from "sources were there but the
+    LLM couldn't extract".
+    """
+    assert set(get_args(EmptyReason)) == {
+        "no_recipe_detected",
+        "no_usable_source",
+        "empty_transcript",
+        "extractor_error",
+    }
+
+
+def test_empty_reasons_tuple_matches_literal() -> None:
+    """Runtime-accessible tuple stays in sync with the literal."""
+    assert set(EMPTY_REASONS) == set(get_args(EmptyReason))
+
+
+def test_extraction_signals_shape() -> None:
+    """BUG-034 — three bool fields describe which source signals were
+    present at extract time. The frontend renders a signal-aware German
+    explainer when the extraction is empty.
+    """
+    signals: ExtractionSignals = {
+        "had_caption_url": True,
+        "had_blog_source": False,
+        "had_transcript": True,
+    }
+    assert signals["had_caption_url"] is True
+    assert signals["had_blog_source"] is False
+    assert signals["had_transcript"] is True
+
+
+def test_extraction_result_carries_signals() -> None:
+    """BUG-034 — ``ExtractionResult.signals`` is always present on the
+    wire so the frontend can branch without null-checks.
+    """
+    result: ExtractionResult = {
+        "recipe": {
+            "title": "Unbekanntes Rezept",
+            "description": None,
+            "servings": None,
+            "difficulty": None,
+            "prep_minutes": None,
+            "cook_minutes": None,
+            "ingredients": [],
+            "steps": [],
+            "tags": [],
+            "source_url": "https://x",
+            "thumbnail_url": None,
+            "nutrition_estimate": None,
+        },
+        "confidence": {"overall": "low", "notes": []},
+        "recipe_empty": True,
+        "empty_reason": "no_usable_source",
+        "signals": {
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": False,
+        },
+    }
+    assert result["signals"]["had_caption_url"] is False
+    assert result["signals"]["had_blog_source"] is False
+    assert result["signals"]["had_transcript"] is False
+    assert result["empty_reason"] == "no_usable_source"
 
 
 def test_extracted_recipe_accepts_null_nutrition_estimate() -> None:

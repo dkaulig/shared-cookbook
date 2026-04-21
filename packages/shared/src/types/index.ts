@@ -90,6 +90,7 @@ export type {
   ExtractedStep,
   ExtractionConfidence,
   ExtractionResult,
+  ExtractionSignals,
   ImportEnqueueResponse,
   ImportPhotosRequest,
   ImportSourceKind,

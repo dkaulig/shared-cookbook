@@ -620,18 +620,31 @@ def test_post_process_imperial_ingredient_converted_end_to_end() -> None:
 
 
 def test_post_process_sets_recipe_empty_when_no_ingredients_or_steps() -> None:
-    """Both lists empty on input → `recipe_empty=True`, reason set.
+    """Both lists empty + at least one signal true → ``no_recipe_detected``.
 
     Azure occasionally returns an entirely empty extraction (the Whisper
     transcript was chatter / no recipe content) but the HTTP path stays
     200. The post-processor flags that so the frontend can render a
     dedicated "Kein Rezept erkannt" explainer instead of a silent empty
     form — see the `EmptyExtractionExplainer` wrapper in the web app.
+
+    When at least one signal source was present (here: transcript) the
+    reason is ``no_recipe_detected`` — the LLM had data and still
+    couldn't extract a recipe.
     """
     data = _base_recipe_dict()
     data["ingredients"] = []
     data["steps"] = []
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": True,
+        },
+    )
     assert result["recipe_empty"] is True
     assert result["empty_reason"] == "no_recipe_detected"
 
@@ -704,9 +717,139 @@ def test_post_process_sets_recipe_empty_when_all_ingredients_dropped() -> None:
         },
     ]
     data["steps"] = []
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": True,
+        },
+    )
     assert result["recipe"]["ingredients"] == []
     assert result["recipe"]["steps"] == []
+    assert result["recipe_empty"] is True
+    assert result["empty_reason"] == "no_recipe_detected"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BUG-034 — signals + no_usable_source empty_reason derivation
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_post_process_defaults_signals_to_all_false_when_not_supplied() -> None:
+    """Legacy callers that don't pass ``signals`` still get a valid
+    envelope — all three flags default to False. Keeps the wire contract
+    symmetric and lets the .NET side persist ``ResultJson`` without
+    special-casing an optional key."""
+    data = _base_recipe_dict()
+    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    assert result["signals"] == {
+        "had_caption_url": False,
+        "had_blog_source": False,
+        "had_transcript": False,
+    }
+
+
+def test_post_process_echoes_supplied_signals_on_healthy_recipe() -> None:
+    """When the recipe is non-empty ``empty_reason`` stays None but
+    ``signals`` still flow through — admins use them for observability
+    on healthy imports too."""
+    data = _base_recipe_dict()
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": True,
+            "had_blog_source": False,
+            "had_transcript": True,
+        },
+    )
+    assert result["recipe_empty"] is False
+    assert result["empty_reason"] is None
+    assert result["signals"] == {
+        "had_caption_url": True,
+        "had_blog_source": False,
+        "had_transcript": True,
+    }
+
+
+def test_post_process_empty_all_signals_false_yields_no_usable_source() -> None:
+    """All three signal flags false + empty recipe → ``no_usable_source``.
+    This is the FB-reel-with-no-caption-no-audio-no-blog case."""
+    data = _base_recipe_dict()
+    data["ingredients"] = []
+    data["steps"] = []
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": False,
+        },
+    )
+    assert result["recipe_empty"] is True
+    assert result["empty_reason"] == "no_usable_source"
+
+
+def test_post_process_empty_with_transcript_yields_no_recipe_detected() -> None:
+    """Any true signal + empty recipe → keep ``no_recipe_detected`` so
+    the copy explains "the sources were there but Azure found no recipe"."""
+    data = _base_recipe_dict()
+    data["ingredients"] = []
+    data["steps"] = []
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": True,
+        },
+    )
+    assert result["recipe_empty"] is True
+    assert result["empty_reason"] == "no_recipe_detected"
+
+
+def test_post_process_empty_with_blog_yields_no_recipe_detected() -> None:
+    """Blog-only signal + empty recipe → ``no_recipe_detected``."""
+    data = _base_recipe_dict()
+    data["ingredients"] = []
+    data["steps"] = []
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": False,
+            "had_blog_source": True,
+            "had_transcript": False,
+        },
+    )
+    assert result["recipe_empty"] is True
+    assert result["empty_reason"] == "no_recipe_detected"
+
+
+def test_post_process_empty_with_caption_url_yields_no_recipe_detected() -> None:
+    """Caption URL signal + empty recipe → ``no_recipe_detected``."""
+    data = _base_recipe_dict()
+    data["ingredients"] = []
+    data["steps"] = []
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        signals={
+            "had_caption_url": True,
+            "had_blog_source": False,
+            "had_transcript": False,
+        },
+    )
     assert result["recipe_empty"] is True
     assert result["empty_reason"] == "no_recipe_detected"
 

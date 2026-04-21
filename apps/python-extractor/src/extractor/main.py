@@ -83,6 +83,22 @@ UUID_PATTERN: Final[str] = (
 
 logger = logging.getLogger(__name__)
 
+# BUG-034 — configure root logging at module import so the pipeline's
+# ``logger.info(...)`` lines (``extract_from_url signals``,
+# ``caption_url_followed``, ``transcript_done``, …) actually render
+# under uvicorn + Docker. Without this, the stdlib root logger stays at
+# WARNING and every INFO line from our code is dropped, which makes
+# "why is this import empty?" forensics impossible. ``force=True``
+# because uvicorn installs its own root handler first; without force
+# the config is a no-op. The format mirrors uvicorn's default shape so
+# log aggregators don't see a stylistic disparity between FastAPI's
+# own lines and ours.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    force=True,
+)
+
 
 def _callback_host_allowlist() -> str:
     """Resolve the per-request allowlist host from env.

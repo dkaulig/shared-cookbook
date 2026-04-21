@@ -349,6 +349,7 @@ export function RecipeFormPage({ mode }: Props) {
             ? prefill.sourceUrl
             : importQuery.data?.sourceUrl ?? null
         }
+        signals={prefill.signals}
         onProceedEmpty={() => setProceedAnyway(true)}
         onTryAnother={() => navigate('/rezepte/import')}
       />

@@ -106,23 +106,58 @@ export interface ExtractionConfidence {
  * BUG-034 — why the extractor returned an empty recipe.
  *
  * - `no_recipe_detected` — Azure analysed the sources and emitted zero
- *   ingredients AND zero steps. The typical FB-Reel "not actually a
- *   recipe" case; post-process flags this from `post_process.py`.
- * - `empty_transcript` — pipeline-layer gate (reserved; BUG-033 will
- *   wire it): no audio / music-only video so Whisper produced no
- *   transcript and the LLM had nothing to work with.
+ *   ingredients AND zero steps. At least one signal source was
+ *   present (transcript / caption URL / blog page) but the LLM still
+ *   couldn't find a recipe.
+ * - `no_usable_source` — signal-aware follow-up (BUG-034). None of the
+ *   three source signals lit up (no caption URL, no blog text, no
+ *   transcript). The typical FB-Reel-without-captions-or-audio case;
+ *   the copy tells the user "we had nothing to chew on", distinct
+ *   from "we had something but found no recipe".
+ * - `empty_transcript` — reserved pipeline-level gate; today's
+ *   `no_usable_source` covers the silent-video case.
  * - `extractor_error` — extractor degraded to empty-result instead of
  *   propagating as a 500. Reserved — today's pipeline raises instead,
  *   but the enum carries this copy-branch for future use.
  *
  * Mirrors :data:`extractor.pipeline.types.EmptyReason` on the Python
- * side. Keep the three literal values in sync — the wire format is
+ * side. Keep the literal values in sync — the wire format is
  * snake_case identical on both sides.
  */
 export type EmptyReason =
   | 'no_recipe_detected'
+  | 'no_usable_source'
   | 'empty_transcript'
   | 'extractor_error'
+
+/**
+ * BUG-034 — which source signals the URL extractor observed.
+ *
+ * The Python pipeline flips each flag at the point it collected a
+ * usable signal:
+ *
+ * - `had_caption_url` — True when a URL candidate was extracted from
+ *   the video caption and survived the filter chain (same-host,
+ *   video-host, shortener resolution).
+ * - `had_blog_source` — True when a blog page was fetched AND yielded
+ *   non-empty flattened text (JSON-LD, recipe-scrapers, or BS4
+ *   fallback).
+ * - `had_transcript` — True when Whisper produced at least ~20
+ *   characters of non-whitespace transcript. Background babble
+ *   ("hi", "uhh") falls below the threshold.
+ *
+ * The frontend uses these to render signal-aware German copy when the
+ * recipe is empty. Always present on the wire (all three default to
+ * `false` when the pipeline didn't see any source) so the UI can
+ * branch without null checks.
+ *
+ * Mirrors `ExtractionSignals` on the Python side.
+ */
+export interface ExtractionSignals {
+  had_caption_url: boolean
+  had_blog_source: boolean
+  had_transcript: boolean
+}
 
 export interface ExtractionResult {
   recipe: ExtractedRecipe
@@ -138,6 +173,17 @@ export interface ExtractionResult {
    * explainer copy. `null` iff `recipe_empty === false`.
    */
   empty_reason: EmptyReason | null
+  /**
+   * BUG-034 (signal-aware follow-up) — which source signals the URL
+   * pipeline observed. Drives the variant copy in
+   * `EmptyExtractionExplainer` when the recipe is empty.
+   *
+   * The field is always populated on fresh server responses; the
+   * prefill mapper falls back to all-false for legacy / chat-import
+   * payloads that pre-date the field, so the inner shape on the
+   * frontend never deals with `undefined`.
+   */
+  signals: ExtractionSignals
 }
 
 /**

@@ -1230,6 +1230,224 @@ async def test_url_pipeline_null_reporter_reproduces_legacy_behavior(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# BUG-034 — signal flags on ExtractionResult
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestExtractFromUrlSignals:
+    """The pipeline populates ``signals`` so the frontend can explain
+    WHY an extraction came up empty."""
+
+    async def test_video_with_transcript_only_sets_had_transcript_true(
+        self, tmp_path: Path
+    ) -> None:
+        """A silent-caption video with Whisper output sets
+        ``had_transcript=True`` and the other two signals false."""
+        mp4 = tmp_path / "video.mp4"
+        mp4.write_bytes(b"stub")
+        downloader = StubDownloader(
+            assets=VideoAssets(
+                mp4_path=mp4,
+                title="t",
+                description="",  # empty caption
+                thumbnail_url=None,
+            )
+        )
+        transcriber = StubTranscriber(
+            transcript="Mehl und Wasser mischen und backen."
+        )
+
+        mock = _AnyCallMock(_canonical_llm_response())
+        result = await extract_from_url(
+            "https://youtu.be/x",
+            provider=mock,
+            downloader=downloader,
+            transcriber=transcriber,
+        )
+        assert result["signals"] == {
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": True,
+        }
+
+    async def test_video_with_no_caption_url_no_transcript_sets_all_false(
+        self, tmp_path: Path
+    ) -> None:
+        """A music-only video with no caption URL yields all signals
+        false — the ``no_usable_source`` branch."""
+        mp4 = tmp_path / "video.mp4"
+        mp4.write_bytes(b"stub")
+        downloader = StubDownloader(
+            assets=VideoAssets(
+                mp4_path=mp4,
+                title="t",
+                description="",  # empty caption
+                thumbnail_url=None,
+            )
+        )
+        transcriber = StubTranscriber(transcript="")  # no audio
+
+        # Empty-recipe response triggers the empty gate.
+        empty_response = _canonical_llm_response()
+        empty_response["ingredients"] = []
+        empty_response["steps"] = []
+        mock = _AnyCallMock(empty_response)
+        result = await extract_from_url(
+            "https://youtu.be/x",
+            provider=mock,
+            downloader=downloader,
+            transcriber=transcriber,
+        )
+        assert result["signals"] == {
+            "had_caption_url": False,
+            "had_blog_source": False,
+            "had_transcript": False,
+        }
+        assert result["recipe_empty"] is True
+        assert result["empty_reason"] == "no_usable_source"
+
+    @respx.mock
+    async def test_video_with_caption_blog_sets_caption_url_and_blog_true(
+        self, tmp_path: Path, _fake_public_dns: None
+    ) -> None:
+        """Caption carrying an external recipe URL + a successful blog
+        fetch lights up both ``had_caption_url`` and ``had_blog_source``."""
+        fixture = (
+            Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html"
+        ).read_text(encoding="utf-8")
+        respx.get("https://blog.example/carbonara").mock(
+            return_value=httpx.Response(
+                200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                text=fixture,
+            )
+        )
+
+        mp4 = tmp_path / "video.mp4"
+        mp4.write_bytes(b"stub")
+        caption = "Full recipe on my blog: https://blog.example/carbonara"
+        downloader = StubDownloader(
+            assets=VideoAssets(
+                mp4_path=mp4,
+                title="t",
+                description=caption,
+                thumbnail_url=None,
+            )
+        )
+        transcriber = StubTranscriber(
+            transcript="Speck und Ei zusammen in der Pfanne anbraten."
+        )
+
+        mock = _AnyCallMock(_canonical_llm_response())
+        result = await extract_from_url(
+            "https://www.facebook.com/share/r/xyz",
+            provider=mock,
+            downloader=downloader,
+            transcriber=transcriber,
+        )
+        assert result["signals"]["had_caption_url"] is True
+        assert result["signals"]["had_blog_source"] is True
+        assert result["signals"]["had_transcript"] is True
+
+    @respx.mock
+    async def test_video_with_caption_url_but_unreachable_blog_marks_caption_only(
+        self, tmp_path: Path, _fake_public_dns: None
+    ) -> None:
+        """Caption URL present but blog returns 404 → ``had_caption_url``
+        stays True (URL was extracted) but ``had_blog_source`` is False
+        (no non-empty blog text was actually captured)."""
+        respx.get("https://blog.example/gone").mock(
+            return_value=httpx.Response(404)
+        )
+
+        mp4 = tmp_path / "video.mp4"
+        mp4.write_bytes(b"stub")
+        caption = "Recipe: https://blog.example/gone"
+        downloader = StubDownloader(
+            assets=VideoAssets(
+                mp4_path=mp4,
+                title="t",
+                description=caption,
+                thumbnail_url=None,
+            )
+        )
+        transcriber = StubTranscriber(transcript="")
+
+        empty_response = _canonical_llm_response()
+        empty_response["ingredients"] = []
+        empty_response["steps"] = []
+        mock = _AnyCallMock(empty_response)
+        result = await extract_from_url(
+            "https://www.facebook.com/share/r/xyz",
+            provider=mock,
+            downloader=downloader,
+            transcriber=transcriber,
+        )
+        assert result["signals"]["had_caption_url"] is True
+        assert result["signals"]["had_blog_source"] is False
+        assert result["signals"]["had_transcript"] is False
+        # At least one signal true → no_recipe_detected, not no_usable_source.
+        assert result["empty_reason"] == "no_recipe_detected"
+
+    async def test_short_transcript_does_not_count_as_had_transcript(
+        self, tmp_path: Path
+    ) -> None:
+        """Transcripts under the ~20-char threshold are noise (Whisper
+        picked up background babble) — they should not light up the
+        ``had_transcript`` signal."""
+        mp4 = tmp_path / "video.mp4"
+        mp4.write_bytes(b"stub")
+        downloader = StubDownloader(
+            assets=VideoAssets(
+                mp4_path=mp4,
+                title="t",
+                description="",
+                thumbnail_url=None,
+            )
+        )
+        # 10 chars — below the threshold.
+        transcriber = StubTranscriber(transcript="Hallo Welt")
+
+        empty_response = _canonical_llm_response()
+        empty_response["ingredients"] = []
+        empty_response["steps"] = []
+        mock = _AnyCallMock(empty_response)
+        result = await extract_from_url(
+            "https://youtu.be/x",
+            provider=mock,
+            downloader=downloader,
+            transcriber=transcriber,
+        )
+        assert result["signals"]["had_transcript"] is False
+
+    @respx.mock
+    async def test_blog_url_path_sets_blog_source_true_on_success(
+        self, tmp_path: Path, _fake_public_dns: None
+    ) -> None:
+        """Direct blog URL → ``had_blog_source`` True if the fetch works."""
+        fixture = (
+            Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html"
+        ).read_text(encoding="utf-8")
+        respx.get("https://example.com/spaghetti").mock(
+            return_value=httpx.Response(
+                200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                text=fixture,
+            )
+        )
+
+        mock = _AnyCallMock(_canonical_llm_response())
+        result = await extract_from_url(
+            "https://example.com/spaghetti",
+            provider=mock,
+        )
+        assert result["signals"]["had_blog_source"] is True
+        # Blog path has no caption / transcript.
+        assert result["signals"]["had_caption_url"] is False
+        assert result["signals"]["had_transcript"] is False
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Test helpers
 # ─────────────────────────────────────────────────────────────────────
 

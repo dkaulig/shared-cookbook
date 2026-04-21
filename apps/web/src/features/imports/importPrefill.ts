@@ -2,6 +2,7 @@ import type {
   EmptyReason,
   ExtractedRecipe,
   ExtractionResult,
+  ExtractionSignals,
   IngredientConfidenceLevel,
   NutritionEstimate,
   StepConfidenceLevel,
@@ -87,6 +88,13 @@ export interface ImportPrefill {
    * copy. `null` iff `recipeEmpty === false`.
    */
   emptyReason: EmptyReason | null
+  /**
+   * BUG-034 (signal-aware follow-up) — which source signals the URL
+   * pipeline actually observed. The explainer renders variant German
+   * copy based on the flag state. Defaults to all-false for legacy /
+   * chat-import payloads that pre-date the server field.
+   */
+  signals: ExtractionSignals
   /**
    * BUG-045 — raw AI-extracted tag names (lowercase German slugs, e.g.
    * `['vegetarisch', 'schnell']`). The form resolves them against the
@@ -250,6 +258,15 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
     // "not empty" default so they skip the explainer branch.
     recipeEmpty: false,
     emptyReason: null,
+    // BUG-034 (signal-aware) — signals live on the outer envelope too;
+    // `extractedResultToPrefill` overlays the real values. Bare-recipe
+    // callers (chat imports) get an all-false default which is
+    // consistent with the empty-gate skip above.
+    signals: {
+      had_caption_url: false,
+      had_blog_source: false,
+      had_transcript: false,
+    },
     // BUG-045 — surface the AI-extracted tag names; `r.tags ?? []` so
     // older wire payloads (pre-tags field) don't crash the mapper.
     tags: r.tags ?? [],
@@ -271,7 +288,16 @@ export function extractedResultToPrefill(result: ExtractionResult): ImportPrefil
   // (no explainer on legacy results).
   const recipeEmpty = result.recipe_empty ?? false
   const emptyReason = (result.empty_reason ?? null) as EmptyReason | null
-  return { ...prefill, recipeEmpty, emptyReason }
+  // BUG-034 (signal-aware) — server payloads from before the follow-up
+  // have no `signals` field either. Default to all-false so the
+  // `no_usable_source` copy applies (the honest answer: we don't know
+  // which sources were captured).
+  const signals: ExtractionSignals = result.signals ?? {
+    had_caption_url: false,
+    had_blog_source: false,
+    had_transcript: false,
+  }
+  return { ...prefill, recipeEmpty, emptyReason, signals }
 }
 
 /**

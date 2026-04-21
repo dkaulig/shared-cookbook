@@ -60,15 +60,26 @@ INGREDIENT_CONFIDENCE_LEVELS: Final[tuple[IngredientConfidenceLevel, ...]] = get
     IngredientConfidenceLevel
 )
 
-EmptyReason = Literal["no_recipe_detected", "empty_transcript", "extractor_error"]
+EmptyReason = Literal[
+    "no_recipe_detected",
+    "no_usable_source",
+    "empty_transcript",
+    "extractor_error",
+]
 """BUG-034 — why the extractor returned an empty recipe.
 
 - ``no_recipe_detected`` — Azure analysed the sources and emitted zero
-  ingredients AND zero steps; the caller fed a valid (non-blank)
-  transcript / blog / caption but nothing recipe-shaped came back.
-- ``empty_transcript`` — pipeline-layer gate (out of scope for BUG-034;
-  BUG-033 wires this from ``url.py``): the caller had no audio to feed
-  the LLM (silent / music-only video).
+  ingredients AND zero steps; the caller fed at least one valid signal
+  (transcript OR caption URL OR blog page) but nothing recipe-shaped
+  came back.
+- ``no_usable_source`` — signal-aware follow-up (BUG-034). None of the
+  three source signals lit up (no caption URL, no blog text, no
+  transcript). Distinct from ``no_recipe_detected`` because the copy
+  is different: the user needs to know the LLM had nothing to chew on,
+  not that Azure gave up.
+- ``empty_transcript`` — pipeline-layer gate (reserved for future use).
+  The caller had no audio to feed the LLM (silent / music-only video).
+  Today that degrades to ``no_usable_source`` via the signal flags.
 - ``extractor_error`` — post-analysis exception degraded to an empty
   result instead of propagating as a 500; kept in the enum so the UI
   can branch copy even though today's pipeline raises instead.
@@ -169,6 +180,33 @@ class ExtractionConfidence(TypedDict):
     notes: list[str]
 
 
+class ExtractionSignals(TypedDict):
+    """BUG-034 — which source signals the pipeline actually collected.
+
+    These three booleans describe the raw observability of the extract:
+
+    - ``had_caption_url`` — True when :func:`_extract_caption_blog_url`
+      pulled at least one candidate URL out of the video caption
+      (before shortener resolution + filtering). Captures "the user
+      pointed at a video and there was a link in the description".
+    - ``had_blog_source`` — True when a blog page was fetched AND
+      yielded non-empty flattened text. Captures "we did load the
+      recipe blog, not just see a dead URL".
+    - ``had_transcript`` — True when Whisper returned at least
+      ~20 characters of non-whitespace transcript. The threshold
+      filters out background babble ("hi", "uhh") that doesn't help
+      the LLM.
+
+    The frontend reads these flags (via :class:`ExtractionResult`) to
+    render signal-aware German copy when the recipe is empty. The
+    post-processor derives :data:`EmptyReason` from the flag state.
+    """
+
+    had_caption_url: bool
+    had_blog_source: bool
+    had_transcript: bool
+
+
 class ExtractionResult(TypedDict):
     """Top-level response body for ``POST /extract/url``.
 
@@ -197,6 +235,11 @@ class ExtractionResult(TypedDict):
     # forwarding stays symmetric with the TS mirror.
     recipe_empty: bool
     empty_reason: EmptyReason | None
+    # BUG-034 — signal-aware empty-extraction explainer. Always present
+    # on the wire (all three bools default to False when the pipeline
+    # didn't observe any source) so the frontend can render variant copy
+    # without null-guards. See :class:`ExtractionSignals`.
+    signals: ExtractionSignals
 
 
 __all__ = [
@@ -211,6 +254,7 @@ __all__ = [
     "ExtractedStep",
     "ExtractionConfidence",
     "ExtractionResult",
+    "ExtractionSignals",
     "IngredientConfidenceLevel",
     "NutritionEstimate",
     "StepConfidenceLevel",

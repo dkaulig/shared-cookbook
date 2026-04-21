@@ -2704,9 +2704,19 @@ describe('RecipeFormPage (create)', () => {
       importId: string,
       emptyReason:
         | 'no_recipe_detected'
+        | 'no_usable_source'
         | 'empty_transcript'
         | 'extractor_error'
-        | null = 'no_recipe_detected',
+        | null = 'no_usable_source',
+      signals: {
+        had_caption_url: boolean
+        had_blog_source: boolean
+        had_transcript: boolean
+      } = {
+        had_caption_url: false,
+        had_blog_source: false,
+        had_transcript: false,
+      },
     ): RecipeImportDto {
       return {
         id: importId,
@@ -2732,6 +2742,7 @@ describe('RecipeFormPage (create)', () => {
           confidence: { overall: 'low', notes: [] },
           recipe_empty: true,
           empty_reason: emptyReason,
+          signals,
         },
         errorMessage: null,
         createdAt: '2026-04-20T12:00:00Z',
@@ -2833,7 +2844,11 @@ describe('RecipeFormPage (create)', () => {
     it.each([
       [
         'no_recipe_detected' as const,
-        /kein kochrezept|zutaten und schritte zu erkennen/i,
+        /kein beschreibungstext|keine sprachspur|keine zutaten oder schritte/i,
+      ],
+      [
+        'no_usable_source' as const,
+        /kein beschreibungstext|keine sprachspur|manuell ausfüllen/i,
       ],
       [
         'empty_transcript' as const,
@@ -2856,6 +2871,26 @@ describe('RecipeFormPage (create)', () => {
         expect(screen.getByText(expectedCopy)).toBeInTheDocument()
       },
     )
+
+    it('renders mixed-signal copy when signals are truthy + reason is no_recipe_detected', async () => {
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-mixed',
+          emptyResultSeed('imp-mixed', 'no_recipe_detected', {
+            had_caption_url: false,
+            had_blog_source: false,
+            had_transcript: true,
+          }),
+        ),
+      )
+      await screen.findByRole('heading', { name: /kein rezept erkannt/i })
+      expect(
+        screen.getByText(/sprachspur|audiosprache/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(/keine zutaten oder schritte/i),
+      ).toBeInTheDocument()
+    })
 
     it('shows the sourceUrl chip when the import carries one', async () => {
       render(
