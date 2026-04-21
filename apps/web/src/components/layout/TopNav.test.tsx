@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
@@ -19,8 +20,10 @@ function renderTopNav() {
       </QueryClientProvider>
     )
   }
-  return render(<TopNav />, { wrapper: Wrapper })
+  return { ...render(<TopNav />, { wrapper: Wrapper }), client }
 }
+// Avoid unused-import lint on helpers only referenced in some tests.
+void fireEvent
 
 describe('<TopNav />', () => {
   beforeEach(() => {
@@ -91,6 +94,21 @@ describe('<TopNav />', () => {
     // Some level of background opacity so scrolled content does not bleed
     // through the bar — keeps back-arrow + settings cog readable.
     expect(banner.className).toMatch(/bg-(background|\[hsl)/)
+  })
+
+  // 2026-04-21 Pull-to-refresh substitute. Standalone-PWAs disable the
+  // native pull-to-refresh gesture, so we surface a manual refresh
+  // button in the TopNav instead. Clicking it invalidates the
+  // TanStack-Query cache so every active query re-fetches from the
+  // server.
+  it('renders a refresh button that invalidates TanStack queries on click', async () => {
+    server.use(http.get('/api/groups/invites', () => HttpResponse.json([])))
+    const { client } = renderTopNav()
+    const spy = vi.spyOn(client, 'invalidateQueries')
+    const refresh = screen.getByRole('button', { name: /seite aktualisieren/i })
+    const user = userEvent.setup()
+    await user.click(refresh)
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 
   it('still renders even when received-invites would have been non-empty (no bell to hang badges on)', async () => {

@@ -1,5 +1,6 @@
-import { Search } from 'lucide-react'
+import { RefreshCw, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useIsFetching, useQueryClient } from '@tanstack/react-query'
 import { ChefHatLogo } from '@/components/brand/ChefHatLogo'
 import { NetworkIndicator } from '@/components/layout/NetworkIndicator'
 import { useAuth } from '@/features/auth/useAuth'
@@ -27,6 +28,18 @@ import { cn } from '@/lib/utils'
 export function TopNav() {
   const { user } = useAuth()
   const initial = user?.displayName?.trim()?.charAt(0)?.toUpperCase() || '·'
+
+  // 2026-04-21 Pull-to-refresh substitute. Standalone-PWAs (Chrome /
+  // Safari home-screen installs) disable the browser's native PTR
+  // gesture, so users have no way to force a re-fetch. Exposing a
+  // manual refresh button here hits the TanStack-Query cache, which
+  // triggers every active query to re-fetch from the server. Icon
+  // rotates while any query is pending to give the user feedback.
+  const queryClient = useQueryClient()
+  const isFetching = useIsFetching() > 0
+  const handleRefresh = () => {
+    void queryClient.invalidateQueries()
+  }
 
   return (
     <header
@@ -63,6 +76,18 @@ export function TopNav() {
         {/* OFF2 — offline + queued-replay indicator. Silent when online
             and queue is empty so the happy-path UI stays quiet. */}
         <NetworkIndicator />
+        <button
+          type="button"
+          aria-label="Seite aktualisieren"
+          title="Aktualisieren"
+          onClick={handleRefresh}
+          className="grid h-10 w-10 place-items-center rounded-[10px] text-muted-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <RefreshCw
+            className={cn('h-5 w-5', isFetching && 'animate-spin')}
+            aria-hidden="true"
+          />
+        </button>
         <Link
           to="/suche"
           aria-label="Suche"
