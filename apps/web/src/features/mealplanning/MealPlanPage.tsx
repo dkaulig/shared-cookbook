@@ -3,6 +3,7 @@ import {
   Link,
   Navigate,
   useNavigate,
+  useOutlet,
   useParams,
   useSearchParams,
 } from 'react-router-dom'
@@ -19,6 +20,7 @@ import {
 import type { MealPlanSlotDto, MealSlot, PatchSlotRequest } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SplitPane } from '@/components/layout/SplitPane'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { cn } from '@/lib/utils'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
@@ -360,6 +362,14 @@ export function MealPlanPage() {
     runCopyLastWeek()
   }, [plan, weekStart, runCopyLastWeek])
 
+  // TABLET-2 — the slot-detail nested route renders inside the
+  // SplitPane's right column at md:+. `useOutlet()` gives us `null`
+  // when no child matches, which is the cleanest signal for the empty-
+  // state prompt without coupling to a specific child path. Kept
+  // above the early <Navigate> returns below so hook order stays
+  // stable across renders (React's rules-of-hooks).
+  const outletNode = useOutlet()
+
   if (!groupId) return <Navigate to="/groups" replace />
 
   if (!weekStart) {
@@ -388,7 +398,7 @@ export function MealPlanPage() {
 
   const weekNumber = isoWeekNumber(weekStart)
 
-  return (
+  const weekContent = (
     <div className="mx-auto w-full max-w-[1280px]">
       {/* Sticky page sub-nav.
           BUG-032: switched from hard-coded `top-[56px] z-20` to
@@ -596,6 +606,35 @@ export function MealPlanPage() {
           )
         )}
       </main>
+    </div>
+  )
+
+  const slotDetailPane = outletNode ?? (
+    <div
+      className="flex h-full items-center justify-center px-6 py-10 text-center text-[hsl(var(--muted-foreground))]"
+      role="status"
+    >
+      <p className="max-w-sm text-[15px] leading-[1.5]">
+        Wähle einen Slot links, um Details zu sehen.
+      </p>
+    </div>
+  )
+
+  const body = isMobile ? (
+    weekContent
+  ) : (
+    <SplitPane
+      leftLabel="Wochenplan-Übersicht"
+      rightLabel="Slot-Detail"
+      left={weekContent}
+      right={slotDetailPane}
+      className="h-full"
+    />
+  )
+
+  return (
+    <>
+      {body}
 
       {openCell && plan && (
         <AddSlotDialog
@@ -665,7 +704,7 @@ export function MealPlanPage() {
           isLoading={patchMutation.isPending}
         />
       )}
-    </div>
+    </>
   )
 }
 

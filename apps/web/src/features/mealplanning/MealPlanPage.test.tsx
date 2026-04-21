@@ -12,6 +12,7 @@ import type { MealPlanDto, MealPlanSlotDto, PatchSlotRequest } from '@familien-k
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { MealPlanPage } from './MealPlanPage'
+import { MealPlanSlotDetailPage } from './MealPlanSlotDetailPage'
 
 const PLAN_ID = '11111111-1111-1111-1111-111111111111'
 const GROUP_ID = 'g1'
@@ -45,6 +46,10 @@ function PathTracker() {
 
 function withProviders(path: string): ReactNode {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // TABLET-2 — the parent meal-plan route is still the page itself; the
+  // optional `slots/:slotId` child renders inside the SplitPane's right
+  // column via `<Outlet />`. Mirrors the real route tree in App.tsx so
+  // the tests exercise the same nesting the production app uses.
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
@@ -57,7 +62,9 @@ function withProviders(path: string): ReactNode {
                 <MealPlanPage />
               </>
             }
-          />
+          >
+            <Route path="slots/:slotId" element={<MealPlanSlotDetailPage />} />
+          </Route>
           <Route
             path="/groups/:groupId/mealplan"
             element={
@@ -801,6 +808,152 @@ describe('<MealPlanPage />', () => {
       expect(
         screen.queryByTestId('mealplan-desktop-grid'),
       ).not.toBeInTheDocument()
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      })
+    }
+  })
+
+  // ── TABLET-2 — SplitPane adoption ────────────────────────────────
+
+  /**
+   * At md:+ the page wraps the existing week-grid in a <SplitPane /> so
+   * a slot's detail can dock in the right column via the nested
+   * `<Outlet />`. The left pane always holds the week grid; the right
+   * pane starts with a German empty-state prompt and gets replaced by
+   * the slot-detail when the user navigates to /…/slots/:slotId.
+   */
+  it('TABLET-2 md+: renders both SplitPane regions (Wochenplan + Slot-Detail)', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [],
+        }),
+      ),
+    )
+
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+    await screen.findByRole('heading', { level: 1, name: /KW 17/i })
+
+    expect(
+      screen.getByRole('region', { name: /wochenplan-übersicht/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: /slot-detail/i, hidden: true }),
+    ).toBeInTheDocument()
+  })
+
+  it('TABLET-2 md+: shows an empty-state prompt in the detail slot when no slot is selected', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [],
+        }),
+      ),
+    )
+
+    render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+    await screen.findByRole('heading', { level: 1, name: /KW 17/i })
+    const detail = screen.getByRole('region', {
+      name: /slot-detail/i,
+      hidden: true,
+    })
+    expect(detail.textContent ?? '').toMatch(/W(?:ä|ae)hle einen Slot/i)
+  })
+
+  it('TABLET-2 md+: renders the slot-detail outlet when /slots/:slotId matches', async () => {
+    server.use(
+      http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+        HttpResponse.json<MealPlanDto>({
+          id: PLAN_ID,
+          groupId: GROUP_ID,
+          weekStart: WEEK_START,
+          version: 1,
+          createdAt: '2026-04-20T00:00:00Z',
+          updatedAt: '2026-04-20T00:00:00Z',
+          slots: [
+            makeSlot('slot-abc', { label: 'Spaghetti Bolognese', servings: 4 }),
+          ],
+        }),
+      ),
+    )
+    render(
+      withProviders(
+        `/groups/${GROUP_ID}/mealplan/${WEEK_START}/slots/slot-abc`,
+      ),
+    )
+    const detail = await screen.findByRole('region', {
+      name: /slot-detail/i,
+      hidden: true,
+    })
+    // The detail component re-reads the plan from the TanStack cache;
+    // wait for the slot label to appear once the plan load resolves.
+    await waitFor(() =>
+      expect(detail.textContent ?? '').toContain('Spaghetti Bolognese'),
+    )
+    // Empty-state disappears once outlet has content.
+    expect(detail.textContent ?? '').not.toMatch(/W(?:ä|ae)hle einen Slot/i)
+  })
+
+  it('TABLET-2 mobile: no SplitPane regions — single-column fallback', async () => {
+    const originalMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes('max-width: 767px'),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    })
+    try {
+      server.use(
+        http.get('/api/groups/g1/mealplans/2026-04-20', () =>
+          HttpResponse.json<MealPlanDto>({
+            id: PLAN_ID,
+            groupId: GROUP_ID,
+            weekStart: WEEK_START,
+            version: 1,
+            createdAt: '2026-04-20T00:00:00Z',
+            updatedAt: '2026-04-20T00:00:00Z',
+            slots: [],
+          }),
+        ),
+      )
+      render(withProviders(`/groups/${GROUP_ID}/mealplan/${WEEK_START}`))
+      // Mobile day-stack still renders, proving the single-column flow.
+      await screen.findByTestId('mealplan-mobile-stack')
+      // SplitPane regions must be absent entirely so the mobile flow
+      // isn't secretly painting an invisible detail column.
+      expect(
+        screen.queryByRole('region', { name: /wochenplan-übersicht/i }),
+      ).toBeNull()
+      expect(
+        screen.queryByRole('region', {
+          name: /slot-detail/i,
+          hidden: true,
+        }),
+      ).toBeNull()
     } finally {
       Object.defineProperty(window, 'matchMedia', {
         configurable: true,

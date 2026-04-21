@@ -17,6 +17,8 @@ import type {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SplitPane } from '@/components/layout/SplitPane'
+import { useIsMobile } from '@/lib/useIsMobile'
 import { cn } from '@/lib/utils'
 import { useMealPlan } from '@/features/mealplanning/useMealPlan'
 import {
@@ -171,6 +173,12 @@ function ShoppingListView({
   const [pendingDelete, setPendingDelete] = useState<ShoppingListItemDto | null>(
     null,
   )
+  // TABLET-2 — client-state selection (the spec explicitly allows
+  // `useState` here since the shopping-list has no per-item URL). We
+  // hold an id rather than the DTO so mutations (patch / delete) re-
+  // resolve against the latest list snapshot on every render.
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
+  const isMobile = useIsMobile()
 
   const handleSortChange = useCallback(
     (next: SortMode) => {
@@ -249,7 +257,15 @@ function ShoppingListView({
 
   const weekNumber = isoWeekNumber(weekStart)
 
-  return (
+  const selectedItem = useMemo(
+    () =>
+      selectedItemId
+        ? list?.items.find((i) => i.id === selectedItemId) ?? null
+        : null,
+    [list, selectedItemId],
+  )
+
+  const listContent = (
     <div className="mx-auto w-full max-w-[1024px]">
       {/* Sticky page sub-nav.
           BUG-032: switched from hard-coded `top-[56px] z-20` to
@@ -389,17 +405,52 @@ function ShoppingListView({
                 items={list.items}
                 onToggle={handleToggleChecked}
                 onDelete={handleDelete}
+                onSelect={setSelectedItemId}
+                selectedItemId={selectedItemId}
               />
             ) : (
               <AlphabeticList
                 items={list.items}
                 onToggle={handleToggleChecked}
                 onDelete={handleDelete}
+                onSelect={setSelectedItemId}
+                selectedItemId={selectedItemId}
               />
             )}
           </>
         )}
       </main>
+    </div>
+  )
+
+  const detailPane = selectedItem ? (
+    <ItemDetail item={selectedItem} onClose={() => setSelectedItemId(null)} />
+  ) : (
+    <div
+      className="flex h-full items-center justify-center px-6 py-10 text-center text-[hsl(var(--muted-foreground))]"
+      role="status"
+    >
+      <p className="max-w-sm text-[15px] leading-[1.5]">
+        Wähle einen Eintrag links, um Details zu sehen.
+      </p>
+    </div>
+  )
+
+  const body = isMobile ? (
+    listContent
+  ) : (
+    <SplitPane
+      leftLabel="Einkaufsliste"
+      rightLabel="Eintrag-Detail"
+      left={listContent}
+      right={detailPane}
+      className="h-full"
+    />
+  )
+
+  return (
+    <>
+      {body}
 
       {showAdd && list && (
         <AddItemDialog
@@ -441,7 +492,7 @@ function ShoppingListView({
           isLoading={patchItem.isPending}
         />
       )}
-    </div>
+    </>
   )
 }
 
@@ -538,10 +589,14 @@ function CategoryList({
   items,
   onToggle,
   onDelete,
+  onSelect,
+  selectedItemId,
 }: {
   items: readonly ShoppingListItemDto[]
   onToggle: (item: ShoppingListItemDto) => void
   onDelete: (item: ShoppingListItemDto) => void
+  onSelect: (id: string) => void
+  selectedItemId: string | null
 }) {
   const buckets = useMemo(() => byCategory(items), [items])
   return (
@@ -561,6 +616,8 @@ function CategoryList({
                 item={item}
                 onToggle={onToggle}
                 onDelete={onDelete}
+                onSelect={onSelect}
+                isSelected={item.id === selectedItemId}
               />
             ))}
           </ul>
@@ -574,10 +631,14 @@ function AlphabeticList({
   items,
   onToggle,
   onDelete,
+  onSelect,
+  selectedItemId,
 }: {
   items: readonly ShoppingListItemDto[]
   onToggle: (item: ShoppingListItemDto) => void
   onDelete: (item: ShoppingListItemDto) => void
+  onSelect: (id: string) => void
+  selectedItemId: string | null
 }) {
   const sorted = useMemo(() => byName(items), [items])
   return (
@@ -588,6 +649,8 @@ function AlphabeticList({
           item={item}
           onToggle={onToggle}
           onDelete={onDelete}
+          onSelect={onSelect}
+          isSelected={item.id === selectedItemId}
           showCategoryChip
         />
       ))}
@@ -599,16 +662,29 @@ function ItemRow({
   item,
   onToggle,
   onDelete,
+  onSelect,
+  isSelected = false,
   showCategoryChip = false,
 }: {
   item: ShoppingListItemDto
   onToggle: (item: ShoppingListItemDto) => void
   onDelete: (item: ShoppingListItemDto) => void
+  onSelect?: (id: string) => void
+  isSelected?: boolean
   showCategoryChip?: boolean
 }) {
   const qtyLabel = formatQuantity(item.quantity, item.unit)
   return (
-    <li className="flex items-center gap-3 px-3 py-2.5">
+    <li
+      className={cn(
+        'flex items-center gap-3 px-3 py-2.5 transition-colors',
+        // TABLET-2 — at md:+ the row's middle section becomes the
+        // select-affordance for the detail slot. We don't hit-area the
+        // whole <li> because the checkbox + trash buttons live on the
+        // left / right and need their own clicks.
+        isSelected && 'bg-[hsl(var(--primary)/0.08)]',
+      )}
+    >
       <button
         type="button"
         role="checkbox"
@@ -647,8 +723,14 @@ function ItemRow({
         </span>
       </button>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <button
+        type="button"
+        onClick={() => onSelect?.(item.id)}
+        aria-pressed={isSelected}
+        aria-label={`Details zu ${item.name}`}
+        className="block min-w-0 flex-1 cursor-pointer rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span
             className={cn(
               'truncate text-sm',
@@ -672,11 +754,13 @@ function ItemRow({
           {showCategoryChip && (
             <Badge variant="mini">{CATEGORY_LABELS[item.category]}</Badge>
           )}
-        </div>
+        </span>
         {item.note && (
-          <p className="mt-0.5 text-xs text-muted-foreground">{item.note}</p>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {item.note}
+          </span>
         )}
-      </div>
+      </button>
 
       <button
         type="button"
@@ -688,6 +772,107 @@ function ItemRow({
         <Trash2 className="h-4 w-4" aria-hidden="true" />
       </button>
     </li>
+  )
+}
+
+/**
+ * TABLET-2 — read-only detail card for the currently-selected shopping-
+ * list item. Populates the SplitPane's right column at md:+. Check-off
+ * + delete still happen on the row (left pane) so the detail stays a
+ * summary surface.
+ */
+function ItemDetail({
+  item,
+  onClose,
+}: {
+  item: ShoppingListItemDto
+  onClose: () => void
+}) {
+  const qtyLabel = formatQuantity(item.quantity, item.unit)
+  return (
+    <article
+      aria-label={`Detail: ${item.name}`}
+      className="mx-auto w-full max-w-lg px-5 py-6 md:px-8 md:py-8"
+    >
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {CATEGORY_LABELS[item.category]}
+          </p>
+          <h2
+            className={cn(
+              'mt-1 font-serif text-[clamp(22px,3vw,28px)] font-semibold leading-tight text-foreground',
+              item.isChecked && 'text-muted-foreground line-through',
+            )}
+          >
+            {item.name}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Detail schließen"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground"
+        >
+          ×
+        </button>
+      </header>
+
+      <dl className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {qtyLabel && (
+          <div className="rounded-[14px] border border-border bg-card/60 px-4 py-3">
+            <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Menge
+            </dt>
+            <dd className="mt-1 text-lg font-semibold text-foreground">
+              {qtyLabel}
+            </dd>
+          </div>
+        )}
+        <div className="rounded-[14px] border border-border bg-card/60 px-4 py-3">
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Status
+          </dt>
+          <dd className="mt-1 text-sm font-medium text-foreground">
+            {item.isChecked ? 'Abgehakt' : 'Offen'}
+          </dd>
+        </div>
+        <div className="rounded-[14px] border border-border bg-card/60 px-4 py-3">
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Quelle
+          </dt>
+          <dd className="mt-1 text-sm text-foreground">
+            {item.source === 'Manual' ? 'Manuell hinzugefügt' : 'Aus Wochenplan'}
+          </dd>
+        </div>
+        {item.carriedOverFromPreviousWeek && (
+          <div className="rounded-[14px] border border-border bg-card/60 px-4 py-3">
+            <dt className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
+              Übernommen
+            </dt>
+            <dd className="mt-1 text-sm text-foreground">
+              Aus letzter Woche
+            </dd>
+          </div>
+        )}
+      </dl>
+
+      {item.note && (
+        <section className="mt-5">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Notiz
+          </h3>
+          <p className="mt-1 whitespace-pre-wrap rounded-[12px] border border-border bg-card/60 px-4 py-3 text-sm text-foreground">
+            {item.note}
+          </p>
+        </section>
+      )}
+
+      <p className="mt-6 text-xs text-muted-foreground">
+        Abhaken oder Entfernen über die Zeile links.
+      </p>
+    </article>
   )
 }
 
