@@ -90,7 +90,9 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             _db, factory, _photoStorage, _clock,
             NullLogger<ThumbnailAttacher>.Instance,
             publicResolver);
-        _job = new ExtractRecipeFromUrlJob(_db, runner, thumbnailAttacher, _clock);
+        _job = new ExtractRecipeFromUrlJob(
+            _db, runner, thumbnailAttacher, _photoStorage, _clock,
+            NullLogger<ExtractRecipeFromUrlJob>.Instance);
     }
 
     public async Task DisposeAsync()
@@ -733,7 +735,8 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
                 Options.Create(new ExtractorOptions { SharedSecret = "test-secret" }),
                 _clock),
             _progressTokens, new NullLiveSyncPublisher(), _clock,
-            NullLogger<PythonExtractorRunner>.Instance), attacker, _clock);
+            NullLogger<PythonExtractorRunner>.Instance), attacker, _photoStorage, _clock,
+            NullLogger<ExtractRecipeFromUrlJob>.Instance);
 
         var import = await SeedImportAsync("https://evil.com/recipe");
         _handler.QueueResponse(HttpStatusCode.OK, """
@@ -935,37 +938,46 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         Assert.Equal(originalId, importReloaded.TargetRecipeId);
     }
 
+    /// <summary>Result JSON with a fixed thumbnail_url the reimport
+    /// tests share. The URL is on the FB-CDN allowlist so the SSRF
+    /// guard accepts it without needing a SourceUrl match.</summary>
+    private const string ReimportResultWithThumb = """
+        {
+          "recipe": {
+            "title": "Neu mit Bild",
+            "description": null,
+            "servings": 2,
+            "difficulty": 1,
+            "prep_minutes": null,
+            "cook_minutes": null,
+            "ingredients": [],
+            "steps": [],
+            "tags": [],
+            "source_url": "https://example.com/rezept",
+            "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"
+          },
+          "confidence": { "overall": "high", "notes": [] },
+          "recipe_empty": false,
+          "empty_reason": null
+        }
+        """;
+
+    /// <summary>
+    /// BUG-048 — a reimport with a fresh thumbnail_url must promote the
+    /// downloaded thumbnail onto the target recipe's Photos. Previously
+    /// the attacher only staged the photo + linked it to the import row,
+    /// so Recipe.Photos stayed empty and the detail page still showed
+    /// the old thumbnail.
+    /// </summary>
     [Fact]
-    public async Task REIMPORT_Preserves_Photos_And_Deduplicates_Thumbnail_By_Url()
+    public async Task BUG048_Reimport_Promotes_Fresh_Thumbnail_Onto_Recipe_Photos()
     {
         var target = await SeedTargetRecipeAsync();
-        // Same URL the extractor is about to report as thumbnail_url.
-        const string existingThumbUrl = "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg";
-        target.AddPhoto(existingThumbUrl);
-        await _db.SaveChangesAsync();
+        Assert.Empty(target.Photos);
 
         var import = await SeedReimportAsync(target);
-        var resultWithSameThumbnail = $$"""
-            {
-              "recipe": {
-                "title": "Neu",
-                "description": null,
-                "servings": 2,
-                "difficulty": 1,
-                "prep_minutes": null,
-                "cook_minutes": null,
-                "ingredients": [],
-                "steps": [],
-                "tags": [],
-                "source_url": "https://example.com/rezept",
-                "thumbnail_url": "{{existingThumbUrl}}"
-              },
-              "confidence": { "overall": "high", "notes": [] },
-              "recipe_empty": false,
-              "empty_reason": null
-            }
-            """;
-        _handler.QueueResponse(HttpStatusCode.OK, resultWithSameThumbnail);
+        _handler.QueueResponse(HttpStatusCode.OK, ReimportResultWithThumb);
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/png");
 
         await _job.ExecuteAsync(import.Id, CancellationToken.None);
 
@@ -973,14 +985,87 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
         var reloaded = await freshDb.Recipes.SingleAsync(r => r.Id == target.Id);
 
-        // No duplicate photo — dedupe-by-URL rule kept the existing one
-        // and refused to stage another copy via the thumbnail attacher.
+        // The freshly-staged photo was copied into the recipe namespace
+        // and appended to Photos — the detail page's first photo is now
+        // the new thumbnail rather than whatever the recipe carried
+        // before the reimport.
         Assert.Single(reloaded.Photos);
-        Assert.Equal(existingThumbUrl, reloaded.Photos[0]);
-        // Thumbnail downloader was NOT invoked because the URL is
-        // already a recipe photo (dedupe guard short-circuits before
-        // the network call).
+        Assert.StartsWith("recipes/", reloaded.Photos[0]);
+        Assert.True(_photoStorage.Uploads.ContainsKey(reloaded.Photos[0]));
+
+        // The StagedPhoto row was promoted (not left orphaned).
+        var staged = await freshDb.StagedPhotos.AsNoTracking()
+            .SingleAsync(s => s.PromotedToRecipeId == target.Id);
+        Assert.NotNull(staged.PromotedAt);
+        Assert.Equal(
+            "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg",
+            staged.SourceUrl);
+    }
+
+    /// <summary>
+    /// BUG-048 — a second reimport with the same thumbnail URL must NOT
+    /// append a duplicate photo to the recipe. The dedupe looks up the
+    /// previously-promoted StagedPhoto by (PromotedToRecipeId, SourceUrl)
+    /// and short-circuits before any CDN fetch.
+    /// </summary>
+    [Fact]
+    public async Task BUG048_Repeat_Reimport_With_Same_Thumbnail_Url_Does_Not_Duplicate()
+    {
+        var target = await SeedTargetRecipeAsync();
+
+        // First reimport — promotes the thumbnail.
+        var firstImport = await SeedReimportAsync(target);
+        _handler.QueueResponse(HttpStatusCode.OK, ReimportResultWithThumb);
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/png");
+        await _job.ExecuteAsync(firstImport.Id, CancellationToken.None);
+
+        var thumbRequestsAfterFirst = _thumbnailHandler.Requests.Count;
+
+        // Second reimport, same URL — must not re-stage, must not
+        // duplicate the photo on the recipe.
+        var secondImport = await SeedReimportAsync(target);
+        _handler.QueueResponse(HttpStatusCode.OK, ReimportResultWithThumb);
+        // Intentionally do NOT queue a thumbnail response — the dedupe
+        // guard should short-circuit before the HTTP call.
+        await _job.ExecuteAsync(secondImport.Id, CancellationToken.None);
+
+        using var freshDb = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await freshDb.Recipes.SingleAsync(r => r.Id == target.Id);
+
+        Assert.Single(reloaded.Photos);
+        Assert.Equal(thumbRequestsAfterFirst, _thumbnailHandler.Requests.Count);
+
+        // Exactly one promoted staged-photo row — the second reimport
+        // neither created nor promoted a new one.
+        var promoted = await freshDb.StagedPhotos.AsNoTracking()
+            .Where(s => s.PromotedToRecipeId == target.Id)
+            .ToListAsync();
+        Assert.Single(promoted);
+    }
+
+    /// <summary>
+    /// BUG-048 — a reimport whose extractor result has no thumbnail_url
+    /// (typical for blog-import paths with no og:image) must leave the
+    /// recipe's Photos collection completely untouched. No thumbnail
+    /// download, no staged-photo row.
+    /// </summary>
+    [Fact]
+    public async Task BUG048_Reimport_With_No_Thumbnail_Url_Leaves_Photos_Untouched()
+    {
+        var target = await SeedTargetRecipeAsync();
+        var import = await SeedReimportAsync(target);
+        _handler.QueueResponse(HttpStatusCode.OK, ReimportResult);
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        using var freshDb = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        var reloaded = await freshDb.Recipes.SingleAsync(r => r.Id == target.Id);
+
+        Assert.Empty(reloaded.Photos);
         Assert.Empty(_thumbnailHandler.Requests);
+        Assert.Empty(await freshDb.StagedPhotos.AsNoTracking().ToListAsync());
     }
 
     [Fact]

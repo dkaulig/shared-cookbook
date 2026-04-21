@@ -21,6 +21,11 @@ internal sealed class StagedPhotoConfiguration : IEntityTypeConfiguration<Staged
     public const int SignedUrlMaxLength = 2000;
     public const int ContentTypeMaxLength = 100;
 
+    /// <summary>BUG-048 — upper bound for <see cref="StagedPhoto.SourceUrl"/>.
+    /// Matches <c>Recipe.SourceUrlMaxLength</c> so a legitimate extractor
+    /// thumbnail URL always fits.</summary>
+    public const int SourceUrlMaxLength = 2000;
+
     public void Configure(EntityTypeBuilder<StagedPhoto> e)
     {
         e.HasKey(s => s.Id);
@@ -38,11 +43,22 @@ internal sealed class StagedPhotoConfiguration : IEntityTypeConfiguration<Staged
         e.Property(s => s.CreatedAt).IsRequired();
         e.Property(s => s.PromotedAt);
         e.Property(s => s.PromotedToRecipeId);
+        // BUG-048 — nullable; user-uploaded staged photos never carry a
+        // source URL. Indexed together with PromotedToRecipeId below so
+        // the reimport dedupe lookup is cheap.
+        e.Property(s => s.SourceUrl)
+            .HasMaxLength(SourceUrlMaxLength);
 
         // Composite index supporting both (a) the sweep job's "give me
         // abandoned uploads older than N hours" scan and (b) the
         // promote handler's per-user lookup.
         e.HasIndex(s => new { s.UserId, s.CreatedAt });
+
+        // BUG-048 — composite index on (PromotedToRecipeId, SourceUrl)
+        // backs the reimport dedupe query "has this recipe already
+        // adopted a staged photo from this origin URL?". Both columns
+        // are nullable; the lookup only runs when both sides are known.
+        e.HasIndex(s => new { s.PromotedToRecipeId, s.SourceUrl });
 
         e.HasOne<User>()
             .WithMany()
