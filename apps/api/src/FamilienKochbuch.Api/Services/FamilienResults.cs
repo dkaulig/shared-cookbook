@@ -118,4 +118,18 @@ public static class FamilienResults
         IReadOnlyDictionary<string, object>? details = null)
         => Results.Json(new ErrorResponse(code, message, details), JsonOptions,
             statusCode: StatusCodes.Status500InternalServerError);
+
+    /// <summary>
+    /// 503 Service Unavailable with a <see cref="ErrorResponse"/> body.
+    /// CFG-3 callsite: feature-flag kill-switches hit via
+    /// <see cref="IExtractorConfigReader"/> return this code when an
+    /// admin has flipped the flag off in the admin UI, so the frontend
+    /// can surface "aktuell deaktiviert" consistently across endpoints.
+    /// </summary>
+    public static IResult ServiceUnavailable(
+        string code,
+        string message,
+        IReadOnlyDictionary<string, object>? details = null)
+        => Results.Json(new ErrorResponse(code, message, details), JsonOptions,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 }
