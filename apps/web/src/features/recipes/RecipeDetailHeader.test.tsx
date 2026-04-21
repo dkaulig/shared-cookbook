@@ -105,10 +105,12 @@ describe('RecipeDetailHeader — fork banner', () => {
           avgRating={null}
           ratingCount={0}
           sourceGroupName="Familie Müller"
+          canReimport={false}
           onBack={() => {}}
           onFork={() => {}}
           onEdit={() => {}}
           onDelete={() => {}}
+          onReimport={() => {}}
         />
       </MemoryRouter>,
     )
@@ -243,10 +245,12 @@ describe('RecipeDetailHeader — hero photo', () => {
           avgRating={null}
           ratingCount={0}
           sourceGroupName={null}
+          canReimport={false}
           onBack={() => {}}
           onFork={() => {}}
           onEdit={() => {}}
           onDelete={() => {}}
+          onReimport={() => {}}
         />
       </MemoryRouter>,
     )
@@ -263,10 +267,12 @@ describe('RecipeDetailHeader — hero photo', () => {
           avgRating={null}
           ratingCount={0}
           sourceGroupName={null}
+          canReimport={false}
           onBack={() => {}}
           onFork={() => {}}
           onEdit={() => {}}
           onDelete={() => {}}
+          onReimport={() => {}}
         />
       </MemoryRouter>,
     )
