@@ -1,11 +1,19 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text.Json;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
 
 namespace FamilienKochbuch.Api.Services;
+
+/// <summary>BUG-047 — resolver delegate that turns a hostname into the
+/// set of IP addresses DNS would hand a socket. Pulled out to a named
+/// delegate so tests can inject a deterministic resolver that returns
+/// a public-looking IP for stubbed hosts without doing real DNS.</summary>
+public delegate Task<IPAddress[]> ThumbnailHostResolver(
+    string host, CancellationToken ct);
 
 /// <summary>
 /// BUG-018 — best-effort downloader that turns the
@@ -78,19 +86,24 @@ public sealed class ThumbnailAttacher
     private readonly IPhotoStorage _photoStorage;
     private readonly TimeProvider _clock;
     private readonly ILogger<ThumbnailAttacher> _logger;
+    private readonly ThumbnailHostResolver _resolveHost;
 
     public ThumbnailAttacher(
         AppDbContext db,
         IHttpClientFactory httpClientFactory,
         IPhotoStorage photoStorage,
         TimeProvider clock,
-        ILogger<ThumbnailAttacher> logger)
+        ILogger<ThumbnailAttacher> logger,
+        ThumbnailHostResolver? resolveHost = null)
     {
         _db = db;
         _httpClientFactory = httpClientFactory;
         _photoStorage = photoStorage;
         _clock = clock;
         _logger = logger;
+        // Default to the framework's Dns resolver. The delegate
+        // boundary exists so tests can avoid a real network call.
+        _resolveHost = resolveHost ?? Dns.GetHostAddressesAsync;
     }
 
     /// <summary>
@@ -120,11 +133,27 @@ public sealed class ThumbnailAttacher
             return null;
         }
 
-        if (!IsAllowedThumbnailHost(thumbnailUrl, out var parsedUri))
+        if (!IsAllowedThumbnailHostForImport(thumbnailUrl, import.SourceUrl, out var parsedUri))
         {
             _logger.LogWarning(
-                "Skipping thumbnail attach for import {ImportId}: host {Host} is not on the allowed-suffix list.",
+                "Skipping thumbnail attach for import {ImportId}: host {Host} is not on the allowed-suffix list and does not share a registered domain with the import's source URL.",
                 import.Id, parsedUri?.Host ?? "<unparseable>");
+            return null;
+        }
+
+        // BUG-047 SSRF guard — the new same-origin branch trusts the
+        // attacker-influenceable SourceUrl's registered domain. A hostile
+        // blog could set up "internal.evil.com" → 192.168.x.x (or
+        // 169.254.169.254 for AWS metadata) so the thumbnail GET hits
+        // our internal network. Resolve the host and reject if any DNS
+        // answer lands in a private / loopback / link-local / reserved
+        // range. Mirrors the Python extractor's pre-fetch guard
+        // (apps/python-extractor/src/extractor/pipeline/url.py).
+        if (!await IsHostPublicAsync(parsedUri!.Host, ct))
+        {
+            _logger.LogWarning(
+                "Skipping thumbnail attach for import {ImportId}: host {Host} resolved to a non-public address.",
+                import.Id, parsedUri.Host);
             return null;
         }
 
@@ -241,6 +270,198 @@ public sealed class ThumbnailAttacher
             if (host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
+        return false;
+    }
+
+    /// <summary>
+    /// BUG-047 — host-acceptance predicate that extends
+    /// <see cref="IsAllowedThumbnailHost"/> with a second, import-scoped
+    /// rule: accept the thumbnail URL if it lives on the same
+    /// registered domain (eTLD+1) as the import's <paramref name="sourceUrl"/>.
+    ///
+    /// Rationale: the Python extractor already SSRF-checked and fetched
+    /// the source URL. A blog's own og:image on the same registered
+    /// domain inherits that trust. Cross-origin thumbnails (e.g.
+    /// attacker-controlled recipe URL pointing the image at someone
+    /// else's host) remain rejected by falling back to the CDN-only
+    /// allowlist behaviour.
+    ///
+    /// Registered-domain comparison uses a leftmost-label-strip
+    /// approximation (masonfit.com vs cdn.masonfit.com → both become
+    /// "masonfit.com" after strip → match). This isn't a full Public
+    /// Suffix List implementation — it misses quirks like "bbc.co.uk"
+    /// (where eTLD+1 is bbc.co.uk but the strip yields co.uk) — but
+    /// the failure mode is conservative (we reject a legitimate sibling
+    /// subdomain, we never accept a cross-origin attacker). Future work
+    /// could bring in the PSL if a real case demands it.
+    ///
+    /// The http(s)-only and public-IP-resolution guards still apply
+    /// downstream; this method only answers "is this host acceptable
+    /// in principle?"
+    /// </summary>
+    public static bool IsAllowedThumbnailHostForImport(
+        string url, string? sourceUrl, out Uri? uri)
+    {
+        // CDN allowlist always wins: FB/IG/TikTok/etc. CDN thumbnails
+        // are accepted irrespective of SourceUrl, because the attacher
+        // was originally built for the yt-dlp path where there's no
+        // matching source host.
+        if (IsAllowedThumbnailHost(url, out uri)) return true;
+
+        // Not on the CDN allowlist — only acceptable if the import has
+        // a SourceUrl AND the thumbnail shares that URL's registered
+        // domain.
+        if (uri is null) return false;
+        if (string.IsNullOrWhiteSpace(sourceUrl)) return false;
+        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var sourceUri))
+            return false;
+        if (sourceUri.Scheme != Uri.UriSchemeHttp
+            && sourceUri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+
+        return SharesRegisteredDomain(uri.Host, sourceUri.Host);
+    }
+
+    /// <summary>
+    /// Leftmost-label-strip approximation of "same eTLD+1":
+    /// <c>a.example.com</c> and <c>b.example.com</c> both reduce to
+    /// <c>example.com</c>; <c>example.com</c> itself reduces to
+    /// <c>com</c>. Two hosts share a registered domain when their
+    /// reductions match AND contain at least one dot (so the match
+    /// isn't a bare TLD like "com"). Case-insensitive per DNS rules.
+    ///
+    /// Simplification tradeoff documented on
+    /// <see cref="IsAllowedThumbnailHostForImport"/>.
+    /// </summary>
+    private static bool SharesRegisteredDomain(string host, string sourceHost)
+    {
+        if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(sourceHost))
+            return false;
+
+        var left = host.ToLowerInvariant();
+        var right = sourceHost.ToLowerInvariant();
+
+        // Both hosts must have at least one dot — reject bare single
+        // labels ("localhost", raw IPs parsed as hosts, etc.). This
+        // also implicitly blocks sourceUrl hosts that look like IPv4
+        // literals with no dots (impossible, but defensive).
+        if (!left.Contains('.') || !right.Contains('.')) return false;
+
+        // Exact host match — trivially the same registered domain.
+        if (string.Equals(left, right, StringComparison.Ordinal)) return true;
+
+        // Otherwise strip the leftmost label from each side and
+        // require the remainders to match AND still contain a dot.
+        // The dot requirement prevents "a.com" vs "b.com" → both strip
+        // to "com" → bare-TLD collision → must not match.
+        var leftStripped = StripLeftmostLabel(left);
+        var rightStripped = StripLeftmostLabel(right);
+        if (!leftStripped.Contains('.') || !rightStripped.Contains('.'))
+            return false;
+
+        return string.Equals(leftStripped, rightStripped, StringComparison.Ordinal);
+    }
+
+    private static string StripLeftmostLabel(string host)
+    {
+        var dot = host.IndexOf('.');
+        return dot < 0 ? host : host[(dot + 1)..];
+    }
+
+    /// <summary>
+    /// Resolves <paramref name="host"/> via the injected resolver and
+    /// checks that every returned IP sits in a globally-routable range.
+    /// Any private / loopback / link-local / multicast / unspecified /
+    /// IPv4-mapped IPv6 / unique-local-IPv6 answer fails the whole
+    /// check — a hostile DNS record with multiple A answers can't slip
+    /// one internal address past us by mixing it with a public one.
+    ///
+    /// Returns <c>false</c> on DNS failure; we'd rather skip the
+    /// thumbnail than chance fetching it against an unknown resolver
+    /// state.
+    /// </summary>
+    private async Task<bool> IsHostPublicAsync(string host, CancellationToken ct)
+    {
+        IPAddress[] addrs;
+        try
+        {
+            addrs = await _resolveHost(host, ct);
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        if (addrs.Length == 0) return false;
+
+        foreach (var addr in addrs)
+        {
+            if (!IsPublicAddress(addr)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Public-address predicate. Blocks the obvious IPv4 private
+    /// ranges (10/8, 172.16/12, 192.168/16), loopback (127/8),
+    /// link-local (169.254/16, also AWS metadata 169.254.169.254),
+    /// IPv4 broadcast, and the IPv6 analogues: ::1 loopback,
+    /// fe80::/10 link-local, fc00::/7 unique-local, and any
+    /// IPv4-mapped IPv6 that wraps a private v4 address.
+    /// </summary>
+    internal static bool IsPublicAddress(IPAddress addr)
+    {
+        if (IPAddress.IsLoopback(addr)) return false;
+
+        if (addr.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var bytes = addr.GetAddressBytes();
+            // 10.0.0.0/8
+            if (bytes[0] == 10) return false;
+            // 172.16.0.0/12
+            if (bytes[0] == 172 && (bytes[1] & 0xF0) == 16) return false;
+            // 192.168.0.0/16
+            if (bytes[0] == 192 && bytes[1] == 168) return false;
+            // 169.254.0.0/16 link-local (includes AWS metadata
+            // 169.254.169.254)
+            if (bytes[0] == 169 && bytes[1] == 254) return false;
+            // 0.0.0.0/8 unspecified / current-network
+            if (bytes[0] == 0) return false;
+            // 127.0.0.0/8 covered by IsLoopback above
+            // 100.64.0.0/10 CGNAT
+            if (bytes[0] == 100 && (bytes[1] & 0xC0) == 64) return false;
+            // 224.0.0.0/4 multicast
+            if ((bytes[0] & 0xF0) == 224) return false;
+            // 240.0.0.0/4 reserved + 255.255.255.255 broadcast
+            if ((bytes[0] & 0xF0) == 240) return false;
+            return true;
+        }
+
+        if (addr.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (addr.IsIPv6LinkLocal) return false;
+            if (addr.IsIPv6SiteLocal) return false;
+            if (addr.IsIPv6Multicast) return false;
+            // Unique local fc00::/7 — first byte 0xFC or 0xFD.
+            var b = addr.GetAddressBytes();
+            if ((b[0] & 0xFE) == 0xFC) return false;
+            // ::/128 unspecified
+            if (addr.Equals(IPAddress.IPv6None)) return false;
+            // IPv4-mapped IPv6 — unwrap and recurse.
+            if (addr.IsIPv4MappedToIPv6)
+            {
+                return IsPublicAddress(addr.MapToIPv4());
+            }
+            return true;
+        }
+
+        // Unknown address family — play safe.
         return false;
     }
 

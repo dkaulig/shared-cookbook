@@ -79,9 +79,17 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             _db, factory, signer, _progressTokens, new NullLiveSyncPublisher(), _clock,
             NullLogger<PythonExtractorRunner>.Instance);
         _photoStorage = new FakePhotoStorage();
+        // BUG-047 — tests run without real DNS. Stub the resolver to
+        // return a deterministic public IP so the new SSRF guard
+        // doesn't reject the video-CDN or blog-same-origin hosts.
+        // The rejection path is covered by a dedicated test that wires
+        // a private-IP resolver.
+        ThumbnailHostResolver publicResolver = (_, _) =>
+            Task.FromResult(new[] { System.Net.IPAddress.Parse("93.184.216.34") });
         var thumbnailAttacher = new ThumbnailAttacher(
             _db, factory, _photoStorage, _clock,
-            NullLogger<ThumbnailAttacher>.Instance);
+            NullLogger<ThumbnailAttacher>.Instance,
+            publicResolver);
         _job = new ExtractRecipeFromUrlJob(_db, runner, thumbnailAttacher, _clock);
     }
 
@@ -597,6 +605,206 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     public void BUG018_Host_Allowlist_Suffix_Match(string url, bool allowed)
     {
         Assert.Equal(allowed, ThumbnailAttacher.IsAllowedThumbnailHost(url, out _));
+    }
+
+    // ── BUG-047: accept blog-hosted thumbnails when they live on the
+    // same registered domain (eTLD+1) as the import's SourceUrl. The
+    // video-CDN allowlist stays authoritative; this is an additive rule.
+    //
+    // Rationale: the Python extractor already SSRF-checked and fetched
+    // the SourceUrl. A blog's own og:image on the same registered
+    // domain inherits that trust. Cross-origin thumbnails (attacker
+    // controls the recipe URL → points image at someone else's host)
+    // remain rejected.
+
+    /// <summary>Result JSON emitting a thumbnail_url that lives on the
+    /// blog's own host (masonfit.com). Mirrors the shape the Python
+    /// extractor returns for BUG-047's reproducer URL.</summary>
+    private const string ResultWithMasonfitThumbnail = """
+        {
+          "recipe": {
+            "title": "Hoisin Beef Noodles",
+            "thumbnail_url": "https://masonfit.com/wp-content/uploads/hero.jpg"
+          },
+          "confidence": { "overall": "high", "notes": [] }
+        }
+        """;
+
+    [Fact]
+    public async Task BUG047_Blog_Same_Origin_Thumbnail_Is_Accepted()
+    {
+        // SourceUrl on masonfit.com + thumbnail on masonfit.com →
+        // same registered domain → download + stage succeeds.
+        var import = await SeedImportAsync("https://masonfit.com/hoisin-beef-noodles/");
+        _handler.QueueResponse(HttpStatusCode.OK, ResultWithMasonfitThumbnail);
+        var bytes = FakePngBytes();
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, bytes, "image/jpeg");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+
+        var staged = await _db.StagedPhotos.AsNoTracking()
+            .SingleAsync(s => s.Id == reloaded.ThumbnailStagedPhotoId);
+        Assert.Equal(_userId, staged.UserId);
+        Assert.Equal("image/jpeg", staged.ContentType);
+    }
+
+    [Fact]
+    public async Task BUG047_Blog_Sibling_Subdomain_Thumbnail_Is_Accepted()
+    {
+        // SourceUrl on www.blog.com + thumbnail on cdn.blog.com →
+        // shared eTLD+1 (blog.com) → accepted. Blogs commonly serve
+        // their own images off a sibling CDN subdomain.
+        var import = await SeedImportAsync("https://www.blog.com/recipe");
+        const string resultJson = """
+            {
+              "recipe": {
+                "title": "Blog Recipe",
+                "thumbnail_url": "https://cdn.blog.com/img/hero.jpg"
+              },
+              "confidence": { "overall": "high", "notes": [] }
+            }
+            """;
+        _handler.QueueResponse(HttpStatusCode.OK, resultJson);
+        _thumbnailHandler.QueueBytesResponse(
+            HttpStatusCode.OK, FakePngBytes(), "image/png");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+    }
+
+    [Fact]
+    public async Task BUG047_Cross_Origin_Thumbnail_Is_Rejected()
+    {
+        // SourceUrl on masonfit.com but thumbnail on evil.example →
+        // different registered domain, not on the video-CDN allowlist →
+        // rejected. No HTTP call to the thumbnail host.
+        var import = await SeedImportAsync("https://masonfit.com/hoisin-beef-noodles/");
+        const string resultJson = """
+            {
+              "recipe": {
+                "title": "Pwned",
+                "thumbnail_url": "https://evil.example/x.jpg"
+              },
+              "confidence": { "overall": "high", "notes": [] }
+            }
+            """;
+        _handler.QueueResponse(HttpStatusCode.OK, resultJson);
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(_thumbnailHandler.Requests);
+    }
+
+    [Fact]
+    public async Task BUG047_Private_Ip_Resolution_Rejects_Same_Origin_Thumbnail()
+    {
+        // SSRF defence-in-depth: a hostile blog can own evil.com (A
+        // record → public IP so the Python extractor fetches the page)
+        // but point "internal.evil.com" at 192.168.1.1 or 169.254.169.254
+        // (AWS metadata). The registered-domain check would accept the
+        // host; the DNS public-IP guard rejects it.
+        //
+        // Rebuild the attacher with a resolver that returns a private
+        // IP, so the guard fires.
+        var factory = new StubHttpClientFactory(_handler, new Uri("http://python/"));
+        factory.RegisterNamedHandler(ThumbnailAttacher.HttpClientName, _thumbnailHandler);
+        ThumbnailHostResolver privateResolver = (_, _) =>
+            Task.FromResult(new[] { System.Net.IPAddress.Parse("192.168.1.1") });
+        var attacker = new ThumbnailAttacher(
+            _db, factory, _photoStorage, _clock,
+            NullLogger<ThumbnailAttacher>.Instance,
+            privateResolver);
+        var job = new ExtractRecipeFromUrlJob(_db, new PythonExtractorRunner(
+            _db, factory,
+            new ExtractorHmacSigner(
+                Options.Create(new ExtractorOptions { SharedSecret = "test-secret" }),
+                _clock),
+            _progressTokens, new NullLiveSyncPublisher(), _clock,
+            NullLogger<PythonExtractorRunner>.Instance), attacker, _clock);
+
+        var import = await SeedImportAsync("https://evil.com/recipe");
+        _handler.QueueResponse(HttpStatusCode.OK, """
+            {
+              "recipe": {
+                "title": "SSRF",
+                "thumbnail_url": "https://internal.evil.com/admin"
+              },
+              "confidence": { "overall": "high", "notes": [] }
+            }
+            """);
+
+        await job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        // No HTTP GET against the internal host.
+        Assert.Empty(_thumbnailHandler.Requests);
+    }
+
+    [Theory]
+    [InlineData("10.0.0.1", false)]
+    [InlineData("10.255.255.255", false)]
+    [InlineData("172.16.0.1", false)]
+    [InlineData("172.31.255.255", false)]
+    [InlineData("172.32.0.1", true)] // outside 172.16/12 range
+    [InlineData("192.168.0.1", false)]
+    [InlineData("127.0.0.1", false)]
+    [InlineData("169.254.169.254", false)] // AWS metadata
+    [InlineData("0.0.0.0", false)]
+    [InlineData("100.64.0.1", false)] // CGNAT
+    [InlineData("224.0.0.1", false)] // multicast
+    [InlineData("255.255.255.255", false)] // broadcast
+    [InlineData("8.8.8.8", true)]
+    [InlineData("93.184.216.34", true)]
+    [InlineData("::1", false)] // IPv6 loopback
+    [InlineData("fe80::1", false)] // IPv6 link-local
+    [InlineData("fc00::1", false)] // IPv6 unique-local
+    [InlineData("fd00::1", false)] // IPv6 unique-local
+    [InlineData("::ffff:192.168.1.1", false)] // IPv4-mapped private
+    [InlineData("2001:4860:4860::8888", true)] // Google DNS v6
+    public void BUG047_Public_Address_Predicate(string ip, bool expected)
+    {
+        var addr = System.Net.IPAddress.Parse(ip);
+        Assert.Equal(expected, ThumbnailAttacher.IsPublicAddress(addr));
+    }
+
+    [Theory]
+    // Null sourceHost → only the video-CDN allowlist applies. An
+    // import with no trusted SourceUrl (e.g. a photo-import retry
+    // re-entering the URL path) must NOT unlock arbitrary hosts.
+    [InlineData("https://random.example/x.jpg", null, false)]
+    // Same registered domain (eTLD+1 approximation via leftmost-label
+    // strip) → accepted even when not on the CDN allowlist.
+    [InlineData("https://masonfit.com/wp/img.jpg", "https://masonfit.com/hoisin-beef-noodles/", true)]
+    [InlineData("https://cdn.blog.com/hero.jpg", "https://www.blog.com/recipe", true)]
+    // Cross-origin — different registered domains → rejected.
+    [InlineData("https://evil.example/x.jpg", "https://masonfit.com/recipe", false)]
+    // Two-label hosts without a shared second label → rejected.
+    [InlineData("https://evilblog.com/x.jpg", "https://blog.com/recipe", false)]
+    // Video-CDN allowlist still wins regardless of SourceUrl.
+    [InlineData("https://scontent.xx.fbcdn.net/v/x.jpg", null, true)]
+    [InlineData("https://scontent.xx.fbcdn.net/v/x.jpg", "https://masonfit.com/r", true)]
+    public void BUG047_Host_Acceptance_With_Source_Url(
+        string thumbnailUrl, string? sourceUrl, bool expected)
+    {
+        Assert.Equal(expected,
+            ThumbnailAttacher.IsAllowedThumbnailHostForImport(
+                thumbnailUrl, sourceUrl, out _));
     }
 
     // ── REIMPORT-0: in-place update on a pre-existing recipe ───────
