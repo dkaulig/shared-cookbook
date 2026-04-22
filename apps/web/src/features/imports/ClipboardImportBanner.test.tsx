@@ -182,13 +182,12 @@ describe('<ClipboardImportBanner />', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('stays hidden on re-mount when a clipboard URL has already been consumed this session', async () => {
+  it('re-arms the banner on re-mount after a URL was consumed (different URL ready to import)', async () => {
     const user = userEvent.setup()
     installClipboard(vi.fn().mockResolvedValue('https://fb.com/x'))
     const { unmount } = renderBanner()
 
-    // First mount: Prüfen → navigate. sessionStorage now carries the
-    // consumed-URL marker for this session.
+    // First mount: Prüfen → navigate.
     await user.click(screen.getByRole('button', { name: /Prüfen/i }))
     await waitFor(() => {
       expect(screen.getByTestId('import-url-page')).toBeInTheDocument()
@@ -196,14 +195,15 @@ describe('<ClipboardImportBanner />', () => {
 
     unmount()
 
-    // Second mount (e.g. user navigated back or the layout re-mounted
-    // the banner on a new landing page): the banner self-suppresses
-    // because the session marker is present, so the user does not see
-    // the same prompt again.
+    // Second mount (user navigated back to an app-wide route with a
+    // different URL in clipboard): banner appears again. A sessionStorage-
+    // based suppression tied to the first URL would swallow the new one,
+    // defeating the "import multiple reels in a row" flow — keep it
+    // unsuppressed so the user sees the prompt for every switch-back.
     renderBanner()
     expect(
-      screen.queryByText(/Link aus Zwischenablage importieren\?/i),
-    ).not.toBeInTheDocument()
+      screen.getByText(/Link aus Zwischenablage importieren\?/i),
+    ).toBeInTheDocument()
   })
 
   it('re-arms the banner on visibilitychange → visible after user dismissed it', async () => {

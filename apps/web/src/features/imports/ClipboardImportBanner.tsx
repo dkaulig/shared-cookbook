@@ -26,12 +26,16 @@ import { extractSharedUrl } from '@/features/share/extractSharedUrl'
  * Mount point: {@link AppLayout} guards this component on `/` and
  * `/groups` only — the two landing pages a user hits on app-resume.
  *
- * sessionStorage tracks which clipboard URL the user already consumed
- * so a second tap on the same session doesn't re-prompt. The marker is
- * the URL itself (capped at the 2000-char extractor limit), so a
- * different URL in the clipboard re-arms the banner naturally.
+ * No session-wide suppression: after the user consumes a URL, they
+ * navigate into the import flow where the banner is hidden anyway.
+ * When they come back to an app-wide route with a DIFFERENT URL in
+ * the clipboard (the "import multiple reels in a row"-flow), the
+ * banner must re-arm — a sessionStorage marker tied to the previously
+ * consumed URL would swallow that. The in-component `dismissed` state
+ * is enough to avoid re-rendering after an explicit close-tap within
+ * the same mount, and `visibilitychange`-to-visible resets it on
+ * every app-resume.
  */
-const CONSUMED_URL_KEY = 'clip0:consumed-url'
 
 type ErrorState = 'none' | 'not-a-url' | 'unsupported'
 
@@ -87,17 +91,8 @@ export function ClipboardImportBanner() {
       setErrorState('not-a-url')
       return
     }
-    // Suppress the banner for the rest of the session — the user has
-    // already acted on this clipboard content, no point re-prompting
-    // if they navigate back to a landing page.
-    sessionStorage.setItem(CONSUMED_URL_KEY, url)
     navigate(`/rezepte/import/url?url=${encodeURIComponent(url)}`)
   }
-
-  // Session-wide suppression: once a URL was consumed during this
-  // session we hide the banner on subsequent mounts. `sessionStorage`
-  // is cleared on tab-close so the banner re-arms for the next visit.
-  if (sessionStorage.getItem(CONSUMED_URL_KEY) != null) return null
 
   return (
     <section
