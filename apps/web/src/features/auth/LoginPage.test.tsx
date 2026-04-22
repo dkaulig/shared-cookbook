@@ -2,21 +2,35 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthLayout } from './AuthLayout'
 import { LoginPage } from './LoginPage'
 import { useAuthStore } from './authStore'
 import { server } from '@/test/msw/server'
 
-function renderLogin() {
+function LocationProbe() {
+  const loc = useLocation()
+  // Data-only probe — never renders the raw search string as text so
+  // hostile ?next= payloads never reach the DOM via queryByText.
+  return (
+    <div
+      data-testid="location"
+      data-pathname={loc.pathname}
+      data-search={loc.search}
+    />
+  )
+}
+
+function renderLogin(initialEntry = '/login') {
   // useAuth() now depends on a QueryClientProvider (needed so logout can
   // purge the cache — see useAuth.test.tsx). LoginPage itself never
   // reads the cache, but the provider must still exist for the hook.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/login']}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <LocationProbe />
         <Routes>
           <Route element={<AuthLayout />}>
             <Route path="/login" element={<LoginPage />} />
@@ -24,6 +38,10 @@ function renderLogin() {
             <Route path="/forgot-password" element={<div data-testid="forgot">vergessen</div>} />
           </Route>
           <Route path="/" element={<div data-testid="home">Zuhause</div>} />
+          <Route
+            path="/share-target"
+            element={<div data-testid="share-target">share-target</div>}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -135,5 +153,128 @@ describe('<LoginPage />', () => {
       expect(screen.getByTestId('home')).toBeInTheDocument()
     })
     expect(useAuthStore.getState().isAuthenticated).toBe(true)
+  })
+
+  /**
+   * SHARE-0b — `/login?next=` follow-through.
+   *
+   * When an unauthenticated user arrives at `/share-target?…` (via the
+   * iOS/Android share sheet), `ShareTargetPage` bounces them to
+   * `/login?next=<encoded /share-target path>`. After successful login
+   * we must land them back on `/share-target` (with original query
+   * intact) so the share payload isn't lost.
+   *
+   * Security: the `next` param is attacker-controlled. A malicious
+   * share-sheet entry could craft `?next=//evil.com` (protocol-relative)
+   * or `?next=https://evil.com` (absolute) and turn the login flow into
+   * an open redirect. Allowlist: only same-origin relative paths —
+   * starts with `/`, not `//`, no scheme.
+   */
+  describe('SHARE-0b — post-login ?next= redirect', () => {
+    function setupLoginSuccess() {
+      server.use(
+        http.post('/api/auth/login', () =>
+          HttpResponse.json({
+            accessToken: 'tok',
+            user: {
+              id: 'u1',
+              email: 'user@example.com',
+              displayName: 'Nutzer',
+              role: 'User',
+            },
+          }),
+        ),
+      )
+    }
+
+    it('redirects to a same-origin ?next= path after successful login', async () => {
+      setupLoginSuccess()
+      const user = userEvent.setup()
+      renderLogin(
+        '/login?next=' + encodeURIComponent('/share-target?url=https://fb.com/x'),
+      )
+
+      await user.type(screen.getByLabelText(/e-mail/i), 'user@example.com')
+      await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
+      await user.click(screen.getByRole('button', { name: /^anmelden$/i }))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('share-target')).toBeInTheDocument()
+      })
+      const loc = screen.getByTestId('location')
+      expect(loc.getAttribute('data-pathname')).toBe('/share-target')
+      // React Router decodes the query param once en-route; the assertion
+      // matches the decoded form the client-side component receives.
+      expect(loc.getAttribute('data-search')).toBe('?url=https://fb.com/x')
+    })
+
+    it('falls back to "/" when ?next= is protocol-relative (//evil.com)', async () => {
+      setupLoginSuccess()
+      const user = userEvent.setup()
+      renderLogin('/login?next=' + encodeURIComponent('//evil.com/steal'))
+
+      await user.type(screen.getByLabelText(/e-mail/i), 'user@example.com')
+      await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
+      await user.click(screen.getByRole('button', { name: /^anmelden$/i }))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('home')).toBeInTheDocument()
+      })
+      const loc = screen.getByTestId('location')
+      expect(loc.getAttribute('data-pathname')).toBe('/')
+    })
+
+    it('falls back to "/" when ?next= is an absolute https URL', async () => {
+      setupLoginSuccess()
+      const user = userEvent.setup()
+      renderLogin(
+        '/login?next=' + encodeURIComponent('https://evil.com/steal'),
+      )
+
+      await user.type(screen.getByLabelText(/e-mail/i), 'user@example.com')
+      await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
+      await user.click(screen.getByRole('button', { name: /^anmelden$/i }))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('home')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe(
+        '/',
+      )
+    })
+
+    it('falls back to "/" when ?next= is absent (original SHARE-0 behaviour preserved)', async () => {
+      setupLoginSuccess()
+      const user = userEvent.setup()
+      renderLogin('/login')
+
+      await user.type(screen.getByLabelText(/e-mail/i), 'user@example.com')
+      await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
+      await user.click(screen.getByRole('button', { name: /^anmelden$/i }))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('home')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe(
+        '/',
+      )
+    })
+
+    it('falls back to "/" when ?next= is a javascript: scheme payload', async () => {
+      setupLoginSuccess()
+      const user = userEvent.setup()
+      renderLogin('/login?next=' + encodeURIComponent('javascript:alert(1)'))
+
+      await user.type(screen.getByLabelText(/e-mail/i), 'user@example.com')
+      await user.type(screen.getByLabelText(/passwort/i), 'geheim123')
+      await user.click(screen.getByRole('button', { name: /^anmelden$/i }))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('home')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe(
+        '/',
+      )
+    })
   })
 })
