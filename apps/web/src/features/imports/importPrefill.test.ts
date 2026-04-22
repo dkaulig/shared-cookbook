@@ -42,7 +42,6 @@ function recipe(
     components: resolvedComponents,
     tags: [],
     source_url: 'https://example.com',
-    thumbnail_url: null,
     ...rest,
   }
 }
@@ -253,48 +252,12 @@ describe('extractedRecipeToPrefill', () => {
     expect(out.tags).toEqual([])
   })
 
-  // ── BUG-018 — auto-attached video-thumbnail staged-photo id ─────
-
-  it('defaults thumbnailStagedPhotoId to null when no envelope is supplied', () => {
-    // The bare recipe shape has no envelope-level fields, so the inner
-    // converter never sets `thumbnailStagedPhotoId`. This is the
-    // common blog-import path where the thumbnail download is skipped.
-    const out = extractedRecipeToPrefill(recipe())
-    expect(out.thumbnailStagedPhotoId).toBeNull()
-  })
-
-  it('withImportEnvelope overlays a thumbnailStagedPhotoId onto the prefill', () => {
-    // The wrapper has the import-DTO envelope in scope; this is the
-    // seam the wrapper uses to push that field into the prefill the
-    // form renders.
-    const base = extractedRecipeToPrefill(recipe())
-    const out = withImportEnvelope(base, {
-      thumbnailStagedPhotoId: 'staged-thumb-1',
-    })
-    expect(out.thumbnailStagedPhotoId).toBe('staged-thumb-1')
-    // All other fields round-trip unchanged so the overlay can never
-    // accidentally clobber the recipe-shape conversion.
-    expect(out.title).toBe(base.title)
-    expect(out.components).toBe(base.components)
-  })
-
-  it('withImportEnvelope is a no-op when thumbnailStagedPhotoId is missing', () => {
-    // A blog import that never auto-attached a thumbnail must not see
-    // its prefill mutated. Pointer-equality guards against the wrapper
-    // accidentally reseating arrays when nothing changed.
-    const base = extractedRecipeToPrefill(recipe())
-    expect(withImportEnvelope(base, {})).toBe(base)
-    expect(withImportEnvelope(base, { thumbnailStagedPhotoId: null })).toBe(base)
-  })
-
-  // ── COVER-0 (Slice D) — candidateStagedPhotoIds passthrough ─────
+  // ── COVER-0 — candidateStagedPhotoIds passthrough ───────────────
   //
-  // The import DTO now carries a full candidate array — up to 6 ids the
+  // The import DTO carries a full candidate array — up to 6 ids the
   // URL-extract job captured (yt-dlp thumbnails + ffmpeg frames +
-  // JSON-LD image[]). The prefill must surface the whole list so the
-  // form can render the 3×2 picker grid; legacy imports that only set
-  // the singleton `thumbnailStagedPhotoId` get a one-tile fallback so
-  // pre-Slice-B rows keep rendering until the TTL sweep reaps them.
+  // JSON-LD image[]). The prefill surfaces the whole list so the
+  // form can render the picker grid.
 
   it('defaults candidateStagedPhotoIds to [] when no envelope is supplied', () => {
     const out = extractedRecipeToPrefill(recipe())
@@ -306,36 +269,19 @@ describe('extractedRecipeToPrefill', () => {
     const ids = ['sp-0', 'sp-1', 'sp-2', 'sp-3', 'sp-4', 'sp-5']
     const out = withImportEnvelope(base, { candidateStagedPhotoIds: ids })
     expect(out.candidateStagedPhotoIds).toEqual(ids)
-    // Also folds the cover-mirror into the legacy singleton so code
-    // paths that still read `thumbnailStagedPhotoId` keep working
-    // during the migration window (Slice B contract).
-    expect(out.thumbnailStagedPhotoId).toBe('sp-0')
+    // All other fields round-trip unchanged so the overlay can never
+    // accidentally clobber the recipe-shape conversion.
+    expect(out.title).toBe(base.title)
+    expect(out.components).toBe(base.components)
   })
 
-  it('withImportEnvelope legacy fallback: empty candidate array + thumbnailStagedPhotoId set → derives a one-element candidate array', () => {
-    // Legacy rows (pre-Slice-B deploy) only set thumbnailStagedPhotoId;
-    // the prefill must synthesise a single-element candidates array so
-    // the form's picker always reads from one source of truth.
+  it('withImportEnvelope is a no-op when candidateStagedPhotoIds is absent or empty', () => {
+    // Chat imports / blog imports without cover candidates must not
+    // see their prefill mutated. Pointer-equality guards against the
+    // wrapper accidentally reseating arrays when nothing changed.
     const base = extractedRecipeToPrefill(recipe())
-    const out = withImportEnvelope(base, {
-      candidateStagedPhotoIds: [],
-      thumbnailStagedPhotoId: 'legacy-thumb',
-    })
-    expect(out.candidateStagedPhotoIds).toEqual(['legacy-thumb'])
-    expect(out.thumbnailStagedPhotoId).toBe('legacy-thumb')
-  })
-
-  it('withImportEnvelope no candidates + no thumbnail → empty array, no fallback tile', () => {
-    // Blog imports that never attached any cover candidate must not
-    // invent a tile out of thin air — the picker UI stays dormant
-    // when the array is empty.
-    const base = extractedRecipeToPrefill(recipe())
-    const out = withImportEnvelope(base, {
-      candidateStagedPhotoIds: [],
-      thumbnailStagedPhotoId: null,
-    })
-    expect(out.candidateStagedPhotoIds).toEqual([])
-    expect(out.thumbnailStagedPhotoId).toBeNull()
+    expect(withImportEnvelope(base, {})).toBe(base)
+    expect(withImportEnvelope(base, { candidateStagedPhotoIds: [] })).toBe(base)
   })
 
   // BUG-034 — `extractedResultToPrefill` is the outer-envelope-aware
@@ -544,7 +490,6 @@ describe('extractedRecipeToPrefill', () => {
         cook_minutes: null,
         tags: [],
         source_url: 'https://example.com',
-        thumbnail_url: null,
       } as unknown as ExtractedRecipe
       const out = extractedRecipeToPrefill(legacy)
       expect(out.components).toHaveLength(1)

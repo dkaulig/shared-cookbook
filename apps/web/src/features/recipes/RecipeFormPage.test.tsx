@@ -1040,7 +1040,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: 'https://www.chefkoch.de/Pizza.html',
-              thumbnail_url: null,
             },
             confidence: { overall: 'high', notes: [] },
           }),
@@ -1106,7 +1105,6 @@ describe('RecipeFormPage (create)', () => {
               // has 'vegan' + 'schnell' (case-insensitive match expected).
               tags: ['vegan', 'schnell'],
               source_url: 'https://www.instagram.com/reel/abc',
-              thumbnail_url: null,
             },
             confidence: { overall: 'high', notes: [] },
           }),
@@ -1167,7 +1165,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: longUrl,
-              thumbnail_url: null,
             },
             confidence: { overall: 'high', notes: [] },
           }),
@@ -1228,7 +1225,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: 'photos://upload',
-              thumbnail_url: null,
             },
             confidence: { overall: 'high', notes: [] },
           }),
@@ -1287,7 +1283,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: 'https://example.com/r',
-              thumbnail_url: null,
             },
             confidence: { overall: 'medium', notes: [] },
           }),
@@ -1337,7 +1332,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: '',
-              thumbnail_url: null,
             },
             confidence: { overall: 'low', notes: [] },
           }),
@@ -1387,7 +1381,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: 'https://example.com/recipe-x',
-              thumbnail_url: null,
             },
             confidence: { overall: 'high', notes: [] },
           }),
@@ -1451,7 +1444,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: 'https://example.com/nutri',
-              thumbnail_url: null,
               nutrition_estimate: {
                 kcal: 420,
                 protein_g: 24,
@@ -1502,7 +1494,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: 'https://example.com/plain',
-              thumbnail_url: null,
               nutrition_estimate: null,
             },
             confidence: { overall: 'high', notes: [] },
@@ -1556,7 +1547,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: 'https://example.com/s',
-              thumbnail_url: null,
               nutrition_estimate: {
                 kcal: 300,
                 protein_g: 10,
@@ -1677,7 +1667,6 @@ describe('RecipeFormPage (create)', () => {
           ],
           tags: ['vegan'],
           source_url: 'chat://session/abc',
-          thumbnail_url: null,
         },
         confidence: { overall: 'medium', notes: [] },
       },
@@ -1724,7 +1713,6 @@ describe('RecipeFormPage (create)', () => {
           ],
           tags: [],
           source_url: 'chat://session/banner',
-          thumbnail_url: null,
         },
         confidence: { overall: 'medium', notes: [] },
       },
@@ -1766,7 +1754,6 @@ describe('RecipeFormPage (create)', () => {
           ],
           tags: [],
           source_url: 'chat://x',
-          thumbnail_url: null,
         },
         confidence: { overall: 'medium', notes: [] },
       },
@@ -1814,7 +1801,6 @@ describe('RecipeFormPage (create)', () => {
           ],
           tags: [],
           source_url: 'chat://y',
-          thumbnail_url: null,
         },
         confidence: { overall: 'medium', notes: [] },
       },
@@ -1875,7 +1861,6 @@ describe('RecipeFormPage (create)', () => {
           ],
           tags: [],
           source_url: 'photos://upload',
-          thumbnail_url: null,
         },
         confidence: { overall: 'high', notes: [] },
       }),
@@ -1944,7 +1929,6 @@ describe('RecipeFormPage (create)', () => {
               ],
               tags: [],
               source_url: 'https://example.com/r',
-              thumbnail_url: null,
             },
             confidence: { overall: 'high', notes: [] },
           }),
@@ -2307,7 +2291,6 @@ describe('RecipeFormPage (create)', () => {
             ],
             tags: [],
             source_url: 'https://example.com/ok',
-            thumbnail_url: null,
           },
           confidence: { overall: 'high', notes: [] },
         },
@@ -2351,14 +2334,14 @@ describe('RecipeFormPage (create)', () => {
 
     // ── BUG-018: video-thumbnail auto-attached as staged photo ──────
     //
-    // The URL-import job downloads the extracted `recipe.thumbnail_url`
-    // (yt-dlp video frame), persists it via SeaweedFS, and surfaces the
-    // resulting `thumbnailStagedPhotoId` on the import status response.
-    // The form wrapper folds that id into the `stagedPhotoIds` list so
-    // the create-recipe POST adopts the thumbnail onto the new recipe
-    // alongside any user-uploaded photos.
+    // The URL-import job downloads each `recipe.candidate_thumbnails`
+    // entry (yt-dlp video frames + JSON-LD images), persists them via
+    // SeaweedFS, and surfaces the ordered ids via
+    // `candidateStagedPhotoIds` on the import status response. The
+    // form's picker grid seeds its default selection from [0] so the
+    // create-recipe POST adopts the thumbnail onto the new recipe.
 
-    it('auto-includes the import thumbnailStagedPhotoId in the create-recipe stagedPhotoIds (BUG-018)', async () => {
+    it('auto-includes the import candidateStagedPhotoIds[0] in the create-recipe stagedPhotoIds (BUG-018)', async () => {
       const user = userEvent.setup()
       const seed: RecipeImportDto = {
         id: 'imp-bug018-thumb',
@@ -2388,8 +2371,6 @@ describe('RecipeFormPage (create)', () => {
             ],
             tags: [],
             source_url: 'https://www.facebook.com/somevideo',
-            thumbnail_url:
-              'https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg',
           },
           confidence: { overall: 'high', notes: [] },
         },
@@ -2398,7 +2379,7 @@ describe('RecipeFormPage (create)', () => {
         completedAt: '2026-04-19T12:00:30Z',
         // The URL job's post-Done attach step set this to the
         // freshly-created StagedPhoto row's id.
-        thumbnailStagedPhotoId: 'staged-thumb-uuid',
+        candidateStagedPhotoIds: ['staged-thumb-uuid'],
       }
 
       let captured: CreateRecipeRequest | null = null
@@ -2450,10 +2431,10 @@ describe('RecipeFormPage (create)', () => {
       expect(captured!.stagedPhotoIds).toEqual(['staged-thumb-uuid'])
     })
 
-    it('omits the thumbnail entry when the import has no thumbnailStagedPhotoId (blog import)', async () => {
-      // Blog imports rarely have a usable thumbnail; the URL job
-      // simply doesn't auto-attach one. The form must not invent a
-      // staged-photo id out of thin air.
+    it('omits the thumbnail entry when the import has an empty candidateStagedPhotoIds (blog import)', async () => {
+      // Blog imports without JSON-LD image arrays and without og:image
+      // yield an empty candidate list; the URL job attaches nothing.
+      // The form must not invent a staged-photo id out of thin air.
       const user = userEvent.setup()
       const seed: RecipeImportDto = {
         id: 'imp-bug018-noblog',
@@ -2483,14 +2464,13 @@ describe('RecipeFormPage (create)', () => {
             ],
             tags: [],
             source_url: 'https://blog.example/recipe',
-            thumbnail_url: null,
           },
           confidence: { overall: 'high', notes: [] },
         },
         errorMessage: null,
         createdAt: '2026-04-19T12:00:00Z',
         completedAt: '2026-04-19T12:00:30Z',
-        thumbnailStagedPhotoId: null,
+        candidateStagedPhotoIds: [],
       }
 
       let captured: CreateRecipeRequest | null = null
@@ -2592,14 +2572,12 @@ describe('RecipeFormPage (create)', () => {
             ],
             tags: [],
             source_url: 'https://www.facebook.com/cover-video',
-            thumbnail_url: 'https://scontent.xx.fbcdn.net/thumb.jpg',
           },
           confidence: { overall: 'high', notes: [] },
         },
         errorMessage: null,
         createdAt: '2026-04-22T12:00:00Z',
         completedAt: '2026-04-22T12:00:30Z',
-        thumbnailStagedPhotoId: candidateIds[0] ?? null,
         candidateStagedPhotoIds: candidateIds,
       }
     }
@@ -2867,7 +2845,10 @@ describe('RecipeFormPage (create)', () => {
       expect(captured!.coverStagedPhotoId).toBe('c2')
     })
 
-    it('does NOT render the picker when only 1 candidate (falls back to legacy single-thumbnail behaviour)', async () => {
+    it('renders the picker with 1 candidate (single-tile grid)', async () => {
+      // COVER-0 cleanup — with the legacy single-thumbnail field gone,
+      // the picker is the one place a single cover candidate shows up.
+      // A 1-tile grid is acceptable UX: user still confirms the cover.
       const seed = importWithCandidates('imp-cov-one', ['only-one'])
       render(
         withSeededCache(
@@ -2876,32 +2857,8 @@ describe('RecipeFormPage (create)', () => {
         ),
       )
       await screen.findByDisplayValue('Cover Pizza')
-      // Grid has no tile buttons when the picker is suppressed.
-      expect(
-        screen.queryAllByRole('button', { name: /Auswählen|Abwählen/ }),
-      ).toHaveLength(0)
-      // Section header "Bilder aus Import" must NOT show either —
-      // nothing for the user to pick from with one candidate.
-      expect(screen.queryByText(/Bilder aus Import/i)).not.toBeInTheDocument()
-    })
-
-    it('legacy fallback: 0 candidates + thumbnailStagedPhotoId set → no picker grid (single-tile legacy path)', async () => {
-      const seed: RecipeImportDto = {
-        ...importWithCandidates('imp-cov-legacy', []),
-        thumbnailStagedPhotoId: 'legacy-thumb',
-        candidateStagedPhotoIds: [],
-      }
-      render(
-        withSeededCache(
-          '/groups/g1/recipes/new?importId=imp-cov-legacy',
-          seed,
-        ),
-      )
-      await screen.findByDisplayValue('Cover Pizza')
-      expect(
-        screen.queryAllByRole('button', { name: /Auswählen|Abwählen/ }),
-      ).toHaveLength(0)
-      expect(screen.queryByText(/Bilder aus Import/i)).not.toBeInTheDocument()
+      // Section header visible because the picker is active.
+      expect(await screen.findByText(/Bilder aus Import/i)).toBeInTheDocument()
     })
 
     it('client-side guard: coverStagedPhotoId must be a member of stagedPhotoIds on the wire', async () => {
@@ -3214,7 +3171,6 @@ describe('RecipeFormPage (create)', () => {
             ],
             tags: [],
             source_url: 'https://facebook.com/share/r/xyz',
-            thumbnail_url: null,
           },
           confidence: { overall: 'low', notes: [] },
           recipe_empty: true,

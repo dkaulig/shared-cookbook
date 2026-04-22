@@ -240,7 +240,7 @@ describe('<PhotoUploadGrid mode="staged" />', () => {
       expect(imgs[1]!.getAttribute('src')).toBe('/api/photos/s2.jpg?sig=x')
     })
 
-    it('shows the "Thumbnail" badge on isThumbnail tiles and "Import" otherwise', () => {
+    it('shows the "Import" provenance badge on every preAttached tile', () => {
       render(
         withProviders(
           <PhotoUploadGrid
@@ -248,22 +248,15 @@ describe('<PhotoUploadGrid mode="staged" />', () => {
             files={[]}
             onFilesChange={() => {}}
             preAttached={[
-              {
-                stagedPhotoId: 's-thumb',
-                url: '/api/photos/s-thumb.jpg?sig=x',
-                isThumbnail: true,
-              },
-              { stagedPhotoId: 's-normal', url: '/api/photos/s1.jpg?sig=x' },
+              { stagedPhotoId: 's-a', url: '/api/photos/s-a.jpg?sig=x' },
+              { stagedPhotoId: 's-b', url: '/api/photos/s-b.jpg?sig=x' },
             ]}
           />,
         ),
       )
-      expect(screen.getByTestId('preattached-thumbnail-badge')).toHaveTextContent(
-        /Thumbnail/i,
-      )
-      expect(screen.getByTestId('preattached-import-badge')).toHaveTextContent(
-        /Import/i,
-      )
+      const badges = screen.getAllByTestId('preattached-import-badge')
+      expect(badges).toHaveLength(2)
+      badges.forEach((b) => expect(b).toHaveTextContent(/Import/i))
     })
 
     it('invokes onRemovePreAttached with the right stagedPhotoId when × is tapped', async () => {

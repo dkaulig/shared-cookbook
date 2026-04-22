@@ -90,18 +90,10 @@ export interface ImportStatusResponseWire {
   segmentsTotal: number | null
   lastProgressAt: string
   /**
-   * BUG-018 — surfaced by the URL extract job after it downloads the
-   * `recipe.thumbnail_url` and stages it via SeaweedFS. May be missing
-   * on older server builds — treat absent as null.
-   */
-  thumbnailStagedPhotoId?: string | null
-  /**
    * COVER-0 — up to 6 staged-photo ids the extract job captured as
    * import-cover candidates (yt-dlp thumbnails + ffmpeg frames +
-   * JSON-LD `image[]`). Ordered; `[0]` is the default cover and
-   * mirrors `thumbnailStagedPhotoId` during the migration window.
-   * Absent on older server builds (pre-Slice-B deploy) — treat
-   * missing as `[]`.
+   * JSON-LD `image[]`). Ordered; `[0]` is the default cover. Absent
+   * on legacy server builds — treat missing as `[]`.
    */
   candidateStagedPhotoIds?: string[]
   /**
@@ -185,14 +177,9 @@ export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportD
     segmentsDone: wire.segmentsDone,
     segmentsTotal: wire.segmentsTotal,
     lastProgressAt: wire.lastProgressAt,
-    // BUG-018 — pass through verbatim. `null` (or absent on old builds)
-    // means the URL job didn't auto-attach a thumbnail and the form
-    // should not seed a staged photo from this side.
-    thumbnailStagedPhotoId: wire.thumbnailStagedPhotoId ?? null,
-    // COVER-0 — pass through verbatim. `[]` (or absent on old builds)
-    // means the import yielded no cover candidates and the picker UI
-    // should render its zero-state. Order preserved so `[0]` keeps
-    // mirroring the legacy single-valued field.
+    // COVER-0 — pass through verbatim. `[]` (or absent on legacy
+    // builds) means the import yielded no cover candidates and the
+    // picker UI should render its zero-state.
     candidateStagedPhotoIds: wire.candidateStagedPhotoIds ?? [],
     // REIMPORT-0 — pass through verbatim. `null` (or absent on old
     // builds) means this is a standard import; the progress page

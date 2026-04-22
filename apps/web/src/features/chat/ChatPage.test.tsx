@@ -506,7 +506,6 @@ describe('<ChatPage /> — In Rezept umwandeln', () => {
             steps: [],
             tags: ['vegan'],
             source_url: 'chat://session',
-            thumbnail_url: null,
           },
           confidence: { overall: 'medium', notes: [] },
         }),

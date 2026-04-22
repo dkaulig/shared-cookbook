@@ -39,7 +39,6 @@ describe('useConvertChatToRecipe', () => {
             steps: [],
             tags: [],
             source_url: 'chat://abc',
-            thumbnail_url: null,
           },
           confidence: { overall: 'high', notes: [] },
         }),

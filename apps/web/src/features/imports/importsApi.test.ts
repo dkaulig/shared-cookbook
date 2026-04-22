@@ -35,7 +35,6 @@ const sampleResult: ExtractionResult = {
     steps: [],
     tags: [],
     source_url: 'https://example.com/pizza',
-    thumbnail_url: null,
   },
   confidence: { overall: 'high', notes: [] },
 }
@@ -318,31 +317,8 @@ describe('importsApi — GET /api/imports/:id', () => {
     expect(dto.status).toBe('error')
   })
 
-  // BUG-018 — round-trip the new `thumbnailStagedPhotoId` envelope field
-  // so the URL-import auto-attached video thumbnail makes it from the
-  // .NET wire all the way through to the prefill the form consumes.
-  it('passes thumbnailStagedPhotoId through the wire→DTO mapping', () => {
-    const dto = mapStatusResponse(
-      baseWire({
-        id: 'imp-thumb',
-        status: 'Done',
-        progress: 100,
-        thumbnailStagedPhotoId: 'staged-thumb-7',
-      }),
-    )
-    expect(dto.thumbnailStagedPhotoId).toBe('staged-thumb-7')
-  })
-
-  // BUG-018 — older server builds (pre-deploy of this fix) will omit
-  // the new field. The mapper must default it to null rather than
-  // letting `undefined` leak into the form prefill.
-  it('defaults thumbnailStagedPhotoId to null when the wire omits it', () => {
-    const dto = mapStatusResponse(baseWire({ id: 'imp-no-thumb' }))
-    expect(dto.thumbnailStagedPhotoId).toBeNull()
-  })
-
-  // COVER-0 — the new-default candidates array. The wire field is
-  // always present on fresh server responses ([] for legacy rows /
+  // COVER-0 — the ordered candidate ids drive the picker grid. The
+  // wire field is always present on fresh server responses ([] for
   // empty imports); the mapper preserves order so the picker UI can
   // rely on [0] being the default cover.
   it('passes candidateStagedPhotoIds through the wire→DTO mapping', () => {
@@ -351,17 +327,13 @@ describe('importsApi — GET /api/imports/:id', () => {
         id: 'imp-cands',
         status: 'Done',
         progress: 100,
-        thumbnailStagedPhotoId: 'sp-0',
         candidateStagedPhotoIds: ['sp-0', 'sp-1', 'sp-2'],
       }),
     )
     expect(dto.candidateStagedPhotoIds).toEqual(['sp-0', 'sp-1', 'sp-2'])
-    // During the migration window, the legacy single-valued field
-    // mirrors [0] so frontends can adopt either.
-    expect(dto.candidateStagedPhotoIds[0]).toBe(dto.thumbnailStagedPhotoId)
   })
 
-  // COVER-0 — older server builds (pre-Slice-B deploy) will omit the
+  // COVER-0 — legacy server builds (pre-Slice-B deploy) will omit the
   // field entirely. The mapper defaults to an empty array so the
   // picker UI can render a zero-state without null-checks.
   it('defaults candidateStagedPhotoIds to [] when the wire omits it', () => {

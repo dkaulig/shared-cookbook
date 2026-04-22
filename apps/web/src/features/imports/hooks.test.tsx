@@ -148,7 +148,6 @@ describe('useImportStatus', () => {
                 steps: [],
                 tags: [],
                 source_url: 'https://example.com',
-                thumbnail_url: null,
               },
               confidence: { overall: 'high', notes: [] },
             }),
