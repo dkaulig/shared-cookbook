@@ -71,18 +71,6 @@ public static class ImportEndpoints
         int? SegmentsTotal,
         DateTimeOffset LastProgressAt,
         /// <summary>
-        /// BUG-018 / COVER-0 — id of the <see cref="StagedPhoto"/> the
-        /// URL job picked as the default cover. During the COVER-0
-        /// wire-compat window this mirrors
-        /// <see cref="CandidateStagedPhotoIds"/>[0] when the candidate
-        /// array is non-empty; on pre-COVER-0 rows it's the legacy
-        /// single-thumbnail id. Null when the source had no thumbnail
-        /// or every download fell back to the graceful-failure path.
-        /// A later slice removes this field; new clients should read
-        /// <see cref="CandidateStagedPhotoIds"/>[0] directly.
-        /// </summary>
-        Guid? ThumbnailStagedPhotoId,
-        /// <summary>
         /// COVER-0 — ordered list of <see cref="StagedPhoto"/> ids the
         /// candidate-download pipeline produced for this import.
         /// Index 0 is the default cover; later entries surface in the
@@ -279,10 +267,6 @@ public static class ImportEndpoints
             SegmentsDone: import.SegmentsDone,
             SegmentsTotal: import.SegmentsTotal,
             LastProgressAt: import.LastProgressAt,
-            // BUG-018 / COVER-0 — legacy single-thumbnail id mirrors
-            // CandidateStagedPhotoIds[0] during the wire-compat window
-            // so today's web prefill keeps rendering the default cover.
-            ThumbnailStagedPhotoId: import.ThumbnailStagedPhotoId,
             // COVER-0 — ordered candidate ids drive the 3×2 grid on
             // the RecipeFormPage + the "Cover ändern" modal. Empty
             // array (never null) on pre-COVER-0 rows and imports where
