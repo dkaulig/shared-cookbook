@@ -104,6 +104,103 @@ Tagline candidates:
     `repository_dispatch` from the public one. Documented as
     follow-up, not a v0.12.0 gate.
 
+1c. **Code-level security audit** (REL-0b). Going public means every
+    curious eyeball can read the code looking for bugs. Systematic
+    sweep beforehand closes the obvious holes before they become
+    public CVEs. Runs parallel to REL-0 (different files).
+
+    **Automated tooling (run all, triage findings):**
+    - **Dependency audits** across all three stacks: `pnpm audit`,
+      `dotnet list package --vulnerable --include-transitive`,
+      `uv run pip-audit`. High/Critical → fix before release.
+      Medium → triage + fix or file issue + accept. Low → track.
+    - **Enable GitHub CodeQL** (free for public repos). Analyses
+      .NET + TypeScript + Python on every push. Activate at
+      repo-visibility-flip time, triage initial findings within a
+      week. Expect ~10-30 findings; most informational, few real.
+    - **`gitleaks detect`** full-history scan right before going
+      public. Bigger ruleset than the REL-0 ad-hoc grep.
+    - **`trivy fs .`** against each built Docker image post-build.
+      Catches OS-package CVEs in the base images; informs base-tag
+      bumps.
+    - **Dependabot** enabled for weekly security-only PRs against
+      `pnpm-lock.yaml`, `.csproj`, `uv.lock`, + GitHub Actions
+      versions.
+    - **Secret Scanning + Push Protection** (also mentioned in 1b —
+      restated here as part of the security surface).
+
+    **Manual OWASP-Top-10 walkthrough.** Walk file-by-file, capture
+    findings in `docs/SECURITY-AUDIT-2026-04.md` as "observed +
+    severity + fix-or-accept":
+    - **A01 Broken Access Control** — every data-accessing endpoint
+      has `[Authorize]` + group-membership or admin-role gate.
+      Spot-check by listing all endpoints from Program.cs + endpoint
+      files.
+    - **A02 Cryptographic Failures** — JWT HS256 + signing-key
+      entropy ≥ 256 bit via env. Refresh-token cookie flags:
+      HttpOnly / Secure / SameSite. Password hash (Argon2id).
+      SeaweedFS signed-URL TTL reasonable.
+    - **A03 Injection** — grep for `FromSqlRaw` / `ExecuteSqlRaw`
+      (must be parameterised); `Process.Start` / `subprocess` (no
+      user input); unsafe-HTML React sinks (should be 0 hits);
+      prompt injection via `<untrusted_blog>`-delimiter pattern —
+      verify captions + transcripts get the same wrapping.
+    - **A04 Insecure Design** — business-logic edges: recipe-scale
+      math with negatives/overflow, meal-plan slot double-booking,
+      shopping-list dedupe-merge, portion-slider clamps.
+    - **A05 Security Misconfiguration** — Caddyfile security headers
+      (CSP, HSTS, X-Frame-Options, X-Content-Type-Options). CORS on
+      the .NET API (same-origin only, not `*`). ASP.NET prod error
+      pages (no `UseDeveloperExceptionPage`, no stack-trace leaks).
+      Docker containers run as non-root.
+    - **A06 Vulnerable Components** — automated-tooling block above.
+    - **A07 Auth Failures** — password policy (length/complexity),
+      login rate-limit threshold, session timeout, no-2FA-yet
+      documented as follow-up not blocker.
+    - **A08 Supply Chain** — all three lockfiles committed,
+      reproducible builds, signed container images? (optional for
+      v0.12.0).
+    - **A09 Logging + Monitoring** — grep log statements for PII
+      (emails, tokens, full URLs). `_redact_host()` covers URLs in
+      Python; verify no untreated URL → log path. Audit-log
+      retention in ExtractorConfigHistory.
+    - **A10 SSRF** — ThumbnailAttacher eTLD+1 + DNS-public-IP guard
+      from BUG-047. Python `_assert_safe_http_target`. Every
+      outbound HTTP path goes through one of those two guards.
+
+    **AI-specific threats (not in classic OWASP):**
+    - **Prompt injection.** Untrusted caption/transcript/blog-text
+      must reach Azure only inside a trust-delimiter the system
+      prompt knows about. We have `<untrusted_blog>` for blog text;
+      verify captions + transcripts wrap similarly.
+    - **Azure training opt-out.** Azure OpenAI does NOT use customer
+      data for model training by default, but abuse-monitoring logs
+      retain inputs for 30 days. Document the data-flow in
+      SETUP.md so self-hosters know what Azure sees.
+    - **Cost amplification.** Rate-limiting on import endpoints —
+      check if present; if not, add a TODO + document so
+      self-hosters can add their own. `max_completion_tokens`
+      capped at 8192 already.
+    - **Model jailbreaks.** Azure's safety layer is the backstop;
+      nothing more we can do beyond that.
+
+    **Deliverables:**
+    - `docs/SECURITY-AUDIT-2026-04.md` with findings, severity, and
+      fix-or-accept per finding.
+    - `docs/SECURITY.md` (GitHub-standard file) with private-
+      disclosure contact (GitHub Security Advisory link).
+    - Fix-commits for P0 + high findings, before v0.12.0 tag.
+    - Repo-level automation enabled at visibility-flip time
+      (CodeQL, Dependabot, Secret Scanning, Push Protection).
+
+    **Out of scope for v0.12.0:**
+    - External penetration test (expensive, overkill for hobby).
+    - 2FA / WebAuthn (follow-up feature).
+    - Formal threat-model document (audit doc + bug backlog serve
+      that role).
+    - Signed-image supply-chain (sigstore / cosign).
+    - Continuous security-scanning SLA (community-driven).
+
 2. **`LICENSE` file.**
    - **MIT** — maximum permissive, simple two-paragraph license.
      Copyright holder is the project owner. Year = 2026.
