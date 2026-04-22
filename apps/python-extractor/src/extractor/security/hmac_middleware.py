@@ -46,6 +46,18 @@ SIGNATURE_HEADER: Final[str] = "x-extractor-signature"
 # HEALTHCHECK without creds; anything else must authenticate.
 HEALTH_BYPASS_PATHS: Final[frozenset[str]] = frozenset({"/health"})
 
+# Prefix-based bypasses. COVER-0 fix: the .NET CandidateAttacher fetches
+# ffmpeg-extracted frames via ``/extractor/frames/<dir_id>/<idx>.jpg``
+# using its unsigned HttpClient (the signer lives only on the higher-
+# level job dispatch client). The route is safe to expose unsigned
+# because:
+# - The python-extractor container is NOT routed via Caddy (see
+#   ``infra/Caddyfile``) — external callers get 404 on every path.
+# - The dir_id is a server-minted UUID and the file path regex refuses
+#   traversal, so an on-net attacker would still need to guess a UUID
+#   to exfiltrate a single jpeg frame before the sweep runs.
+BYPASS_PREFIXES: Final[tuple[str, ...]] = ("/extractor/frames/",)
+
 # 15-minute skew window (900s) — identical on both sides of the bridge.
 # Chosen tight enough that the replay surface is small while still
 # tolerating modest clock drift between the .NET + Python containers.
@@ -94,6 +106,11 @@ class HmacVerificationMiddleware(BaseHTTPMiddleware):
         # Bypass paths pass through untouched (used by Docker HEALTHCHECK).
         if request.url.path in self._bypass_paths:
             return await call_next(request)
+        # Prefix bypasses — COVER-0 fix for the unsigned frame-fetch
+        # endpoint hit by the .NET CandidateAttacher's HttpClient.
+        for prefix in BYPASS_PREFIXES:
+            if request.url.path.startswith(prefix):
+                return await call_next(request)
 
         # Secret not configured — don't silently let requests through.
         if not self._shared_secret:

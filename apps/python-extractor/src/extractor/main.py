@@ -31,14 +31,18 @@ from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
+from pathlib import Path
 from typing import Annotated, Final, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Path as PathParam
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from extractor.config import Settings
 from extractor.config_loader import ExtractorConfig
+from extractor.frames import FrameStore
 from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, TokenUsage, build_provider
 from extractor.pipeline.chat import (
     EmptyMessagesError,
@@ -364,6 +368,32 @@ def get_extractor_config() -> ExtractorConfig | None:
     return _extractor_config_singleton
 
 
+# COVER-0 fix: process-wide FrameStore singleton. Built lazily from
+# Settings so the env var can point at a different root in tests /
+# container overrides without rebuilding the app. The store owns only a
+# filesystem path + the regex gates — no open handles — so sharing
+# across requests is safe.
+_frame_store_singleton: FrameStore | None = None
+
+
+def get_frame_store() -> FrameStore:
+    """FastAPI dependency returning the :class:`FrameStore` singleton.
+
+    Tests override via ``app.dependency_overrides`` to point the store
+    at a tmp dir; production reads the base path + url prefix from
+    :class:`Settings.extractor_frames_dir` +
+    :class:`Settings.extractor_frames_url_base`.
+    """
+    global _frame_store_singleton
+    if _frame_store_singleton is None:
+        settings = _get_settings()
+        _frame_store_singleton = FrameStore(
+            root=Path(settings.extractor_frames_dir),
+            url_base=settings.extractor_frames_url_base,
+        )
+    return _frame_store_singleton
+
+
 def get_video_stack() -> VideoStack | None:
     """FastAPI dependency for the video-path stack.
 
@@ -588,6 +618,49 @@ def create_app() -> FastAPI:
             version=_resolve_version(),
         )
 
+    @application.get(
+        "/extractor/frames/{dir_id}/{filename}",
+        tags=["frames"],
+        response_class=FileResponse,
+    )
+    def serve_frame(
+        store: Annotated[FrameStore, Depends(get_frame_store)],
+        dir_id: Annotated[
+            str,
+            PathParam(
+                # Repeated here rather than imported from extractor.frames
+                # to keep the pydantic path-validation gate at the HTTP
+                # edge. A non-UUID dir_id is refused with 422 before the
+                # handler runs.
+                pattern=(
+                    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                ),
+            ),
+        ],
+        filename: Annotated[str, PathParam(pattern=r"^\d+\.jpg$")],
+    ) -> FileResponse:
+        """Serve an ffmpeg-extracted video frame by UUID + filename.
+
+        COVER-0 fix: previously the pipeline emitted ``file://`` URIs
+        for these frames, which the .NET CandidateAttacher couldn't
+        fetch. This endpoint lets the .NET side pull frames over HTTP
+        the same way it pulls CDN thumbnails.
+
+        Unauthenticated — the python-extractor container is not routed
+        via Caddy, so this endpoint is reachable only from other
+        containers on the internal docker network.
+
+        Returns 404 when the dir_id / filename combination doesn't
+        resolve to a file on disk. Pydantic rejects malformed path
+        components (non-UUID dir_id, non-``<digits>.jpg`` filename)
+        with 422 before the handler executes.
+        """
+        resolved = store.resolve(dir_id, filename)
+        if resolved is None:
+            raise HTTPException(status_code=404, detail="Frame nicht gefunden.")
+        return FileResponse(resolved, media_type="image/jpeg")
+
     @application.post("/extract/url", tags=["extract"])
     async def extract_url(
         request: ExtractUrlRequest,
@@ -595,6 +668,7 @@ def create_app() -> FastAPI:
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
         video_stack: Annotated[VideoStack | None, Depends(get_video_stack)],
         config: Annotated[ExtractorConfig | None, Depends(get_extractor_config)],
+        frame_store: Annotated[FrameStore, Depends(get_frame_store)],
     ) -> ExtractionResult:
         """Run the URL → structured-recipe pipeline.
 
@@ -631,6 +705,7 @@ def create_app() -> FastAPI:
                     downloader=downloader,
                     transcriber=transcriber,
                     frame_extractor=frame_extractor,
+                    frame_store=frame_store,
                     reporter=reporter,
                     config=config,
                 )
