@@ -7,7 +7,6 @@ defensive — keeps us honest even if the LLM mis-behaves:
 - Flag ingredients without a quantity as ``confidence="missing"``.
 - De-dupe tags + lowercase them.
 - Preserve the caller's ``source_url`` verbatim (never let the LLM rewrite it).
-- Keep the LLM-supplied ``thumbnail_url`` (or fall back to caller-supplied).
 """
 
 from __future__ import annotations
@@ -53,7 +52,6 @@ def _base_recipe_dict() -> dict[str, object]:
         ],
         "tags": ["Dessert"],
         "source_url": "https://llm-rewrote-url.example.com",
-        "thumbnail_url": None,
     }
 
 
@@ -103,7 +101,6 @@ def test_post_process_preserves_caller_source_url() -> None:
     result = post_process(
         _base_recipe_dict(),
         original_url="https://example.com/apfelmus",
-        fallback_thumbnail=None,
     )
     assert result["recipe"]["source_url"] == "https://example.com/apfelmus"
 
@@ -112,7 +109,7 @@ def test_post_process_clamps_servings_to_20() -> None:
     """servings=50 → clamped to 20."""
     data = _base_recipe_dict()
     data["servings"] = 50
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["servings"] == 20
 
 
@@ -120,7 +117,7 @@ def test_post_process_clamps_servings_to_1() -> None:
     """servings=0 → clamped to 1."""
     data = _base_recipe_dict()
     data["servings"] = 0
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["servings"] == 1
 
 
@@ -129,7 +126,6 @@ def test_post_process_leaves_valid_servings_alone() -> None:
     result = post_process(
         _base_recipe_dict(),
         original_url="https://x",
-        fallback_thumbnail=None,
     )
     assert result["recipe"]["servings"] == 4
 
@@ -138,7 +134,7 @@ def test_post_process_keeps_null_servings() -> None:
     """None stays None — no clamping of missing data."""
     data = _base_recipe_dict()
     data["servings"] = None
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["servings"] is None
 
 
@@ -158,7 +154,7 @@ def test_post_process_flags_missing_quantities() -> None:
             }
         ],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert _result_ingredients(result)[0]["confidence"] == "missing"
 
 
@@ -167,7 +163,6 @@ def test_post_process_keeps_ingredient_confidence_when_quantity_present() -> Non
     result = post_process(
         _base_recipe_dict(),
         original_url="https://x",
-        fallback_thumbnail=None,
     )
     assert _result_ingredients(result)[0]["confidence"] == "high"
 
@@ -176,7 +171,7 @@ def test_post_process_lowercases_and_dedupes_tags() -> None:
     """Tags come out lowercase + deduplicated (first-occurrence order)."""
     data = _base_recipe_dict()
     data["tags"] = ["WARM", "warm", "Vegetarisch", "vegetarisch", "Abend"]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["tags"] == ["warm", "vegetarisch", "abend"]
 
 
@@ -184,30 +179,8 @@ def test_post_process_strips_empty_tags() -> None:
     """Empty / whitespace-only tags drop out entirely."""
     data = _base_recipe_dict()
     data["tags"] = ["warm", "  ", ""]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["tags"] == ["warm"]
-
-
-def test_post_process_uses_fallback_thumbnail_when_llm_none() -> None:
-    """When the LLM didn't supply a thumbnail, the caller's fallback wins."""
-    result = post_process(
-        _base_recipe_dict(),
-        original_url="https://x",
-        fallback_thumbnail="https://example.com/og.jpg",
-    )
-    assert result["recipe"]["thumbnail_url"] == "https://example.com/og.jpg"
-
-
-def test_post_process_keeps_llm_thumbnail_when_present() -> None:
-    """When the LLM picked a thumbnail, it wins over the fallback."""
-    data = _base_recipe_dict()
-    data["thumbnail_url"] = "https://example.com/llm-thumb.jpg"
-    result = post_process(
-        data,
-        original_url="https://x",
-        fallback_thumbnail="https://example.com/og.jpg",
-    )
-    assert result["recipe"]["thumbnail_url"] == "https://example.com/llm-thumb.jpg"
 
 
 def test_post_process_starts_with_empty_notes_when_no_problems() -> None:
@@ -215,7 +188,6 @@ def test_post_process_starts_with_empty_notes_when_no_problems() -> None:
     result = post_process(
         _base_recipe_dict(),
         original_url="https://x",
-        fallback_thumbnail=None,
     )
     assert result["confidence"]["notes"] == []
 
@@ -225,7 +197,6 @@ def test_post_process_forwards_extra_notes() -> None:
     result = post_process(
         _base_recipe_dict(),
         original_url="https://x",
-        fallback_thumbnail=None,
         extra_notes=["Website nicht erreichbar"],
     )
     assert "Website nicht erreichbar" in result["confidence"]["notes"]
@@ -260,7 +231,7 @@ def test_post_process_overall_confidence_low_when_most_missing() -> None:
             },
         ],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["confidence"]["overall"] == "low"
 
 
@@ -269,7 +240,6 @@ def test_post_process_overall_confidence_high_when_clean() -> None:
     result = post_process(
         _base_recipe_dict(),
         original_url="https://x",
-        fallback_thumbnail=None,
     )
     assert result["confidence"]["overall"] == "high"
 
@@ -288,7 +258,7 @@ def test_post_process_preserves_valid_nutrition_estimate() -> None:
         "carbs_g": 38,
         "fat_g": 9,
     }
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["nutrition_estimate"] == {
         "kcal": 420,
         "protein_g": 24,
@@ -301,7 +271,7 @@ def test_post_process_null_nutrition_estimate_stays_null() -> None:
     """Absent / null nutrition stays null — no coercion to zero."""
     data = _base_recipe_dict()
     data["nutrition_estimate"] = None
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["nutrition_estimate"] is None
 
 
@@ -309,7 +279,7 @@ def test_post_process_missing_nutrition_estimate_stays_null() -> None:
     """Payload without the key → the field becomes ``None`` on the result."""
     data = _base_recipe_dict()
     assert "nutrition_estimate" not in data
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["nutrition_estimate"] is None
 
 
@@ -322,7 +292,7 @@ def test_post_process_clamps_nutrition_kcal_upper() -> None:
         "carbs_g": 10,
         "fat_g": 10,
     }
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     nutrition = result["recipe"]["nutrition_estimate"]
     assert nutrition is not None
     assert nutrition["kcal"] == 5000
@@ -337,7 +307,7 @@ def test_post_process_clamps_nutrition_kcal_negative() -> None:
         "carbs_g": 10,
         "fat_g": 10,
     }
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     nutrition = result["recipe"]["nutrition_estimate"]
     assert nutrition is not None
     assert nutrition["kcal"] == 0
@@ -352,7 +322,7 @@ def test_post_process_clamps_nutrition_macros_upper() -> None:
         "carbs_g": 9999,
         "fat_g": 9999,
     }
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     nutrition = result["recipe"]["nutrition_estimate"]
     assert nutrition is not None
     assert nutrition["protein_g"] == 500
@@ -369,7 +339,7 @@ def test_post_process_clamps_nutrition_macros_negative() -> None:
         "carbs_g": -5,
         "fat_g": -5,
     }
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     nutrition = result["recipe"]["nutrition_estimate"]
     assert nutrition is not None
     assert nutrition["protein_g"] == 0
@@ -381,7 +351,7 @@ def test_post_process_drops_malformed_nutrition_estimate() -> None:
     """Non-dict / non-numeric garbage is dropped entirely (becomes None)."""
     data = _base_recipe_dict()
     data["nutrition_estimate"] = "not a dict"
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["nutrition_estimate"] is None
 
 
@@ -394,7 +364,7 @@ def test_post_process_drops_nutrition_with_non_integer_field() -> None:
         "carbs_g": 10,
         "fat_g": 10,
     }
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["nutrition_estimate"] is None
 
 
@@ -407,7 +377,7 @@ def test_post_process_drops_nutrition_with_missing_field() -> None:
         "carbs_g": 10,
         # fat_g missing
     }
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["nutrition_estimate"] is None
 
 
@@ -436,7 +406,7 @@ def test_bug022_drops_description_when_identical_to_first_step() -> None:
             }
         ],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["description"] is None
 
 
@@ -448,7 +418,7 @@ def test_bug022_keeps_description_when_unrelated_to_steps() -> None:
         data,
         [{"position": 1, "content": "Äpfel schälen", "confidence": "high"}],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["description"] == "Klassischer Apfelkuchen nach Oma-Rezept"
 
 
@@ -471,7 +441,7 @@ def test_bug022_borderline_similarity_threshold() -> None:
             }
         ],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["description"] is None
 
 
@@ -499,7 +469,7 @@ def test_bug028_downgrades_confidence_when_mass_in_description() -> None:
             }
         ],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert _result_ingredients(result)[0]["confidence"] == "low"
 
 
@@ -510,7 +480,7 @@ def test_bug028_does_not_downgrade_when_description_clean() -> None:
     data["description"] = "Klassischer Auflauf mit knuspriger Kruste"
     # The base dict already has a single ingredient with quantity="1 kg"
     # confidence="high"; that's the happy-path baseline.
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert _result_ingredients(result)[0]["confidence"] == "high"
 
 
@@ -540,7 +510,7 @@ def test_bug028_skips_guard_when_description_was_deduped() -> None:
             }
         ],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe"]["description"] is None
     # Ingredient gets the standard `_normalise_ingredient` treatment
     # (null quantity → "missing"), NOT the BUG-028 downgrade to "low".
@@ -683,7 +653,7 @@ def test_post_process_imperial_ingredient_converted_end_to_end() -> None:
             },
         ],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     ingredients = _result_ingredients(result)
     assert ingredients[0]["quantity"] == "454"
     assert ingredients[0]["unit"] == "g"
@@ -715,7 +685,6 @@ def test_post_process_sets_recipe_empty_when_no_ingredients_or_steps() -> None:
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": False,
             "had_blog_source": False,
@@ -768,7 +737,7 @@ def test_post_process_leaves_recipe_empty_false_on_valid_recipe() -> None:
             {"position": 2, "content": "Zutaten mischen.", "confidence": "high"},
         ],
     )
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe_empty"] is False
     assert result["empty_reason"] is None
 
@@ -806,7 +775,6 @@ def test_post_process_sets_recipe_empty_when_all_ingredients_dropped() -> None:
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": False,
             "had_blog_source": False,
@@ -830,7 +798,7 @@ def test_post_process_defaults_signals_to_all_false_when_not_supplied() -> None:
     symmetric and lets the .NET side persist ``ResultJson`` without
     special-casing an optional key."""
     data = _base_recipe_dict()
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["signals"] == {
         "had_caption_url": False,
         "had_blog_source": False,
@@ -846,7 +814,6 @@ def test_post_process_echoes_supplied_signals_on_healthy_recipe() -> None:
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": True,
             "had_blog_source": False,
@@ -871,7 +838,6 @@ def test_post_process_empty_all_signals_false_yields_no_usable_source() -> None:
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": False,
             "had_blog_source": False,
@@ -891,7 +857,6 @@ def test_post_process_empty_with_transcript_yields_no_recipe_detected() -> None:
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": False,
             "had_blog_source": False,
@@ -910,7 +875,6 @@ def test_post_process_empty_with_blog_yields_no_recipe_detected() -> None:
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": False,
             "had_blog_source": True,
@@ -929,7 +893,6 @@ def test_post_process_empty_with_caption_url_yields_no_recipe_detected() -> None
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": True,
             "had_blog_source": False,
@@ -973,7 +936,7 @@ def test_comp1_components_renumber_to_contiguous_positions() -> None:
             "steps": [],
         },
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     # Sorted by LLM-emitted position (2 < 5 < 9) then renumbered 0..N.
     assert [c["label"] for c in components] == ["Erste", "Zweite", "Dritte"]
@@ -1017,7 +980,7 @@ def test_comp1_components_dedupe_duplicate_labels_keep_lowest_position() -> None
             "steps": [],
         },
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     # Dedupe keeps the first-position entry (position=0) — its
     # ingredients survive, not the higher-position duplicate's.
@@ -1048,7 +1011,7 @@ def test_comp1_components_dedupe_null_labels_are_independent() -> None:
             "steps": [],
         },
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     assert len(components) == 2
     assert [c["position"] for c in components] == [0, 1]
@@ -1064,7 +1027,7 @@ def test_comp1_missing_components_key_synthesises_default_single_component() -> 
     """
     data = _base_recipe_dict()
     del data["components"]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     assert len(components) == 1
     assert components[0]["label"] is None
@@ -1079,7 +1042,7 @@ def test_comp1_empty_components_list_synthesises_default() -> None:
     the retry path can hand us a zero-component blob)."""
     data = _base_recipe_dict()
     data["components"] = []
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     assert len(components) == 1
     assert components[0]["label"] is None
@@ -1098,7 +1061,6 @@ def test_comp1_recipe_empty_fires_when_all_components_have_no_content() -> None:
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": False,
             "had_blog_source": False,
@@ -1120,7 +1082,6 @@ def test_comp1_recipe_empty_fires_when_multi_components_all_empty() -> None:
     result = post_process(
         data,
         original_url="https://x",
-        fallback_thumbnail=None,
         signals={
             "had_caption_url": False,
             "had_blog_source": False,
@@ -1152,7 +1113,7 @@ def test_comp1_recipe_empty_false_when_any_component_has_content() -> None:
             "steps": [],
         },
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     assert result["recipe_empty"] is False
     assert result["empty_reason"] is None
 
@@ -1162,7 +1123,7 @@ def test_comp1_default_single_component_passes_through_unchanged() -> None:
     flows through post-process verbatim — no reorder, no dedupe, no
     default-substitution. Happy-path pre-COMP-1 parity."""
     data = _base_recipe_dict()
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     assert len(components) == 1
     assert components[0]["label"] is None
@@ -1196,7 +1157,7 @@ def test_comp1_step_positions_renumbered_per_component_independently() -> None:
             ],
         },
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     a_positions = [s["position"] for s in components[0]["steps"]]
     b_positions = [s["position"] for s in components[1]["steps"]]
@@ -1222,7 +1183,7 @@ def test_comp1_label_trimmed_and_length_capped() -> None:
             "steps": [],
         }
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     out_label = components[0]["label"]
     assert out_label is not None
@@ -1244,7 +1205,7 @@ def test_comp1_empty_label_string_coerced_to_null() -> None:
             "steps": [],
         }
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     assert components[0]["label"] is None
 
@@ -1306,7 +1267,7 @@ def test_compfix_single_component_generic_label_normalised_to_null(
             ],
         }
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     assert len(components) == 1
     assert components[0]["label"] is None, (
@@ -1356,7 +1317,7 @@ def test_compfix_safeguard_does_not_fire_on_multi_component_recipes() -> None:
             "steps": [],
         },
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     assert len(components) == 2
     # Labels survive verbatim — the rewrite is scoped to single-component recipes.
@@ -1386,7 +1347,7 @@ def test_compfix_safeguard_preserves_meaningful_single_component_labels() -> Non
             "steps": [],
         },
     ]
-    result = post_process(data, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(data, original_url="https://x")
     components = result["recipe"]["components"]
     assert len(components) == 1
     assert components[0]["label"] == "Hähnchen und Füllung"
@@ -1404,7 +1365,6 @@ def test_post_process_default_candidate_thumbnails_is_empty_list() -> None:
     result = post_process(
         _base_recipe_dict(),
         original_url="https://x",
-        fallback_thumbnail=None,
     )
     assert result["recipe"]["candidate_thumbnails"] == []
 
@@ -1415,7 +1375,6 @@ def test_post_process_passes_candidate_thumbnails_through() -> None:
     result = post_process(
         _base_recipe_dict(),
         original_url="https://x",
-        fallback_thumbnail=None,
         candidate_thumbnails=[
             "https://cdn.example/a.jpg",
             "https://cdn.example/b.jpg",
@@ -1429,52 +1388,14 @@ def test_post_process_passes_candidate_thumbnails_through() -> None:
     ]
 
 
-def test_post_process_candidate0_fills_empty_thumbnail_url() -> None:
-    """Transition lubricant: when no ``thumbnail_url`` resolved (LLM
-    null + ``fallback_thumbnail=None``) but candidates are present, the
-    first candidate becomes the legacy ``thumbnail_url``. Slice B
-    removes this wire once the .NET side consumes ``candidate_thumbnails``
-    directly."""
-    result = post_process(
-        _base_recipe_dict(),
-        original_url="https://x",
-        fallback_thumbnail=None,
-        candidate_thumbnails=[
-            "https://cdn.example/cover.jpg",
-            "https://cdn.example/extra.jpg",
-        ],
-    )
-    assert result["recipe"]["thumbnail_url"] == "https://cdn.example/cover.jpg"
-
-
-def test_post_process_keeps_existing_thumbnail_url_when_candidates_present() -> None:
-    """When the LLM or fallback already resolved a ``thumbnail_url``,
-    it wins over candidate[0] — the pipeline-supplied cover stays
-    authoritative."""
+def test_post_process_recipe_dict_drops_legacy_thumbnail_url() -> None:
+    """COVER-0 cleanup — the legacy ``thumbnail_url`` field is no longer
+    on the wire. Even when the LLM hallucinates the key (pre-schema-
+    deploy model snapshot), post-process doesn't surface it."""
     data = _base_recipe_dict()
-    data["thumbnail_url"] = "https://example.com/llm-thumb.jpg"
-    result = post_process(
-        data,
-        original_url="https://x",
-        fallback_thumbnail=None,
-        candidate_thumbnails=[
-            "https://cdn.example/cover.jpg",
-        ],
-    )
-    assert result["recipe"]["thumbnail_url"] == "https://example.com/llm-thumb.jpg"
-
-
-def test_post_process_empty_candidates_leaves_thumbnail_untouched() -> None:
-    """Empty candidate list with no LLM thumb + no fallback → thumbnail
-    stays None; no surprise promotion from an empty list."""
-    result = post_process(
-        _base_recipe_dict(),
-        original_url="https://x",
-        fallback_thumbnail=None,
-        candidate_thumbnails=[],
-    )
-    assert result["recipe"]["thumbnail_url"] is None
-    assert result["recipe"]["candidate_thumbnails"] == []
+    data["thumbnail_url"] = "https://example.com/llm-leak.jpg"
+    result = post_process(data, original_url="https://x")
+    assert "thumbnail_url" not in result["recipe"]
 
 
 def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
@@ -1501,7 +1422,7 @@ def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
         ],
         "tags": [],
     }
-    result = post_process(payload, original_url="https://x", fallback_thumbnail=None)
+    result = post_process(payload, original_url="https://x")
     positions = [step["position"] for step in _result_steps(result)]
     # Order of iteration is preserved (input order); positions re-assigned 1..N.
     assert positions == [1, 2, 3]

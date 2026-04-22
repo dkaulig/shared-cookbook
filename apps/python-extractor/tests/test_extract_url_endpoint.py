@@ -61,7 +61,6 @@ def _canonical_response() -> dict[str, Any]:
         ],
         "tags": ["fisch"],
         "source_url": "https://llm.example",
-        "thumbnail_url": None,
     }
 
 
@@ -425,7 +424,7 @@ def test_post_extract_url_accepts_valid_uuid_import_id(app_client: TestClient) -
 
 
 # ─────────────────────────────────────────────────────────────────────
-# COVER-0 slice A — candidate_thumbnails on the wire
+# COVER-0 — candidate_thumbnails on the wire
 # ─────────────────────────────────────────────────────────────────────
 
 
@@ -434,7 +433,7 @@ def test_post_extract_url_surfaces_candidate_thumbnails_on_video(
 ) -> None:
     """End-to-end: the /extract/url endpoint returns
     ``recipe.candidate_thumbnails`` carrying top-2 yt-dlp + ffmpeg
-    frames. Additive next to the existing ``thumbnail_url`` field."""
+    frames in extractor-emit order."""
     app = create_app()
     mp4 = tmp_path / "video.mp4"
     mp4.write_bytes(b"stub")
@@ -480,5 +479,5 @@ def test_post_extract_url_surfaces_candidate_thumbnails_on_video(
         "file:///tmp/f0.jpg",
         "file:///tmp/f1.jpg",
     ]
-    # Legacy field stays populated — additive slice A.
-    assert body["recipe"]["thumbnail_url"] == "https://cdn.example/poster.jpg"
+    # COVER-0 cleanup — ``thumbnail_url`` is no longer on the wire.
+    assert "thumbnail_url" not in body["recipe"]

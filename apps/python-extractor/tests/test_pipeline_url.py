@@ -98,7 +98,6 @@ def _canonical_llm_response() -> dict[str, Any]:
         ],
         "tags": ["test"],
         "source_url": "https://llm.example/bogus",
-        "thumbnail_url": None,
     }
 
 
@@ -272,8 +271,9 @@ async def test_extract_from_video_url_happy_path(tmp_path: Path) -> None:
         transcriber=transcriber,
     )
     assert result["recipe"]["source_url"] == "https://youtu.be/abc"
-    # Thumbnail falls back to the yt-dlp one since the LLM returned None.
-    assert result["recipe"]["thumbnail_url"] == "https://example.com/thumb.jpg"
+    # COVER-0 — the yt-dlp single thumbnail seeds
+    # ``candidate_thumbnails[0]`` as the default cover.
+    assert result["recipe"]["candidate_thumbnails"][0] == "https://example.com/thumb.jpg"
 
 
 async def test_extract_from_video_url_private_raises_source_unavailable(
@@ -712,8 +712,9 @@ async def test_extract_from_url_fetches_caption_linked_blog(
     # Transcript + caption still feed the LLM in parallel.
     assert "Speck und Ei." in user_content
     assert caption in user_content
-    # og:image from the blog becomes the fallback thumbnail.
-    assert result["recipe"]["thumbnail_url"] == "https://example.com/images/carbonara.jpg"
+    # og:image from the blog surfaces as the default cover on
+    # ``candidate_thumbnails[0]``.
+    assert result["recipe"]["candidate_thumbnails"][0] == "https://example.com/images/carbonara.jpg"
 
 
 @respx.mock
@@ -1002,7 +1003,7 @@ async def test_og_image_query_stripped_for_caption_linked_blog(
         downloader=downloader,
         transcriber=transcriber,
     )
-    assert result_caption["recipe"]["thumbnail_url"] == "https://a.example/i.jpg"
+    assert result_caption["recipe"]["candidate_thumbnails"][0] == "https://a.example/i.jpg"
 
     # Direct-typed blog: query must be preserved.
     respx.get("https://trusted.example/recipe").mock(
@@ -1014,7 +1015,7 @@ async def test_og_image_query_stripped_for_caption_linked_blog(
     )
     mock_b = _AnyCallMock(_canonical_llm_response())
     result_direct = await extract_from_url("https://trusted.example/recipe", provider=mock_b)
-    assert result_direct["recipe"]["thumbnail_url"] == "https://a.example/i.jpg?track=1"
+    assert result_direct["recipe"]["candidate_thumbnails"][0] == "https://a.example/i.jpg?track=1"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1607,8 +1608,8 @@ class TestCoverCandidateThumbnails:
             "file:///tmp/f0.jpg",
             "file:///tmp/f1.jpg",
         ]
-        # Legacy thumbnail_url stays populated (additive slice A).
-        assert result["recipe"]["thumbnail_url"] == "https://cdn.example/poster.jpg"
+        # COVER-0 cleanup — legacy ``thumbnail_url`` is off the wire.
+        assert "thumbnail_url" not in result["recipe"]
 
     async def test_video_path_emits_empty_candidates_when_no_ytdlp_and_no_frames(
         self, tmp_path: Path
@@ -1636,9 +1637,12 @@ class TestCoverCandidateThumbnails:
             transcriber=transcriber,
             frame_extractor=frame_extractor,
         )
-        assert result["recipe"]["candidate_thumbnails"] == []
-        # thumbnail_url still resolves via yt-dlp single-thumbnail field.
-        assert result["recipe"]["thumbnail_url"] == "https://cdn.example/p.jpg"
+        # COVER-0 — no yt-dlp candidate tuple AND no ffmpeg frames. The
+        # pipeline seeds ``candidate_thumbnails`` from the single
+        # ``assets.thumbnail_url`` so the user still gets a default
+        # cover tile.
+        assert result["recipe"]["candidate_thumbnails"] == ["https://cdn.example/p.jpg"]
+        assert "thumbnail_url" not in result["recipe"]
 
     @respx.mock
     async def test_blog_path_populates_candidates_from_jsonld_image_array(
@@ -1684,11 +1688,13 @@ class TestCoverCandidateThumbnails:
         ]
 
     @respx.mock
-    async def test_blog_path_emits_empty_candidates_when_no_jsonld(
+    async def test_blog_path_seeds_candidates_from_og_image_without_jsonld(
         self, tmp_path: Path, _fake_public_dns: None
     ) -> None:
-        """A blog without JSON-LD still flows through but emits an empty
-        candidate list. The ``thumbnail_url`` falls back to og:image."""
+        """A blog without JSON-LD but with an og:image tag → the single
+        og:image seeds ``candidate_thumbnails[0]`` so the user still
+        gets a default cover tile. Dropping that seed on cleanup would
+        have been a UX regression."""
         html_no_jsonld = (
             "<!DOCTYPE html><html><head>"
             '<meta property="og:image" content="https://cdn.example/og.jpg">'
@@ -1707,7 +1713,9 @@ class TestCoverCandidateThumbnails:
             "https://example.com/no-jsonld",
             provider=mock,
         )
-        assert result["recipe"]["candidate_thumbnails"] == []
+        assert result["recipe"]["candidate_thumbnails"] == [
+            "https://cdn.example/og.jpg",
+        ]
 
 
 # Silence unused-import-for-typeing warnings.

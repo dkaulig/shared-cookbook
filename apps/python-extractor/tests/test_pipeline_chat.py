@@ -136,7 +136,6 @@ def _canonical_recipe_payload() -> dict[str, Any]:
         ],
         "tags": ["vegan"],
         "source_url": "ignored-by-post-process",
-        "thumbnail_url": None,
     }
 
 
@@ -160,7 +159,6 @@ async def test_chat_to_recipe_returns_structured_result() -> None:
     # post_process pins source_url to the synthesized chat: URL —
     # the LLM-supplied value is ignored.
     assert result["recipe"]["source_url"] == "chat:abc123"
-    assert result["recipe"]["thumbnail_url"] is None
     assert result["confidence"]["overall"] in ("high", "medium", "low")
 
 

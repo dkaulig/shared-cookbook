@@ -55,7 +55,6 @@ def _canonical_vision_response() -> dict[str, Any]:
         ],
         "tags": ["dessert", "klassiker"],
         "source_url": "photos://upload",
-        "thumbnail_url": None,
     }
 
 

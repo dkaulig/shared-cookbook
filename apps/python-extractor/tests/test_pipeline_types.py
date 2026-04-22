@@ -163,7 +163,6 @@ def test_extracted_recipe_shape() -> None:
         ],
         "tags": ["warm", "familie"],
         "source_url": "https://example.com/nudeln",
-        "thumbnail_url": "https://example.com/nudeln.jpg",
         "candidate_thumbnails": [],
         "nutrition_estimate": None,
     }
@@ -203,7 +202,6 @@ def test_extracted_recipe_supports_multiple_components() -> None:
         ],
         "tags": [],
         "source_url": "https://example.com/q",
-        "thumbnail_url": None,
         "candidate_thumbnails": [],
         "nutrition_estimate": None,
     }
@@ -227,7 +225,6 @@ def test_extraction_result_shape() -> None:
             "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
             "tags": [],
             "source_url": "https://example.com/kaiserschmarrn",
-            "thumbnail_url": None,
             "candidate_thumbnails": [],
             "nutrition_estimate": None,
         },
@@ -280,7 +277,6 @@ def test_extracted_recipe_accepts_nutrition_estimate() -> None:
         "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "candidate_thumbnails": [],
         "nutrition_estimate": {
             "kcal": 300,
@@ -342,7 +338,6 @@ def test_extraction_result_carries_signals() -> None:
             "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
             "tags": [],
             "source_url": "https://x",
-            "thumbnail_url": None,
             "candidate_thumbnails": [],
             "nutrition_estimate": None,
         },
@@ -362,10 +357,10 @@ def test_extraction_result_carries_signals() -> None:
 
 
 def test_extracted_recipe_carries_candidate_thumbnails() -> None:
-    """COVER-0 slice A — ``candidate_thumbnails`` is always present
-    (possibly empty) on the wire. The frontend renders the 3x2 grid
-    from this list; the .NET side persists them as StagedPhoto rows
-    in slice B."""
+    """COVER-0 — ``candidate_thumbnails`` is always present (possibly
+    empty) on the wire. The frontend renders the 3x2 grid from this
+    list; the .NET ``CandidateAttacher`` persists them as StagedPhoto
+    rows."""
     recipe: ExtractedRecipe = {
         "title": "Reel",
         "description": None,
@@ -376,7 +371,6 @@ def test_extracted_recipe_carries_candidate_thumbnails() -> None:
         "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
         "tags": [],
         "source_url": "https://example.com/reel",
-        "thumbnail_url": "https://cdn.example/poster.jpg",
         "candidate_thumbnails": [
             "https://cdn.example/hi.jpg",
             "https://cdn.example/mid.jpg",
@@ -400,7 +394,6 @@ def test_extracted_recipe_accepts_null_nutrition_estimate() -> None:
         "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "candidate_thumbnails": [],
         "nutrition_estimate": None,
     }

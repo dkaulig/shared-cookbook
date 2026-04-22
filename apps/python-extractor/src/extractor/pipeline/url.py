@@ -656,6 +656,12 @@ async def extract_from_url(
                 frame_extractor=frame_extractor,
                 reporter=active_reporter,
             )
+            # COVER-0 — yt-dlp occasionally surfaces only the single
+            # ``thumbnail`` scalar (legacy info_dict shape; stub
+            # downloaders in tests). Seed the candidate list from it so
+            # the user still gets a default cover tile.
+            if not candidate_thumbnails and thumbnail_url is not None:
+                candidate_thumbnails = [thumbnail_url]
             # BUG-034 — treat the transcript as a real signal only when
             # it's substantive. A 3-char "Hi" is Whisper noise and the
             # user shouldn't be told "we transcribed your video" when
@@ -700,13 +706,17 @@ async def extract_from_url(
                 notes.extend(caption_notes)
                 if thumbnail_url is None and caption_thumbnail is not None:
                     thumbnail_url = caption_thumbnail
-                # COVER-0 slice A — if the video path didn't surface any
-                # candidates but the caption-linked blog carries a JSON-LD
-                # ``image`` array, seed the candidate list from there.
-                # Keeps the picker useful for video imports where yt-dlp
-                # returned only one thumbnail and ffmpeg frames failed.
-                if not candidate_thumbnails and caption_candidates:
-                    candidate_thumbnails = caption_candidates
+                # COVER-0 — if the video path didn't surface any
+                # candidates, seed the candidate list from the caption-
+                # linked blog. Prefer the JSON-LD ``image`` array; fall
+                # back to the single og:image when the array is empty so
+                # videos with a blog-link-in-caption but no structured
+                # data still render at least one cover tile.
+                if not candidate_thumbnails:
+                    if caption_candidates:
+                        candidate_thumbnails = caption_candidates
+                    elif caption_thumbnail is not None:
+                        candidate_thumbnails = [caption_thumbnail]
                 # Caption-linked blog text is attacker-controlled → wrap it in
                 # delimiter tags so the system prompt's anti-injection rule
                 # applies.
@@ -731,6 +741,13 @@ async def extract_from_url(
                     candidate_thumbnails,
                     notes,
                 ) = await _run_blog_path(url, untrusted=False)
+                # COVER-0 — a blog with og:image but no JSON-LD
+                # ``image`` array loses the cover on the wire if we
+                # don't seed the candidate list from the single
+                # thumbnail. Preserve the default-cover UX for
+                # structured-data-less blogs.
+                if not candidate_thumbnails and thumbnail_url is not None:
+                    candidate_thumbnails = [thumbnail_url]
                 # BUG-034 — direct blog URL; the blog is the only signal
                 # source (no caption, no audio) so map a non-empty fetch
                 # result onto ``had_blog_source``.
@@ -797,7 +814,6 @@ async def extract_from_url(
         return post_process(
             llm_output,
             original_url=url,
-            fallback_thumbnail=thumbnail_url,
             candidate_thumbnails=candidate_thumbnails,
             extra_notes=notes,
             usage=usage,
