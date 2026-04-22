@@ -370,7 +370,7 @@ async def test_ffmpeg_frame_extractor_uses_argv_list_not_shell(tmp_path: Path) -
             (tmp_path / f"{i}.jpg").write_bytes(b"fake")
         await extractor.extract(mp4_path=mp4, timestamps=[1.0, 2.0])
     finally:
-        _asyncio.create_subprocess_exec = orig_spawn  # type: ignore[assignment]
+        _asyncio.create_subprocess_exec = orig_spawn
 
     assert captured_args, "ffmpeg was never invoked"
     for argv in captured_args:
@@ -411,7 +411,7 @@ async def test_ffmpeg_frame_extractor_emits_http_urls(tmp_path: Path) -> None:
             (tmp_path / f"{i}.jpg").write_bytes(b"fake")
         frames = await extractor.extract(mp4_path=mp4, timestamps=[1.0, 2.0, 3.0])
     finally:
-        _asyncio.create_subprocess_exec = orig_spawn  # type: ignore[assignment]
+        _asyncio.create_subprocess_exec = orig_spawn
 
     assert [f.url for f in frames] == [
         f"{url_base}/0.jpg",
