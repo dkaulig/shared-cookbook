@@ -23,6 +23,7 @@ import { useMyGroups } from '@/features/groups/useMyGroups'
 import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { useConvertChatToRecipe } from './hooks'
 import {
+  CHAT_SESSIONS_DEFAULT_LIMIT,
   chatQueryKeys,
   useChatMessages,
   useChatSessions,
@@ -67,6 +68,17 @@ import { TypingIndicator } from './TypingIndicator'
  * bottom,0px))]` as a defence-in-depth safe-area clearance, which
  * also shields against keyboard overlap when the on-screen keyboard
  * opens.
+ *
+ * 2026-04-21 chat bug sweep — the prior `visualViewport.height` → `el
+ * .style.height` imperative pin is GONE. It fought the flex-column
+ * parent (`<main class="flex-1 min-h-0 overflow-y-auto">`), caused
+ * the messages area to overflow past the viewport, pushed the
+ * composer below the fold on load, and on input focus it briefly
+ * mis-sized the shell so Safari's scroll-focused-element-into-view
+ * landed the composer almost underneath the sticky TopBar. The flex
+ * parent already gives the chat shell the correct height on every
+ * device; the CSS `min-h-0` on `<main>` is all the iOS keyboard
+ * accommodation we need once the rest of the layout is honest flex.
  *
  * CR4 streaming model:
  * - The session id comes from the URL (`/chat/:sessionId`); the
@@ -373,11 +385,7 @@ export function ChatPage() {
         }
 
         // Finalise streaming locally — drop the streaming flag so the
-        // typing indicator hides. Optimistic content stays visible
-        // until the refetch dedupes it via id-match (the server-side
-        // assistant message id was patched in on `message-started`,
-        // so the persisted row replaces the optimistic one in the
-        // merge memo).
+        // typing indicator hides.
         setOptimistic((prev) =>
           prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
         )
@@ -385,9 +393,18 @@ export function ChatPage() {
           queryKey: chatQueryKeys.messages(sid),
         })
         // Bump the sessions list too so updatedAt + messageCount refresh.
-        void queryClient.invalidateQueries({
-          queryKey: ['chat', 'sessions'],
+        await queryClient.invalidateQueries({
+          queryKey: chatQueryKeys.sessions(CHAT_SESSIONS_DEFAULT_LIMIT),
         })
+        // Drop the optimistic USER bubble once the refetch lands.
+        // Reason: the server-issued user row has its own UUID, which
+        // never matches our `local-<uuid>` placeholder → the id-based
+        // dedupe in the merge memo leaves BOTH visible (the reported
+        // doubled-messages symptom). The assistant bubble's id was
+        // already patched to the server id on `message-started`, so
+        // the merge memo drops it via id-match when the persisted
+        // assistant row arrives.
+        setOptimistic((prev) => prev.filter((m) => m.role === 'assistant'))
       } catch (err) {
         // Distinguish abort vs server-side error; either way keep the
         // partial assistant content visible with the "interrupted"
@@ -395,12 +412,21 @@ export function ChatPage() {
         const isAbort =
           (err as { name?: string })?.name === 'AbortError' ||
           controller.signal.aborted
+        // Mark the in-flight assistant bubble errored AND drop the
+        // optimistic user bubble in the same pass — the persisted
+        // user row will arrive via the refetch below and we don't
+        // want a local-id + server-id pair rendering twice. Keep the
+        // errored assistant bubble so the inline "Erneut versuchen"
+        // button stays reachable until the refetch-plus-retry loop
+        // resolves.
         setOptimistic((prev) =>
-          prev.map((m) =>
-            m.role === 'assistant' && m.streaming
-              ? { ...m, streaming: false, errored: true }
-              : m,
-          ),
+          prev
+            .filter((m) => m.role !== 'user')
+            .map((m) =>
+              m.role === 'assistant' && m.streaming
+                ? { ...m, streaming: false, errored: true }
+                : m,
+            ),
         )
         if (isAbort) {
           // The backend persisted whatever it streamed before our
@@ -512,48 +538,8 @@ export function ChatPage() {
   const sendDisabled =
     isStreaming || input.trim().length === 0 || turnCap === 'blocked'
 
-  // 2026-04-21 iOS-PWA keyboard fix. When the soft keyboard opens on
-  // a standalone PWA, iOS does not always honour
-  // `interactive-widget=resizes-content` on the <meta viewport>, so
-  // the layout viewport (and our `fixed inset-0` root) doesn't shrink
-  // and the sticky composer gets pushed behind the keyboard. Reading
-  // `window.visualViewport.height` and pinning this chat shell's
-  // height to that value forces the inner flex-column to reflow:
-  // messages shrink, composer sits at the bottom of the visible area.
-  // Browser tab (non-PWA) already resizes correctly — the effect is a
-  // no-op there because visualViewport.height === parent height.
-  const chatShellRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const vv = window.visualViewport
-    if (!vv) return
-    // Capture the current ref target so the cleanup can reach the same
-    // element even if React has re-mounted it by then.
-    const el = chatShellRef.current
-    let rafId = 0
-    const apply = () => {
-      rafId = 0
-      if (!el) return
-      el.style.height = `${vv.height}px`
-    }
-    const schedule = () => {
-      if (rafId !== 0) return
-      rafId = window.requestAnimationFrame(apply)
-    }
-    schedule()
-    vv.addEventListener('resize', schedule)
-    vv.addEventListener('scroll', schedule)
-    return () => {
-      vv.removeEventListener('resize', schedule)
-      vv.removeEventListener('scroll', schedule)
-      if (rafId !== 0) window.cancelAnimationFrame(rafId)
-      if (el) el.style.height = ''
-    }
-  }, [])
-
   return (
     <div
-      ref={chatShellRef}
       className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 md:px-6"
     >
       <ChatTopBar
