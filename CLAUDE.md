@@ -197,6 +197,39 @@ remind them explicitly. Labels / placeholders / toasts / empty-states
 / error-messages all in German. Exception: technical code comments
 stay English.
 
+## Repo docs we keep current
+
+These files describe the project to outside readers. They drift from
+reality if nobody maintains them. When you change code, check whether
+any of these need a parallel edit:
+
+- **`README.md`** — landing page. Update when: new feature surfaces
+  on the 30-second pitch (e.g. share-target lands), new headline
+  screenshot is worth showing, the 30-sec quick-start commands
+  change, a badge is obsolete.
+- **`docs/SETUP.md`** — runbook. Update when: new env var added,
+  docker-compose profile added or changed, migration requires an
+  operator action, a new "common gotcha" is found in practice, the
+  Whisper/Ollama/Azure setup diverges from what's documented.
+- **`CLAUDE.md`** (this file) — operating rules. Update when: a
+  process rule changes (e.g. test command renamed), a new
+  constraint is enforced (e.g. a new hook), a stack component is
+  added/removed, a new CLAUDE-assisted workflow is adopted.
+- **`docs/CONTRIBUTING.md`** — PR guide. Update when: commit
+  convention evolves, new lint rule, test requirement, or review
+  gate lands.
+- **`docs/SECURITY.md`** — disclosure channel. Update when:
+  contact / scope / response SLA changes.
+- **`docs/plans/*.md`** — design docs of shipped slices. Don't
+  retro-edit shipped design docs; start a new dated one for
+  amendments.
+- **`docs/bugs-backlog.md`** — bug history. Append a `[x] fixed` row
+  when a bug bundle ships.
+
+**Rule of thumb:** if your code-change would surprise someone reading
+only the docs, the docs need an edit in the same PR. No separate
+"docs follow-up" tickets.
+
 ## Scope of memory vs. CLAUDE.md
 
 This file is the shared, checked-in operating guide. It should stay
