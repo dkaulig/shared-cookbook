@@ -338,6 +338,11 @@ Disabled without AI:
 
 1. **REL-0 secrets-audit** — git history grep, rotate, scrub
    `.env.example`, neutralise migration seeds + fixtures.
+1b. **REL-0b security audit** — OWASP Top-10 walkthrough, automated
+    scans (pnpm audit / dotnet vulnerable / uv pip-audit / gitleaks /
+    trivy), CodeQL + Dependabot enablement, findings doc, fix P0s.
+    Parallel to REL-0 since they touch different files but the same
+    overall "cleanup before public" mindset.
 2. **REL-5 frontend error-UX audit** — silent save-fails are the
    worst first-impression. Fix before the public sees them.
 3. **REL-7 AI-optional architecture** — compose profile `ai`,
@@ -384,5 +389,5 @@ Disabled without AI:
    release).
 
 Target tag for the public-ready state: **`v0.12.0`**. Cut it after
-REL-5 + REL-7 + REL-8 + REL-1 + REL-6 at minimum. i18n + error-code
-audit can slip into `v0.12.x` patches.
+REL-0 + REL-0b + REL-5 + REL-7 + REL-8 + REL-1 + REL-6 at minimum.
+i18n + error-code audit can slip into `v0.12.x` patches.
