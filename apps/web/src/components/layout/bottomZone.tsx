@@ -70,6 +70,7 @@ export function BottomZoneProvider({ children }: PropsWithChildren) {
 export function useBottomZoneSlot(
   node: SlotNode,
   deps: unknown[] = [],
+  options: { disabled?: boolean } = {},
 ): void {
   const set = useContext(BottomZoneContext)
   // `node` is (intentionally) not part of the dep array — the caller
@@ -82,19 +83,31 @@ export function useBottomZoneSlot(
     latest.current = node
   })
 
+  // 2026-04-22 slot-conflict fix #2 — a `disabled` flag lets a
+  // parent route defer the slot to its nested child. React fires
+  // effects bottom-up, so if BOTH parent and child call
+  // `useBottomZoneSlot`, the parent's `set()` runs AFTER the child's
+  // and wins. Previously we tried "parent passes null when child is
+  // mounted" — but that still overwrites the child's slot with null.
+  // `disabled: true` skips the set-call entirely; the cleanup on the
+  // parent's previous-effect (if any) still fires to release any
+  // stale value. Net effect: parent effectively yields ownership to
+  // the child when `disabled` is true.
+  //
   // Every dep change re-asserts the slot + installs a cleanup that
   // clears it on unmount. `set` is the useState setter from
   // BottomZoneProvider, stable across renders, so ESLint's "missing
   // dependency" warning is a false positive we intentionally suppress
   // alongside the `deps` spread.
+  const { disabled = false } = options
   useEffect(
     () => {
-      if (set == null) return
+      if (set == null || disabled) return
       set(latest.current)
       return () => set(null)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- caller-controlled effect key
-    deps,
+    [disabled, ...deps],
   )
 }
 

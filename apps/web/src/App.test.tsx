@@ -123,6 +123,87 @@ describe('<App />', () => {
     })
   })
 
+  // 2026-04-22 slot-conflict regression — on a recipe detail page the
+  // RecipeActionBar ("Jetzt kochen" / "In Wochenplan" / "Jetzt
+  // gekocht") MUST be visible. Pre-fix the parent GroupDetailPage's
+  // useBottomZoneSlot effect fired AFTER the child's (React's
+  // bottom-up effect order) and overwrote the child's ActionBar with
+  // null. A bare "Jetzt kochen"-button presence check at the App
+  // level catches the regression — detail-page-only tests don't
+  // exercise the nested-mount scenario.
+  it('RecipeDetail action bar is visible when the recipe is reached via the nested route', async () => {
+    window.history.replaceState(null, '', '/groups/g1/recipes/r1')
+    server.use(
+      http.post('/api/auth/refresh', () =>
+        HttpResponse.json({
+          accessToken: 'tok',
+          user: { id: 'u1', email: 'user@example.com', displayName: 'Oma', role: 'User' },
+        }),
+      ),
+      http.get('/api/groups', () => HttpResponse.json([])),
+      http.get('/api/groups/g1', () =>
+        HttpResponse.json({
+          id: 'g1',
+          name: 'Familie Müller',
+          description: null,
+          coverImageUrl: null,
+          defaultServings: 4,
+          isPrivateCollection: false,
+          memberCount: 1,
+          myRole: 'Admin',
+          version: 0,
+          members: [],
+        }),
+      ),
+      http.get('/api/groups/g1/members', () => HttpResponse.json([])),
+      http.get('/api/groups/g1/tags', () => HttpResponse.json([])),
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 20 }),
+      ),
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json({
+          id: 'r1',
+          groupId: 'g1',
+          createdByUserId: 'u1',
+          createdByDisplayName: 'Oma',
+          title: 'Linsensuppe',
+          description: null,
+          defaultServings: 4,
+          prepTimeMinutes: 15,
+          difficulty: 1,
+          sourceUrl: null,
+          sourceType: 'Manual',
+          forkOfRecipeId: null,
+          photos: [],
+          lastCookedAt: null,
+          createdAt: '2026-04-22T00:00:00Z',
+          updatedAt: '2026-04-22T00:00:00Z',
+          version: 0,
+          components: [
+            { id: 'c1', position: 0, label: null, ingredients: [], steps: [] },
+          ],
+          tags: [],
+          nutritionEstimate: null,
+        }),
+      ),
+      http.get('/api/recipes/r1/revisions', () => HttpResponse.json([])),
+    )
+
+    renderApp()
+
+    // The ActionBar's "Jetzt kochen" button lives inside the
+    // bottom-zone slot inside BottomNav. Finding it proves the
+    // child-owned slot survived the parent's effect pass.
+    expect(
+      await screen.findByRole('button', { name: /^Jetzt kochen$/i }),
+    ).toBeInTheDocument()
+    // Defensive: the parent's "Neues Rezept" link must NOT be in the
+    // slot (parent yielded ownership).
+    expect(
+      screen.queryByRole('link', { name: /Neues Rezept anlegen/i }),
+    ).not.toBeInTheDocument()
+  })
+
   // 2026-04-22 nav-bug regression — clicking the RecipeDetail chevron-
   // back must land on the group's recipe list (/groups/:groupId), NOT
   // on the groups list (/groups). Pre-fix the nested-child's
