@@ -4,6 +4,7 @@ import type {
   NutritionEstimate,
   RecipeComponentDto,
   RecipeDetailDto,
+  RecipeOriginImportResponse,
 } from './recipes.ts'
 import type {
   ExtractedComponent,
@@ -85,6 +86,19 @@ describe('recipes.ts NutritionEstimate (P2-10)', () => {
       nutritionEstimate: { kcal: 500, proteinG: 12, carbsG: 44, fatG: 15 },
     }
     expect(withField.nutritionEstimate?.kcal).toBe(500)
+  })
+})
+
+describe('recipes.ts RecipeOriginImportResponse (COVER-0 Slice E)', () => {
+  it('RecipeOriginImportResponse carries a single importId string', () => {
+    const res: RecipeOriginImportResponse = {
+      importId: '11111111-2222-3333-4444-555555555555',
+    }
+    expect(res.importId).toBeTypeOf('string')
+    // Shape invariant: no other fields on the wire today. New fields
+    // (e.g. candidatesRemainingCount for a hinted-hide) would ship
+    // through a parallel endpoint so this type stays focused.
+    expect(Object.keys(res)).toEqual(['importId'])
   })
 })
 
