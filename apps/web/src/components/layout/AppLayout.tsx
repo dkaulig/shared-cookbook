@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Outlet, useMatch } from 'react-router-dom'
+import { Outlet, useLocation, useMatch } from 'react-router-dom'
 import { TopNav } from './TopNav'
 import { DesktopTopNav } from './DesktopTopNav'
 import { BottomNav } from './BottomNav'
@@ -7,6 +7,7 @@ import { SideRail } from './SideRail'
 import { BottomZoneProvider } from './bottomZone'
 import { useLiveSync } from '@/features/live/useLiveSync'
 import { useBackgroundSyncMessage } from '@/features/offline/useBackgroundSyncMessage'
+import { ClipboardImportBanner } from '@/features/imports/ClipboardImportBanner'
 
 /**
  * DS3 protected-route shell.
@@ -96,6 +97,15 @@ export function AppLayout() {
     recipeEditMatch != null ||
     recipeNewMatch != null
 
+  // CLIP-0 — clipboard-import banner (iOS PWA fallback, WebKit bug
+  // #194593). Render only on the top-level landing pages the user
+  // lands on when switching back from another app; skip on recipe
+  // detail/edit/chat/etc. so the banner doesn't spam every sub-page.
+  // Match by pathname rather than per-route `useMatch` so nested
+  // /groups/:id routes don't leak into the allow-list.
+  const { pathname } = useLocation()
+  const showClipboardBanner = pathname === '/' || pathname === '/groups'
+
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
       <BottomZoneProvider>
@@ -128,6 +138,11 @@ export function AppLayout() {
             data-testid="app-scroll"
             className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
           >
+            {showClipboardBanner && (
+              <div className="mx-auto w-full max-w-[720px] px-5 pt-3 md:max-w-[1120px] md:px-8">
+                <ClipboardImportBanner />
+              </div>
+            )}
             <Outlet />
           </main>
         </div>
