@@ -158,8 +158,31 @@ public sealed class RecipeImport
     /// the user gets the video-thumbnail attached as a recipe photo
     /// without manual upload — and the SeaweedFS-backed copy survives
     /// the FB-CDN URL expiring an hour later.
+    ///
+    /// COVER-0 wire-compat: when the job populates
+    /// <see cref="CandidateStagedPhotoIds"/>, this field mirrors
+    /// <c>CandidateStagedPhotoIds[0]</c> so the existing web prefill
+    /// (which keys off <c>thumbnailStagedPhotoId</c>) keeps rendering
+    /// the default cover during the migration window. A later slice
+    /// drops this field once the web client is reading the candidate
+    /// array directly.
     /// </summary>
     public Guid? ThumbnailStagedPhotoId { get; private set; }
+
+    /// <summary>
+    /// COVER-0 — ordered list of <see cref="StagedPhoto"/> ids produced
+    /// by the <see cref="Api.Services.CandidateAttacher"/> from the
+    /// Python extractor's <c>candidate_thumbnails</c> list. Index 0 is
+    /// the default Cover; the remaining entries are selectable
+    /// alternatives in the import-cover-picker grid. Empty
+    /// (not <c>null</c>) when the import produced no candidates or the
+    /// downloads all failed — callers key off length, never
+    /// null-ness. Populated once at the end of
+    /// <c>ExtractRecipeFromUrlJob</c>; subsequent cover swaps on the
+    /// recipe detail page don't mutate this list (the candidates stay
+    /// available until the sweep reaps them).
+    /// </summary>
+    public Guid[] CandidateStagedPhotoIds { get; private set; } = Array.Empty<Guid>();
 
     /// <summary>
     /// REIMPORT-0 — id of the <see cref="Recipe"/> the URL-extract job
@@ -339,6 +362,53 @@ public sealed class RecipeImport
             throw new InvalidOperationException(
                 $"Import {Id} already has a thumbnail StagedPhoto ({existing}); refusing to overwrite with {stagedPhotoId}.");
         ThumbnailStagedPhotoId = stagedPhotoId;
+    }
+
+    /// <summary>
+    /// COVER-0 — records the ordered list of candidate staged-photo ids
+    /// the <see cref="Api.Services.CandidateAttacher"/> produced for this
+    /// import. Mirrors <paramref name="candidateStagedPhotoIds"/>[0]
+    /// into <see cref="ThumbnailStagedPhotoId"/> so today's web layer
+    /// (which still reads the legacy field) keeps rendering the default
+    /// cover during the migration window.
+    ///
+    /// Idempotent on a no-op repeat with the same array. Re-attaching a
+    /// different array throws — the candidate set is determined once at
+    /// the end of the extraction job; a second call means a logic error
+    /// (double-attach race). Empty <paramref name="candidateStagedPhotoIds"/>
+    /// is accepted and leaves <see cref="ThumbnailStagedPhotoId"/> at
+    /// whatever it was before (commonly <c>null</c>).
+    /// </summary>
+    public void AttachCandidateStagedPhotos(Guid[] candidateStagedPhotoIds)
+    {
+        if (candidateStagedPhotoIds is null)
+            throw new ArgumentNullException(nameof(candidateStagedPhotoIds));
+        if (candidateStagedPhotoIds.Any(id => id == Guid.Empty))
+            throw new ArgumentException(
+                "Candidate ids must not contain Guid.Empty.",
+                nameof(candidateStagedPhotoIds));
+
+        // Idempotent no-op when the caller re-attaches the same array
+        // (Hangfire retry of a post-Done step).
+        if (CandidateStagedPhotoIds.SequenceEqual(candidateStagedPhotoIds))
+            return;
+
+        if (CandidateStagedPhotoIds.Length > 0)
+            throw new InvalidOperationException(
+                $"Import {Id} already has {CandidateStagedPhotoIds.Length} candidate staged-photos; refusing to overwrite with a different set.");
+
+        CandidateStagedPhotoIds = candidateStagedPhotoIds;
+
+        // Wire-compat: mirror [0] into the legacy field so the web layer
+        // keeps rendering the default cover during the migration window.
+        // Only writes when the legacy field is still empty; a previously-
+        // attached single thumbnail (BUG-018 path) wins on the invariant
+        // check in AttachThumbnailStagedPhoto.
+        if (candidateStagedPhotoIds.Length > 0
+            && ThumbnailStagedPhotoId is null)
+        {
+            ThumbnailStagedPhotoId = candidateStagedPhotoIds[0];
+        }
     }
 
     // ── PV1: Phase-aware progress state machine ─────────────────────

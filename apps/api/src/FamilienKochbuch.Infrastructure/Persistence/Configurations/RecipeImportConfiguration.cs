@@ -1,6 +1,9 @@
+using System.Text.Json;
 using FamilienKochbuch.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace FamilienKochbuch.Infrastructure.Persistence.Configurations;
 
@@ -12,6 +15,16 @@ namespace FamilienKochbuch.Infrastructure.Persistence.Configurations;
 /// </summary>
 internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<RecipeImport>
 {
+    /// <summary>COVER-0 — serializer options for the
+    /// <see cref="RecipeImport.CandidateStagedPhotoIds"/> JSON column.
+    /// Compact (no indentation) — the array is typically 0-6 entries
+    /// and lives in a single DB cell.</summary>
+    private static readonly JsonSerializerOptions CandidateJsonOptions = new()
+    {
+        WriteIndented = false,
+    };
+
+
     public void Configure(EntityTypeBuilder<RecipeImport> e)
     {
         e.HasKey(r => r.Id);
@@ -49,6 +62,25 @@ internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<Recip
         // don't want a cascade-FK to NULL the column out from under the
         // import row's audit trail.
         e.Property(r => r.ThumbnailStagedPhotoId);
+
+        // COVER-0 — ordered list of candidate staged-photo ids the
+        // URL-import job produced. Stored as a JSON text column (same
+        // approach as Recipe.Photos — works identically on Postgres +
+        // SQLite, no provider-specific column type). The ValueComparer
+        // teaches EF how to detect array mutations for change tracking;
+        // without it the Guid[] property would never be considered
+        // modified after AttachCandidateStagedPhotos bumps it.
+        var candidateConverter = new ValueConverter<Guid[], string>(
+            v => JsonSerializer.Serialize(v, CandidateJsonOptions),
+            v => JsonSerializer.Deserialize<Guid[]>(v, CandidateJsonOptions) ?? Array.Empty<Guid>());
+        var candidateComparer = new ValueComparer<Guid[]>(
+            (a, b) => (a ?? Array.Empty<Guid>()).SequenceEqual(b ?? Array.Empty<Guid>()),
+            v => v.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode())),
+            v => v.ToArray());
+        e.Property(r => r.CandidateStagedPhotoIds)
+            .HasConversion(candidateConverter)
+            .IsRequired()
+            .Metadata.SetValueComparer(candidateComparer);
 
         // REIMPORT-0 — optional FK-like column pointing at the target
         // Recipe the URL-extract job should update in place. Nullable so

@@ -33,7 +33,9 @@ public sealed class StagedPhoto
         string signedUrl,
         string contentType,
         DateTimeOffset createdAt,
-        string? sourceUrl = null)
+        string? sourceUrl = null,
+        Guid? linkedImportId = null,
+        int? candidateOrder = null)
     {
         if (userId == Guid.Empty)
             throw new ArgumentException("UserId must not be empty.", nameof(userId));
@@ -43,6 +45,22 @@ public sealed class StagedPhoto
             throw new ArgumentException("SignedUrl must not be blank.", nameof(signedUrl));
         if (string.IsNullOrWhiteSpace(contentType))
             throw new ArgumentException("ContentType must not be blank.", nameof(contentType));
+        // COVER-0 — LinkedImportId + CandidateOrder move together. Rows
+        // with a candidate position must belong to an import (otherwise
+        // the sweep's 7-day branch can't find the cohort), and rows
+        // linked to an import must know their position (the grid renders
+        // in CandidateOrder, not insertion order).
+        if (linkedImportId is { } lii && lii == Guid.Empty)
+            throw new ArgumentException(
+                "LinkedImportId must not be empty.", nameof(linkedImportId));
+        if (candidateOrder is int order && order < 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(candidateOrder), order,
+                "CandidateOrder must be >= 0 when present.");
+        if ((linkedImportId is null) != (candidateOrder is null))
+            throw new ArgumentException(
+                "LinkedImportId and CandidateOrder must both be set or both null.",
+                nameof(linkedImportId));
 
         Id = Guid.NewGuid();
         UserId = userId;
@@ -51,6 +69,8 @@ public sealed class StagedPhoto
         ContentType = contentType.Trim();
         CreatedAt = createdAt;
         SourceUrl = string.IsNullOrWhiteSpace(sourceUrl) ? null : sourceUrl.Trim();
+        LinkedImportId = linkedImportId;
+        CandidateOrder = candidateOrder;
     }
 
     public Guid Id { get; private set; }
@@ -96,6 +116,24 @@ public sealed class StagedPhoto
     /// remains the only storage key).
     /// </summary>
     public string? SourceUrl { get; private set; }
+
+    /// <summary>COVER-0 — when the staged photo was produced by the
+    /// <see cref="Api.Services.CandidateAttacher"/> as one of the
+    /// candidate thumbnails of an import, this is the parent
+    /// <see cref="RecipeImport"/>'s id. Null for user-uploaded staged
+    /// photos. Also toggles the sweep job's 7-day TTL branch — rows
+    /// with <see cref="LinkedImportId"/> non-null are kept until
+    /// 7 days post-creation (vs 24 h for manually-uploaded rows) so the
+    /// "Cover ändern" flow on the recipe detail page has a usable
+    /// window after the initial save.</summary>
+    public Guid? LinkedImportId { get; private set; }
+
+    /// <summary>COVER-0 — 0-indexed position within the cohort of
+    /// candidates emitted by a single import. Mirrors
+    /// <see cref="LinkedImportId"/> (both set or both null). The
+    /// candidate-grid on the RecipeFormPage renders tiles in this
+    /// order; gaps are allowed when some downloads failed mid-attach.</summary>
+    public int? CandidateOrder { get; private set; }
 
     /// <summary>
     /// Records the recipe that adopted this staged photo + the
