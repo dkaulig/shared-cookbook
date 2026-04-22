@@ -216,8 +216,8 @@ Tagline candidates:
    - Quick-start: `docker compose up -d` + admin credentials in
      `.env.example` + `http://localhost`.
    - "How to try the AI import": needs Azure OpenAI credentials, here's
-     how to wire them, here's the alternative via LiteLLM / Ollama /
-     Groq for self-hosted inference.
+     how to wire them, plus a native Ollama backend for self-hosted
+     inference.
    - Dev setup: `pnpm install`, `pnpm --filter web dev`, `dotnet
      watch`, `uv run uvicorn ...` per app.
    - Test run: `pnpm --filter web run test`, `dotnet test`, `uv run
@@ -320,10 +320,15 @@ Tagline candidates:
     - Why components as a separate entity over recipe-fork for
       sub-recipes.
 
-14. **LiteLLM adapter / Ollama support doc.** Show external users how
-    to run without Azure OpenAI. Worst-case: they need to edit the
-    `AZURE_OPENAI_ENDPOINT` env-var to point at a LiteLLM-proxy in
-    front of Ollama. Simple.
+14. **Ollama provider** (covered in REL-7's sub-slice plus REL-6's
+    SETUP.md section). Native integration in
+    `apps/python-extractor/src/extractor/llm/ollama.py`, sibling to
+    the existing `azure_openai.py`. Routed via a new config key
+    `llm.provider = azure | ollama`. Uses Ollama's `/api/chat` with
+    `format: { /* JSON-schema */ }` for structured output; streaming
+    + vision all natively supported. No third-party proxy
+    dependency — keeps the runtime surface + REL-0b audit scope
+    tight.
 
 15. **Legal disclaimer** for social-video import: "This project uses
     yt-dlp to fetch publicly-available video metadata + audio for
@@ -349,7 +354,7 @@ simultaneously):
 - **Round 4:** REL-2 workflow cleanup → REL-1 LICENSE + README +
   rebrand → REL-6 SETUP.md. Sequential because each references the
   final shape of everything above.
-- **P2 polish** (CONTRIBUTING.md, SECURITY.md, ADRs, LiteLLM/Ollama
+- **P2 polish** (CONTRIBUTING.md, SECURITY.md, ADRs, Ollama
   how-to, legal disclaimer, demo video, screenshots) lands
   opportunistically between rounds or as final cleanup. Still
   release-gating — nothing deferred.
@@ -412,7 +417,8 @@ real stable-api promise.
   compose up -d" — the HOWTO (see REL-6 below) is the entry point.
 - **HOWTO doc:** explicit first-class deliverable (REL-6). Covers
   every env var, minimum required Azure credentials (with alternatives
-  via LiteLLM/Ollama), common gotchas (Whisper first-boot download,
+  via native Ollama backend), common gotchas (Whisper first-boot
+  download,
   SeaweedFS retention, orchestrator-bot-seeding), troubleshooting.
   Lives at `docs/SETUP.md`, linked from README. Aim: anyone with Docker
   + a text editor can boot the stack in < 15 minutes.
@@ -467,6 +473,13 @@ Disabled without AI:
    the Whisper prefetch entirely (save 3 GB download when the user
    isn't going to run video imports). Home-page layout collapses
    the "Import from Video/Photo/Chat" card row when AI is off.
+   Includes a **native Ollama backend** as a peer to the existing
+   Azure provider: new `apps/python-extractor/src/extractor/llm/
+   ollama.py`, sibling to `azure_openai.py`. Routed via new
+   config-key `llm.provider = azure | ollama`. Uses Ollama's
+   `/api/chat` with `format: { /* JSON-schema */ }` for structured
+   output; streaming + vision natively supported. No third-party
+   proxy dependency.
 4. **REL-8 JSON-LD Recipe parser** — new Python-pipeline branch that,
    before falling through to the LLM, scans the fetched blog HTML for
    `<script type="application/ld+json">` blocks and looks for
@@ -492,16 +505,26 @@ Disabled without AI:
    Parallel to REL-3 where file-disjoint, otherwise sequential.
 7. **REL-1 LICENSE + README + rebrand to `familycookbook`** — final
    polish once the code is public-ready.
-8. **REL-6 SETUP.md HOWTO** — two clear paths:
-   - **Minimal**: `docker compose up -d`. No AI, no Azure needed.
+8. **REL-6 SETUP.md HOWTO** — three clear paths:
+   - **Path 1 — Minimal** (default): `docker compose up -d`. No AI.
      ~1 GB disk, boots in < 2 min. Full app including JSON-LD blog
-     imports + manual recipes + meal plan + shopping.
-   - **Full**: `docker compose --profile ai up -d` + Azure credentials
-     (or LiteLLM proxy for OpenAI / Ollama / Groq). ~5 GB disk
-     (Whisper volume), first-boot downloads `large-v3` once. Adds
-     video-LLM-structuring + photo import + chat.
-9. **REL-2 workflow cleanup** (optional, can follow the first public
-   release).
+     imports + manual recipes + meal plan + shopping. Recommended
+     starting point.
+   - **Path 2 — Full + Azure OpenAI**: `docker compose --profile ai
+     up -d` + Azure credentials in `.env`. ~5 GB disk (Whisper
+     volume), first-boot downloads `large-v3` once. Max quality for
+     AI-structured imports + photo + chat. Cloud-dependent + usage
+     costs apply.
+   - **Path 3 — Full + self-hosted Ollama**: `docker compose
+     --profile ai --profile ollama up -d`. Ollama container + our
+     python-extractor connected via `llm.provider=ollama`. Realistic
+     model pick for 12 GB VRAM: Gemma 3 12B or Qwen 2.5 14B. CPU-only
+     works too (2-3 min per import with 12B-class, ~30 s with 4B).
+     ~80 % of Azure quality — structured-JSON accuracy lower,
+     occasional manual correction needed. Completely private +
+     offline + no cost.
+9. **REL-2 workflow cleanup** (part of the release gate — deploy.yml
+   comments scrubbed for public audience).
 
 Release-gate: **every REL slice listed above** green (REL-0 + REL-0b
 + REL-1 + REL-2 + REL-3 + REL-4 + REL-5 + REL-6 + REL-7 + REL-8).
