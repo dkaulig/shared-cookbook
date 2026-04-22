@@ -65,7 +65,9 @@ public class SweepAbandonedStagedPhotosJobTests : IAsyncLifetime
         DateTimeOffset createdAt,
         DateTimeOffset? promotedAt = null,
         Guid? promotedToRecipeId = null,
-        string photoIdSuffix = "abc")
+        string photoIdSuffix = "abc",
+        Guid? linkedImportId = null,
+        int? candidateOrder = null)
     {
         var path = $"recipes/staged-{photoIdSuffix}.jpg";
         // Pre-populate the storage fake so DeleteAsync round-trips.
@@ -76,7 +78,9 @@ public class SweepAbandonedStagedPhotosJobTests : IAsyncLifetime
             photoId: path,
             signedUrl: $"/api/photos/{path}?sig=x&exp=9",
             contentType: "image/jpeg",
-            createdAt: createdAt);
+            createdAt: createdAt,
+            linkedImportId: linkedImportId,
+            candidateOrder: candidateOrder);
         if (promotedAt is not null)
             staged.MarkPromoted(promotedToRecipeId ?? Guid.NewGuid(), promotedAt.Value);
         _db.StagedPhotos.Add(staged);
@@ -162,6 +166,129 @@ public class SweepAbandonedStagedPhotosJobTests : IAsyncLifetime
     {
         await _job.ExecuteAsync(CancellationToken.None);
         Assert.Empty(_storage.Deleted);
+    }
+
+    // ── COVER-0: 7-day branch for import-candidate rows ─────────────
+
+    [Fact]
+    public async Task ExecuteAsync_COVER0_Keeps_Candidate_Rows_Younger_Than_7_Days()
+    {
+        // 6 days old, LinkedImportId set → still within the 7-day
+        // "cover ändern" window → must NOT be reaped.
+        var importId = Guid.NewGuid();
+        var sixDaysOld = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromDays(6),
+            photoIdSuffix: "c-6d",
+            linkedImportId: importId,
+            candidateOrder: 0);
+
+        await _job.ExecuteAsync(CancellationToken.None);
+
+        Assert.True(await _db.StagedPhotos.AnyAsync(s => s.Id == sixDaysOld.Id));
+        Assert.True(_storage.Uploads.ContainsKey(sixDaysOld.PhotoId));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_COVER0_Reaps_Candidate_Rows_Older_Than_7_Days()
+    {
+        // 8 days old, LinkedImportId set → past the 7-day window →
+        // sweep reaps the row and deletes the blob.
+        var importId = Guid.NewGuid();
+        var eightDaysOld = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromDays(8),
+            photoIdSuffix: "c-8d",
+            linkedImportId: importId,
+            candidateOrder: 0);
+
+        await _job.ExecuteAsync(CancellationToken.None);
+
+        Assert.False(await _db.StagedPhotos.AnyAsync(s => s.Id == eightDaysOld.Id));
+        Assert.Contains(eightDaysOld.PhotoId, _storage.Deleted);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_COVER0_Candidate_25h_Old_Is_Not_Reaped_Yet()
+    {
+        // A candidate row that's >24h old must NOT be reaped as though
+        // the legacy 24h rule still applied to it. The LinkedImportId
+        // non-null branch is authoritative and kicks in at 7 days.
+        var importId = Guid.NewGuid();
+        var justOver24h = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromHours(25),
+            photoIdSuffix: "c-25h",
+            linkedImportId: importId,
+            candidateOrder: 0);
+
+        await _job.ExecuteAsync(CancellationToken.None);
+
+        Assert.True(await _db.StagedPhotos.AnyAsync(s => s.Id == justOver24h.Id));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_COVER0_Promoted_Candidate_Never_Reaped()
+    {
+        // Promoted-with-LinkedImportId row (the [0] cover that was
+        // auto-attached onto the recipe during the reimport flow) must
+        // stay put — promoted rows are audit trail and the blob was
+        // already moved into the recipe namespace.
+        var importId = Guid.NewGuid();
+        var promoted = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromDays(30),
+            promotedAt: _clock.GetUtcNow() - TimeSpan.FromDays(29),
+            photoIdSuffix: "c-promoted",
+            linkedImportId: importId,
+            candidateOrder: 0);
+
+        await _job.ExecuteAsync(CancellationToken.None);
+
+        Assert.True(await _db.StagedPhotos.AnyAsync(s => s.Id == promoted.Id));
+        Assert.DoesNotContain(promoted.PhotoId, _storage.Deleted);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_COVER0_Two_Branches_Coexist()
+    {
+        // Mixed cohort exercising both TTL branches in a single run:
+        //  - ancient un-linked    → reaped (24h rule)
+        //  - ancient candidate    → reaped (7d rule)
+        //  - fresh candidate      → kept
+        //  - fresh un-linked      → kept
+        //  - ancient promoted     → kept (audit trail)
+        var importId = Guid.NewGuid();
+        var ancientUnlinked = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromHours(48),
+            photoIdSuffix: "u-old");
+        var ancientCandidate = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromDays(10),
+            photoIdSuffix: "c-old",
+            linkedImportId: importId,
+            candidateOrder: 0);
+        var freshCandidate = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromDays(3),
+            photoIdSuffix: "c-fresh",
+            linkedImportId: importId,
+            candidateOrder: 1);
+        var freshUnlinked = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromHours(2),
+            photoIdSuffix: "u-fresh");
+        var ancientPromoted = await SeedStagedPhotoAsync(
+            createdAt: _clock.GetUtcNow() - TimeSpan.FromDays(20),
+            promotedAt: _clock.GetUtcNow() - TimeSpan.FromDays(19),
+            photoIdSuffix: "p-old");
+
+        await _job.ExecuteAsync(CancellationToken.None);
+
+        Assert.False(await _db.StagedPhotos.AnyAsync(s => s.Id == ancientUnlinked.Id));
+        Assert.False(await _db.StagedPhotos.AnyAsync(s => s.Id == ancientCandidate.Id));
+        Assert.True(await _db.StagedPhotos.AnyAsync(s => s.Id == freshCandidate.Id));
+        Assert.True(await _db.StagedPhotos.AnyAsync(s => s.Id == freshUnlinked.Id));
+        Assert.True(await _db.StagedPhotos.AnyAsync(s => s.Id == ancientPromoted.Id));
+
+        Assert.Contains(ancientUnlinked.PhotoId, _storage.Deleted);
+        Assert.Contains(ancientCandidate.PhotoId, _storage.Deleted);
+        Assert.DoesNotContain(freshCandidate.PhotoId, _storage.Deleted);
+        Assert.DoesNotContain(freshUnlinked.PhotoId, _storage.Deleted);
+        Assert.DoesNotContain(ancientPromoted.PhotoId, _storage.Deleted);
     }
 
     [Fact]
