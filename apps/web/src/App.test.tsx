@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import App from './App.tsx'
@@ -120,5 +121,82 @@ describe('<App />', () => {
         screen.getByRole('navigation', { name: /gruppen-navigation/i }),
       ).toBeInTheDocument()
     })
+  })
+
+  // 2026-04-22 nav-bug regression — clicking the RecipeDetail chevron-
+  // back must land on the group's recipe list (/groups/:groupId), NOT
+  // on the groups list (/groups). Pre-fix the nested-child's
+  // useParams read `params.groupId = undefined` because the parent
+  // route was declared as `:id`, so the back handler fired
+  // `navigate("/groups/")` which React Router normalised to `/groups`.
+  it('RecipeDetail chevron-back lands on the group detail, not on /groups', async () => {
+    window.history.replaceState(null, '', '/groups/g1/recipes/r1')
+    server.use(
+      http.post('/api/auth/refresh', () =>
+        HttpResponse.json({
+          accessToken: 'tok',
+          user: { id: 'u1', email: 'user@example.com', displayName: 'Oma', role: 'User' },
+        }),
+      ),
+      http.get('/api/groups', () => HttpResponse.json([])),
+      http.get('/api/groups/g1', () =>
+        HttpResponse.json({
+          id: 'g1',
+          name: 'Example Family',
+          description: null,
+          coverImageUrl: null,
+          defaultServings: 4,
+          isPrivateCollection: false,
+          memberCount: 1,
+          myRole: 'Admin',
+          version: 0,
+          members: [],
+        }),
+      ),
+      http.get('/api/groups/g1/members', () => HttpResponse.json([])),
+      http.get('/api/groups/g1/tags', () => HttpResponse.json([])),
+      http.get('/api/groups/g1/recipes/search', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 20 }),
+      ),
+      http.get('/api/recipes/r1', () =>
+        HttpResponse.json({
+          id: 'r1',
+          groupId: 'g1',
+          createdByUserId: 'u1',
+          createdByDisplayName: 'Oma',
+          title: 'Linsensuppe',
+          description: null,
+          defaultServings: 4,
+          prepTimeMinutes: 15,
+          difficulty: 1,
+          sourceUrl: null,
+          sourceType: 'Manual',
+          forkOfRecipeId: null,
+          photos: [],
+          lastCookedAt: null,
+          createdAt: '2026-04-22T00:00:00Z',
+          updatedAt: '2026-04-22T00:00:00Z',
+          version: 0,
+          components: [
+            { id: 'c1', position: 0, label: null, ingredients: [], steps: [] },
+          ],
+          tags: [],
+          nutritionEstimate: null,
+        }),
+      ),
+      http.get('/api/recipes/r1/revisions', () => HttpResponse.json([])),
+    )
+
+    renderApp()
+
+    const user = userEvent.setup()
+    // Wait for the detail page to render, then click the chevron-back.
+    const backBtn = await screen.findByRole('button', { name: /^Zurück$/i })
+    await user.click(backBtn)
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/groups/g1')
+    })
+    // Defensive: the URL must NOT be the groups-list `/groups`.
+    expect(window.location.pathname).not.toBe('/groups')
   })
 })

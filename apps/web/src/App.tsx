@@ -73,7 +73,16 @@ export default function App() {
               forms with their own top bar — they should replace
               `<main>` entirely, not dock inside the split.
             */}
-            <Route path="/groups/:id" element={<GroupDetailPage />}>
+            {/* 2026-04-22 nav-bug fix — parent route renamed from
+                `:id` to `:groupId` so the nested `recipes/:recipeId`
+                child's `useParams<{ groupId: string; recipeId: string }>()`
+                actually sees the group id. Without this rename the child
+                read `params.groupId = undefined`, coerced to empty
+                string, and the header's Zurück-button fired
+                `navigate("/groups/" + "")` which resolved to `/groups`
+                (the groups-list) instead of `/groups/:g` (the group's
+                recipe list). */}
+            <Route path="/groups/:groupId" element={<GroupDetailPage />}>
               <Route
                 path="recipes/:recipeId"
                 element={<RecipeDetailPage />}
