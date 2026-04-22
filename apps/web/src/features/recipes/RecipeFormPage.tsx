@@ -348,6 +348,11 @@ export function RecipeFormPage({ mode }: Props) {
     // recipe shape can't see.
     prefill = withImportEnvelope(prefill, {
       thumbnailStagedPhotoId: importQuery.data.thumbnailStagedPhotoId ?? null,
+      // COVER-0 — forward the full candidate array so the picker grid
+      // in the inner form can render 2–6 tiles. Empty array on legacy
+      // rows triggers the single-tile fallback inside the envelope
+      // helper (see importPrefill.ts).
+      candidateStagedPhotoIds: importQuery.data.candidateStagedPhotoIds,
     })
   } else if (mode === 'create' && chatImportId) {
     const stashed = recallChatImport(chatImportId)

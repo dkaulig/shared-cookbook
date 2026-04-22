@@ -287,6 +287,57 @@ describe('extractedRecipeToPrefill', () => {
     expect(withImportEnvelope(base, { thumbnailStagedPhotoId: null })).toBe(base)
   })
 
+  // ── COVER-0 (Slice D) — candidateStagedPhotoIds passthrough ─────
+  //
+  // The import DTO now carries a full candidate array — up to 6 ids the
+  // URL-extract job captured (yt-dlp thumbnails + ffmpeg frames +
+  // JSON-LD image[]). The prefill must surface the whole list so the
+  // form can render the 3×2 picker grid; legacy imports that only set
+  // the singleton `thumbnailStagedPhotoId` get a one-tile fallback so
+  // pre-Slice-B rows keep rendering until the TTL sweep reaps them.
+
+  it('defaults candidateStagedPhotoIds to [] when no envelope is supplied', () => {
+    const out = extractedRecipeToPrefill(recipe())
+    expect(out.candidateStagedPhotoIds).toEqual([])
+  })
+
+  it('withImportEnvelope overlays a 6-candidate array onto the prefill', () => {
+    const base = extractedRecipeToPrefill(recipe())
+    const ids = ['sp-0', 'sp-1', 'sp-2', 'sp-3', 'sp-4', 'sp-5']
+    const out = withImportEnvelope(base, { candidateStagedPhotoIds: ids })
+    expect(out.candidateStagedPhotoIds).toEqual(ids)
+    // Also folds the cover-mirror into the legacy singleton so code
+    // paths that still read `thumbnailStagedPhotoId` keep working
+    // during the migration window (Slice B contract).
+    expect(out.thumbnailStagedPhotoId).toBe('sp-0')
+  })
+
+  it('withImportEnvelope legacy fallback: empty candidate array + thumbnailStagedPhotoId set → derives a one-element candidate array', () => {
+    // Legacy rows (pre-Slice-B deploy) only set thumbnailStagedPhotoId;
+    // the prefill must synthesise a single-element candidates array so
+    // the form's picker always reads from one source of truth.
+    const base = extractedRecipeToPrefill(recipe())
+    const out = withImportEnvelope(base, {
+      candidateStagedPhotoIds: [],
+      thumbnailStagedPhotoId: 'legacy-thumb',
+    })
+    expect(out.candidateStagedPhotoIds).toEqual(['legacy-thumb'])
+    expect(out.thumbnailStagedPhotoId).toBe('legacy-thumb')
+  })
+
+  it('withImportEnvelope no candidates + no thumbnail → empty array, no fallback tile', () => {
+    // Blog imports that never attached any cover candidate must not
+    // invent a tile out of thin air — the picker UI stays dormant
+    // when the array is empty.
+    const base = extractedRecipeToPrefill(recipe())
+    const out = withImportEnvelope(base, {
+      candidateStagedPhotoIds: [],
+      thumbnailStagedPhotoId: null,
+    })
+    expect(out.candidateStagedPhotoIds).toEqual([])
+    expect(out.thumbnailStagedPhotoId).toBeNull()
+  })
+
   // BUG-034 — `extractedResultToPrefill` is the outer-envelope-aware
   // sibling that also carries `recipe_empty` / `empty_reason` through.
   describe('extractedResultToPrefill (BUG-034)', () => {
