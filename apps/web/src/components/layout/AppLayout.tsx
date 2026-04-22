@@ -98,13 +98,18 @@ export function AppLayout() {
     recipeNewMatch != null
 
   // CLIP-0 — clipboard-import banner (iOS PWA fallback, WebKit bug
-  // #194593). Render only on the top-level landing pages the user
-  // lands on when switching back from another app; skip on recipe
-  // detail/edit/chat/etc. so the banner doesn't spam every sub-page.
-  // Match by pathname rather than per-route `useMatch` so nested
-  // /groups/:id routes don't leak into the allow-list.
+  // #194593). Render app-wide so the user sees it no matter which
+  // route they're on when they switch back from another app with a
+  // copied URL. Excluded only from the import/share flows themselves
+  // (user is already inside the import pipeline — a second prompt to
+  // "check the clipboard" would be noise) and the login page (user
+  // isn't authenticated, no import yet). The banner also self-hides
+  // once the user has consumed a URL in the current session.
   const { pathname } = useLocation()
-  const showClipboardBanner = pathname === '/' || pathname === '/groups'
+  const showClipboardBanner =
+    pathname !== '/login' &&
+    !pathname.startsWith('/rezepte/import') &&
+    !pathname.startsWith('/share-target')
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
