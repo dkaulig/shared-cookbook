@@ -427,22 +427,20 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     // ── BUG-018: Auto-attach video thumbnail as staged recipe photo ──
     //
     // After the URL extraction completes successfully and the result
-    // carries a `recipe.thumbnail_url`, the job downloads that URL,
-    // uploads it to SeaweedFS, persists a StagedPhoto row, and links
-    // the staged-photo id to the import via
-    // ThumbnailStagedPhotoId. Failures of the thumbnail step never
-    // surface — the recipe creation must always succeed.
+    // carries a `recipe.candidate_thumbnails` array, the job downloads
+    // each URL, uploads it to SeaweedFS, persists a StagedPhoto row per
+    // candidate, and surfaces the ordered ids via
+    // RecipeImport.CandidateStagedPhotoIds. Failures of individual
+    // candidates never surface — the recipe creation must always
+    // succeed.
 
     /// <summary>Result JSON the Python pipeline would emit, with a
     /// single-element <c>candidate_thumbnails</c> array on an allowed
-    /// FB-CDN host. The legacy <c>thumbnail_url</c> is also populated
-    /// (Python slice A still emits both) so any read-both path stays
-    /// happy, but the attacher reads the candidate array first.</summary>
+    /// FB-CDN host.</summary>
     private const string ResultWithFbcdnThumbnail = """
         {
           "recipe": {
             "title": "Pizza",
-            "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg",
             "candidate_thumbnails": ["https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"]
           },
           "confidence": { "overall": "high", "notes": [] }
@@ -474,16 +472,13 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        // COVER-0 — candidate array populated + legacy field mirrors [0].
+        // COVER-0 — single candidate staged with default-cover order 0.
         Assert.Single(reloaded.CandidateStagedPhotoIds);
-        Assert.Equal(
-            reloaded.CandidateStagedPhotoIds[0],
-            reloaded.ThumbnailStagedPhotoId);
 
         // StagedPhoto row was actually persisted with the same id, owned
         // by the same user, with the upload's bytes mirrored into storage.
         var staged = await _db.StagedPhotos.AsNoTracking()
-            .SingleAsync(s => s.Id == reloaded.ThumbnailStagedPhotoId);
+            .SingleAsync(s => s.Id == reloaded.CandidateStagedPhotoIds[0]);
         Assert.Equal(_userId, staged.UserId);
         Assert.Equal("image/png", staged.ContentType);
         Assert.Equal(import.Id, staged.LinkedImportId);
@@ -513,7 +508,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.Null(reloaded.ThumbnailStagedPhotoId);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
         // No StagedPhoto row was created on the failure path.
         Assert.Empty(await _db.StagedPhotos.AsNoTracking().ToListAsync());
@@ -539,7 +533,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.Null(reloaded.ThumbnailStagedPhotoId);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Empty(_photoStorage.Uploads);
     }
@@ -561,7 +554,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.Null(reloaded.ThumbnailStagedPhotoId);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Empty(_photoStorage.Uploads);
     }
@@ -569,10 +561,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     [Fact]
     public async Task BUG018_Result_Without_Thumbnail_Url_Skips_Download_Entirely()
     {
-        // No candidate_thumbnails AND no thumbnail_url in the structured
-        // result → no CDN GET, no storage write, CandidateStagedPhotoIds
-        // stays empty. This is the common blog-import path when JSON-LD
-        // has no image entries at all.
+        // Empty candidate_thumbnails → no CDN GET, no storage write,
+        // CandidateStagedPhotoIds stays empty. This is the common blog-
+        // import path when JSON-LD has no image entries at all AND the
+        // blog has no og:image for the extractor's single-URL fallback
+        // to seed from.
         var import = await SeedImportAsync();
         _handler.QueueResponse(
             HttpStatusCode.OK,
@@ -583,7 +576,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.Null(reloaded.ThumbnailStagedPhotoId);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Empty(_thumbnailHandler.Requests);
         Assert.Empty(_photoStorage.Uploads);
@@ -613,7 +605,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.Null(reloaded.ThumbnailStagedPhotoId);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
         // The candidate handler must not have been touched at all.
         Assert.Empty(_thumbnailHandler.Requests);
@@ -655,7 +646,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         {
           "recipe": {
             "title": "Hoisin Beef Noodles",
-            "thumbnail_url": "https://masonfit.com/wp-content/uploads/hero.jpg",
             "candidate_thumbnails": ["https://masonfit.com/wp-content/uploads/hero.jpg"]
           },
           "confidence": { "overall": "high", "notes": [] }
@@ -678,10 +668,9 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Single(reloaded.CandidateStagedPhotoIds);
-        Assert.Equal(reloaded.CandidateStagedPhotoIds[0], reloaded.ThumbnailStagedPhotoId);
 
         var staged = await _db.StagedPhotos.AsNoTracking()
-            .SingleAsync(s => s.Id == reloaded.ThumbnailStagedPhotoId);
+            .SingleAsync(s => s.Id == reloaded.CandidateStagedPhotoIds[0]);
         Assert.Equal(_userId, staged.UserId);
         Assert.Equal("image/jpeg", staged.ContentType);
     }
@@ -738,7 +727,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
-        Assert.Null(reloaded.ThumbnailStagedPhotoId);
         Assert.Empty(_thumbnailHandler.Requests);
     }
 
@@ -788,7 +776,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
-        Assert.Null(reloaded.ThumbnailStagedPhotoId);
         // No HTTP GET against the internal host.
         Assert.Empty(_thumbnailHandler.Requests);
     }
@@ -913,8 +900,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
               }
             ],
             "tags": ["schnell"],
-            "source_url": "https://example.com/rezept",
-            "thumbnail_url": null
+            "source_url": "https://example.com/rezept"
           },
           "confidence": { "overall": "high", "notes": [] },
           "recipe_empty": false,
@@ -980,8 +966,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
 
     /// <summary>Result JSON with a fixed candidate_thumbnails array the
     /// reimport tests share. The URL is on the FB-CDN allowlist so the
-    /// SSRF guard accepts it without needing a SourceUrl match. Legacy
-    /// thumbnail_url is populated too (Python slice A still emits both).</summary>
+    /// SSRF guard accepts it without needing a SourceUrl match.</summary>
     private const string ReimportResultWithThumb = """
         {
           "recipe": {
@@ -996,7 +981,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             ],
             "tags": [],
             "source_url": "https://example.com/rezept",
-            "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg",
             "candidate_thumbnails": ["https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"]
           },
           "confidence": { "overall": "high", "notes": [] },
@@ -1006,8 +990,9 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         """;
 
     /// <summary>
-    /// BUG-048 — a reimport with a fresh thumbnail_url must promote the
-    /// downloaded thumbnail onto the target recipe's Photos. Previously
+    /// BUG-048 — a reimport with a fresh candidate_thumbnails entry
+    /// must promote the downloaded thumbnail onto the target recipe's
+    /// Photos. Previously
     /// the attacher only staged the photo + linked it to the import row,
     /// so Recipe.Photos stayed empty and the detail page still showed
     /// the old thumbnail.
@@ -1088,10 +1073,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// BUG-048 — a reimport whose extractor result has no thumbnail_url
-    /// (typical for blog-import paths with no og:image) must leave the
-    /// recipe's Photos collection completely untouched. No thumbnail
-    /// download, no staged-photo row.
+    /// BUG-048 — a reimport whose extractor result has no
+    /// candidate_thumbnails array (typical for blog-import paths with
+    /// no og:image + no JSON-LD image entries) must leave the recipe's
+    /// Photos collection completely untouched. No thumbnail download,
+    /// no staged-photo row.
     /// </summary>
     [Fact]
     public async Task BUG048_Reimport_With_No_Thumbnail_Url_Leaves_Photos_Untouched()
@@ -1152,8 +1138,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
               }
             ],
             "tags": [],
-            "source_url": "https://example.com/rezept",
-            "thumbnail_url": null
+            "source_url": "https://example.com/rezept"
           },
           "confidence": { "overall": "high", "notes": [] },
           "recipe_empty": false,
@@ -1270,7 +1255,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.Null(reloaded.ThumbnailStagedPhotoId);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
         // No HTTP call to the CDN — the flag short-circuits before
         // DownloadAsync is reached.
@@ -1339,10 +1323,9 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Single(reloaded.CandidateStagedPhotoIds);
-        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
     }
 
-    // ── COVER-0: candidate list + legacy fallback ───────────────────
+    // ── COVER-0: candidate list ─────────────────────────────────────
 
     [Fact]
     public async Task COVER0_Multiple_Candidates_Stage_In_Order()
@@ -1373,8 +1356,6 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(3, reloaded.CandidateStagedPhotoIds.Length);
-        // Legacy field mirrors [0].
-        Assert.Equal(reloaded.CandidateStagedPhotoIds[0], reloaded.ThumbnailStagedPhotoId);
 
         var staged = await _db.StagedPhotos.AsNoTracking()
             .Where(s => s.LinkedImportId == import.Id)
@@ -1385,28 +1366,29 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task COVER0_Legacy_Thumbnail_Url_Only_Falls_Back_To_Single_Candidate()
+    public async Task COVER0_Missing_Candidate_Array_Yields_No_Candidates()
     {
-        // Defensive path: a transient Python build that emits
-        // thumbnail_url but no candidate_thumbnails field. The .NET
-        // side treats the single URL as a 1-element candidate list.
+        // COVER-0 cleanup: when the extractor emits neither
+        // candidate_thumbnails nor any legacy fallback, the .NET side
+        // stages nothing. The extractor preserves the default-cover UX
+        // by seeding candidate_thumbnails[0] from its single-URL paths
+        // (og:image, yt-dlp scalar thumbnail), so a missing array here
+        // means the extractor really did yield zero candidates.
         var import = await SeedImportAsync();
         _handler.QueueResponse(HttpStatusCode.OK, """
             {
               "recipe": {
-                "title": "Legacy",
-                "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/only.jpg"
+                "title": "NoCover"
               },
               "confidence": { "overall": "high", "notes": [] }
             }
             """);
-        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/png");
 
         await _job.ExecuteAsync(import.Id, CancellationToken.None);
 
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
-        Assert.Single(reloaded.CandidateStagedPhotoIds);
-        Assert.Equal(reloaded.CandidateStagedPhotoIds[0], reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
+        Assert.Empty(_thumbnailHandler.Requests);
     }
 }

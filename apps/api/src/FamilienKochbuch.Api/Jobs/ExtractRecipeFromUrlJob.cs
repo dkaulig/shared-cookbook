@@ -167,10 +167,8 @@ public class ExtractRecipeFromUrlJob
 
     /// <summary>
     /// COVER-0 — reads the ordered candidate-thumbnail URL list out of
-    /// the Python extractor's structured result JSON. Falls back to the
-    /// legacy single <c>recipe.thumbnail_url</c> when
-    /// <c>candidate_thumbnails</c> is missing or empty so a transient
-    /// Python build without the new field keeps working.
+    /// the Python extractor's structured result JSON. Returns an empty
+    /// list when the field is absent or malformed.
     /// </summary>
     internal static List<string> ExtractCandidateUrls(string resultJson)
     {
@@ -194,18 +192,6 @@ public class ExtractRecipeFromUrlJob
                 var raw = entry.GetString();
                 if (!string.IsNullOrWhiteSpace(raw)) urls.Add(raw);
             }
-        }
-
-        // Defensive fallback: Python normally populates candidate_thumbnails
-        // on every URL path, but a partial deploy or extractor regression
-        // could leave just `thumbnail_url`. Handle that single-URL case
-        // as a one-element candidate list so the user still gets a cover.
-        if (urls.Count == 0
-            && recipe.TryGetProperty("thumbnail_url", out var thumb)
-            && thumb.ValueKind == JsonValueKind.String)
-        {
-            var raw = thumb.GetString();
-            if (!string.IsNullOrWhiteSpace(raw)) urls.Add(raw);
         }
 
         return urls;

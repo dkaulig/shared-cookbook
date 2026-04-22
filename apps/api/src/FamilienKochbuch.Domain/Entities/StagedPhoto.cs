@@ -104,8 +104,7 @@ public sealed class StagedPhoto
     /// <summary>
     /// BUG-048 / COVER-0 — origin URL the photo was sourced from, when
     /// the row was produced by the candidate-download pipeline against
-    /// a Python-extractor <c>recipe.candidate_thumbnails</c> entry (or
-    /// a legacy <c>recipe.thumbnail_url</c> on the transitional slice).
+    /// a Python-extractor <c>recipe.candidate_thumbnails</c> entry.
     /// <c>null</c> for rows created by the user-facing staged-upload
     /// endpoint (where the user directly uploaded a file and no origin
     /// URL exists).
