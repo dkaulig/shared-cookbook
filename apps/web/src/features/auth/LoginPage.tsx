@@ -47,7 +47,7 @@ import { isValidEmail } from './validation'
  * A value that fails the allowlist falls back to `'/'` so the user
  * still lands somewhere sensible.
  */
-export function safeNextPath(raw: string | null): string {
+function safeNextPath(raw: string | null): string {
   if (!raw) return '/'
   if (!raw.startsWith('/')) return '/'
   // Protocol-relative `//host/path` — URL#pathname would keep the `//`
