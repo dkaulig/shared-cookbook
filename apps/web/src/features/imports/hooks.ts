@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
+  ImportCandidate,
   ImportEnqueueResponse,
   ImportPhotosRequest,
   ImportSummaryDto,
@@ -10,6 +11,7 @@ import {
   enqueuePhotoImport,
   enqueueUrlImport,
   fetchImport,
+  fetchImportCandidates,
   fetchMyImports,
 } from './importsApi'
 import { readImportLiveEventAt } from './liveEventTimestamp'
@@ -30,6 +32,14 @@ export const importQueryKeys = {
    * accidentally invalidate the list view.
    */
   mine: (limit: number) => ['imports', 'mine', limit] as const,
+  /**
+   * COVER-0 — freshly-signed cover-candidate URLs for a specific
+   * import. Separate family from {@link status} so the form page /
+   * detail page can invalidate candidate signatures independently
+   * of the import status cache.
+   */
+  candidates: (importId: string) =>
+    ['imports', 'candidates', importId] as const,
 }
 
 /**
@@ -138,6 +148,37 @@ export function useImportStatus(
     // Keep polling even when the tab backgrounds — the user may come
     // back after 30 s and expect the progress bar to reflect reality.
     refetchIntervalInBackground: true,
+  })
+}
+
+/**
+ * COVER-0 — lazy fetch of an import's still-unpromoted cover
+ * candidates. Used by the RecipeFormPage picker grid (pre-save) and
+ * the RecipeDetailPage "Cover ändern" modal (post-save).
+ *
+ * The query returns `[]` on 410 Gone (sweep reaped the batch) so
+ * callers render the "no picker UI" zero-state rather than an error
+ * banner; every other error class propagates verbatim. Caller gates
+ * the query via `enabled` so a recipe form without an importId
+ * never fires the fetch.
+ */
+export function useImportCandidates(
+  importId: string | undefined,
+  options?: { enabled?: boolean },
+) {
+  const enabled = (options?.enabled ?? true) && !!importId
+  return useQuery<ImportCandidate[]>({
+    queryKey: importId
+      ? importQueryKeys.candidates(importId)
+      : ['imports', 'candidates', 'disabled'],
+    queryFn: () => fetchImportCandidates(importId!),
+    enabled,
+    // The signedUrl TTL is short (~15 min) but the picker grid's
+    // re-render frequency is low, so we skip proactive refetch here.
+    // If a signed URL expires mid-session the <img> just fails to
+    // load; the user can refresh the page. Not worth a background
+    // poll loop for this low-traffic surface.
+    staleTime: 5 * 60 * 1000,
   })
 }
 

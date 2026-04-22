@@ -1,6 +1,8 @@
 import type {
   ApiError,
   ExtractionResult,
+  ImportCandidate,
+  ImportCandidatesResponse,
   ImportEnqueueResponse,
   ImportPhotosRequest,
   ImportSourceKind,
@@ -231,6 +233,25 @@ export async function fetchImport(importId: string): Promise<RecipeImportDto> {
     `/api/imports/${encodeURIComponent(importId)}`,
   )
   return mapStatusResponse(wire)
+}
+
+/**
+ * COVER-0 — fetch the freshly-signed URLs for an import's still-
+ * unpromoted cover candidates. Used by the RecipeFormPage's picker
+ * grid (pre-save) and — in a later slice — by the RecipeDetailPage
+ * "Cover ändern" modal (post-save, within the 7-day TTL window).
+ *
+ * Server returns 410 Gone when the sweep has reaped all candidates;
+ * callers surface that as a "no picker UI" zero-state rather than
+ * an error banner. 403 when the caller doesn't own the import.
+ */
+export async function fetchImportCandidates(
+  importId: string,
+): Promise<ImportCandidate[]> {
+  const res = await request<ImportCandidatesResponse>(
+    `/api/imports/${encodeURIComponent(importId)}/candidates`,
+  )
+  return res.candidates
 }
 
 /**
