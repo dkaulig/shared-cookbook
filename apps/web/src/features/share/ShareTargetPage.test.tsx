@@ -366,5 +366,46 @@ describe('<ShareTargetPage />', () => {
         ),
       ).toBeInTheDocument()
     })
+
+    // SHARE-2 /security — the batch-import button must never fire
+    // more than MAX_SHARED_URLS (10) POSTs. At exactly 10 URLs the
+    // picker renders and "Alle importieren (10)" queues exactly 10
+    // jobs. This is the backstop against a hostile payload dripping
+    // into Hangfire via the enqueue endpoint.
+    it('"Alle importieren (10)" fires exactly 10 POSTs at the cap', async () => {
+      signIn()
+      const user = userEvent.setup()
+      const urls = Array.from(
+        { length: 10 },
+        (_, i) => `https://a.example/${i}`,
+      )
+      const enqueued: string[] = []
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({})]),
+        ),
+        http.post('/api/recipes/import/url', async ({ request }) => {
+          const body = (await request.json()) as { url: string; groupId: string }
+          enqueued.push(body.url)
+          return HttpResponse.json({
+            importId: `imp-${enqueued.length}`,
+            cached: false,
+          })
+        }),
+      )
+      renderPage(
+        '/share-target?text=' + encodeURIComponent(urls.join('\n')),
+      )
+      await waitFor(() =>
+        expect(screen.getAllByTestId('share-picker-card')).toHaveLength(10),
+      )
+      await user.click(
+        screen.getByRole('button', { name: /Alle importieren \(10\)/i }),
+      )
+      await waitFor(() =>
+        expect(screen.getByTestId('import-list-page')).toBeInTheDocument(),
+      )
+      expect(enqueued).toHaveLength(10)
+    })
   })
 })

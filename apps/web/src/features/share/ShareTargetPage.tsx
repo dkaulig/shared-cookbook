@@ -65,8 +65,12 @@ export function ShareTargetPage() {
 
   // SHARE-0 — single-URL silent-redirect branch. Only fires when
   // exactly one URL survived extraction; multi-URL payloads fall
-  // through to the picker below.
-  const autoRedirectUrl = sharedUrls.length === 1 ? sharedUrls[0]! : null
+  // through to the picker below. Gated on `payloadKey == null` so a
+  // malformed SW response carrying both `?payload-key=…` AND `?url=…`
+  // doesn't race two redirects against each other (the SW never sends
+  // both today, but defence-in-depth is cheap here).
+  const autoRedirectUrl =
+    sharedUrls.length === 1 && payloadKey == null ? sharedUrls[0]! : null
   useEffect(() => {
     if (status !== 'authenticated' || autoRedirectUrl == null) return
     navigate(
@@ -149,8 +153,14 @@ export function ShareTargetPage() {
     )
   }
 
-  // SHARE-2 — 2-10 URLs → render the picker inline.
-  if (sharedUrls.length > 1 && status === 'authenticated') {
+  // SHARE-2 — 2-10 URLs → render the picker inline. Same
+  // payload-key guard as the single-URL redirect above: when both
+  // shapes arrive in one query string the file-share branch wins.
+  if (
+    sharedUrls.length > 1 &&
+    status === 'authenticated' &&
+    payloadKey == null
+  ) {
     return <MultiUrlPicker urls={sharedUrls} />
   }
 
