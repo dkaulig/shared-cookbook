@@ -63,13 +63,21 @@ describe('extractSharedUrls', () => {
     ).toEqual(['https://ok.example/', 'https://also.ok/'])
   })
 
-  it('caps the list at 10 URLs', () => {
-    // Craft a text with 15 distinct https URLs separated by spaces.
+  it('stops walking after one past the max (10+1 = 11)', () => {
+    // The helper caps at MAX+1 so callers can tell "exactly max" from
+    // "too many" without re-walking the payload. The extra slot lets
+    // `<ShareTargetPage />` render the "too many" reject branch.
     const urls = Array.from({ length: 15 }, (_, i) => `https://a.example/${i}`)
     const result = extractSharedUrls(params({ text: urls.join(' ') }))
-    expect(result).toHaveLength(10)
+    expect(result).toHaveLength(11)
     expect(result[0]).toBe('https://a.example/0')
-    expect(result[9]).toBe('https://a.example/9')
+    expect(result[10]).toBe('https://a.example/10')
+  })
+
+  it('returns exactly 10 entries when the payload has exactly 10 URLs', () => {
+    const urls = Array.from({ length: 10 }, (_, i) => `https://a.example/${i}`)
+    const result = extractSharedUrls(params({ text: urls.join(' ') }))
+    expect(result).toHaveLength(10)
   })
 
   it('rejects oversize URLs (>2000 chars)', () => {

@@ -11,14 +11,10 @@ import { Button } from '@/components/ui/button'
 import { useSession } from '@/features/auth/useSession'
 import { useMyGroups } from '@/features/groups/useMyGroups'
 import { useEnqueueUrlImport } from '@/features/imports/hooks'
-import { extractSharedUrls } from './extractSharedUrl'
+import { MAX_SHARED_URLS, extractSharedUrls } from './extractSharedUrl'
 import { deleteSharePayload, readSharePayload } from './sharePayloadStore'
 
 type PhotoState = 'idle' | 'loading' | 'expired'
-
-// SHARE-2 — same sanity cap as the extractor. The picker only renders
-// up to 10 cards; anything above hits the "too many" rejection path.
-const MAX_URLS = 10
 
 /**
  * SHARE-0 + SHARE-1 + SHARE-2 — entry point for iOS / Android PWA
@@ -52,12 +48,12 @@ export function ShareTargetPage() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  // SHARE-2 — raw URL extraction. >MAX_URLS hits the "too many"
-  // reject branch; exactly one hits the silent-redirect branch; 2-10
-  // render the picker inline below.
-  const rawUrlCount = countRawUrls(searchParams)
-  const sharedUrls = extractSharedUrls(searchParams)
-  const tooManyUrls = rawUrlCount > MAX_URLS
+  // SHARE-2 — URL extraction returns up to MAX_SHARED_URLS+1 entries
+  // so we can detect "too many" without re-walking. 0 → empty state,
+  // 1 → silent redirect, 2..MAX → picker, >MAX → reject.
+  const extracted = extractSharedUrls(searchParams)
+  const tooManyUrls = extracted.length > MAX_SHARED_URLS
+  const sharedUrls = tooManyUrls ? [] : extracted
   const payloadKeyRaw = searchParams.get('payload-key')
   const payloadKey =
     payloadKeyRaw != null && /^\d+$/.test(payloadKeyRaw)
@@ -70,8 +66,7 @@ export function ShareTargetPage() {
   // SHARE-0 — single-URL silent-redirect branch. Only fires when
   // exactly one URL survived extraction; multi-URL payloads fall
   // through to the picker below.
-  const autoRedirectUrl =
-    sharedUrls.length === 1 && !tooManyUrls ? sharedUrls[0]! : null
+  const autoRedirectUrl = sharedUrls.length === 1 ? sharedUrls[0]! : null
   useEffect(() => {
     if (status !== 'authenticated' || autoRedirectUrl == null) return
     navigate(
@@ -229,14 +224,11 @@ function MultiUrlPicker({ urls }: { urls: string[] }) {
   }
 
   async function importAll() {
-    const list = groups.data ?? []
-    if (list.length === 0) {
-      setSubmitError(
-        'Du brauchst zuerst eine Gruppe, bevor du importieren kannst.',
-      )
-      return
-    }
-    const groupId = list[0]!.id
+    // Every authenticated user has at least their private collection,
+    // so `groups.data` is non-empty once the query settles. While it
+    // loads, the button is disabled via `groups.isPending` below.
+    const groupId = groups.data?.[0]?.id
+    if (!groupId) return
     setSubmitError(null)
     // Fire enqueue mutations in parallel. The server queues per-user
     // so these land on Hangfire without racing; the N cap (≤10) is
@@ -251,9 +243,7 @@ function MultiUrlPicker({ urls }: { urls: string[] }) {
       )
       return
     }
-    navigate('/rezepte/import', {
-      state: { batchImportCount: successes },
-    })
+    navigate('/rezepte/import')
   }
 
   return (
@@ -303,14 +293,13 @@ function MultiUrlPicker({ urls }: { urls: string[] }) {
           type="button"
           variant="ghost"
           onClick={() => navigate(-1)}
-          disabled={enqueue.isPending}
         >
           Abbrechen
         </Button>
         <Button
           type="button"
           onClick={() => void importAll()}
-          disabled={enqueue.isPending || urls.length === 0}
+          disabled={enqueue.isPending || groups.isPending}
         >
           {enqueue.isPending
             ? 'Importiere …'
@@ -319,43 +308,6 @@ function MultiUrlPicker({ urls }: { urls: string[] }) {
       </div>
     </main>
   )
-}
-
-/**
- * Counts the raw (pre-cap) http(s) URL tokens in the payload so the
- * page can tell the difference between "user shared 2 URLs" (picker)
- * and "user shared 15 URLs" (reject). `extractSharedUrls` caps at 10
- * and doesn't tell callers it truncated; this standalone pass just
- * runs the same regex but skips the cap.
- */
-function countRawUrls(params: URLSearchParams): number {
-  const seen = new Set<string>()
-  for (const key of ['url', 'text', 'title'] as const) {
-    const raw = (params.get(key) ?? '').trim()
-    if (!raw) continue
-    const matches = raw.matchAll(/https?:\/\/[^\s<>"')\]]+/g)
-    for (const m of matches) {
-      try {
-        const u = new URL(m[0])
-        if (u.protocol === 'http:' || u.protocol === 'https:') {
-          seen.add(u.toString())
-        }
-      } catch {
-        /* skip */
-      }
-    }
-    if (!/\s/.test(raw)) {
-      try {
-        const u = new URL(raw)
-        if (u.protocol === 'http:' || u.protocol === 'https:') {
-          seen.add(u.toString())
-        }
-      } catch {
-        /* skip */
-      }
-    }
-  }
-  return seen.size
 }
 
 /**
