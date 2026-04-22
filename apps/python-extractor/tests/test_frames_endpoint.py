@@ -9,7 +9,6 @@ trying to follow the ``file://`` URIs the pipeline used to emit.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -33,12 +32,18 @@ def frame_store(frame_store_root: Path) -> FrameStore:
 
 
 @pytest.fixture()
-def frame_client(frame_store: FrameStore) -> Iterator[TestClient]:
-    """App with an overridden FrameStore so tests stage files directly."""
+def frame_client(frame_store: FrameStore) -> TestClient:
+    """App with an overridden FrameStore so tests stage files directly.
+
+    NOT wrapped in ``with TestClient(...)`` on purpose — the app's
+    lifespan kicks off a Whisper model prefetch, which in CI has no
+    model cache to reuse and blocks each test ~30 s. Skipping the
+    lifespan is safe here because the frames endpoint only depends on
+    the dependency-overridden FrameStore, nothing that startup wires up.
+    """
     app = create_app()
     app.dependency_overrides[get_frame_store] = lambda: frame_store
-    with TestClient(app) as c:
-        yield c
+    return TestClient(app)
 
 
 def test_serves_existing_frame_as_jpeg(frame_client: TestClient, frame_store: FrameStore) -> None:
