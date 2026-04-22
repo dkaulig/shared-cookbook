@@ -100,7 +100,6 @@ async def test_live_video_pipeline_runs_end_to_end() -> None:
                     "steps": [],
                     "tags": [],
                     "source_url": "https://example",
-                    "thumbnail_url": None,
                 }
             }
         )

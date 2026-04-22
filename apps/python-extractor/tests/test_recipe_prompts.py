@@ -60,7 +60,6 @@ def test_recipe_schema_accepts_minimal_valid_payload() -> None:
         "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/rezept",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -77,7 +76,6 @@ def test_recipe_schema_rejects_missing_title() -> None:
         "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/rezept",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -96,7 +94,6 @@ def test_recipe_schema_rejects_extra_top_level_properties() -> None:
         "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/rezept",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
         "bogus_field": "should not be here",
     }
@@ -140,7 +137,6 @@ def test_recipe_schema_validates_full_payload() -> None:
         ],
         "tags": ["dessert", "süß", "klassiker"],
         "source_url": "https://example.com/kaiserschmarrn",
-        "thumbnail_url": "https://example.com/kaiserschmarrn.jpg",
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -162,7 +158,6 @@ def test_recipe_schema_rejects_invalid_confidence_level() -> None:
         ],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -192,7 +187,6 @@ def test_recipe_schema_rejects_ingredient_without_name() -> None:
         ],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -229,7 +223,6 @@ def test_recipe_schema_rejects_legacy_flat_ingredients() -> None:
         "steps": [],
         "tags": [],
         "source_url": "https://example.com/rezept",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -254,7 +247,6 @@ def test_recipe_schema_rejects_zero_components() -> None:
         "components": [],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -315,7 +307,6 @@ def test_recipe_schema_accepts_two_labelled_components() -> None:
         ],
         "tags": [],
         "source_url": "https://example.com/q",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -337,7 +328,6 @@ def test_recipe_schema_accepts_null_component_label() -> None:
         ],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -364,7 +354,6 @@ def test_recipe_schema_rejects_component_missing_position() -> None:
         ],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -395,7 +384,6 @@ def test_recipe_schema_rejects_component_with_extra_property() -> None:
         ],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -481,7 +469,6 @@ def test_recipe_schema_accepts_nutrition_estimate_payload() -> None:
         "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": {
             "kcal": 420,
             "protein_g": 24,
@@ -504,7 +491,6 @@ def test_recipe_schema_accepts_null_nutrition_estimate() -> None:
         "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -525,7 +511,6 @@ def test_recipe_schema_rejects_missing_nutrition_estimate() -> None:
         "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
     }
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(instance=payload, schema=RECIPE_SCHEMA)
@@ -560,7 +545,6 @@ def test_recipe_schema_rejects_nutrition_with_extra_field() -> None:
         "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": {
             "kcal": 100,
             "protein_g": 1,
@@ -585,7 +569,6 @@ def test_recipe_schema_rejects_nutrition_with_missing_required_field() -> None:
         "components": [_default_component()],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": {
             "kcal": 100,
             "protein_g": 10,

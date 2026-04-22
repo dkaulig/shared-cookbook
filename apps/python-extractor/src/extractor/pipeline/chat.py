@@ -136,7 +136,6 @@ async def chat_to_recipe(
     result = post_process(
         llm_output,
         original_url=f"chat:{session_id}",
-        fallback_thumbnail=None,
         usage=usage,
         nutrition_enabled=nutrition_enabled,
         component_label_max=component_label_max,

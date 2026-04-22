@@ -119,7 +119,6 @@ RECIPE_SCHEMA: Final[dict[str, Any]] = {
         "components",
         "tags",
         "source_url",
-        "thumbnail_url",
         "nutrition_estimate",
     ],
     "properties": {
@@ -151,7 +150,6 @@ RECIPE_SCHEMA: Final[dict[str, Any]] = {
             "maxItems": 20,
         },
         "source_url": {"type": "string", "minLength": 1, "maxLength": 2048},
-        "thumbnail_url": {"type": ["string", "null"], "maxLength": 2048},
         # P2-10: nullable nutrition estimate per portion. Azure Responses
         # API strict mode (2025-04) requires every ``properties`` key to
         # appear in ``required``; callers MUST pass the key and may set

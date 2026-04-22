@@ -10,8 +10,6 @@ The LLM is constrained by the schema, but we still clean its output:
 - Lowercase + de-duplicate tags, drop empties.
 - Pin ``source_url`` to the caller-supplied URL so the LLM can't redirect
   the user to a different page.
-- Fall back to the caller-provided thumbnail (yt-dlp thumbnail or blog
-  og:image) when the LLM didn't pick one.
 - Compute an aggregate ``overall`` confidence from the per-item
   ingredient and step confidences.
 
@@ -184,7 +182,6 @@ def post_process(
     llm_output: dict[str, Any],
     *,
     original_url: str,
-    fallback_thumbnail: str | None,
     candidate_thumbnails: list[str] | None = None,
     extra_notes: list[str] | None = None,
     usage: TokenUsage | None = None,
@@ -203,8 +200,11 @@ def post_process(
         ``RECIPE_SCHEMA`` (Azure strict mode enforces); we still defend.
     original_url
         Caller-supplied URL — becomes ``recipe.source_url`` verbatim.
-    fallback_thumbnail
-        Used for ``recipe.thumbnail_url`` when the LLM didn't set one.
+    candidate_thumbnails
+        COVER-0 — ordered list of candidate thumbnail URLs surfaced
+        upstream (yt-dlp thumbnails + ffmpeg frames + JSON-LD
+        ``image[]``). Passed through verbatim onto
+        ``recipe.candidate_thumbnails``; ``[]`` on non-URL paths.
     extra_notes
         Optional extra strings to merge into ``confidence.notes``
         (e.g. ``"Website nicht erreichbar"``).
@@ -289,21 +289,11 @@ def post_process(
 
     tags = _normalise_tags(llm_output.get("tags") or [])
 
-    llm_thumbnail = llm_output.get("thumbnail_url")
-    thumbnail_url = (
-        llm_thumbnail if isinstance(llm_thumbnail, str) and llm_thumbnail else fallback_thumbnail
-    )
-
-    # COVER-0 slice A — ``candidate_thumbnails`` is always present on
-    # the wire (empty list on non-URL paths). When the caller supplied
-    # a non-empty candidate list but no ``thumbnail_url`` resolved,
-    # fall back to candidate[0] so the .NET side's legacy
-    # single-thumbnail reader keeps working. This "transition
-    # lubricant" disappears in slice B along with the
-    # ``thumbnail_url`` field.
+    # COVER-0 — ``candidate_thumbnails`` is always present on the wire
+    # (empty list on non-URL paths). Passed through verbatim; the .NET
+    # ``CandidateAttacher`` downloads each URL and stages it as a
+    # ``StagedPhoto``.
     effective_candidates: list[str] = list(candidate_thumbnails) if candidate_thumbnails else []
-    if thumbnail_url is None and effective_candidates:
-        thumbnail_url = effective_candidates[0]
 
     # CFG-1 — ``feature.nutrition_estimate_enabled`` kill-switch. When
     # off, force ``nutrition_estimate=None`` regardless of what Azure
@@ -324,7 +314,6 @@ def post_process(
         "components": components,
         "tags": tags,
         "source_url": original_url,
-        "thumbnail_url": thumbnail_url,
         "candidate_thumbnails": effective_candidates,
         "nutrition_estimate": nutrition_estimate,
     }

@@ -155,7 +155,6 @@ async def extract_from_photos(
     return post_process(
         llm_output,
         original_url=_PHOTO_SOURCE_SENTINEL,
-        fallback_thumbnail=None,
         usage=usage,
         nutrition_enabled=nutrition_enabled,
         component_label_max=component_label_max,

@@ -78,7 +78,6 @@ def _canonical_llm_response() -> dict[str, Any]:
         ],
         "tags": [],
         "source_url": "https://llm.example/bogus",
-        "thumbnail_url": None,
         "nutrition_estimate": {"kcal": 420, "protein_g": 12, "carbs_g": 50, "fat_g": 10},
     }
 
@@ -116,7 +115,6 @@ def test_post_process_null_outs_nutrition_when_feature_disabled() -> None:
     result = post_process(
         llm_output,
         original_url="https://example.test/recipe",
-        fallback_thumbnail=None,
         nutrition_enabled=False,
     )
     assert result["recipe"]["nutrition_estimate"] is None
@@ -128,7 +126,6 @@ def test_post_process_keeps_nutrition_when_feature_enabled() -> None:
     result = post_process(
         llm_output,
         original_url="https://example.test/recipe",
-        fallback_thumbnail=None,
         nutrition_enabled=True,
     )
     est = result["recipe"]["nutrition_estimate"]
@@ -148,7 +145,6 @@ def test_post_process_accepts_config_snapshot() -> None:
     result = post_process(
         _canonical_llm_response(),
         original_url="https://example.test/recipe",
-        fallback_thumbnail=None,
         config_snapshot=snapshot,
     )
     assert result.get("config_snapshot") == snapshot
@@ -160,7 +156,6 @@ def test_post_process_without_snapshot_has_no_key() -> None:
     result = post_process(
         _canonical_llm_response(),
         original_url="https://example.test/recipe",
-        fallback_thumbnail=None,
     )
     assert "config_snapshot" not in result
 
@@ -175,7 +170,6 @@ def test_post_process_honours_custom_component_label_max() -> None:
     result = post_process(
         llm_output,
         original_url="https://example.test/recipe",
-        fallback_thumbnail=None,
         component_label_max=100,
     )
     assert result["recipe"]["components"][0]["label"] == long_label
@@ -190,7 +184,6 @@ def test_post_process_honours_custom_generic_label_blacklist() -> None:
     result = post_process(
         llm_output,
         original_url="https://example.test/recipe",
-        fallback_thumbnail=None,
         generic_label_blacklist=["spezialsauce"],
     )
     assert result["recipe"]["components"][0]["label"] is None

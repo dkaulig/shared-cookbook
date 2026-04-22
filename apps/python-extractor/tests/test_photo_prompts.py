@@ -123,7 +123,6 @@ def test_photo_recipe_schema_accepts_minimal_payload() -> None:
         "components": [_photo_default_component()],
         "tags": [],
         "source_url": "photos://upload",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=PHOTO_RECIPE_SCHEMA)
@@ -155,7 +154,6 @@ def test_photo_recipe_schema_accepts_handwritten_uncertain_ingredient() -> None:
         ],
         "tags": [],
         "source_url": "photos://upload",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=PHOTO_RECIPE_SCHEMA)
@@ -184,7 +182,6 @@ def test_photo_recipe_schema_accepts_handwritten_uncertain_step() -> None:
         ],
         "tags": [],
         "source_url": "photos://upload",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=PHOTO_RECIPE_SCHEMA)
@@ -218,7 +215,6 @@ def test_photo_recipe_schema_still_accepts_classic_confidences() -> None:
         ],
         "tags": [],
         "source_url": "photos://upload",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     jsonschema.validate(instance=payload, schema=PHOTO_RECIPE_SCHEMA)
@@ -243,7 +239,6 @@ def test_photo_recipe_schema_rejects_bogus_confidence() -> None:
         ],
         "tags": [],
         "source_url": "photos://upload",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -262,7 +257,6 @@ def test_photo_recipe_schema_rejects_extra_properties() -> None:
         "components": [_photo_default_component()],
         "tags": [],
         "source_url": "photos://upload",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
         "bogus": "x",
     }
@@ -284,7 +278,6 @@ def test_photo_recipe_schema_accepts_nutrition_estimate_payload() -> None:
         "components": [_photo_default_component()],
         "tags": [],
         "source_url": "photos://upload",
-        "thumbnail_url": None,
         "nutrition_estimate": {
             "kcal": 380,
             "protein_g": 6,
@@ -402,7 +395,6 @@ def test_photo_recipe_schema_does_not_mutate_base_recipe_schema() -> None:
         ],
         "tags": [],
         "source_url": "https://example.com/x",
-        "thumbnail_url": None,
         "nutrition_estimate": None,
     }
     with pytest.raises(jsonschema.ValidationError):

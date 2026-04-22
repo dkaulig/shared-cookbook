@@ -40,7 +40,6 @@ def _canonical_recipe_payload() -> dict[str, Any]:
         "steps": [{"position": 1, "content": "Schälen.", "confidence": "high"}],
         "tags": ["vegan"],
         "source_url": "ignored",
-        "thumbnail_url": None,
     }
 
 
@@ -149,7 +148,6 @@ def test_post_to_recipe_returns_structured_result() -> None:
     assert body["recipe"]["title"] == "Kartoffelgratin"
     # Synthetic chat: URL pinned by post_process.
     assert body["recipe"]["source_url"] == "chat:sess-abc"
-    assert body["recipe"]["thumbnail_url"] is None
     assert body["confidence"]["overall"] in ("high", "medium", "low")
     # PF2 headers + body.usage both ship so the .NET side can pick
     # whichever is easier to read off.
