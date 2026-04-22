@@ -108,16 +108,12 @@ export interface ExtractedRecipe {
   components: ExtractedComponent[]
   tags: string[]
   source_url: string
-  thumbnail_url: string | null
   /**
    * COVER-0 — up to 6 absolute URLs the Python extractor emitted as
    * import-cover candidates (yt-dlp thumbnails + ffmpeg frames +
-   * JSON-LD `image[]`). Ordered; `[0]` is the default cover and mirrors
-   * the legacy `thumbnail_url` during the migration window. Absent on
-   * legacy / chat-import payloads that pre-date the field.
-   *
-   * A later cleanup slice (after D + E ship) removes the legacy
-   * `thumbnail_url` above and promotes this field to mandatory.
+   * JSON-LD `image[]`). Ordered; `[0]` is the default cover. Optional
+   * on the TS side for chat-import payloads + legacy-server payloads
+   * that pre-date the field.
    */
   candidate_thumbnails?: string[]
   /**
@@ -374,28 +370,13 @@ export interface RecipeImportDto {
   segmentsDone?: number | null
   segmentsTotal?: number | null
   /**
-   * BUG-018 — id of the {@link StagedPhotoResponse.stagedPhotoId} the
-   * URL-import job auto-created from `recipe.thumbnail_url` (typically
-   * the yt-dlp video frame). `null` when the source had no thumbnail
-   * or the download failed gracefully (timeout, oversize, non-image
-   * content-type, host-allowlist reject).
-   *
-   * The web layer's `extractedRecipeToPrefill` uses this to seed the
-   * staged-photo list it forwards to `POST /api/recipes`, so the user
-   * gets the video thumbnail attached without the manual upload step.
-   * The persisted SeaweedFS copy outlives the FB-CDN URL expiry.
-   */
-  thumbnailStagedPhotoId?: string | null
-  /**
    * COVER-0 — up to 6 staged-photo IDs captured as import-cover
    * candidates (yt-dlp thumbnails + ffmpeg frames + JSON-LD image[]).
    * Ordered; [0] is the default cover. `[]` on legacy rows + imports
-   * that yielded no candidates.
-   *
-   * During the migration window, `thumbnailStagedPhotoId` continues
-   * to mirror `candidateStagedPhotoIds[0]` — the frontend can adopt
-   * either field without breakage. A later slice removes the legacy
-   * `thumbnailStagedPhotoId` field.
+   * that yielded no candidates. The web layer's
+   * `extractedRecipeToPrefill` seeds the staged-photo list the form
+   * forwards to `POST /api/recipes` from this array so the user gets
+   * the video / blog cover attached without the manual upload step.
    */
   candidateStagedPhotoIds: string[]
   /**
