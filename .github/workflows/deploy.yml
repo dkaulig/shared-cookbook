@@ -267,3 +267,32 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d
             echo "$NEW_HASH" > .last-compose-hash
             docker image prune -f
+
+  prune-ghcr:
+    name: prune-ghcr
+    # Auto-retention for the 3 container packages so GHCR storage doesn't
+    # balloon. Runs after a successful deploy; each deploy produces ~3
+    # untagged metadata layers per image on top of the tagged manifest,
+    # so without pruning we accumulate ~10 orphan versions per tag.
+    # Policy (per action defaults below): keep the 10 newest versions
+    # overall; only delete versions that have NO tag at all (semver +
+    # `latest` + any SHA tag survives). Safe, conservative, hands-off.
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        package:
+          - familien-kochbuch-api
+          - familien-kochbuch-web
+          - familien-kochbuch-python-extractor
+    steps:
+      - name: Delete untagged versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ matrix.package }}
+          package-type: container
+          owner: kay-solutions
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: 'true'
