@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,9 +28,39 @@ import { isValidEmail } from './validation'
  * Behaviour preserved: validation rules, auth-store wiring, post-login
  * redirect.
  */
+/**
+ * SHARE-0b — same-origin allowlist for the post-login `?next=` redirect.
+ *
+ * The `next` param is attacker-controlled (anyone who can craft a
+ * `/login?next=…` link — share-sheet payload, phishing email — can
+ * steer post-login navigation). Gate it to a relative same-origin path
+ * so a malicious value can't turn the login flow into an open redirect:
+ *
+ *   ✓ `/share-target?url=…` — starts with a single `/`, no scheme.
+ *   ✗ `//evil.com/steal`   — protocol-relative, the browser resolves
+ *                            it against the current scheme and jumps
+ *                            to an external origin.
+ *   ✗ `https://evil.com`   — explicit cross-origin.
+ *   ✗ `javascript:alert(1)` — scheme payload; no URL parser needed to
+ *                            spot this — any non-`/` first char fails.
+ *
+ * A value that fails the allowlist falls back to `'/'` so the user
+ * still lands somewhere sensible.
+ */
+export function safeNextPath(raw: string | null): string {
+  if (!raw) return '/'
+  if (!raw.startsWith('/')) return '/'
+  // Protocol-relative `//host/path` — URL#pathname would keep the `//`
+  // and React Router would treat it as a relative nav, but the browser
+  // address bar interprets `//evil.com` as a new origin on navigation.
+  if (raw.startsWith('//')) return '/'
+  return raw
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()
+  const [searchParams] = useSearchParams()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -58,7 +88,7 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       await login(email.trim(), password)
-      navigate('/', { replace: true })
+      navigate(safeNextPath(searchParams.get('next')), { replace: true })
     } catch (err) {
       const apiErr = err as ApiError
       setError(apiErr.message || 'Anmeldung fehlgeschlagen.')
