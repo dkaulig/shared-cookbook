@@ -518,7 +518,14 @@ async def _prefetch_whisper_model() -> None:
     warning and are swallowed — the first real transcription call will
     re-attempt the download at that point. This only exists to keep the
     first-user-facing request from blocking on HuggingFace.
+
+    Skipped under pytest: CI runners have no HF cache, so each
+    ``with TestClient(app)`` would kick off a 3 GB download that still
+    runs when the context exits — shutdown then blocks on task.cancel()
+    + await task, compounding across tests into a multi-minute hang.
     """
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
     try:
         from extractor.pipeline.video import FasterWhisperTranscriber
     except ImportError:  # pragma: no cover — faster-whisper optional at dev-time
