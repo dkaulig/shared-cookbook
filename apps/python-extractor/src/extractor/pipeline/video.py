@@ -805,22 +805,37 @@ class FfmpegFrameExtractor:
     PATH inside the docker image (see Dockerfile's apt install); local
     dev without the binary can swap in :class:`StubFrameExtractor`.
 
+    COVER-0 fix: frames land at ``output_dir/<idx>.jpg`` and the
+    resulting :class:`ThumbnailCandidate.url` is an HTTP URL of the
+    shape ``<url_base>/<idx>.jpg``. The caller (extract_from_url)
+    allocates the directory + url_base via :class:`FrameStore`, and
+    the main.py FastAPI app serves the files from that path so the
+    .NET :class:`CandidateAttacher` can fetch them as normal HTTP
+    GETs. The filename pattern matches the endpoint's regex
+    (``\\d+\\.jpg``).
+
     Security:
     - ``create_subprocess_exec`` receives an argv list — no shell
       interpretation. A hostile filename cannot break out of ``-i``
       into a separate command.
     - Output files live inside ``output_dir`` (caller-owned), never
-      overlap with the mp4 input, and use a fixed ``frame-<i>.jpg``
+      overlap with the mp4 input, and use a fixed ``<idx>.jpg``
       naming scheme — no per-input filename concatenation.
+    - ``url_base`` is composed at construction time from the
+      pipeline's allocated UUID dir; we never interpolate request-
+      controlled data into it.
     """
 
-    def __init__(self, *, output_dir: Path) -> None:
+    def __init__(self, *, output_dir: Path, url_base: str) -> None:
         self._output_dir = output_dir
+        # Normalise by stripping a trailing slash so the join below is
+        # a single ``/`` regardless of caller style.
+        self._url_base = url_base.rstrip("/")
 
     async def extract(self, *, mp4_path: Path, timestamps: list[float]) -> list[ThumbnailCandidate]:
         results: list[ThumbnailCandidate] = []
         for index, timestamp in enumerate(timestamps):
-            out_path = self._output_dir / f"frame-{index}.jpg"
+            out_path = self._output_dir / f"{index}.jpg"
             argv: list[str] = [
                 "ffmpeg",
                 "-nostdin",
@@ -861,7 +876,10 @@ class FfmpegFrameExtractor:
                         out_path.unlink()
                 continue
             results.append(
-                ThumbnailCandidate(url=out_path.as_uri(), timestamp=timestamp),
+                ThumbnailCandidate(
+                    url=f"{self._url_base}/{index}.jpg",
+                    timestamp=timestamp,
+                ),
             )
         return results
 

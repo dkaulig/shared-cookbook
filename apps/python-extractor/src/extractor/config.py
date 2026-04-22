@@ -48,6 +48,31 @@ class Settings(BaseSettings):
     # on prompts (shorter TTL → faster feedback loop).
     extractor_config_ttl_seconds: float = 60.0
 
+    # COVER-0 fix: on-disk root for ffmpeg-extracted video frames. The
+    # pipeline writes one UUID-keyed subdir per extraction and serves
+    # the files via GET /extractor/frames/{dir_id}/{filename} so the
+    # .NET CandidateAttacher can fetch them like a regular CDN URL. The
+    # default lives outside the app's working dir because Docker mounts
+    # a tmpfs there (see docker-compose.yml) — bounded size protects
+    # against a runaway extraction filling the disk.
+    extractor_frames_dir: str = "/var/extractor/frames"
+
+    # COVER-0 fix: URL prefix the candidate_thumbnails emit for
+    # ffmpeg-extracted frames. Points at this same service's own
+    # ``/extractor/frames`` route, using the docker-compose hostname so
+    # the .NET CandidateAttacher can reach it over the internal
+    # network. No trailing slash — the extractor appends
+    # ``/<dir_id>/<idx>.jpg`` itself.
+    extractor_frames_url_base: str = "http://python-extractor:8000/extractor/frames"
+
+    # COVER-0 fix: TTL after which the sweep pass reclaims a frame
+    # directory. 1 hour comfortably covers the window between "Python
+    # returns candidate_thumbnails" and ".NET CandidateAttacher has
+    # downloaded and staged them"; anything still referenced past that
+    # boundary is either a stuck import or a bug, and losing the frames
+    # is the right failure mode (the import itself remains usable).
+    extractor_frames_ttl_seconds: float = 3600.0
+
     # `env_file=None`: we rely on docker-compose + the VPS .env handling
     # for real runs, not a per-service .env file. Tests override via
     # monkeypatch on os.environ.

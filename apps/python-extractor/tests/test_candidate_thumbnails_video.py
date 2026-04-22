@@ -360,11 +360,14 @@ async def test_ffmpeg_frame_extractor_uses_argv_list_not_shell(tmp_path: Path) -
     try:
         mp4 = tmp_path / "video.mp4"
         mp4.write_bytes(b"stub")
-        extractor = FfmpegFrameExtractor(output_dir=tmp_path)
+        extractor = FfmpegFrameExtractor(
+            output_dir=tmp_path,
+            url_base="http://python-extractor:8000/extractor/frames/abc",
+        )
         # Pre-create the expected output files so the post-extract
         # existence check passes without a real ffmpeg.
         for i in range(2):
-            (tmp_path / f"frame-{i}.jpg").write_bytes(b"fake")
+            (tmp_path / f"{i}.jpg").write_bytes(b"fake")
         await extractor.extract(mp4_path=mp4, timestamps=[1.0, 2.0])
     finally:
         _asyncio.create_subprocess_exec = orig_spawn  # type: ignore[assignment]
@@ -375,3 +378,47 @@ async def test_ffmpeg_frame_extractor_uses_argv_list_not_shell(tmp_path: Path) -
         # list-entry (never shell-joined).
         assert argv[0] == "ffmpeg"
         assert all(isinstance(a, str) for a in argv)
+
+
+@pytest.mark.asyncio
+async def test_ffmpeg_frame_extractor_emits_http_urls(tmp_path: Path) -> None:
+    """COVER-0 fix: ffmpeg-extracted frames must surface as HTTP URLs
+    (not ``file://`` URIs) so the .NET CandidateAttacher can fetch them
+    through its regular HTTP client. The URL base points at the
+    python-extractor's own ``/extractor/frames/<dir_id>`` route."""
+    import asyncio as _asyncio
+
+    from extractor.pipeline.video import FfmpegFrameExtractor
+
+    async def _fake_spawn(*_args: str, **_kwargs: object) -> object:
+        class _FakeProc:
+            returncode = 0
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                return b"", b""
+
+        return _FakeProc()
+
+    orig_spawn = _asyncio.create_subprocess_exec
+    _asyncio.create_subprocess_exec = _fake_spawn  # type: ignore[assignment]
+    try:
+        mp4 = tmp_path / "video.mp4"
+        mp4.write_bytes(b"stub")
+        url_base = "http://python-extractor:8000/extractor/frames/abc-123"
+        extractor = FfmpegFrameExtractor(output_dir=tmp_path, url_base=url_base)
+        # Pre-create exactly the files ffmpeg "would" emit at indices 0..2.
+        for i in range(3):
+            (tmp_path / f"{i}.jpg").write_bytes(b"fake")
+        frames = await extractor.extract(mp4_path=mp4, timestamps=[1.0, 2.0, 3.0])
+    finally:
+        _asyncio.create_subprocess_exec = orig_spawn  # type: ignore[assignment]
+
+    assert [f.url for f in frames] == [
+        f"{url_base}/0.jpg",
+        f"{url_base}/1.jpg",
+        f"{url_base}/2.jpg",
+    ]
+    # No ``file://`` URL must leak from the extractor — the whole point
+    # of the fix.
+    for frame in frames:
+        assert not frame.url.startswith("file:")

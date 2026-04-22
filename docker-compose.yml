@@ -74,6 +74,13 @@ services:
       # and bakes it into the callback_url it hands to Python on every
       # /extract/url and /extract/photos dispatch.
       API_INTERNAL_BASE_URL: "${API_INTERNAL_BASE_URL:-http://api:5000}"
+      # COVER-0 fix — docker-hostnames the CandidateAttacher is allowed
+      # to fetch from directly (skips CDN + public-IP gates). The
+      # python-extractor serves ffmpeg-extracted video frames via its
+      # own HTTP endpoint on the internal docker network; this entry
+      # lets the attacher fetch them without weakening the external-
+      # URL SSRF posture. Exact-match (not suffix), case-insensitive.
+      CandidateAttacher__AllowedInternalHosts__0: "python-extractor"
       # ── Orchestrator bot (OPS1) ─────────────────────────────────
       ORCHESTRATOR_PASSWORD: ${ORCHESTRATOR_PASSWORD:-}
       ORCHESTRATOR_PASSWORD_ROTATE: ${ORCHESTRATOR_PASSWORD_ROTATE:-}
@@ -145,11 +152,31 @@ services:
       # large-v3 weights survive image redeploys. faster-whisper +
       # huggingface_hub honour HF_HOME for all on-disk lookups.
       HF_HOME: /home/app/.cache/huggingface
+      # COVER-0 fix — per-extraction ffmpeg frame output dir. Mounted
+      # as tmpfs (see ``tmpfs`` below) so a runaway extraction can't
+      # exhaust disk and a container restart wipes stale frames
+      # without explicit cleanup. The TTL sweep in the pipeline keeps
+      # the tmpfs honest between restarts.
+      EXTRACTOR_FRAMES_DIR: /var/extractor/frames
+      # COVER-0 fix — URL prefix used by the extractor to address its
+      # own frames-serving route. The .NET CandidateAttacher fetches
+      # these like any CDN URL; ``python-extractor`` is the docker-
+      # compose service hostname so this stays reachable on the
+      # internal network.
+      EXTRACTOR_FRAMES_URL_BASE: http://python-extractor:8000/extractor/frames
     volumes:
       # OPS — Whisper model weights out of the image. First boot with a
       # fresh volume streams ~3 GB from HuggingFace; subsequent boots
       # hit the cache. See Dockerfile HEALTHCHECK start_period.
       - whisper-models:/home/app/.cache/huggingface
+    tmpfs:
+      # COVER-0 fix — ffmpeg writes video frames here. Capped at 256 MB
+      # (the pipeline extracts at most 4 × ~300 KB JPEGs per
+      # extraction, well under 2 MB per import) so a bug in the
+      # extractor can't exhaust host memory even with concurrent
+      # imports. tmpfs also wipes on container restart which is the
+      # right reset behaviour for short-lived artefacts.
+      - /var/extractor/frames:size=256m,mode=0755,uid=1001,gid=1001
     expose:
       - "8000"
     depends_on:

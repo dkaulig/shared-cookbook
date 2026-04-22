@@ -71,6 +71,11 @@ services:
       # so Python can POST progress back to api. Override in prod only
       # if api runs under a non-default hostname/port in the compose net.
       API_INTERNAL_BASE_URL: "${API_INTERNAL_BASE_URL:-http://api:5000}"
+      # COVER-0 fix — docker-hostnames the CandidateAttacher is allowed
+      # to fetch from directly (skips CDN + public-IP gates). The
+      # python-extractor serves ffmpeg-extracted video frames via its
+      # own HTTP endpoint; this entry lets the attacher pull them.
+      CandidateAttacher__AllowedInternalHosts__0: "python-extractor"
       # ── Orchestrator bot (OPS1) ─────────────────────────────────
       ORCHESTRATOR_PASSWORD: ${ORCHESTRATOR_PASSWORD:-}
       ORCHESTRATOR_PASSWORD_ROTATE: ${ORCHESTRATOR_PASSWORD_ROTATE:-}
@@ -130,11 +135,26 @@ services:
       # large-v3 weights survive image redeploys. faster-whisper +
       # huggingface_hub honour HF_HOME for all on-disk lookups.
       HF_HOME: /home/app/.cache/huggingface
+      # COVER-0 fix — per-extraction ffmpeg frame output dir. Mounted
+      # as tmpfs (see ``tmpfs`` below) so a runaway extraction can't
+      # exhaust disk; the TTL sweep in the pipeline keeps the tmpfs
+      # honest between restarts.
+      EXTRACTOR_FRAMES_DIR: /var/extractor/frames
+      # COVER-0 fix — URL prefix the candidate_thumbnails emit for
+      # ffmpeg-extracted frames. Points at the service's own
+      # ``/extractor/frames`` route so the .NET CandidateAttacher can
+      # fetch them over the internal docker network.
+      EXTRACTOR_FRAMES_URL_BASE: http://python-extractor:8000/extractor/frames
     volumes:
       # OPS — Whisper model weights out of the image. First boot with a
       # fresh volume streams ~3 GB from HuggingFace; subsequent boots
       # hit the cache on disk. See Dockerfile HEALTHCHECK start_period.
       - whisper-models:/home/app/.cache/huggingface
+    tmpfs:
+      # COVER-0 fix — ffmpeg frames live here. 256 MB cap (the pipeline
+      # extracts at most 4 × ~300 KB JPEGs per extraction), tmpfs so a
+      # container restart wipes stale frames without explicit cleanup.
+      - /var/extractor/frames:size=256m,mode=0755,uid=1001,gid=1001
     expose:
       - "8000"
     depends_on:

@@ -74,6 +74,7 @@ from extractor.config_loader import (
     get_list,
     get_str,
 )
+from extractor.frames import FrameStore
 from extractor.llm import ChatMessage, LLMProvider, TokenUsage
 from extractor.pipeline.blog import (
     extract_bs4_fallback,
@@ -90,6 +91,7 @@ from extractor.pipeline.video import (
     ExtractionError,
     FfmpegFrameExtractor,
     FrameExtractor,
+    ThumbnailCandidate,
     Transcriber,
     VideoDownloader,
     YtDlpDownloader,
@@ -546,6 +548,7 @@ async def extract_from_url(
     downloader: VideoDownloader | None = None,
     transcriber: Transcriber | None = None,
     frame_extractor: FrameExtractor | None = None,
+    frame_store: FrameStore | None = None,
     reporter: ProgressReporter | None = None,
     config: ExtractorConfig | None = None,
 ) -> ExtractionResult:
@@ -654,6 +657,7 @@ async def extract_from_url(
                 downloader=downloader,
                 transcriber=transcriber,
                 frame_extractor=frame_extractor,
+                frame_store=frame_store,
                 reporter=active_reporter,
             )
             # COVER-0 — yt-dlp occasionally surfaces only the single
@@ -835,12 +839,32 @@ async def extract_from_url(
 # ─────────────────────────────────────────────────────────────────────
 
 
+class _NullFrameExtractor:
+    """Safe fallback when the pipeline was booted without a frame store.
+
+    Legacy direct-Python callers (scripts, a few old test fixtures) that
+    skip both ``frame_extractor=`` and ``frame_store=`` still need the
+    pipeline to return a result — we simply produce zero frames. The
+    yt-dlp thumbnails continue to flow through, so the candidate list
+    is merely shorter, never broken.
+    """
+
+    async def extract(
+        self,
+        *,
+        mp4_path: Path,
+        timestamps: list[float],
+    ) -> list[ThumbnailCandidate]:
+        return []
+
+
 async def _run_video_path(
     *,
     url: str,
     downloader: VideoDownloader | None,
     transcriber: Transcriber | None,
     frame_extractor: FrameExtractor | None,
+    frame_store: FrameStore | None,
     reporter: ProgressReporter,
 ) -> tuple[str | None, str | None, str | None, list[str]]:
     """Execute the video branch.
@@ -858,6 +882,13 @@ async def _run_video_path(
     4 ffmpeg frames). Frame extraction is best-effort: if the binary
     is missing or a frame fails, the list degrades gracefully to the
     yt-dlp thumbs only.
+
+    COVER-0 bug fix: ffmpeg-extracted frames are written into the
+    :class:`FrameStore`-allocated UUID directory (persists past the
+    mp4's :class:`tempfile.TemporaryDirectory` lifetime) and surface
+    as HTTP URLs under ``frames_url_base``. The .NET
+    :class:`CandidateAttacher` fetches them over HTTP the same way it
+    fetches CDN URLs.
     """
     active_downloader = downloader or YtDlpDownloader()
     # FasterWhisperTranscriber is heavy; lazy-instantiate only if the
@@ -911,13 +942,34 @@ async def _run_video_path(
         )
         logger.info("transcript_done host=%s len=%d", _redact_host(url), len(transcript))
 
-        # COVER-0 slice A — assemble the candidate list. The frame
-        # extractor writes JPEGs into the same workdir that holds the
-        # mp4 so they are cleaned up when the ``TemporaryDirectory``
-        # context exits. Stub extractors (tests) don't write anything.
-        active_frame_extractor: FrameExtractor = frame_extractor or FfmpegFrameExtractor(
-            output_dir=workdir,
-        )
+        # COVER-0 slice A — assemble the candidate list. When a caller
+        # injects a frame extractor (tests) we use it as-is. Otherwise
+        # we materialise one here: allocate a persistent UUID directory
+        # via the :class:`FrameStore`, sweep stale dirs best-effort, and
+        # build the production :class:`FfmpegFrameExtractor` pointing
+        # at that directory + its matching HTTP URL base. The frames
+        # must outlive this ``TemporaryDirectory`` because the .NET
+        # side fetches them on a separate HTTP hop after extract_url
+        # returns.
+        active_frame_extractor: FrameExtractor
+        if frame_extractor is not None:
+            active_frame_extractor = frame_extractor
+        elif frame_store is not None:
+            # Lazy per-extraction sweep: cheap, keeps the tmpfs
+            # bounded, no background task to babysit. Runs before the
+            # fresh ``allocate`` so a full tmpfs doesn't block a new
+            # extraction.
+            frame_store.sweep(max_age_seconds=3600.0)
+            dir_id, dir_path = frame_store.allocate()
+            active_frame_extractor = FfmpegFrameExtractor(
+                output_dir=dir_path,
+                url_base=frame_store.url_for(dir_id),
+            )
+        else:
+            # Legacy path used only by direct-Python callers that skip
+            # both the main.py wiring and an explicit frame_extractor.
+            # Emit no frames — the yt-dlp thumbs still pass through.
+            active_frame_extractor = _NullFrameExtractor()
         candidate_thumbnails = await assemble_video_candidates(
             ytdlp_thumbs=list(assets.candidate_thumbnails),
             mp4_path=assets.mp4_path,
