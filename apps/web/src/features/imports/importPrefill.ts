@@ -95,6 +95,19 @@ export interface ImportPrefill {
    */
   thumbnailStagedPhotoId: string | null
   /**
+   * COVER-0 — full candidate-staged-photo-id list the URL-import job
+   * captured (yt-dlp thumbnails + ffmpeg frames + JSON-LD `image[]`).
+   * Ordered; `[0]` is the default cover. `[]` when the source yielded
+   * no candidates (blog import without structured images, or candidate
+   * download failed entirely).
+   *
+   * During the migration window, empty wire array + non-null
+   * `thumbnailStagedPhotoId` is treated as a one-element legacy
+   * fallback — see {@link withImportEnvelope}. That keeps pre-Slice-B
+   * rows rendering a single tile until the hourly sweep reaps them.
+   */
+  candidateStagedPhotoIds: string[]
+  /**
    * BUG-034 — true when the extractor gated the result as "no
    * recipe detected" (empty ingredients AND empty steps after
    * normalisation). The form wrapper branches on this to render
@@ -287,6 +300,10 @@ export function extractedRecipeToPrefill(r: ExtractedRecipe): ImportPrefill {
     // DTO via `withImportEnvelope` — the bare extracted-recipe shape
     // doesn't carry it.
     thumbnailStagedPhotoId: null,
+    // COVER-0 — same overlay seam as thumbnailStagedPhotoId. Empty
+    // array default keeps the picker UI dormant until the wrapper
+    // opts in via the import envelope.
+    candidateStagedPhotoIds: [],
     // BUG-034 — the empty-gate fields live on the outer ExtractionResult,
     // not the inner ExtractedRecipe. The wrapper `extractedResultToPrefill`
     // (below) layers them on top. Bare-recipe callers get the
@@ -336,21 +353,62 @@ export function extractedResultToPrefill(result: ExtractionResult): ImportPrefil
 }
 
 /**
- * BUG-018 — overlays the import-DTO-level fields onto a prefill the
- * form needs but `extractedRecipeToPrefill` can't see (it only gets
- * the inner recipe). Currently just propagates the auto-attached
- * thumbnail staged-photo id, but the seam is named generically so
- * future envelope-only fields (e.g. createdAt, attribution) can join
- * here without another shape rev.
+ * BUG-018 / COVER-0 — overlays the import-DTO-level fields onto a
+ * prefill the form needs but `extractedRecipeToPrefill` can't see (it
+ * only gets the inner recipe). Today it propagates:
+ *   - `thumbnailStagedPhotoId` (BUG-018 — single-tile legacy cover)
+ *   - `candidateStagedPhotoIds` (COVER-0 — full 0–6 cover-candidate set)
  *
- * Returns a fresh object — never mutates the input. When
- * `thumbnailStagedPhotoId` is null/undefined the prefill comes back
- * unchanged.
+ * Returns a fresh object when anything changes — never mutates the
+ * input. Pointer-equal return when the envelope carries neither
+ * field, so callers can rely on referential equality to skip React
+ * re-renders.
+ *
+ * Legacy fallback: when the envelope supplies an empty
+ * `candidateStagedPhotoIds` *and* a non-null `thumbnailStagedPhotoId`
+ * (the pre-Slice-B wire shape), we synthesise a one-element
+ * candidates array from the singleton so the form renders exactly
+ * one tile. Empty on both sides → the picker stays dormant.
  */
 export function withImportEnvelope(
   prefill: ImportPrefill,
-  envelope: { thumbnailStagedPhotoId?: string | null },
+  envelope: {
+    thumbnailStagedPhotoId?: string | null
+    candidateStagedPhotoIds?: string[]
+  },
 ): ImportPrefill {
-  if (!envelope.thumbnailStagedPhotoId) return prefill
-  return { ...prefill, thumbnailStagedPhotoId: envelope.thumbnailStagedPhotoId }
+  const wireCandidates = envelope.candidateStagedPhotoIds
+  const thumb = envelope.thumbnailStagedPhotoId ?? null
+  // Early exit: no envelope-level fields at all → pointer-equal return.
+  // `wireCandidates === undefined` means "legacy caller didn't pass
+  // the field"; treat that as "no change" rather than forcing the
+  // prefill's empty default onto callers that already carried legacy
+  // singletons (currently only the thumbnail).
+  if (wireCandidates === undefined && !thumb) return prefill
+
+  // Derive the final candidates list. Precedence:
+  //   1. Non-empty wireCandidates → use verbatim.
+  //   2. Empty wireCandidates + non-null thumb → one-element fallback
+  //      so legacy rows render a single tile.
+  //   3. Empty wireCandidates + null thumb → empty (no picker UI).
+  //   4. Undefined wireCandidates + non-null thumb → thumb becomes the
+  //      sole candidate so the single-tile code path still works on
+  //      callers that only supply the legacy field.
+  const candidates: string[] = (() => {
+    if (wireCandidates && wireCandidates.length > 0) return wireCandidates
+    if (thumb) return [thumb]
+    return []
+  })()
+
+  // Mirror the `[0]` convention the backend already enforces: during
+  // the migration window `thumbnailStagedPhotoId` must equal
+  // `candidateStagedPhotoIds[0]`. Compute here so callers that
+  // only read the legacy field keep working.
+  const thumbnailOut = candidates[0] ?? null
+
+  return {
+    ...prefill,
+    candidateStagedPhotoIds: candidates,
+    thumbnailStagedPhotoId: thumbnailOut,
+  }
 }
