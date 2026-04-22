@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Images } from 'lucide-react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import type {
@@ -9,6 +10,7 @@ import type {
   RecipeSnapshot,
   RecipeStepDto,
 } from '@familien-kochbuch/shared'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { VersionMismatchError } from '@/features/_shared/apiError'
@@ -16,12 +18,15 @@ import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useRatings } from '@/features/ratings/hooks'
 import { useGroup } from '@/features/groups/hooks'
 import { useAuth } from '@/features/auth/useAuth'
+import { useImportCandidates } from '@/features/imports/hooks'
 import {
   useDeleteRecipe,
   useMarkAsCooked,
   useRecipe,
+  useRecipeOriginImport,
   useReimportRecipe,
 } from './hooks'
+import { ChangeCoverDialog } from './ChangeCoverDialog'
 import { recipeQueryKeys } from './queryKeys'
 import { RecipeDetailHeader } from './RecipeDetailHeader'
 import { PortionStepperCard } from './PortionStepperCard'
@@ -90,6 +95,32 @@ export function RecipeDetailPage() {
     const t = window.setTimeout(() => setReimportSuccess(false), 4000)
     return () => window.clearTimeout(t)
   }, [reimportSuccess])
+
+  // COVER-0 Slice E — "Cover ändern" modal state. The modal mounts
+  // lazily when the owner + origin-import + candidates gate resolves.
+  // `coverGoneForSession` flips once if a mid-session 410 surfaces, so
+  // the button stays hidden even if the candidates query later retries
+  // and briefly returns success before the cache invalidates.
+  const [changeCoverOpen, setChangeCoverOpen] = useState(false)
+  const [coverGoneForSession, setCoverGoneForSession] = useState(false)
+  const isOwner = !!detail.data && user?.id === detail.data.createdByUserId
+  const originImportQuery = useRecipeOriginImport(recipeId, {
+    enabled: isOwner && !coverGoneForSession,
+  })
+  const originImportId = originImportQuery.data?.importId ?? null
+  // Prefetch candidates so the button only mounts when there's actually
+  // something to pick. Mirrors the design doc's "hide the button if the
+  // candidates endpoint 410s" rule.
+  const coverCandidatesQuery = useImportCandidates(
+    originImportId ?? undefined,
+    { enabled: !!originImportId && !coverGoneForSession },
+  )
+  const canShowCoverButton =
+    isOwner &&
+    !coverGoneForSession &&
+    !!originImportId &&
+    coverCandidatesQuery.isSuccess &&
+    (coverCandidatesQuery.data?.length ?? 0) >= 1
 
   // Hook for the history panel — needs a snapshot-shaped view of the
   // live detail. Keep the hook order stable by computing it before any
@@ -305,6 +336,29 @@ export function RecipeDetailPage() {
           </p>
         )}
 
+        {/* COVER-0 Slice E — "Cover ändern" trigger + 410 banner. */}
+        {canShowCoverButton && (
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setChangeCoverOpen(true)}
+            >
+              <Images className="h-4 w-4" aria-hidden="true" />
+              Cover ändern
+            </Button>
+          </div>
+        )}
+
+        {coverGoneForSession && (
+          <p
+            role="status"
+            className="mt-4 rounded-[12px] bg-[hsl(var(--muted)/0.4)] px-3 py-2 text-sm text-muted-foreground ring-1 ring-border"
+          >
+            Import-Kandidaten sind nicht mehr verfügbar.
+          </p>
+        )}
+
         <div
           data-testid="recipe-detail-grid"
           className="mt-5 md:grid md:grid-cols-[var(--split-left-width)_1fr] md:gap-8"
@@ -426,6 +480,18 @@ export function RecipeDetailPage() {
           recipeId={recipe.id}
           sourceGroupId={recipe.groupId}
           onClose={() => setForkDialogOpen(false)}
+        />
+      )}
+
+      {changeCoverOpen && originImportId && (
+        <ChangeCoverDialog
+          recipeId={recipe.id}
+          importId={originImportId}
+          onClose={() => setChangeCoverOpen(false)}
+          onCandidatesExpired={() => {
+            setChangeCoverOpen(false)
+            setCoverGoneForSession(true)
+          }}
         />
       )}
 

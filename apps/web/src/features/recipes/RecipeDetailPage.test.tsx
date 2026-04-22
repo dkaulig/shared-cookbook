@@ -752,4 +752,238 @@ describe('RecipeDetailPage', () => {
     ).toBeTruthy()
     expect(cookedAt).toBe('2026-04-18T12:00:00Z')
   })
+
+  // ── COVER-0 Slice E — "Cover ändern" button + modal ───────────────
+
+  describe('COVER-0 Slice E — "Cover ändern" button + modal', () => {
+    const importId = 'imp-1'
+    const candidates = [
+      {
+        stagedPhotoId: 'sp-0',
+        signedUrl: 'https://cdn.example/c0.jpg',
+        contentType: 'image/jpeg',
+        candidateOrder: 0,
+        expiresAt: '2026-04-29T00:00:00Z',
+      },
+      {
+        stagedPhotoId: 'sp-1',
+        signedUrl: 'https://cdn.example/c1.jpg',
+        contentType: 'image/jpeg',
+        candidateOrder: 1,
+        expiresAt: '2026-04-29T00:00:00Z',
+      },
+      {
+        stagedPhotoId: 'sp-2',
+        signedUrl: 'https://cdn.example/c2.jpg',
+        contentType: 'image/jpeg',
+        candidateOrder: 2,
+        expiresAt: '2026-04-29T00:00:00Z',
+      },
+    ]
+
+    it('hides the button when the recipe has no originating import (404)', async () => {
+      server.use(
+        http.get('/api/recipes/r1/origin-import', () =>
+          HttpResponse.json(
+            { code: 'not_found', message: 'no origin' },
+            { status: 404 },
+          ),
+        ),
+      )
+      render(withProviders('/groups/g1/recipes/r1'))
+      await screen.findByRole('heading', { name: /Spätzle/ })
+      // No button regardless of how long we wait — settle after the
+      // 404 resolves.
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /Cover ändern/i }))
+          .not.toBeInTheDocument()
+      })
+    })
+
+    it('hides the button when the candidates query returns 410 Gone', async () => {
+      server.use(
+        http.get('/api/recipes/r1/origin-import', () =>
+          HttpResponse.json({ importId }),
+        ),
+        http.get(`/api/imports/${importId}/candidates`, () =>
+          HttpResponse.json(
+            { code: 'candidates_expired', message: 'gone' },
+            { status: 410 },
+          ),
+        ),
+      )
+      render(withProviders('/groups/g1/recipes/r1'))
+      await screen.findByRole('heading', { name: /Spätzle/ })
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /Cover ändern/i }))
+          .not.toBeInTheDocument()
+      })
+    })
+
+    it('hides the button when the caller is not the recipe owner', async () => {
+      // Different user id — recipe.createdByUserId is u1.
+      useAuthStore.setState({
+        accessToken: 't',
+        user: { id: 'u-other', email: 'o@ex.com', displayName: 'O', role: 'User' },
+      })
+      server.use(
+        http.get('/api/recipes/r1/origin-import', () =>
+          HttpResponse.json({ importId }),
+        ),
+        http.get(`/api/imports/${importId}/candidates`, () =>
+          HttpResponse.json({ candidates }),
+        ),
+      )
+      render(withProviders('/groups/g1/recipes/r1'))
+      await screen.findByRole('heading', { name: /Spätzle/ })
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /Cover ändern/i }))
+          .not.toBeInTheDocument()
+      })
+    })
+
+    it('renders the button when owner + origin-import + candidates all resolve', async () => {
+      server.use(
+        http.get('/api/recipes/r1/origin-import', () =>
+          HttpResponse.json({ importId }),
+        ),
+        http.get(`/api/imports/${importId}/candidates`, () =>
+          HttpResponse.json({ candidates }),
+        ),
+      )
+      render(withProviders('/groups/g1/recipes/r1'))
+      await screen.findByRole('heading', { name: /Spätzle/ })
+      expect(
+        await screen.findByRole('button', { name: /Cover ändern/i }),
+      ).toBeInTheDocument()
+    })
+
+    it('opens the modal with the candidate grid when the button is tapped', async () => {
+      const user = userEvent.setup()
+      server.use(
+        http.get('/api/recipes/r1/origin-import', () =>
+          HttpResponse.json({ importId }),
+        ),
+        http.get(`/api/imports/${importId}/candidates`, () =>
+          HttpResponse.json({ candidates }),
+        ),
+      )
+      render(withProviders('/groups/g1/recipes/r1'))
+      await screen.findByRole('heading', { name: /Spätzle/ })
+      await user.click(
+        await screen.findByRole('button', { name: /Cover ändern/i }),
+      )
+      expect(
+        await screen.findByRole('heading', { name: /^Cover ändern$/i, level: 2 }),
+      ).toBeInTheDocument()
+      // Every candidate renders a tile (use aria-label "Auswählen"
+      // from ImportCandidatesGrid).
+      const tiles = await screen.findAllByRole('button', {
+        name: /(Auswählen|Abwählen|Cover-Bild|Zum Cover machen)/i,
+      })
+      expect(tiles.length).toBeGreaterThanOrEqual(candidates.length)
+    })
+
+    it('Speichern POSTs to /cover with the tapped staged-photo id and closes the modal', async () => {
+      const user = userEvent.setup()
+      let seenBody: unknown = null
+      server.use(
+        http.get('/api/recipes/r1/origin-import', () =>
+          HttpResponse.json({ importId }),
+        ),
+        http.get(`/api/imports/${importId}/candidates`, () =>
+          HttpResponse.json({ candidates }),
+        ),
+        http.post('/api/recipes/r1/cover', async ({ request }) => {
+          seenBody = await request.json()
+          return HttpResponse.json({ ...recipe, photos: ['fake://new-cover.jpg'] })
+        }),
+      )
+      render(withProviders('/groups/g1/recipes/r1'))
+      await screen.findByRole('heading', { name: /Spätzle/ })
+      await user.click(
+        await screen.findByRole('button', { name: /Cover ändern/i }),
+      )
+      await screen.findByRole('heading', { name: /^Cover ändern$/i, level: 2 })
+
+      // Pick candidate [1] via its star icon (Zum Cover machen). The
+      // grid's tile body also counts as selection, but star is the
+      // unambiguous "this becomes the cover" signal.
+      const coverStars = await screen.findAllByRole('button', {
+        name: /Zum Cover machen/i,
+      })
+      await user.click(coverStars[0])
+
+      // Explicit Speichern commits.
+      await user.click(screen.getByRole('button', { name: /^Speichern$/i }))
+
+      await waitFor(() => {
+        expect(seenBody).toMatchObject({ stagedPhotoId: 'sp-1' })
+      })
+      // Modal closes on success.
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', { name: /^Cover ändern$/i, level: 2 }),
+        ).not.toBeInTheDocument()
+      })
+    })
+
+    it('410 mid-session: modal closes, banner appears, button disappears', async () => {
+      const user = userEvent.setup()
+      let candidatesCallCount = 0
+      server.use(
+        http.get('/api/recipes/r1/origin-import', () =>
+          HttpResponse.json({ importId }),
+        ),
+        http.get(`/api/imports/${importId}/candidates`, () => {
+          candidatesCallCount++
+          // First call (before user opens modal) returns candidates;
+          // second call (triggered by the invalidate after a 410 from
+          // swap) returns 410.
+          if (candidatesCallCount === 1) {
+            return HttpResponse.json({ candidates })
+          }
+          return HttpResponse.json(
+            { code: 'candidates_expired', message: 'gone' },
+            { status: 410 },
+          )
+        }),
+        http.post('/api/recipes/r1/cover', () =>
+          HttpResponse.json(
+            { code: 'candidates_expired', message: 'gone' },
+            { status: 410 },
+          ),
+        ),
+      )
+      render(withProviders('/groups/g1/recipes/r1'))
+      await screen.findByRole('heading', { name: /Spätzle/ })
+      await user.click(
+        await screen.findByRole('button', { name: /Cover ändern/i }),
+      )
+      await screen.findByRole('heading', { name: /^Cover ändern$/i, level: 2 })
+
+      const coverStars = await screen.findAllByRole('button', {
+        name: /Zum Cover machen/i,
+      })
+      await user.click(coverStars[0])
+      await user.click(screen.getByRole('button', { name: /^Speichern$/i }))
+
+      // Modal closes.
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', { name: /^Cover ändern$/i, level: 2 }),
+        ).not.toBeInTheDocument()
+      })
+      // Banner surfaces.
+      expect(
+        await screen.findByText(/Import-Kandidaten sind nicht mehr verfügbar/i),
+      ).toBeInTheDocument()
+      // Button disappears after the 410.
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: /Cover ändern/i }),
+        ).not.toBeInTheDocument()
+      })
+    })
+  })
 })

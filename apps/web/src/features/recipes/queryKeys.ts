@@ -27,6 +27,14 @@ export const recipeQueryKeys = {
       ? ([...recipeQueryKeys.all, 'group', groupId, page, sort, pageSize] as const)
       : ([...recipeQueryKeys.all, 'group', groupId, page, sort] as const)),
   detail: (id: string) => [...recipeQueryKeys.all, 'detail', id] as const,
+  /**
+   * COVER-0 Slice E — cache key for `GET /api/recipes/:id/origin-import`.
+   * Dedicated family so the RecipeDetailPage can gate the "Cover ändern"
+   * button on its result without re-invalidating every time the detail
+   * DTO refreshes.
+   */
+  originImport: (id: string) =>
+    [...recipeQueryKeys.all, 'origin-import', id] as const,
   revisions: (id: string) => [...recipeQueryKeys.all, 'revisions', id] as const,
   revision: (id: string, revisionId: string) =>
     [...recipeQueryKeys.all, 'revisions', id, revisionId] as const,
