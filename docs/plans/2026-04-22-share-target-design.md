@@ -164,6 +164,21 @@ PWA" step so the user can verify on their iPhone after deploy.
   that returns sensible content. Adding a domain allowlist here
   would break blog imports that we explicitly want to support.
 
+## Follow-up slices
+
+- **SHARE-0b — `/login ?next=` support.** Unauthenticated share
+  payloads preserve the original URL via `?next=`, but `LoginPage`
+  hardcodes post-login redirect to `/`. ~15 LOC fix (read `next`
+  query param after successful login, navigate there with a safety
+  allowlist — same-origin paths only). Recommend bundling with
+  SHARE-1 since file-sharing makes the unauth-share UX loss more
+  visible.
+- **SHARE-1 — file sharing (photos).** POST multipart. Detail plan:
+  `docs/plans/2026-04-22-share-file-target-design.md`.
+- **SHARE-2 — multi-URL picker.** User shares 2-3 reels at once,
+  picker UI lets them choose or start N imports. Detail plan:
+  `docs/plans/2026-04-22-share-multi-url-design.md`.
+
 ## Relationship to the OSS release plan
 
 Not a release-gate — SHARE-0 can land before or after the public
