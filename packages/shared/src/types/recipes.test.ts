@@ -126,7 +126,6 @@ describe('imports.ts ExtractedNutritionEstimate (P2-10)', () => {
       components: [{ label: null, position: 0, ingredients: [], steps: [] }],
       tags: [],
       source_url: 'https://example.com/x',
-      thumbnail_url: null,
       nutrition_estimate: { kcal: 380, protein_g: 6, carbs_g: 52, fat_g: 14 },
     }
     expect(recipeWithEstimate.nutrition_estimate?.kcal).toBe(380)
@@ -148,7 +147,6 @@ describe('imports.ts ExtractedNutritionEstimate (P2-10)', () => {
       components: [{ label: null, position: 0, ingredients: [], steps: [] }],
       tags: [],
       source_url: 'https://example.com/x',
-      thumbnail_url: null,
     }
     expect(recipeOmitsEstimate.nutrition_estimate).toBeUndefined()
   })
@@ -286,7 +284,6 @@ describe('imports.ts ExtractedComponent (COMP-2)', () => {
       ],
       tags: [],
       source_url: 'https://example.com/q',
-      thumbnail_url: null,
     }
     expect(recipe.components).toHaveLength(2)
     expect('ingredients' in recipe).toBe(false)

@@ -97,7 +97,7 @@ describe('imports.ts DTOs', () => {
     expect(step.position).toBe(1)
   })
 
-  it('ExtractedRecipe carries components, tags, source_url, thumbnail_url', () => {
+  it('ExtractedRecipe carries components, tags, source_url', () => {
     const recipe: ExtractedRecipe = {
       title: 'Omas Apfelkuchen',
       description: null,
@@ -110,7 +110,6 @@ describe('imports.ts DTOs', () => {
       ],
       tags: ['backen'],
       source_url: 'https://example.com/apfelkuchen',
-      thumbnail_url: null,
     }
     expect(recipe.tags).toContain('backen')
     expect(recipe.components).toHaveLength(1)
@@ -131,7 +130,6 @@ describe('imports.ts DTOs', () => {
         ],
         tags: [],
         source_url: 'https://example.com',
-        thumbnail_url: null,
       },
       confidence,
       recipe_empty: false,
@@ -173,7 +171,6 @@ describe('imports.ts DTOs', () => {
         ],
         tags: [],
         source_url: 'https://facebook.com/share/r/xyz',
-        thumbnail_url: null,
       },
       confidence: { overall: 'low', notes: [] },
       recipe_empty: true,
@@ -295,11 +292,10 @@ describe('imports.ts DTOs', () => {
     expect(newImport.targetRecipeId).toBeNull()
   })
 
-  // COVER-0 — `candidate_thumbnails` is the new-default wire field the
-  // Python extractor + .NET bridge emit alongside (and will eventually
-  // supersede) the legacy single-valued `thumbnail_url`. A rename on
-  // the Python `ExtractedRecipe` TypedDict or the .NET serialiser
-  // fails this compile-time gate.
+  // COVER-0 — `candidate_thumbnails` is the wire-field carrying the
+  // ordered import-cover candidates. A rename on the Python
+  // `ExtractedRecipe` TypedDict or the .NET serialiser fails this
+  // compile-time gate.
   it('COVER-0: ExtractedRecipe carries optional candidate_thumbnails array', () => {
     const recipe: ExtractedRecipe = {
       title: 'Rezept mit mehreren Coverbildern',
@@ -313,7 +309,6 @@ describe('imports.ts DTOs', () => {
       ],
       tags: [],
       source_url: 'https://example.com/rezept',
-      thumbnail_url: 'https://example.com/thumb-0.jpg',
       candidate_thumbnails: [
         'https://example.com/thumb-0.jpg',
         'https://example.com/thumb-1.jpg',
@@ -321,13 +316,12 @@ describe('imports.ts DTOs', () => {
       ],
     }
     expect(recipe.candidate_thumbnails).toHaveLength(3)
-    expect(recipe.candidate_thumbnails?.[0]).toBe(recipe.thumbnail_url)
+    expect(recipe.candidate_thumbnails?.[0]).toBe('https://example.com/thumb-0.jpg')
 
-    // Absent `candidate_thumbnails` must still type-check — this
-    // is the additive-migration contract: legacy payloads keep working
-    // until the cleanup slice after D + E removes the legacy field.
-    const legacy: ExtractedRecipe = {
-      title: 'Altes Rezept',
+    // Absent `candidate_thumbnails` stays type-safe — chat imports and
+    // legacy / cached server payloads omit the field.
+    const chat: ExtractedRecipe = {
+      title: 'Chat-Rezept',
       description: null,
       servings: null,
       difficulty: null,
@@ -337,10 +331,9 @@ describe('imports.ts DTOs', () => {
         { label: null, position: 0, ingredients: [], steps: [] },
       ],
       tags: [],
-      source_url: 'https://example.com/alt',
-      thumbnail_url: null,
+      source_url: 'chat:abc',
     }
-    expect(legacy.candidate_thumbnails).toBeUndefined()
+    expect(chat.candidate_thumbnails).toBeUndefined()
   })
 
   // COVER-0 — `candidateStagedPhotoIds` is the DTO-surface mirror for
@@ -360,15 +353,14 @@ describe('imports.ts DTOs', () => {
       errorMessage: null,
       createdAt: '2026-04-22T00:00:00Z',
       completedAt: '2026-04-22T00:00:42Z',
-      thumbnailStagedPhotoId: 'sp-0',
       candidateStagedPhotoIds: ['sp-0', 'sp-1', 'sp-2'],
     }
     expect(dto.candidateStagedPhotoIds).toHaveLength(3)
-    // During the migration window, [0] mirrors the legacy field so
-    // the frontend can adopt either without breakage.
-    expect(dto.candidateStagedPhotoIds[0]).toBe(dto.thumbnailStagedPhotoId)
+    expect(dto.candidateStagedPhotoIds[0]).toBe('sp-0')
 
-    // Empty-array case: legacy rows + imports that yielded no candidates.
+    // Empty-array case: chat imports + imports that yielded no
+    // candidates. The empty array is the zero-state that hides the
+    // picker UI.
     const empty: RecipeImportDto = {
       id: '11111111-2222-3333-4444-555555555555',
       groupId: '22222222-3333-4444-5555-666666666666',
