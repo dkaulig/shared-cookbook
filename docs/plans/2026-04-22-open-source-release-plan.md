@@ -244,22 +244,87 @@ Target tag: `v0.12.0` (signals "moving toward 1.0 but still iterating").
   Lives at `docs/SETUP.md`, linked from README. Aim: anyone with Docker
   + a text editor can boot the stack in < 15 minutes.
 
+## Runs-without-AI: what actually breaks
+
+Inventory of the import pipeline, to inform REL-7 + REL-8 design:
+
+| Pipeline step | Needs AI? | Notes |
+|---|---|---|
+| yt-dlp video download + metadata | ❌ | Local library. |
+| Whisper audio transcription | ❌ | `faster-whisper` runs CPU-locally. |
+| Blog HTML fetch + sanitise | ❌ | Plain httpx + HTML stripping. |
+| Thumbnail download + SeaweedFS stage | ❌ | No LLM involved. |
+| **LLM structuring (unstructured text → ingredients+steps JSON)** | ✅ | gpt-4.1-mini. |
+| **Photo/vision analysis** | ✅ | Vision model. |
+| **Chat + chat-to-recipe** | ✅ | gpt-5.1-chat + structured extraction. |
+
+So without Azure OpenAI configured, the app is still useful for:
+- **Manual recipe CRUD + meal-plan + shopping + ratings + fork +
+  Cook-Now + portions + search + PWA offline** (the bulk of the
+  product).
+- **Blog-URL imports via JSON-LD** (see REL-8 below — most food
+  blogs expose Schema.org Recipe in `<script type="application/ld+
+  json">`; direct-mappable without any LLM call).
+- **Video-URL imports with raw-text pre-fill**: the pipeline still
+  downloads, transcribes, grabs title + thumbnail, and returns the
+  concatenated raw text into a textarea on the form for the user
+  to structure manually. Not as smooth as LLM auto-extract, but
+  saves 100 % of the typing the user would otherwise do.
+
+Disabled without AI:
+- Photo import (no vision fallback — just a clean 503 + UI hides
+  the CTA).
+- Chat + chat-to-recipe (same: hidden + 503).
+
 ## Dispatched as slices — sequence confirmed
 
 1. **REL-0 secrets-audit** — git history grep, rotate, scrub
    `.env.example`, neutralise migration seeds + fixtures.
 2. **REL-5 frontend error-UX audit** — silent save-fails are the
    worst first-impression. Fix before the public sees them.
-3. **REL-3 i18n foundation + German/English string extraction**.
-4. **REL-4 backend errors → English + code-based frontend translation**.
+3. **REL-7 AI-optional architecture** — compose profile `ai`,
+   `/api/meta/features` endpoint, frontend feature-gate wrapper that
+   hides Import-from-Photo / Chat CTAs when disabled + switches
+   Import-from-URL to raw-text-pre-fill-only mode. No-AI boot skips
+   the Whisper prefetch entirely (save 3 GB download when the user
+   isn't going to run video imports). Home-page layout collapses
+   the "Import from Video/Photo/Chat" card row when AI is off.
+4. **REL-8 JSON-LD Recipe parser** — new Python-pipeline branch that,
+   before falling through to the LLM, scans the fetched blog HTML for
+   `<script type="application/ld+json">` blocks and looks for
+   `@type: Recipe`. If found, direct-map to our schema:
+   - `name` → title
+   - `description` → description
+   - `recipeIngredient[]` → ingredients (regex-parse each line into
+     quantity + unit + name)
+   - `recipeInstructions[]` (string OR `{@type: HowToStep, text}`)
+     → steps
+   - `recipeYield` → defaultServings (numeric-parse)
+   - `prepTime` / `cookTime` (ISO 8601 duration) → minutes
+   - `image` → thumbnail_url
+   - `recipeCategory` / `keywords` → tag candidates
+   - `nutrition.calories` / protein / carb / fat → nutrition_estimate
+   Works **with or without AI**. When AI is on: JSON-LD takes
+   precedence when present → more accurate than LLM, saves tokens.
+   When AI is off: this is the ONLY structured-import path for blog
+   URLs. FB/IG reels have no JSON-LD so they still fall back to LLM
+   (with-AI) or raw-text (without-AI).
+5. **REL-3 i18n foundation + German/English string extraction**.
+6. **REL-4 backend errors → English + code-based frontend translation**.
    Parallel to REL-3 where file-disjoint, otherwise sequential.
-5. **REL-1 LICENSE + README + rebrand to `open-cookbook`** — final
+7. **REL-1 LICENSE + README + rebrand to `familycookbook`** — final
    polish once the code is public-ready.
-6. **REL-6 SETUP.md HOWTO** — step-by-step, env-by-env, with LiteLLM
-   alternative documented.
-7. **REL-2 workflow cleanup** (optional, can follow the first public
+8. **REL-6 SETUP.md HOWTO** — two clear paths:
+   - **Minimal**: `docker compose up -d`. No AI, no Azure needed.
+     ~1 GB disk, boots in < 2 min. Full app including JSON-LD blog
+     imports + manual recipes + meal plan + shopping.
+   - **Full**: `docker compose --profile ai up -d` + Azure credentials
+     (or LiteLLM proxy for OpenAI / Ollama / Groq). ~5 GB disk
+     (Whisper volume), first-boot downloads `large-v3` once. Adds
+     video-LLM-structuring + photo import + chat.
+9. **REL-2 workflow cleanup** (optional, can follow the first public
    release).
 
 Target tag for the public-ready state: **`v0.12.0`**. Cut it after
-REL-5 + REL-1 + REL-6 at minimum. i18n + error-code audit can slip
-into `v0.12.x` patches.
+REL-5 + REL-7 + REL-8 + REL-1 + REL-6 at minimum. i18n + error-code
+audit can slip into `v0.12.x` patches.
