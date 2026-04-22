@@ -383,6 +383,15 @@ public static class RecipeEndpoints
     /// staged-photo ownership returns 400.</summary>
     public record CoverSwapRequest(Guid StagedPhotoId);
 
+    /// <summary>COVER-0 Slice E — response of
+    /// <c>GET /api/recipes/:id/origin-import</c>. Surfaces the id of the
+    /// <see cref="RecipeImport"/> that produced this recipe so the
+    /// RecipeDetailPage can fire the candidates query without having to
+    /// carry the id in client-side state. 404 when no linkage exists
+    /// (manual recipe OR every candidate has been reaped AND the recipe
+    /// wasn't the target of a reimport).</summary>
+    public record RecipeOriginImportResponse(Guid ImportId);
+
     public record UploadPhotoResponse(string Url);
 
     public record RemovePhotoRequest(string Url);
@@ -441,6 +450,12 @@ public static class RecipeEndpoints
         // this recipe (re-order existing photos) or an un-promoted
         // candidate of this recipe's origin-import (promote + swap).
         recipe.MapPost("/cover", SetRecipeCoverAsync);
+
+        // COVER-0 Slice E: resolve the recipe's originating
+        // RecipeImport id so the detail page can mount the
+        // "Cover ändern" modal without threading the id through
+        // client state that was already torn down after save.
+        recipe.MapGet("/origin-import", GetRecipeOriginImportAsync);
 
         // P2-8: staged photo upload for the import-from-photos flow.
         // Lives outside the {id:guid} group because the photo isn't yet
@@ -2135,6 +2150,94 @@ public static class RecipeEndpoints
         return FamilienResults.BadRequest(
             "cover_not_from_recipe_import",
             "Foto gehört nicht zu diesem Rezept.");
+    }
+
+    // ── GET /api/recipes/{id}/origin-import (COVER-0 Slice E) ──────
+
+    /// <summary>
+    /// COVER-0 Slice E — resolves the <see cref="RecipeImport"/> that
+    /// originally produced this recipe. Looked up in order:
+    /// <list type="number">
+    /// <item>Any <see cref="StagedPhoto"/> already promoted onto the
+    /// recipe whose <c>LinkedImportId</c> is non-null — this is the
+    /// cheap, common path for freshly-imported recipes whose default
+    /// cover is still the attached one.</item>
+    /// <item>Fallback: a <see cref="RecipeImport"/> whose
+    /// <c>TargetRecipeId</c> equals the recipe id. Covers the reimport
+    /// path where the [0] candidate was demoted or removed from the
+    /// recipe, so no linked StagedPhoto is on it anymore.</item>
+    /// </list>
+    ///
+    /// <para>Response model:</para>
+    /// <list type="bullet">
+    /// <item>200 <see cref="RecipeOriginImportResponse"/> — match found.</item>
+    /// <item>404 — recipe missing OR no import linkage (manual recipe
+    /// OR all candidate rows have been promoted+consumed AND this
+    /// recipe was not the target of a reimport).</item>
+    /// <item>403 — caller is not the recipe owner. No admin bypass; the
+    /// origin-import lookup is scoped to the owner's own surfaces (admin
+    /// can always query <c>/api/imports/…</c> directly).</item>
+    /// <item>401 — anonymous.</item>
+    /// </list>
+    ///
+    /// <para>Security note: the linkage is derived from server-side
+    /// tables only (<see cref="StagedPhoto"/> + <see cref="RecipeImport"/>).
+    /// The caller cannot supply an import id; the endpoint returns one
+    /// the server already committed. Ownership check is on the recipe,
+    /// not the import — the import is owned by the same user by
+    /// construction (StagedPhotos.UserId matches the recipe creator for
+    /// every candidate we'd resolve).</para>
+    /// </summary>
+    private static async Task<IResult> GetRecipeOriginImportAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var recipe = await db.Recipes.AsNoTracking()
+            .Where(r => r.Id == id && r.DeletedAt == null)
+            .Select(r => new { r.Id, r.CreatedByUserId })
+            .SingleOrDefaultAsync(ct);
+        if (recipe is null) return Results.NotFound();
+
+        // Owner-only. No admin bypass — the detail page's "Cover ändern"
+        // modal is a first-person surface; admins who need the linkage
+        // can query /api/imports directly.
+        if (recipe.CreatedByUserId != userId)
+            return FamilienResults.Forbidden(
+                "forbidden", "Du bist nicht der Besitzer dieses Rezepts.");
+
+        // Primary lookup: a promoted staged photo on the recipe tells us
+        // which import it was captured for.
+        var viaPromoted = await db.StagedPhotos.AsNoTracking()
+            .Where(s => s.PromotedToRecipeId == id
+                && s.LinkedImportId != null)
+            .Select(s => (Guid?)s.LinkedImportId!.Value)
+            .FirstOrDefaultAsync(ct);
+        if (viaPromoted is { } importId)
+            return Results.Ok(new RecipeOriginImportResponse(importId));
+
+        // Fallback: reimport path — the recipe is the target of an
+        // in-flight / recent RecipeImport whose candidates may never
+        // have been promoted onto the recipe yet. Skip SQL ORDER BY on
+        // CreatedAt (SQLite can't sort DateTimeOffset server-side); the
+        // expected row count per recipe is tiny (0-N reimports in a
+        // 7-day window) so the in-memory sort is effectively free.
+        var reimports = await db.RecipeImports.AsNoTracking()
+            .Where(i => i.TargetRecipeId == id)
+            .Select(i => new { i.Id, i.CreatedAt })
+            .ToListAsync(ct);
+        if (reimports.Count > 0)
+        {
+            var newest = reimports
+                .OrderByDescending(r => r.CreatedAt)
+                .First();
+            return Results.Ok(new RecipeOriginImportResponse(newest.Id));
+        }
+
+        return Results.NotFound();
     }
 
     /// <summary>Moves <paramref name="photoPath"/> to index 0 of
