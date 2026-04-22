@@ -226,11 +226,40 @@ Target tag: `v0.12.0` (signals "moving toward 1.0 but still iterating").
   premium tier, no sponsorship tiers, no "buy me a coffee". If
   someone wants to commercialise, MIT allows it.
 
-## Open questions
+## Open questions — LOCKED 2026-04-22
 
-- Project name for the public repo? "Familien-Kochbuch" is identifiable
-  and SEO-friendly if we lean into the German-origin angle; "open-
-  cookbook" is generic and English-friendly. User's call.
-- Release version: `v0.12.0` (beta-flavoured) or `v1.0.0` (bold)?
-- Demo credentials strategy: shared demo account with read-only role,
-  or per-visitor ephemeral accounts (complex)?
+- **Repo name:** `kay-solutions/open-cookbook` (the `open-cookbook`
+  GitHub org is taken, but the repo slug under the existing
+  `kay-solutions` org is free). Local package name + docker-image
+  names migrate to `open-cookbook-*` over time but not blocking.
+- **Release version:** `v0.12.0` — **beta vibe, explicitly far from
+  1.0**. README calls out "early / iterating / SemVer starts at 1.0"
+  so no accidental breaking-change-expectation from integrators.
+- **Demo deployment:** none. Setup is "git clone + `.env` + docker
+  compose up -d" — the HOWTO (see REL-6 below) is the entry point.
+- **HOWTO doc:** explicit first-class deliverable (REL-6). Covers
+  every env var, minimum required Azure credentials (with alternatives
+  via LiteLLM/Ollama), common gotchas (Whisper first-boot download,
+  SeaweedFS retention, orchestrator-bot-seeding), troubleshooting.
+  Lives at `docs/SETUP.md`, linked from README. Aim: anyone with Docker
+  + a text editor can boot the stack in < 15 minutes.
+
+## Dispatched as slices — sequence confirmed
+
+1. **REL-0 secrets-audit** — git history grep, rotate, scrub
+   `.env.example`, neutralise migration seeds + fixtures.
+2. **REL-5 frontend error-UX audit** — silent save-fails are the
+   worst first-impression. Fix before the public sees them.
+3. **REL-3 i18n foundation + German/English string extraction**.
+4. **REL-4 backend errors → English + code-based frontend translation**.
+   Parallel to REL-3 where file-disjoint, otherwise sequential.
+5. **REL-1 LICENSE + README + rebrand to `open-cookbook`** — final
+   polish once the code is public-ready.
+6. **REL-6 SETUP.md HOWTO** — step-by-step, env-by-env, with LiteLLM
+   alternative documented.
+7. **REL-2 workflow cleanup** (optional, can follow the first public
+   release).
+
+Target tag for the public-ready state: **`v0.12.0`**. Cut it after
+REL-5 + REL-1 + REL-6 at minimum. i18n + error-code audit can slip
+into `v0.12.x` patches.
