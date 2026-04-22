@@ -102,7 +102,7 @@ Tagline candidates:
     project. If paranoia-level later demands it, the escape-hatch is
     to move `deploy.yml` into a separate private repo that receives
     `repository_dispatch` from the public one. Documented as
-    follow-up, not a v0.12.0 gate.
+    follow-up, not a release-tag gate.
 
 1c. **Code-level security audit** (REL-0b). Going public means every
     curious eyeball can read the code looking for bugs. Systematic
@@ -159,7 +159,7 @@ Tagline candidates:
       documented as follow-up not blocker.
     - **A08 Supply Chain** — all three lockfiles committed,
       reproducible builds, signed container images? (optional for
-      v0.12.0).
+      the first public release).
     - **A09 Logging + Monitoring** — grep log statements for PII
       (emails, tokens, full URLs). `_redact_host()` covers URLs in
       Python; verify no untreated URL → log path. Audit-log
@@ -189,11 +189,11 @@ Tagline candidates:
       fix-or-accept per finding.
     - `docs/SECURITY.md` (GitHub-standard file) with private-
       disclosure contact (GitHub Security Advisory link).
-    - Fix-commits for P0 + high findings, before v0.12.0 tag.
+    - Fix-commits for P0 + high findings, before the public-release tag.
     - Repo-level automation enabled at visibility-flip time
       (CodeQL, Dependabot, Secret Scanning, Push Protection).
 
-    **Out of scope for v0.12.0:**
+    **Out of scope for the public-release:**
     - External penetration test (expensive, overkill for hobby).
     - 2FA / WebAuthn (follow-up feature).
     - Formal threat-model document (audit doc + bug backlog serve
@@ -341,9 +341,11 @@ Tagline candidates:
 - **Week 3:** P1 items 6-7 (i18n + English backend errors). This is
   the biggest chunk — can slip.
 - **Week 4 (optional):** P2 items 9-15 to polish.
-- **Release as `v1.0.0` or `v0.12.0`:** user's call on versioning.
-  `v0.x` signals "still iterating, no SemVer commitment"; `v1.0`
-  signals "ready for adoption". Either works.
+- **Release version:** whatever the current tag is at the moment
+  the REL-slices land — the plan itself doesn't nail a specific
+  version. The "early / iterating / no-SemVer-commitment" vibe is
+  the constant; the tag number follows whatever other features land
+  between now and release.
 
 ## Dispatched as slices
 
@@ -367,7 +369,10 @@ Order: REL-0 first (security), then REL-5 (biggest UX win), then
 REL-3 + REL-4 in parallel (i18n needs backend codes to be stable),
 then REL-1 + REL-2 (polish).
 
-Target tag: `v0.12.0` (signals "moving toward 1.0 but still iterating").
+Target tag: not nailed. Whatever semver-number we're at when the
+REL slices all land. The important thing: stay on `v0.x` (beta
+vibe, no SemVer commitment), push `v1.0.0` only when we have a
+real stable-api promise.
 
 ## Scope cuts / follow-ups
 
@@ -375,8 +380,8 @@ Target tag: `v0.12.0` (signals "moving toward 1.0 but still iterating").
   React Native client is a 3-month slice nobody's asking for.
 - **No multi-tenant hosting.** Still a single-family app per instance;
   forks self-host.
-- **No translation-quality QA.** English will be rough at v0.12.0.
-  Native-speaker PRs welcome.
+- **No translation-quality QA.** English will be rough at initial
+  release. Native-speaker PRs welcome.
 - **No monetisation.** The open-source release is the goal; no
   premium tier, no sponsorship tiers, no "buy me a coffee". If
   someone wants to commercialise, MIT allows it.
@@ -387,9 +392,10 @@ Target tag: `v0.12.0` (signals "moving toward 1.0 but still iterating").
   GitHub org is taken, but the repo slug under the existing
   `kay-solutions` org is free). Local package name + docker-image
   names migrate to `open-cookbook-*` over time but not blocking.
-- **Release version:** `v0.12.0` — **beta vibe, explicitly far from
-  1.0**. README calls out "early / iterating / SemVer starts at 1.0"
-  so no accidental breaking-change-expectation from integrators.
+- **Release version:** not pre-committed — whatever tag-number we
+  land on at release time. **Stays `v0.x`** to signal "beta,
+  iterating, no SemVer commitment". `v1.0.0` is reserved for when
+  we have a stable-API promise.
 - **Demo deployment:** none. Setup is "git clone + `.env` + docker
   compose up -d" — the HOWTO (see REL-6 below) is the entry point.
 - **HOWTO doc:** explicit first-class deliverable (REL-6). Covers
@@ -485,6 +491,11 @@ Disabled without AI:
 9. **REL-2 workflow cleanup** (optional, can follow the first public
    release).
 
-Target tag for the public-ready state: **`v0.12.0`**. Cut it after
-REL-0 + REL-0b + REL-5 + REL-7 + REL-8 + REL-1 + REL-6 at minimum.
-i18n + error-code audit can slip into `v0.12.x` patches.
+Release-gate: REL-0 + REL-0b + REL-5 + REL-7 + REL-8 + REL-1 + REL-6
+all green. Tag-number at that moment is whatever semver we're at +
+one bump — could be v0.12, could be v0.15, could be v0.9000. The
+plan doesn't nail it because other features might land in between
+and push the number elsewhere. What matters: stay `v0.x` for the
+public release, reserve `v1.0.0` for a real stable-API commitment.
+i18n + error-code audit (REL-3/REL-4) can slip into patch releases
+after the initial public tag.
