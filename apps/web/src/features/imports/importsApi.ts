@@ -94,6 +94,15 @@ export interface ImportStatusResponseWire {
    */
   thumbnailStagedPhotoId?: string | null
   /**
+   * COVER-0 — up to 6 staged-photo ids the extract job captured as
+   * import-cover candidates (yt-dlp thumbnails + ffmpeg frames +
+   * JSON-LD `image[]`). Ordered; `[0]` is the default cover and
+   * mirrors `thumbnailStagedPhotoId` during the migration window.
+   * Absent on older server builds (pre-Slice-B deploy) — treat
+   * missing as `[]`.
+   */
+  candidateStagedPhotoIds?: string[]
+  /**
    * REIMPORT-0 — id of the target recipe this import updates in place
    * on Done. Non-null exclusively for imports enqueued by
    * `POST /api/recipes/{id}/reimport`; the frontend's progress page
@@ -178,6 +187,11 @@ export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportD
     // means the URL job didn't auto-attach a thumbnail and the form
     // should not seed a staged photo from this side.
     thumbnailStagedPhotoId: wire.thumbnailStagedPhotoId ?? null,
+    // COVER-0 — pass through verbatim. `[]` (or absent on old builds)
+    // means the import yielded no cover candidates and the picker UI
+    // should render its zero-state. Order preserved so `[0]` keeps
+    // mirroring the legacy single-valued field.
+    candidateStagedPhotoIds: wire.candidateStagedPhotoIds ?? [],
     // REIMPORT-0 — pass through verbatim. `null` (or absent on old
     // builds) means this is a standard import; the progress page
     // falls through to the new-recipe-form branch on Done.

@@ -340,6 +340,34 @@ describe('importsApi — GET /api/imports/:id', () => {
     const dto = mapStatusResponse(baseWire({ id: 'imp-no-thumb' }))
     expect(dto.thumbnailStagedPhotoId).toBeNull()
   })
+
+  // COVER-0 — the new-default candidates array. The wire field is
+  // always present on fresh server responses ([] for legacy rows /
+  // empty imports); the mapper preserves order so the picker UI can
+  // rely on [0] being the default cover.
+  it('passes candidateStagedPhotoIds through the wire→DTO mapping', () => {
+    const dto = mapStatusResponse(
+      baseWire({
+        id: 'imp-cands',
+        status: 'Done',
+        progress: 100,
+        thumbnailStagedPhotoId: 'sp-0',
+        candidateStagedPhotoIds: ['sp-0', 'sp-1', 'sp-2'],
+      }),
+    )
+    expect(dto.candidateStagedPhotoIds).toEqual(['sp-0', 'sp-1', 'sp-2'])
+    // During the migration window, the legacy single-valued field
+    // mirrors [0] so frontends can adopt either.
+    expect(dto.candidateStagedPhotoIds[0]).toBe(dto.thumbnailStagedPhotoId)
+  })
+
+  // COVER-0 — older server builds (pre-Slice-B deploy) will omit the
+  // field entirely. The mapper defaults to an empty array so the
+  // picker UI can render a zero-state without null-checks.
+  it('defaults candidateStagedPhotoIds to [] when the wire omits it', () => {
+    const dto = mapStatusResponse(baseWire({ id: 'imp-no-cands' }))
+    expect(dto.candidateStagedPhotoIds).toEqual([])
+  })
 })
 
 // BUG-010 — `GET /api/imports?mine=true&limit=N` list endpoint.
