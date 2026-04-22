@@ -164,6 +164,7 @@ def test_extracted_recipe_shape() -> None:
         "tags": ["warm", "familie"],
         "source_url": "https://example.com/nudeln",
         "thumbnail_url": "https://example.com/nudeln.jpg",
+        "candidate_thumbnails": [],
         "nutrition_estimate": None,
     }
     assert recipe["title"] == "Nudelauflauf"
@@ -203,6 +204,7 @@ def test_extracted_recipe_supports_multiple_components() -> None:
         "tags": [],
         "source_url": "https://example.com/q",
         "thumbnail_url": None,
+        "candidate_thumbnails": [],
         "nutrition_estimate": None,
     }
     assert [c["label"] for c in recipe["components"]] == [
@@ -226,6 +228,7 @@ def test_extraction_result_shape() -> None:
             "tags": [],
             "source_url": "https://example.com/kaiserschmarrn",
             "thumbnail_url": None,
+            "candidate_thumbnails": [],
             "nutrition_estimate": None,
         },
         "confidence": {"overall": "medium", "notes": ["Keine Mengen erkannt"]},
@@ -278,6 +281,7 @@ def test_extracted_recipe_accepts_nutrition_estimate() -> None:
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
+        "candidate_thumbnails": [],
         "nutrition_estimate": {
             "kcal": 300,
             "protein_g": 10,
@@ -339,6 +343,7 @@ def test_extraction_result_carries_signals() -> None:
             "tags": [],
             "source_url": "https://x",
             "thumbnail_url": None,
+            "candidate_thumbnails": [],
             "nutrition_estimate": None,
         },
         "confidence": {"overall": "low", "notes": []},
@@ -356,6 +361,33 @@ def test_extraction_result_carries_signals() -> None:
     assert result["empty_reason"] == "no_usable_source"
 
 
+def test_extracted_recipe_carries_candidate_thumbnails() -> None:
+    """COVER-0 slice A — ``candidate_thumbnails`` is always present
+    (possibly empty) on the wire. The frontend renders the 3x2 grid
+    from this list; the .NET side persists them as StagedPhoto rows
+    in slice B."""
+    recipe: ExtractedRecipe = {
+        "title": "Reel",
+        "description": None,
+        "servings": None,
+        "difficulty": None,
+        "prep_minutes": None,
+        "cook_minutes": None,
+        "components": [{"label": None, "position": 0, "ingredients": [], "steps": []}],
+        "tags": [],
+        "source_url": "https://example.com/reel",
+        "thumbnail_url": "https://cdn.example/poster.jpg",
+        "candidate_thumbnails": [
+            "https://cdn.example/hi.jpg",
+            "https://cdn.example/mid.jpg",
+            "file:///tmp/frame-0.jpg",
+        ],
+        "nutrition_estimate": None,
+    }
+    assert len(recipe["candidate_thumbnails"]) == 3
+    assert recipe["candidate_thumbnails"][0] == "https://cdn.example/hi.jpg"
+
+
 def test_extracted_recipe_accepts_null_nutrition_estimate() -> None:
     """Explicit ``None`` is valid — "LLM could not estimate"."""
     recipe: ExtractedRecipe = {
@@ -369,6 +401,7 @@ def test_extracted_recipe_accepts_null_nutrition_estimate() -> None:
         "tags": [],
         "source_url": "https://example.com/x",
         "thumbnail_url": None,
+        "candidate_thumbnails": [],
         "nutrition_estimate": None,
     }
     assert recipe["nutrition_estimate"] is None

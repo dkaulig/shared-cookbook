@@ -185,6 +185,7 @@ def post_process(
     *,
     original_url: str,
     fallback_thumbnail: str | None,
+    candidate_thumbnails: list[str] | None = None,
     extra_notes: list[str] | None = None,
     usage: TokenUsage | None = None,
     signals: ExtractionSignals | None = None,
@@ -293,6 +294,17 @@ def post_process(
         llm_thumbnail if isinstance(llm_thumbnail, str) and llm_thumbnail else fallback_thumbnail
     )
 
+    # COVER-0 slice A — ``candidate_thumbnails`` is always present on
+    # the wire (empty list on non-URL paths). When the caller supplied
+    # a non-empty candidate list but no ``thumbnail_url`` resolved,
+    # fall back to candidate[0] so the .NET side's legacy
+    # single-thumbnail reader keeps working. This "transition
+    # lubricant" disappears in slice B along with the
+    # ``thumbnail_url`` field.
+    effective_candidates: list[str] = list(candidate_thumbnails) if candidate_thumbnails else []
+    if thumbnail_url is None and effective_candidates:
+        thumbnail_url = effective_candidates[0]
+
     # CFG-1 — ``feature.nutrition_estimate_enabled`` kill-switch. When
     # off, force ``nutrition_estimate=None`` regardless of what Azure
     # emitted so the admin can disable the section UI-wide without
@@ -313,6 +325,7 @@ def post_process(
         "tags": tags,
         "source_url": original_url,
         "thumbnail_url": thumbnail_url,
+        "candidate_thumbnails": effective_candidates,
         "nutrition_estimate": nutrition_estimate,
     }
 

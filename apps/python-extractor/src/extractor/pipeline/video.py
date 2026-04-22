@@ -21,11 +21,12 @@ frontend can render as-is.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Final, Literal, Protocol, runtime_checkable
 
 # yt-dlp ships no stubs; module-level named ignore with a reason is the
 # sanctioned pattern. Do NOT broaden to ``ignore_errors`` — we still
@@ -34,6 +35,20 @@ import yt_dlp  # type: ignore[import-untyped]  # no py.typed marker upstream
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]  # no py.typed
 
 logger = logging.getLogger("extractor.pipeline.video")
+
+# COVER-0 slice A — caps that keep the candidate pipeline bounded.
+# - The overall cap mirrors the 3x2 grid UX (up to 6 tiles).
+# - The yt-dlp cap is "top 2 by resolution"; the rest of the 6 come
+#   from the ffmpeg frame extractor at [15, 35, 60, 85] %.
+# - The dedupe window collapses a yt-dlp thumb and a ffmpeg frame that
+#   land on effectively the same moment in the video.
+_COVER_CANDIDATE_CAP: Final[int] = 6
+_COVER_YTDLP_CAP: Final[int] = 2
+_COVER_FRAME_PERCENTS: Final[tuple[float, ...]] = (0.15, 0.35, 0.60, 0.85)
+_COVER_DEDUPE_WINDOW_SECONDS: Final[float] = 0.5
+# ffmpeg emits JPEG at 1280-wide max (design §"Video imports"). Height
+# stays a multiple of 2 so libx264 / libjpeg don't complain.
+_COVER_FFMPEG_SCALE: Final[str] = "scale='min(1280,iw)':'-2'"
 
 ExtractionErrorCode = Literal[
     "source_unavailable",
@@ -74,6 +89,41 @@ class ExtractionError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class YtDlpThumbnail:
+    """COVER-0 slice A — one candidate thumbnail surfaced by yt-dlp.
+
+    - ``url`` — remote URL the extractor will hand to the .NET side for
+      slice B's downloader.
+    - ``width`` — yt-dlp's ``width`` metadata when present, else
+      ``None``. Used to rank candidates top-by-resolution.
+    - ``timestamp`` — some yt-dlp extractors (notably IG, TikTok) tag
+      individual thumbnails with a ``t`` or ``time`` key pointing at
+      the frame they were sampled from. When present, the candidate
+      assembler uses this to dedupe against ffmpeg frames.
+    """
+
+    url: str
+    width: int | None
+    timestamp: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class ThumbnailCandidate:
+    """COVER-0 slice A — one ffmpeg-extracted frame candidate.
+
+    - ``url`` — locally-addressable reference to the extracted JPEG.
+      Slice A currently returns ``file://`` paths relative to a temp
+      workdir; slice B will rewrite these into signed upload URLs
+      through the existing :class:`IPhotoStorage` pipeline.
+    - ``timestamp`` — the wall-clock second in the source video the
+      frame was sampled from (used for yt-dlp-vs-ffmpeg dedupe).
+    """
+
+    url: str
+    timestamp: float
+
+
+@dataclass(frozen=True, slots=True)
 class VideoAssets:
     """What a downloader hands back to the pipeline.
 
@@ -82,12 +132,26 @@ class VideoAssets:
     - ``title`` / ``description`` — yt-dlp metadata. ``title`` is
       always a string (empty if unknown); ``description`` may be empty.
     - ``thumbnail_url`` — ``None`` when yt-dlp didn't surface one.
+      **Slice A — purely additive.** Kept alongside
+      :attr:`candidate_thumbnails` until slice B retires the
+      single-thumbnail attacher.
+    - ``candidate_thumbnails`` — ordered, up to 2 yt-dlp thumbs from
+      the ``info_dict``. ``[0]`` is the highest-resolution thumb.
+      Frame extraction happens in a separate pass (see
+      :func:`assemble_video_candidates`) so the downloader protocol
+      stays I/O-only.
+    - ``duration_seconds`` — ``info_dict['duration']`` when yt-dlp
+      surfaced it. ``0.0`` means "unknown" and the frame-extraction
+      pass is skipped (it needs a duration to compute percent
+      timestamps).
     """
 
     mp4_path: Path
     title: str
     description: str
     thumbnail_url: str | None
+    candidate_thumbnails: tuple[YtDlpThumbnail, ...] = ()
+    duration_seconds: float = 0.0
 
 
 ProgressHook = Callable[..., None]
@@ -133,6 +197,31 @@ class VideoDownloader(Protocol):
         non-transient failure (private, deleted, geo-blocked, 404).
         """
         ...
+
+
+@runtime_checkable
+class FrameExtractor(Protocol):
+    """COVER-0 slice A — pull N frames out of a downloaded video.
+
+    The protocol is narrow on purpose: the caller supplies a list of
+    absolute-second timestamps (``[3.0, 7.0, 12.0, 17.0]`` for a
+    20-second video at the design's 15 / 35 / 60 / 85 % marks) and
+    gets back a list of :class:`ThumbnailCandidate` carrying local
+    file URLs + the timestamps that actually produced a frame. A
+    partial result (fewer frames than requested timestamps) is
+    acceptable — the pipeline tolerates that gracefully.
+
+    Implementations:
+    - :class:`FfmpegFrameExtractor` — production, shells out to
+      ``ffmpeg`` via ``asyncio.create_subprocess_exec`` (argv list, no
+      shell string — command-injection safe).
+    - :class:`StubFrameExtractor` — in-memory stand-in for tests; no
+      filesystem or subprocess interaction.
+    """
+
+    async def extract(
+        self, *, mp4_path: Path, timestamps: list[float]
+    ) -> list[ThumbnailCandidate]: ...
 
 
 @runtime_checkable
@@ -204,6 +293,22 @@ class StubDownloader:
             for done, total in self._progress_ticks:
                 on_progress(done, total, percent_override=None)
         return self._assets
+
+
+class StubFrameExtractor:
+    """COVER-0 slice A — in-memory :class:`FrameExtractor` for tests.
+
+    Construct with a canned list of :class:`ThumbnailCandidate` and
+    :meth:`extract` returns that list verbatim regardless of the
+    requested timestamps. Keeps tests free of any real ffmpeg / disk
+    I/O.
+    """
+
+    def __init__(self, *, frames: list[ThumbnailCandidate]) -> None:
+        self._frames = frames
+
+    async def extract(self, *, mp4_path: Path, timestamps: list[float]) -> list[ThumbnailCandidate]:
+        return list(self._frames)
 
 
 class StubTranscriber:
@@ -291,11 +396,17 @@ class YtDlpDownloader:
             ) from exc
 
         mp4_path = Path(info["_resolved_path"])
+        duration_raw = info.get("duration")
+        duration_seconds: float = 0.0
+        if isinstance(duration_raw, (int, float)) and not isinstance(duration_raw, bool):
+            duration_seconds = float(duration_raw)
         assets = VideoAssets(
             mp4_path=mp4_path,
             title=str(info.get("title") or ""),
             description=str(info.get("description") or ""),
             thumbnail_url=_first_thumbnail_url(info),
+            candidate_thumbnails=tuple(collect_ytdlp_thumbnails(info)),
+            duration_seconds=duration_seconds,
         )
         logger.info("yt-dlp download done host=%s", _redact(url))
         return assets
@@ -520,15 +631,257 @@ class FasterWhisperTranscriber:
         return " ".join(parts).strip()
 
 
+# ─────────────────────────────────────────────────────────────────────
+# COVER-0 slice A — candidate-thumbnail pipeline.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def collect_ytdlp_thumbnails(info: dict[str, Any]) -> list[YtDlpThumbnail]:
+    """Flatten yt-dlp's ``info_dict['thumbnails']`` into a rich list.
+
+    yt-dlp gives us an array of dicts that usually look like
+    ``{"url": "...", "width": 720, "height": 405, "id": "0"}``. Some
+    extractors tag entries with ``"t"`` or ``"time"`` when the thumb
+    corresponds to a specific frame in the video; we preserve that so
+    the candidate-assembly pass can dedupe against ffmpeg frames.
+
+    Invalid entries (non-dict, missing ``url``) are dropped silently.
+    Empty return list is valid — the caller falls back to the legacy
+    single-thumbnail behaviour.
+    """
+    thumbnails = info.get("thumbnails")
+    out: list[YtDlpThumbnail] = []
+    if not isinstance(thumbnails, list):
+        return out
+    for entry in thumbnails:
+        if not isinstance(entry, dict):
+            continue
+        url = entry.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        width_raw = entry.get("width")
+        width: int | None
+        width = (
+            width_raw if isinstance(width_raw, int) and not isinstance(width_raw, bool) else None
+        )
+        # Two keys show up in the wild: ``t`` (IG) and ``time`` (FB).
+        ts_raw = entry.get("t") if "t" in entry else entry.get("time")
+        timestamp: float | None
+        if isinstance(ts_raw, (int, float)) and not isinstance(ts_raw, bool):
+            timestamp = float(ts_raw)
+        else:
+            timestamp = None
+        out.append(YtDlpThumbnail(url=url, width=width, timestamp=timestamp))
+    return out
+
+
+def _compute_frame_timestamps(duration_seconds: float) -> list[float]:
+    """Return the wall-clock seconds at the design's 15/35/60/85 % marks.
+
+    Returns ``[]`` when ``duration_seconds`` is 0 / negative — we can't
+    compute percentages without a known duration, and ffmpeg would seek
+    to 0 for every request.
+    """
+    if duration_seconds <= 0:
+        return []
+    return [round(duration_seconds * pct, 2) for pct in _COVER_FRAME_PERCENTS]
+
+
+def _top_ytdlp_urls(thumbs: list[YtDlpThumbnail]) -> list[YtDlpThumbnail]:
+    """Rank yt-dlp thumbnails top-by-width, descending.
+
+    When every thumb has ``width=None`` the sort is stable on a
+    constant key, so we reverse the input first — yt-dlp documents
+    the ``thumbnails`` list as worst-to-best, meaning the last entry
+    is the highest quality when no metadata tells us otherwise.
+
+    Returns the top :data:`_COVER_YTDLP_CAP` entries.
+    """
+    if not thumbs:
+        return []
+    # Reverse first so that ties (all None, or same-width) fall out in
+    # yt-dlp-convention order (best first). Sort is stable, so
+    # explicit widths still win.
+    ranked = sorted(
+        reversed(thumbs),
+        key=lambda t: (t.width is None, -(t.width or 0)),
+    )
+    return ranked[:_COVER_YTDLP_CAP]
+
+
+def _deduped_frames(
+    ytdlp: list[YtDlpThumbnail],
+    frames: list[ThumbnailCandidate],
+) -> list[ThumbnailCandidate]:
+    """Drop any ffmpeg frame within the dedupe window of a yt-dlp thumb.
+
+    The yt-dlp entry wins because it's already hosted on a CDN —
+    cheaper to render than a locally-extracted JPEG. When the yt-dlp
+    thumbnail has no timestamp metadata, the dedupe guard can't fire
+    for that pair and every frame passes through.
+    """
+    ytdlp_timestamps = [t.timestamp for t in ytdlp if t.timestamp is not None]
+    if not ytdlp_timestamps:
+        return list(frames)
+    kept: list[ThumbnailCandidate] = []
+    for frame in frames:
+        if any(
+            abs(frame.timestamp - ts) <= _COVER_DEDUPE_WINDOW_SECONDS for ts in ytdlp_timestamps
+        ):
+            continue
+        kept.append(frame)
+    return kept
+
+
+async def _await_frames(
+    *, frame_extractor: FrameExtractor, mp4_path: Path, timestamps: list[float]
+) -> list[ThumbnailCandidate]:
+    """Invoke the protocol and swallow any exception as a partial result.
+
+    Frame extraction is best-effort. A thrown exception (ffmpeg
+    missing, invalid video, permission error) degrades the pipeline
+    to the yt-dlp thumbs only — nothing surfaces as a pipeline-fatal
+    error.
+    """
+    if not timestamps:
+        return []
+    try:
+        return await frame_extractor.extract(mp4_path=mp4_path, timestamps=timestamps)
+    except Exception as exc:
+        # Best-effort degradation: any extractor failure (missing
+        # ffmpeg binary, invalid video, permission error) yields a
+        # partial candidate list rather than failing the whole pipeline.
+        logger.warning(
+            "ffmpeg frame extraction failed — degrading to yt-dlp-only candidates: %s",
+            type(exc).__name__,
+        )
+        return []
+
+
+async def assemble_video_candidates(
+    *,
+    ytdlp_thumbs: list[YtDlpThumbnail],
+    mp4_path: Path,
+    duration_seconds: float,
+    frame_extractor: FrameExtractor,
+) -> list[str]:
+    """Merge yt-dlp thumbs + ffmpeg frames into the final URL list.
+
+    Pipeline:
+
+    1. Rank ``ytdlp_thumbs`` top-by-resolution, keep the top
+       :data:`_COVER_YTDLP_CAP`.
+    2. Compute the 15/35/60/85 % timestamps for ``duration_seconds``.
+       When the duration is unknown (0 / negative), skip frame
+       extraction entirely and return just the yt-dlp URLs.
+    3. Invoke ``frame_extractor.extract`` with the timestamps. Any
+       exception is caught and logged — frame extraction is
+       best-effort, never pipeline-fatal.
+    4. Drop frames within :data:`_COVER_DEDUPE_WINDOW_SECONDS` of a
+       yt-dlp timestamp (yt-dlp wins).
+    5. Concatenate yt-dlp URLs + surviving frame URLs, cap at
+       :data:`_COVER_CANDIDATE_CAP`.
+
+    Returns a ``list[str]`` of absolute URLs or ``file://`` paths
+    ordered so that ``[0]`` is the default cover.
+    """
+    top_ytdlp = _top_ytdlp_urls(ytdlp_thumbs)
+    timestamps = _compute_frame_timestamps(duration_seconds)
+    frames = await _await_frames(
+        frame_extractor=frame_extractor,
+        mp4_path=mp4_path,
+        timestamps=timestamps,
+    )
+    frames = _deduped_frames(ytdlp_thumbs, frames)
+    urls: list[str] = [t.url for t in top_ytdlp] + [f.url for f in frames]
+    return urls[:_COVER_CANDIDATE_CAP]
+
+
+class FfmpegFrameExtractor:
+    """Production :class:`FrameExtractor` backed by the ``ffmpeg`` binary.
+
+    For each requested timestamp, we spawn a one-shot ``ffmpeg`` call
+    via :func:`asyncio.create_subprocess_exec`. The binary lives on
+    PATH inside the docker image (see Dockerfile's apt install); local
+    dev without the binary can swap in :class:`StubFrameExtractor`.
+
+    Security:
+    - ``create_subprocess_exec`` receives an argv list — no shell
+      interpretation. A hostile filename cannot break out of ``-i``
+      into a separate command.
+    - Output files live inside ``output_dir`` (caller-owned), never
+      overlap with the mp4 input, and use a fixed ``frame-<i>.jpg``
+      naming scheme — no per-input filename concatenation.
+    """
+
+    def __init__(self, *, output_dir: Path) -> None:
+        self._output_dir = output_dir
+
+    async def extract(self, *, mp4_path: Path, timestamps: list[float]) -> list[ThumbnailCandidate]:
+        results: list[ThumbnailCandidate] = []
+        for index, timestamp in enumerate(timestamps):
+            out_path = self._output_dir / f"frame-{index}.jpg"
+            argv: list[str] = [
+                "ffmpeg",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                f"{timestamp:.3f}",
+                "-i",
+                str(mp4_path),
+                "-vframes",
+                "1",
+                "-vf",
+                _COVER_FFMPEG_SCALE,
+                str(out_path),
+            ]
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *argv,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _stdout, stderr = await proc.communicate()
+            except (OSError, ValueError) as exc:
+                # ffmpeg not on PATH, invalid timestamp format, etc.
+                logger.warning("ffmpeg spawn failed idx=%d err=%s", index, type(exc).__name__)
+                continue
+            if proc.returncode != 0 or not out_path.exists():
+                logger.warning(
+                    "ffmpeg frame idx=%d rc=%s stderr=%s",
+                    index,
+                    proc.returncode,
+                    (stderr or b"")[:200].decode("utf-8", errors="replace"),
+                )
+                # Clean up any partial file ffmpeg may have left behind.
+                if out_path.exists():
+                    with contextlib.suppress(OSError):
+                        out_path.unlink()
+                continue
+            results.append(
+                ThumbnailCandidate(url=out_path.as_uri(), timestamp=timestamp),
+            )
+        return results
+
+
 __all__ = [
     "ExtractionError",
     "ExtractionErrorCode",
     "FasterWhisperTranscriber",
+    "FfmpegFrameExtractor",
+    "FrameExtractor",
     "ProgressHook",
     "StubDownloader",
+    "StubFrameExtractor",
     "StubTranscriber",
+    "ThumbnailCandidate",
     "Transcriber",
     "VideoAssets",
     "VideoDownloader",
     "YtDlpDownloader",
+    "YtDlpThumbnail",
+    "assemble_video_candidates",
+    "collect_ytdlp_thumbnails",
 ]
