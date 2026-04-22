@@ -75,7 +75,7 @@ function withProviders(path: string): ReactNode {
         <BottomZoneProvider>
           <Routes>
             <Route
-              path="/groups/:id"
+              path="/groups/:groupId"
               element={
                 <>
                   <GroupDetailPage />

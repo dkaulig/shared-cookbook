@@ -80,9 +80,9 @@ const DEFAULT_SORT: SearchSort = DEFAULT_RECIPE_LIST_SORT
 const DEFAULT_PAGE_SIZE = DEFAULT_RECIPE_LIST_PAGE_SIZE
 
 export function GroupDetailPage() {
-  const params = useParams<{ id: string }>()
+  const params = useParams<{ groupId: string }>()
   const navigate = useNavigate()
-  const groupId = params.id ?? ''
+  const groupId = params.groupId ?? ''
   const detail = useGroup(groupId)
   const tagsQuery = useGroupTags(groupId)
 
