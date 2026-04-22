@@ -671,6 +671,18 @@ describe('<ChatPage /> — BUG-001 + BUG-039 regression: mobile viewport sizing'
     )
     expect(html).toMatch(/viewport-fit=cover/)
   })
+
+  it('does not imperatively pin the shell height via visualViewport (prior hack caused focus-jump under TopBar)', () => {
+    // 2026-04-21 chat bug sweep. Earlier fix ran a visualViewport handler
+    // that set `el.style.height = ${vv.height}px` on the chat shell. That
+    // fights the AppLayout fixed-inset-0 flex-column layout: on iOS
+    // keyboard-open, the shell shrinks, then Safari scrolls the focused
+    // textarea into view against the now-too-tall root, landing the
+    // composer almost under the TopBar. Layout math belongs in CSS, not
+    // JS; the flex parent already gives us the right height.
+    expect(source).not.toMatch(/el\.style\.height\s*=/)
+    expect(source).not.toMatch(/chatShellRef/)
+  })
 })
 
 describe('<ChatPage /> — BUG-025 regression: input font-size ≥ 16px', () => {
@@ -678,5 +690,94 @@ describe('<ChatPage /> — BUG-025 regression: input font-size ≥ 16px', () => 
     renderPage()
     const textarea = screen.getByLabelText(/Nachricht/i)
     expect(textarea.className).toMatch(/\btext-base\b/)
+  })
+})
+
+describe('<ChatPage /> — 2026-04-21 chat bug sweep: dedupe after server refetch', () => {
+  it('does NOT double-render the user message after `done` + refetch (server-id ≠ optimistic local-id)', async () => {
+    // Reproduces the user-reported doubled messages. The optimistic
+    // user bubble uses a `local-<uuid>` id; the persisted row that
+    // arrives via the post-`done` refetch uses the server's own id.
+    // Before the fix the merge memo kept BOTH — two bubbles visible.
+    const user = userEvent.setup()
+    // Override the global beforeEach mock so user + assistant
+    // `localId()` calls get distinct UUIDs (production semantics —
+    // the global beforeEach pins `randomUUID` to a single value for
+    // unrelated tests that assert on the `/chat/<sessionId>` URL).
+    let uuidCounter = 0
+    vi.spyOn(crypto, 'randomUUID').mockImplementation(
+      () =>
+        `aaaaaaaa-bbbb-cccc-dddd-${String(++uuidCounter).padStart(12, '0')}` as `${string}-${string}-${string}-${string}-${string}`,
+    )
+    let messagesCallCount = 0
+    server.use(
+      http.post('/api/chat/sessions/:sessionId/turn', () =>
+        sseResponse([
+          sseBlock('message-started', { messageId: 'srv-asst', role: 'assistant' }),
+          sseBlock('token', { text: 'Pong' }),
+          sseBlock('done', { messageId: 'srv-asst' }),
+        ]),
+      ),
+      http.get('/api/chat/sessions/:sessionId/messages', () => {
+        messagesCallCount += 1
+        if (messagesCallCount === 1) return HttpResponse.json<ChatMessageDto[]>([])
+        return HttpResponse.json<ChatMessageDto[]>([
+          {
+            id: 'srv-user',
+            role: 'user',
+            content: 'Ping',
+            createdAt: '2026-04-21T10:00:00Z',
+          },
+          {
+            id: 'srv-asst',
+            role: 'assistant',
+            content: 'Pong',
+            createdAt: '2026-04-21T10:00:01Z',
+          },
+        ])
+      }),
+    )
+    renderPage()
+    await user.type(screen.getByLabelText(/Nachricht/i), 'Ping')
+    await user.click(screen.getByRole('button', { name: /^Senden$/ }))
+    // Wait for the assistant response to land (indicates done + refetch completed).
+    await screen.findByText('Pong')
+    // Now assert only ONE user bubble exists after the dust settles.
+    await waitFor(() => {
+      const userBubbles = screen.getAllByText('Ping')
+      expect(userBubbles).toHaveLength(1)
+    })
+    // Assistant too — single bubble.
+    await waitFor(() => {
+      expect(screen.getAllByText('Pong')).toHaveLength(1)
+    })
+  })
+
+  it('refetches the sessions list after a turn completes (updatedAt + messageCount propagate)', async () => {
+    const user = userEvent.setup()
+    let sessionsCallCount = 0
+    server.use(
+      http.post('/api/chat/sessions/:sessionId/turn', () =>
+        sseResponse([
+          sseBlock('message-started', { messageId: 's', role: 'assistant' }),
+          sseBlock('token', { text: 'ok' }),
+          sseBlock('done', { messageId: 's' }),
+        ]),
+      ),
+      http.get('/api/chat/sessions', () => {
+        sessionsCallCount += 1
+        return HttpResponse.json<ChatSessionListItem[]>([sessionListItem({})])
+      }),
+    )
+    renderPage()
+    await user.type(screen.getByLabelText(/Nachricht/i), 'Hallo')
+    await user.click(screen.getByRole('button', { name: /^Senden$/ }))
+    await screen.findByText('ok')
+    // Initial mount fetches once; the post-done invalidate must trigger
+    // at least one more fetch — else the sidebar shows stale
+    // updatedAt/messageCount after a turn.
+    await waitFor(() => {
+      expect(sessionsCallCount).toBeGreaterThanOrEqual(2)
+    })
   })
 })
