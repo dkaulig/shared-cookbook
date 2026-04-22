@@ -218,23 +218,25 @@ export function GroupDetailPage() {
 
   // BUG-036 — replace the old floating round FAB (fixed bottom-right)
   // with a full-width primary button in the unified Bottom-Zone slot.
-  // Same target (`/groups/:id/recipes/new`), just folded into the
-  // shared BottomNav container so there's no overlap math per page.
+  // Same target (`/groups/:groupId/recipes/new`), just folded into
+  // the shared BottomNav container so there's no overlap math per
+  // page.
   //
-  // TABLET-1 + 2026-04-21 slot-conflict fix — when a nested recipe
-  // route is active, the child RecipeDetailPage ALSO calls
-  // `useBottomZoneSlot(RecipeActionBar)`. React fires effects in
-  // depth-first post-order (child first, THEN parent on a combined
-  // render), which means GroupDetailPage's "Neues Rezept" slot-set
-  // overwrites the child's RecipeActionBar — user lands on a recipe
-  // and still sees the create-new button, never the cook/plan
-  // buttons. Passing `null` when an outlet is active lets the child
-  // own the slot unopposed. When the user navigates BACK and the
-  // outlet disappears (`hasOutlet` flips to false), this effect
-  // re-runs and re-asserts the "Neues Rezept" Link.
+  // 2026-04-22 slot-conflict fix #2 — when a nested recipe route is
+  // active (`hasOutlet === true`), the child RecipeDetailPage ALSO
+  // calls `useBottomZoneSlot(RecipeActionBar)`. React fires effects
+  // depth-first post-order: child first, THEN parent on a combined
+  // render. An earlier attempt to "pass null from the parent when
+  // child is mounted" still overwrites the child's slot with null,
+  // so the user saw NO action bar on recipe detail pages.
+  //
+  // Real fix: pass `{ disabled: hasOutlet }` so the hook's inner
+  // effect skips the `set()` call entirely when the child is the
+  // legitimate owner. Parent yields ownership — child's ActionBar
+  // renders unopposed.
   const hasOutlet = outletNode != null
   useBottomZoneSlot(
-    groupId && !hasOutlet ? (
+    groupId ? (
       <Link
         to={`/groups/${groupId}/recipes/new`}
         aria-label="Neues Rezept anlegen"
@@ -248,7 +250,8 @@ export function GroupDetailPage() {
         Neues Rezept
       </Link>
     ) : null,
-    [groupId, hasOutlet],
+    [groupId],
+    { disabled: hasOutlet },
   )
 
   if (!groupId) return <Navigate to="/groups" replace />
