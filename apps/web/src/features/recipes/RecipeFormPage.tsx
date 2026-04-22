@@ -33,7 +33,7 @@ import { GripVertical, Plus, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useGroup } from '@/features/groups/hooks'
 import { CreateTagDialog } from '@/features/tagManagement/CreateTagDialog'
-import { useImportStatus } from '@/features/imports/hooks'
+import { useImportCandidates, useImportStatus } from '@/features/imports/hooks'
 import {
   extractedRecipeToPrefill,
   extractedResultToPrefill,
@@ -68,6 +68,7 @@ import { FormActionBar } from './FormActionBar'
 import { useBottomZoneSlot } from '@/components/layout/bottomZone'
 import { FormIntro } from './FormIntro'
 import { PhotoUploadGrid } from './PhotoUploadGrid'
+import { ImportCandidatesGrid } from './ImportCandidatesGrid'
 import { uploadRecipePhoto } from './recipePhotoApi'
 import { RecipeFormTopNav } from './RecipeFormTopNav'
 import { RecipeConflictBody } from './RecipeConflictBody'
@@ -417,6 +418,15 @@ export function RecipeFormPage({ mode }: Props) {
       : []
     const thumbId = prefill?.thumbnailStagedPhotoId
     if (!thumbId) return base
+    // COVER-0 — when the picker grid is rendering (>=2 candidates),
+    // the legacy thumbnail is already `candidateStagedPhotoIds[0]`
+    // and sits inside the grid. Adding it to `preAttached` again
+    // would double-count on the save body (and surface an invisible
+    // no-URL entry). Suppress the legacy badge only when the grid
+    // takes over so the single-candidate path (length < 2) keeps its
+    // existing "badge only" fallback.
+    const candidateCount = prefill?.candidateStagedPhotoIds?.length ?? 0
+    if (candidateCount >= 2) return base
     // Mark the thumbnail with an empty url so the grid can skip the
     // <img> render (no signed URL available today).
     return [...base, { stagedPhotoId: thumbId, url: '' }]
@@ -673,6 +683,27 @@ function RecipeFormInner({
   // mode. After the recipe POST resolves, handleSubmit iterates these
   // sequentially via uploadRecipePhoto(newRecipeId, file).
   const [stagedPhotos, setStagedPhotos] = useState<File[]>([])
+
+  // ── COVER-0 — import-cover picker state ──────────────────────────
+  // The picker renders when the URL-extract job captured >=2 candidate
+  // thumbnails. Tile 0 is the default cover + default-selected; other
+  // tiles start unselected. Cover always stays ∈ selectedCandidateIds
+  // — enforced by the ImportCandidatesGrid's event contract.
+  const prefillCandidateIds = prefill?.candidateStagedPhotoIds ?? []
+  const showCandidatePicker =
+    mode === 'create' && prefillCandidateIds.length >= 2
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>(
+    () => (prefillCandidateIds[0] ? [prefillCandidateIds[0]] : []),
+  )
+  const [coverStagedPhotoId, setCoverStagedPhotoId] = useState<string | null>(
+    () => prefillCandidateIds[0] ?? null,
+  )
+  // Fetch freshly-signed candidate URLs lazily — only when the picker
+  // UI actually needs them. 410 / 403 fall through to the zero-state
+  // (no tiles rendered); the form still saves fine.
+  const candidatesQuery = useImportCandidates(importId ?? undefined, {
+    enabled: showCandidatePicker,
+  })
   // BUG-024 — server-side staged photos seeded from the import memo.
   // Kept in React state so the remove-preAttached handler can drop an
   // entry after a successful DELETE without re-reading sessionStorage.
@@ -688,14 +719,26 @@ function RecipeFormInner({
     'idle' | 'saving' | 'uploading-photos'
   >('idle')
 
-  // BUG-024 — the ids we forward into the create-recipe payload are
-  // the preAttached list plus the BUG-018 thumbnail id (if not
-  // already present). The thumbnail id is folded in defensively in
-  // case the wrapper wasn't able to tag it with a URL (see
-  // initialPreAttached comment in the wrapper).
+  // BUG-024 + COVER-0 — the ids we forward into the create-recipe
+  // payload combine three sources, in precedence order:
+  //   1. `preAttached` (user-uploaded staged photos, photo-import flow).
+  //   2. `selectedCandidateIds` (the COVER-0 picker's active tiles).
+  //   3. `thumbnailStagedPhotoId` (BUG-018 legacy fallback) — only
+  //      when the picker isn't rendering (length < 2). When the
+  //      picker IS rendering, its own selection already contains the
+  //      legacy thumbnail (it IS `candidateStagedPhotoIds[0]`), so
+  //      folding the singleton in again would double-count.
   const stagedPhotoIds: string[] = (() => {
     const ids = preAttached.map((p) => p.stagedPhotoId)
-    if (thumbnailStagedPhotoId && !ids.includes(thumbnailStagedPhotoId)) {
+    // COVER-0 — add picker-selected tiles to the save payload.
+    if (showCandidatePicker) {
+      for (const id of selectedCandidateIds) {
+        if (!ids.includes(id)) ids.push(id)
+      }
+    } else if (
+      thumbnailStagedPhotoId
+      && !ids.includes(thumbnailStagedPhotoId)
+    ) {
       ids.push(thumbnailStagedPhotoId)
     }
     return ids
@@ -1031,6 +1074,20 @@ function RecipeFormInner({
         mode === 'create' && stagedPhotoIds && stagedPhotoIds.length > 0
           ? stagedPhotoIds
           : undefined,
+      // COVER-0 — forward the picker's chosen cover so the server
+      // promotes the right tile as the new recipe's hero image.
+      // Client-side guard: only send the id when (a) the picker is
+      // rendering, (b) the cover is actually a member of the outgoing
+      // stagedPhotoIds list. The backend validates this too, but we
+      // surface the guard here so a coding bug can't flag a malformed
+      // request. Omitted → server falls back to `stagedPhotoIds[0]`.
+      coverStagedPhotoId:
+        mode === 'create'
+        && showCandidatePicker
+        && coverStagedPhotoId != null
+        && stagedPhotoIds.includes(coverStagedPhotoId)
+          ? coverStagedPhotoId
+          : undefined,
     }
 
     try {
@@ -1235,6 +1292,34 @@ function RecipeFormInner({
               <CharCounter value={description} max={DESC_MAX} />
             </Field>
           </FormCard>
+
+          {/* ── COVER-0 — import-cover picker ─────────────────── */}
+          {/*
+            Renders only when the URL-extract job captured >=2
+            candidate thumbnails. The grid is a shared component so
+            Slice E (RecipeDetailPage "Cover ändern" modal) can
+            re-use it. Signed URLs come from the dedicated
+            `/api/imports/:id/candidates` endpoint — the import
+            status response only carries the ids.
+          */}
+          {showCandidatePicker && (candidatesQuery.data?.length ?? 0) > 0 && (
+            <FormCard
+              title="Bilder aus Import"
+              description="Tippe auf das Sternsymbol, um das Cover festzulegen. Weitere Bilder werden dem Rezept hinzugefügt."
+            >
+              <ImportCandidatesGrid
+                candidates={candidatesQuery.data!.map((c) => ({
+                  stagedPhotoId: c.stagedPhotoId,
+                  signedUrl: c.signedUrl,
+                  contentType: c.contentType,
+                }))}
+                selectedIds={selectedCandidateIds}
+                coverStagedPhotoId={coverStagedPhotoId}
+                onSelectionChange={setSelectedCandidateIds}
+                onCoverChange={setCoverStagedPhotoId}
+              />
+            </FormCard>
+          )}
 
           {/* ── Fotos ─────────────────────────────────────────── */}
           {/*

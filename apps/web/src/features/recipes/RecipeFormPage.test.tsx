@@ -2543,6 +2543,427 @@ describe('RecipeFormPage (create)', () => {
     })
   })
 
+  // ── COVER-0 Slice D — multi-candidate cover picker grid ────────────
+  //
+  // Successor UX to the BUG-018 single-thumbnail auto-attach: when the
+  // URL-extract job captures >=2 cover-candidates (yt-dlp thumbnails +
+  // ffmpeg frames + JSON-LD image[]), the form renders a 3×2 picker
+  // grid above the photo-upload section. Tile 0 is the default cover
+  // (starred + selected); other tiles start unselected. Save body
+  // carries `stagedPhotoIds: selectedIds + coverStagedPhotoId`.
+
+  describe('COVER-0 — multi-candidate cover picker grid', () => {
+    function importWithCandidates(
+      importId: string,
+      candidateIds: string[],
+    ): RecipeImportDto {
+      return {
+        id: importId,
+        groupId: 'g1',
+        source: 'url',
+        status: 'done',
+        progress: 100,
+        sourceUrl: 'https://www.facebook.com/cover-video',
+        result: {
+          recipe: {
+            title: 'Cover Pizza',
+            description: null,
+            servings: 4,
+            difficulty: 1,
+            prep_minutes: null,
+            cook_minutes: null,
+            components: [
+              {
+                label: null,
+                position: 0,
+                ingredients: [
+                  {
+                    name: 'Mehl',
+                    quantity: '300',
+                    unit: 'g',
+                    note: null,
+                    confidence: 'high',
+                  },
+                ],
+                steps: [
+                  { position: 1, content: 'Mischen.', confidence: 'high' },
+                ],
+              },
+            ],
+            tags: [],
+            source_url: 'https://www.facebook.com/cover-video',
+            thumbnail_url: 'https://scontent.xx.fbcdn.net/thumb.jpg',
+          },
+          confidence: { overall: 'high', notes: [] },
+        },
+        errorMessage: null,
+        createdAt: '2026-04-22T12:00:00Z',
+        completedAt: '2026-04-22T12:00:30Z',
+        thumbnailStagedPhotoId: candidateIds[0] ?? null,
+        candidateStagedPhotoIds: candidateIds,
+      }
+    }
+
+    function withSeededCache(
+      initialPath: string,
+      seed: RecipeImportDto,
+    ): ReactNode {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      client.setQueryData(importQueryKeys.status(seed.id), seed)
+      server.use(
+        http.get(`/api/imports/${seed.id}`, () => new Promise(() => {})),
+        // The candidate-endpoint returns freshly-signed URLs per id. A
+        // plain one-to-one map keeps the fixture terse.
+        http.get(`/api/imports/${seed.id}/candidates`, () =>
+          HttpResponse.json({
+            candidates: (seed.candidateStagedPhotoIds ?? []).map(
+              (id, idx) => ({
+                stagedPhotoId: id,
+                signedUrl: `https://cdn.example/${id}.jpg`,
+                contentType: 'image/jpeg',
+                candidateOrder: idx,
+                expiresAt: '2026-04-29T12:00:30Z',
+              }),
+            ),
+          }),
+        ),
+      )
+      return (
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={[initialPath]}>
+            <BottomZoneProvider>
+              <Routes>
+                <Route
+                  path="/groups/:groupId/recipes/new"
+                  element={<RecipeFormPage mode="create" />}
+                />
+              </Routes>
+              <BottomNav />
+            </BottomZoneProvider>
+          </MemoryRouter>
+        </QueryClientProvider>
+      )
+    }
+
+    it('renders 6 tiles when the import yields 6 candidates; tile 0 is selected + starred by default', async () => {
+      const seed = importWithCandidates('imp-cov-6', [
+        'c0',
+        'c1',
+        'c2',
+        'c3',
+        'c4',
+        'c5',
+      ])
+      render(withSeededCache('/groups/g1/recipes/new?importId=imp-cov-6', seed))
+
+      // Wait until candidate images appear.
+      const tileButtons = await screen.findAllByRole('button', {
+        name: /Auswählen|Abwählen/,
+      })
+      expect(tileButtons).toHaveLength(6)
+      // Tile 0 is the default cover — aria-pressed=true on both the
+      // star (label "Cover-Bild") and the tile body.
+      expect(tileButtons[0]).toHaveAttribute('aria-pressed', 'true')
+      for (let i = 1; i < 6; i++) {
+        expect(tileButtons[i]).toHaveAttribute('aria-pressed', 'false')
+      }
+      const coverStar = screen.getAllByRole('button', { name: /Cover-Bild/ })
+      expect(coverStar).toHaveLength(1)
+    })
+
+    it('tapping tile 3 adds it to the selection; cover stays on tile 0', async () => {
+      const user = userEvent.setup()
+      const seed = importWithCandidates('imp-cov-multi', [
+        'c0',
+        'c1',
+        'c2',
+        'c3',
+      ])
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-cov-multi',
+          seed,
+        ),
+      )
+      const tiles = await screen.findAllByRole('button', {
+        name: /Auswählen|Abwählen/,
+      })
+      await user.click(tiles[3])
+      // Tile 3 flipped to selected; tile 0 still selected + cover.
+      expect(tiles[3]).toHaveAttribute('aria-pressed', 'true')
+      expect(tiles[0]).toHaveAttribute('aria-pressed', 'true')
+      const stars = screen.getAllByRole('button', { name: /Cover-Bild/ })
+      expect(stars).toHaveLength(1)
+    })
+
+    it('star-tapping tile 3 moves the cover and auto-selects that tile', async () => {
+      const user = userEvent.setup()
+      const seed = importWithCandidates('imp-cov-star', [
+        'c0',
+        'c1',
+        'c2',
+        'c3',
+      ])
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-cov-star',
+          seed,
+        ),
+      )
+      await screen.findAllByRole('button', { name: /Auswählen|Abwählen/ })
+      // Tile 3 is not the cover → its star has label "Zum Cover machen".
+      const promoteStars = screen.getAllByRole('button', {
+        name: /Zum Cover machen/,
+      })
+      // Tiles 1, 2, 3 = three non-cover stars.
+      expect(promoteStars).toHaveLength(3)
+      await user.click(promoteStars[2]) // tile 3
+
+      // Cover moved; only one star labeled "Cover-Bild" now.
+      const nextCoverStars = screen.getAllByRole('button', {
+        name: /Cover-Bild/,
+      })
+      expect(nextCoverStars).toHaveLength(1)
+      // Tile 3 must be selected now (auto-select via cover promotion).
+      const tiles = screen.getAllByRole('button', {
+        name: /Auswählen|Abwählen/,
+      })
+      expect(tiles[3]).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('tapping the cover tile body is a no-op (cannot deselect cover)', async () => {
+      const user = userEvent.setup()
+      const seed = importWithCandidates('imp-cov-protect', ['c0', 'c1'])
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-cov-protect',
+          seed,
+        ),
+      )
+      const tiles = await screen.findAllByRole('button', {
+        name: /Auswählen|Abwählen/,
+      })
+      await user.click(tiles[0]) // cover tile body
+      // Still selected + still the cover.
+      expect(tiles[0]).toHaveAttribute('aria-pressed', 'true')
+      const covers = screen.getAllByRole('button', { name: /Cover-Bild/ })
+      expect(covers).toHaveLength(1)
+    })
+
+    it('submit carries stagedPhotoIds + coverStagedPhotoId in the create payload', async () => {
+      const user = userEvent.setup()
+      const seed = importWithCandidates('imp-cov-save', [
+        'c0',
+        'c1',
+        'c2',
+      ])
+      let captured: CreateRecipeRequest | null = null
+      server.use(
+        http.post('/api/groups/g1/recipes', async ({ request }) => {
+          captured = (await request.json()) as CreateRecipeRequest
+          return HttpResponse.json(
+            {
+              id: 'r-cov',
+              groupId: 'g1',
+              createdByUserId: 'u1',
+              createdByDisplayName: 'U',
+              title: 'Cover Pizza',
+              defaultServings: 4,
+              difficulty: 1,
+              sourceType: 'Manual',
+              photos: [],
+              createdAt: '2026-04-22T12:00:30Z',
+              updatedAt: '2026-04-22T12:00:30Z',
+              components: [
+                { label: null, position: 0, ingredients: [], steps: [] },
+              ],
+              tags: [],
+              nutritionEstimate: null,
+              partialPhotoFailures: null,
+            },
+            { status: 201 },
+          )
+        }),
+      )
+
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-cov-save',
+          seed,
+        ),
+      )
+      // Wait for picker to render, then add tile 2 to the selection.
+      const tiles = await screen.findAllByRole('button', {
+        name: /Auswählen|Abwählen/,
+      })
+      await user.click(tiles[2])
+
+      await user.click(
+        screen.getByRole('button', { name: /Rezept speichern/i }),
+      )
+      await waitFor(() => expect(captured).not.toBeNull())
+      // Default cover stays on c0; user also selected c2.
+      expect(captured!.stagedPhotoIds).toEqual(['c0', 'c2'])
+      expect(captured!.coverStagedPhotoId).toBe('c0')
+    })
+
+    it('submit after star-promoting tile 2 carries the new cover', async () => {
+      const user = userEvent.setup()
+      const seed = importWithCandidates('imp-cov-save2', [
+        'c0',
+        'c1',
+        'c2',
+      ])
+      let captured: CreateRecipeRequest | null = null
+      server.use(
+        http.post('/api/groups/g1/recipes', async ({ request }) => {
+          captured = (await request.json()) as CreateRecipeRequest
+          return HttpResponse.json(
+            {
+              id: 'r-cov2',
+              groupId: 'g1',
+              createdByUserId: 'u1',
+              createdByDisplayName: 'U',
+              title: 'Cover Pizza',
+              defaultServings: 4,
+              difficulty: 1,
+              sourceType: 'Manual',
+              photos: [],
+              createdAt: '2026-04-22T12:00:30Z',
+              updatedAt: '2026-04-22T12:00:30Z',
+              components: [
+                { label: null, position: 0, ingredients: [], steps: [] },
+              ],
+              tags: [],
+              nutritionEstimate: null,
+              partialPhotoFailures: null,
+            },
+            { status: 201 },
+          )
+        }),
+      )
+
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-cov-save2',
+          seed,
+        ),
+      )
+      await screen.findAllByRole('button', { name: /Auswählen|Abwählen/ })
+      // Star-tap tile 2 → cover moves, tile 2 auto-selects.
+      const promoteStars = screen.getAllByRole('button', {
+        name: /Zum Cover machen/,
+      })
+      await user.click(promoteStars[1]) // tile 2
+
+      await user.click(
+        screen.getByRole('button', { name: /Rezept speichern/i }),
+      )
+      await waitFor(() => expect(captured).not.toBeNull())
+      // Both tiles remain selected; cover is c2.
+      expect(captured!.stagedPhotoIds).toEqual(['c0', 'c2'])
+      expect(captured!.coverStagedPhotoId).toBe('c2')
+    })
+
+    it('does NOT render the picker when only 1 candidate (falls back to legacy single-thumbnail behaviour)', async () => {
+      const seed = importWithCandidates('imp-cov-one', ['only-one'])
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-cov-one',
+          seed,
+        ),
+      )
+      await screen.findByDisplayValue('Cover Pizza')
+      // Grid has no tile buttons when the picker is suppressed.
+      expect(
+        screen.queryAllByRole('button', { name: /Auswählen|Abwählen/ }),
+      ).toHaveLength(0)
+      // Section header "Bilder aus Import" must NOT show either —
+      // nothing for the user to pick from with one candidate.
+      expect(screen.queryByText(/Bilder aus Import/i)).not.toBeInTheDocument()
+    })
+
+    it('legacy fallback: 0 candidates + thumbnailStagedPhotoId set → no picker grid (single-tile legacy path)', async () => {
+      const seed: RecipeImportDto = {
+        ...importWithCandidates('imp-cov-legacy', []),
+        thumbnailStagedPhotoId: 'legacy-thumb',
+        candidateStagedPhotoIds: [],
+      }
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-cov-legacy',
+          seed,
+        ),
+      )
+      await screen.findByDisplayValue('Cover Pizza')
+      expect(
+        screen.queryAllByRole('button', { name: /Auswählen|Abwählen/ }),
+      ).toHaveLength(0)
+      expect(screen.queryByText(/Bilder aus Import/i)).not.toBeInTheDocument()
+    })
+
+    it('client-side guard: coverStagedPhotoId must be a member of stagedPhotoIds on the wire', async () => {
+      // Defence-in-depth — the backend validates this, but the form
+      // should NEVER submit a cover that the server would reject as
+      // not-a-member. This covers an edge case where the cover got
+      // deselected via a race / bug: the save body must not claim a
+      // cover that isn't in the selection.
+      const user = userEvent.setup()
+      const seed = importWithCandidates('imp-cov-guard', [
+        'c0',
+        'c1',
+        'c2',
+      ])
+      let captured: CreateRecipeRequest | null = null
+      server.use(
+        http.post('/api/groups/g1/recipes', async ({ request }) => {
+          captured = (await request.json()) as CreateRecipeRequest
+          return HttpResponse.json(
+            {
+              id: 'r-cov-guard',
+              groupId: 'g1',
+              createdByUserId: 'u1',
+              createdByDisplayName: 'U',
+              title: 'Cover Pizza',
+              defaultServings: 4,
+              difficulty: 1,
+              sourceType: 'Manual',
+              photos: [],
+              createdAt: '2026-04-22T12:00:30Z',
+              updatedAt: '2026-04-22T12:00:30Z',
+              components: [
+                { label: null, position: 0, ingredients: [], steps: [] },
+              ],
+              tags: [],
+              nutritionEstimate: null,
+              partialPhotoFailures: null,
+            },
+            { status: 201 },
+          )
+        }),
+      )
+      render(
+        withSeededCache(
+          '/groups/g1/recipes/new?importId=imp-cov-guard',
+          seed,
+        ),
+      )
+      await screen.findAllByRole('button', { name: /Auswählen|Abwählen/ })
+      await user.click(
+        screen.getByRole('button', { name: /Rezept speichern/i }),
+      )
+      await waitFor(() => expect(captured).not.toBeNull())
+      // Cover on wire must be a member of stagedPhotoIds (or omitted).
+      if (captured!.coverStagedPhotoId !== undefined) {
+        expect(captured!.stagedPhotoIds ?? []).toContain(
+          captured!.coverStagedPhotoId,
+        )
+      }
+    })
+  })
+
   describe('BUG-025 regression: input font-size ≥ 16px', () => {
     it('Titel input className includes `text-base` (prevents iOS auto-zoom)', () => {
       render(withProviders('/groups/g1/recipes/new'))
