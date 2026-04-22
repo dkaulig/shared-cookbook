@@ -120,9 +120,42 @@ test.describe('COVER-0 import cover-picker', () => {
 
     // 3. Kick off the URL import. Hit the form directly rather than
     //    click through the nav so the smoke stays deterministic.
-    await page.goto(`/rezepte/import/url?groupId=${groupId}`)
+    await page.goto(`/rezepte/import/url`)
     await page.getByLabel(/Video- oder Blog-URL/i).fill(VIDEO_URL)
     await page.getByRole('button', { name: /Rezept importieren/i }).click()
+
+    // 3b. If the caller is in >1 groups, ImportUrlPage opens
+    //     GroupPickerDialog ("In welcher Gruppe suchen?") instead of
+    //     submitting straight away. Pick the group captured via the
+    //     API call above so the import lands in a deterministic group.
+    //     Bot account is typically in ≥2 groups (Private Sammlung +
+    //     E2E-Regression), so this dialog fires — single-group test
+    //     accounts would skip it silently and the role-lookup below
+    //     just times out at 1s, which we swallow.
+    const groupName = groups[0]!.name
+    await page
+      .getByRole('button', { name: new RegExp(groupName, 'i') })
+      .click({ timeout: 1_500 })
+      .catch(() => {
+        // Single-group account — dialog never opened; submit happened
+        // immediately. Proceed to waitForURL below.
+      })
+
+    // 3c. BUG-013 — the backend caches successful imports per (user,
+    //     canonical-url) for 7 days. If the fixture URL was imported
+    //     in a recent test run, the form renders a cache-hit banner
+    //     with "Zum bestehenden Rezept" + "Neu extrahieren" buttons
+    //     instead of enqueuing. "Neu extrahieren" forces a fresh run
+    //     through the whole pipeline — which is what this spec is
+    //     actually trying to assert (new candidate downloads fire).
+    //     On a virgin cache the button is absent; we swallow the
+    //     miss and carry on.
+    await page
+      .getByRole('button', { name: /Neu extrahieren/i })
+      .click({ timeout: 1_500 })
+      .catch(() => {
+        // No cache hit — proceed to the progress page as usual.
+      })
 
     // 4. Progress page redirects to the review form on Done. Bound at
     //    120 s per the COVER-0 pipeline SLA (Whisper + Azure +
