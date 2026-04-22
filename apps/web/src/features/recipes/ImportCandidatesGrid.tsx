@@ -2,15 +2,13 @@ import { Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
- * COVER-0 — one candidate tile's inputs. Mirrors the subset of
- * {@link import('@familien-kochbuch/shared').ImportCandidate} the grid
- * actually needs (the parent owns the ordering / re-sign logic so the
- * grid stays pure).
+ * COVER-0 — one candidate tile's inputs. Just the two fields the grid
+ * actually needs to render one thumbnail (the parent owns the
+ * ordering / re-sign logic so the grid stays pure).
  */
 export interface ImportCandidateTile {
   stagedPhotoId: string
   signedUrl: string
-  contentType?: string
 }
 
 /**
@@ -110,15 +108,11 @@ export function ImportCandidatesGrid({
                 loading="lazy"
               />
             </button>
-            {/* Star overlay. Sits in the top-right; stays above the
-                tile's own click surface so the star click doesn't
-                bubble to the selection toggle. */}
+            {/* Star overlay. Sibling of the tile button (NOT a child),
+                so star clicks never bubble to the selection toggle. */}
             <button
               type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                handleStarClick(candidate.stagedPhotoId)
-              }}
+              onClick={() => handleStarClick(candidate.stagedPhotoId)}
               aria-label={isCover ? 'Cover-Bild' : 'Zum Cover machen'}
               aria-pressed={isCover}
               className={cn(

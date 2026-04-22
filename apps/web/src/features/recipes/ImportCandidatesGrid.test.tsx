@@ -19,7 +19,6 @@ function makeCandidates(n: number): ImportCandidateTile[] {
   return Array.from({ length: n }, (_, i) => ({
     stagedPhotoId: `sp-${i}`,
     signedUrl: `https://cdn.example/thumb-${i}.jpg`,
-    contentType: 'image/jpeg',
   }))
 }
 
