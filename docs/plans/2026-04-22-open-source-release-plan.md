@@ -334,18 +334,30 @@ Tagline candidates:
 
 ## Proposed release sequence
 
-- **Week 1:** P0 blockers 1-5 (secrets, license, README, rebrand,
-  workflow-cleanup).
-- **Week 2:** P1 item 8 (frontend error-UX audit + patch). This is the
-  highest-impact UX improvement.
-- **Week 3:** P1 items 6-7 (i18n + English backend errors). This is
-  the biggest chunk — can slip.
-- **Week 4 (optional):** P2 items 9-15 to polish.
-- **Release version:** whatever the current tag is at the moment
-  the REL-slices land — the plan itself doesn't nail a specific
-  version. The "early / iterating / no-SemVer-commitment" vibe is
-  the constant; the tag number follows whatever other features land
-  between now and release.
+All REL slices land before the repo flips to public — nothing is
+deferred. Rough ordering + parallelism (file-disjoint slices can run
+simultaneously):
+
+- **Round 1:** REL-0 secrets + REL-0b security + REL-5 frontend
+  error-UX, all in parallel. Highest-priority cleanup, different
+  files.
+- **Round 2:** REL-7 AI-optional + REL-8 JSON-LD parser. Lands the
+  "usable without AI" promise. Mostly file-disjoint (REL-7 crosses
+  frontend + compose, REL-8 is python-only).
+- **Round 3:** REL-3 i18n foundation + REL-4 English backend-errors.
+  Coordinated via a shared error-code contract.
+- **Round 4:** REL-2 workflow cleanup → REL-1 LICENSE + README +
+  rebrand → REL-6 SETUP.md. Sequential because each references the
+  final shape of everything above.
+- **P2 polish** (CONTRIBUTING.md, SECURITY.md, ADRs, LiteLLM/Ollama
+  how-to, legal disclaimer, demo video, screenshots) lands
+  opportunistically between rounds or as final cleanup. Still
+  release-gating — nothing deferred.
+
+Flip repo → public only after EVERYTHING is green. Tag-number at
+that moment is whatever semver we're at + one bump. Stays `v0.x`
+to signal "still iterating, no SemVer commitment" — `v1.0.0` is
+reserved for a real stable-API promise.
 
 ## Dispatched as slices
 
