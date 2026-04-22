@@ -39,7 +39,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     private Guid _userId;
     private Guid _groupId;
     private StubHttpMessageHandler _handler = null!;
-    private StubHttpMessageHandler _thumbnailHandler = null!;
+    private StubHttpMessageHandler _thumbnailHandler = null!;  // Candidate-downloader handler
     private ExtractRecipeFromUrlJob _job = null!;
     private FakeTimeProvider _clock = null!;
     private ImportProgressTokenService _progressTokens = null!;
@@ -67,10 +67,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         _handler = new StubHttpMessageHandler();
         _thumbnailHandler = new StubHttpMessageHandler();
         var factory = new StubHttpClientFactory(_handler, new Uri("http://python/"));
-        // BUG-018 — route the thumbnail-downloader's named client to a
-        // dedicated handler so the Python POST and the CDN GET stay
-        // request-isolated.
-        factory.RegisterNamedHandler(ThumbnailAttacher.HttpClientName, _thumbnailHandler);
+        // COVER-0 — candidate-downloader replaces the BUG-018 thumbnail
+        // client. Point the named handler at the dedicated
+        // _thumbnailHandler so candidate-GETs stay isolated from the
+        // Python POSTs handler.
+        factory.RegisterNamedHandler(CandidateAttacher.HttpClientName, _thumbnailHandler);
 
         _clock = new FakeTimeProvider(new DateTimeOffset(2026, 4, 18, 12, 0, 0, TimeSpan.Zero));
         var extractorOpts = Options.Create(new ExtractorOptions { SharedSecret = "test-secret" });
@@ -81,11 +82,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             NullLogger<PythonExtractorRunner>.Instance);
         _photoStorage = new FakePhotoStorage();
         // BUG-047 — tests run without real DNS. Stub the resolver to
-        // return a deterministic public IP so the new SSRF guard
-        // doesn't reject the video-CDN or blog-same-origin hosts.
-        // The rejection path is covered by a dedicated test that wires
-        // a private-IP resolver.
-        ThumbnailHostResolver publicResolver = (_, _) =>
+        // return a deterministic public IP so the SSRF guard doesn't
+        // reject the video-CDN or blog-same-origin hosts. The rejection
+        // path is covered by a dedicated test that wires a private-IP
+        // resolver.
+        CandidateHostResolver publicResolver = (_, _) =>
             Task.FromResult(new[] { System.Net.IPAddress.Parse("93.184.216.34") });
         // CFG-3 — feature-flag reader. Default behaviour is "flag on"
         // (row missing → fallback true), which keeps every pre-CFG-3
@@ -93,13 +94,13 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         // kill-switch path construct the attacher themselves with a
         // reader pre-set to false.
         _configReader = new StubExtractorConfigReader();
-        var thumbnailAttacher = new ThumbnailAttacher(
+        var candidateAttacher = new CandidateAttacher(
             _db, factory, _photoStorage, _clock,
-            NullLogger<ThumbnailAttacher>.Instance,
+            NullLogger<CandidateAttacher>.Instance,
             _configReader,
             publicResolver);
         _job = new ExtractRecipeFromUrlJob(
-            _db, runner, thumbnailAttacher, _photoStorage, _clock,
+            _db, runner, candidateAttacher, _photoStorage, _clock,
             NullLogger<ExtractRecipeFromUrlJob>.Instance);
     }
 
@@ -433,12 +434,16 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     // surface — the recipe creation must always succeed.
 
     /// <summary>Result JSON the Python pipeline would emit, with a
-    /// known-allowed FB-CDN thumbnail URL.</summary>
+    /// single-element <c>candidate_thumbnails</c> array on an allowed
+    /// FB-CDN host. The legacy <c>thumbnail_url</c> is also populated
+    /// (Python slice A still emits both) so any read-both path stays
+    /// happy, but the attacher reads the candidate array first.</summary>
     private const string ResultWithFbcdnThumbnail = """
         {
           "recipe": {
             "title": "Pizza",
-            "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"
+            "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg",
+            "candidate_thumbnails": ["https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"]
           },
           "confidence": { "overall": "high", "notes": [] }
         }
@@ -469,7 +474,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+        // COVER-0 — candidate array populated + legacy field mirrors [0].
+        Assert.Single(reloaded.CandidateStagedPhotoIds);
+        Assert.Equal(
+            reloaded.CandidateStagedPhotoIds[0],
+            reloaded.ThumbnailStagedPhotoId);
 
         // StagedPhoto row was actually persisted with the same id, owned
         // by the same user, with the upload's bytes mirrored into storage.
@@ -477,10 +486,12 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(s => s.Id == reloaded.ThumbnailStagedPhotoId);
         Assert.Equal(_userId, staged.UserId);
         Assert.Equal("image/png", staged.ContentType);
+        Assert.Equal(import.Id, staged.LinkedImportId);
+        Assert.Equal(0, staged.CandidateOrder);
         Assert.True(_photoStorage.Uploads.ContainsKey(staged.PhotoId));
         Assert.Equal(bytes, _photoStorage.Uploads[staged.PhotoId].Content);
 
-        // Sanity — the thumbnail GET hit the CDN URL exactly once.
+        // Sanity — the candidate GET hit the CDN URL exactly once.
         var thumbReq = Assert.Single(_thumbnailHandler.Requests);
         Assert.Equal(HttpMethod.Get, thumbReq.Method);
         Assert.Equal(
@@ -503,6 +514,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
         // No StagedPhoto row was created on the failure path.
         Assert.Empty(await _db.StagedPhotos.AsNoTracking().ToListAsync());
         // No blob landed in storage either.
@@ -520,7 +532,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             HttpStatusCode.OK,
             FakePngBytes(),
             "image/png",
-            declaredContentLength: ThumbnailAttacher.MaxBytes + 1);
+            declaredContentLength: CandidateAttacher.MaxBytesPerCandidate + 1);
 
         await _job.ExecuteAsync(import.Id, CancellationToken.None);
 
@@ -528,6 +540,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Empty(_photoStorage.Uploads);
     }
 
@@ -549,19 +562,21 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Empty(_photoStorage.Uploads);
     }
 
     [Fact]
     public async Task BUG018_Result_Without_Thumbnail_Url_Skips_Download_Entirely()
     {
-        // No `thumbnail_url` in the structured result → no CDN GET, no
-        // storage write, ThumbnailStagedPhotoId stays null. This is the
-        // common blog-import path.
+        // No candidate_thumbnails AND no thumbnail_url in the structured
+        // result → no CDN GET, no storage write, CandidateStagedPhotoIds
+        // stays empty. This is the common blog-import path when JSON-LD
+        // has no image entries at all.
         var import = await SeedImportAsync();
         _handler.QueueResponse(
             HttpStatusCode.OK,
-            "{\"recipe\": {\"title\": \"Blog Pizza\"}, \"confidence\": {\"overall\": \"high\", \"notes\": []}}");
+            "{\"recipe\": {\"title\": \"Blog Pizza\", \"candidate_thumbnails\": []}, \"confidence\": {\"overall\": \"high\", \"notes\": []}}");
 
         await _job.ExecuteAsync(import.Id, CancellationToken.None);
 
@@ -569,6 +584,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Empty(_thumbnailHandler.Requests);
         Assert.Empty(_photoStorage.Uploads);
     }
@@ -576,7 +592,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     [Fact]
     public async Task BUG018_Disallowed_Host_Rejects_Without_Network_Hit()
     {
-        // SSRF guard: a thumbnail_url pointing at a host outside the
+        // SSRF guard: a candidate URL pointing at a host outside the
         // CDN allowlist (e.g. an attacker plant pointing at an internal
         // service) must be rejected *before* any HTTP call is made.
         var import = await SeedImportAsync();
@@ -586,7 +602,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             {
               "recipe": {
                 "title": "Evil",
-                "thumbnail_url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+                "candidate_thumbnails": ["http://169.254.169.254/latest/meta-data/iam/security-credentials/"]
               },
               "confidence": { "overall": "high", "notes": [] }
             }
@@ -598,7 +614,8 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Null(reloaded.ThumbnailStagedPhotoId);
-        // The thumbnail handler must not have been touched at all.
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
+        // The candidate handler must not have been touched at all.
         Assert.Empty(_thumbnailHandler.Requests);
     }
 
@@ -614,7 +631,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     [InlineData("", false)]
     public void BUG018_Host_Allowlist_Suffix_Match(string url, bool allowed)
     {
-        Assert.Equal(allowed, ThumbnailAttacher.IsAllowedThumbnailHost(url, out _));
+        Assert.Equal(allowed, CandidateAttacher.IsOnCdnAllowlist(url, out _));
     }
 
     // ── BUG-047: accept blog-hosted thumbnails when they live on the
@@ -627,14 +644,15 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     // controls the recipe URL → points image at someone else's host)
     // remain rejected.
 
-    /// <summary>Result JSON emitting a thumbnail_url that lives on the
-    /// blog's own host (masonfit.com). Mirrors the shape the Python
-    /// extractor returns for BUG-047's reproducer URL.</summary>
+    /// <summary>Result JSON emitting a candidate_thumbnails array of
+    /// one URL on the blog's own host (masonfit.com). Mirrors the shape
+    /// the Python extractor returns for BUG-047's reproducer URL.</summary>
     private const string ResultWithMasonfitThumbnail = """
         {
           "recipe": {
             "title": "Hoisin Beef Noodles",
-            "thumbnail_url": "https://masonfit.com/wp-content/uploads/hero.jpg"
+            "thumbnail_url": "https://masonfit.com/wp-content/uploads/hero.jpg",
+            "candidate_thumbnails": ["https://masonfit.com/wp-content/uploads/hero.jpg"]
           },
           "confidence": { "overall": "high", "notes": [] }
         }
@@ -655,7 +673,8 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+        Assert.Single(reloaded.CandidateStagedPhotoIds);
+        Assert.Equal(reloaded.CandidateStagedPhotoIds[0], reloaded.ThumbnailStagedPhotoId);
 
         var staged = await _db.StagedPhotos.AsNoTracking()
             .SingleAsync(s => s.Id == reloaded.ThumbnailStagedPhotoId);
@@ -674,7 +693,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             {
               "recipe": {
                 "title": "Blog Recipe",
-                "thumbnail_url": "https://cdn.blog.com/img/hero.jpg"
+                "candidate_thumbnails": ["https://cdn.blog.com/img/hero.jpg"]
               },
               "confidence": { "overall": "high", "notes": [] }
             }
@@ -688,7 +707,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+        Assert.Single(reloaded.CandidateStagedPhotoIds);
     }
 
     [Fact]
@@ -702,7 +721,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             {
               "recipe": {
                 "title": "Pwned",
-                "thumbnail_url": "https://evil.example/x.jpg"
+                "candidate_thumbnails": ["https://evil.example/x.jpg"]
               },
               "confidence": { "overall": "high", "notes": [] }
             }
@@ -714,6 +733,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Null(reloaded.ThumbnailStagedPhotoId);
         Assert.Empty(_thumbnailHandler.Requests);
     }
@@ -730,12 +750,12 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         // Rebuild the attacher with a resolver that returns a private
         // IP, so the guard fires.
         var factory = new StubHttpClientFactory(_handler, new Uri("http://python/"));
-        factory.RegisterNamedHandler(ThumbnailAttacher.HttpClientName, _thumbnailHandler);
-        ThumbnailHostResolver privateResolver = (_, _) =>
+        factory.RegisterNamedHandler(CandidateAttacher.HttpClientName, _thumbnailHandler);
+        CandidateHostResolver privateResolver = (_, _) =>
             Task.FromResult(new[] { System.Net.IPAddress.Parse("192.168.1.1") });
-        var attacker = new ThumbnailAttacher(
+        var attacher = new CandidateAttacher(
             _db, factory, _photoStorage, _clock,
-            NullLogger<ThumbnailAttacher>.Instance,
+            NullLogger<CandidateAttacher>.Instance,
             _configReader,
             privateResolver);
         var job = new ExtractRecipeFromUrlJob(_db, new PythonExtractorRunner(
@@ -744,7 +764,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
                 Options.Create(new ExtractorOptions { SharedSecret = "test-secret" }),
                 _clock),
             _progressTokens, new NullLiveSyncPublisher(), _clock,
-            NullLogger<PythonExtractorRunner>.Instance), attacker, _photoStorage, _clock,
+            NullLogger<PythonExtractorRunner>.Instance), attacher, _photoStorage, _clock,
             NullLogger<ExtractRecipeFromUrlJob>.Instance);
 
         var import = await SeedImportAsync("https://evil.com/recipe");
@@ -752,7 +772,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             {
               "recipe": {
                 "title": "SSRF",
-                "thumbnail_url": "https://internal.evil.com/admin"
+                "candidate_thumbnails": ["https://internal.evil.com/admin.jpg"]
               },
               "confidence": { "overall": "high", "notes": [] }
             }
@@ -763,6 +783,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Null(reloaded.ThumbnailStagedPhotoId);
         // No HTTP GET against the internal host.
         Assert.Empty(_thumbnailHandler.Requests);
@@ -792,7 +813,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     public void BUG047_Public_Address_Predicate(string ip, bool expected)
     {
         var addr = System.Net.IPAddress.Parse(ip);
-        Assert.Equal(expected, ThumbnailAttacher.IsPublicAddress(addr));
+        Assert.Equal(expected, CandidateAttacher.IsPublicAddress(addr));
     }
 
     [Theory]
@@ -815,7 +836,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         string thumbnailUrl, string? sourceUrl, bool expected)
     {
         Assert.Equal(expected,
-            ThumbnailAttacher.IsAllowedThumbnailHostForImport(
+            CandidateAttacher.IsAllowedHostForImport(
                 thumbnailUrl, sourceUrl, out _));
     }
 
@@ -953,9 +974,10 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         Assert.Equal(originalId, importReloaded.TargetRecipeId);
     }
 
-    /// <summary>Result JSON with a fixed thumbnail_url the reimport
-    /// tests share. The URL is on the FB-CDN allowlist so the SSRF
-    /// guard accepts it without needing a SourceUrl match.</summary>
+    /// <summary>Result JSON with a fixed candidate_thumbnails array the
+    /// reimport tests share. The URL is on the FB-CDN allowlist so the
+    /// SSRF guard accepts it without needing a SourceUrl match. Legacy
+    /// thumbnail_url is populated too (Python slice A still emits both).</summary>
     private const string ReimportResultWithThumb = """
         {
           "recipe": {
@@ -970,7 +992,8 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             ],
             "tags": [],
             "source_url": "https://example.com/rezept",
-            "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"
+            "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg",
+            "candidate_thumbnails": ["https://scontent-fra3-2.xx.fbcdn.net/v/thumb.jpg"]
           },
           "confidence": { "overall": "high", "notes": [] },
           "recipe_empty": false,
@@ -1227,10 +1250,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     [Fact]
     public async Task CFG3_Feature_Flag_False_Skips_Download_And_Insert()
     {
-        // Admin flipped the kill switch — TryAttachAsync must return
-        // null before any HTTP GET / DB insert, even though the
-        // extraction result carries a valid whitelisted thumbnail URL.
-        _configReader.Set(ThumbnailAttacher.FeatureFlagKey, false);
+        // Admin flipped the kill switch — the candidate attacher must
+        // return an empty array before any HTTP GET / DB insert, even
+        // though the extraction result carries a valid whitelisted
+        // candidate URL.
+        _configReader.Set(CandidateAttacher.FeatureFlagKey, false);
 
         var import = await SeedImportAsync();
         _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
@@ -1243,6 +1267,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
         Assert.Null(reloaded.ThumbnailStagedPhotoId);
+        Assert.Empty(reloaded.CandidateStagedPhotoIds);
         // No HTTP call to the CDN — the flag short-circuits before
         // DownloadAsync is reached.
         Assert.Empty(_thumbnailHandler.Requests);
@@ -1255,7 +1280,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     {
         // Belt-and-braces: an explicit true in the reader must leave
         // the existing download + stage behaviour untouched.
-        _configReader.Set(ThumbnailAttacher.FeatureFlagKey, true);
+        _configReader.Set(CandidateAttacher.FeatureFlagKey, true);
 
         var import = await SeedImportAsync();
         _handler.QueueResponse(HttpStatusCode.OK, ResultWithFbcdnThumbnail);
@@ -1267,7 +1292,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
         Assert.Equal(ImportStatus.Done, reloaded.Status);
-        Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+        Assert.Single(reloaded.CandidateStagedPhotoIds);
         Assert.Single(_thumbnailHandler.Requests);
     }
 
@@ -1279,12 +1304,12 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         // the pre-CFG-3 baseline.
         var freshReader = new StubExtractorConfigReader();
         var factory = new StubHttpClientFactory(_handler, new Uri("http://python/"));
-        factory.RegisterNamedHandler(ThumbnailAttacher.HttpClientName, _thumbnailHandler);
-        ThumbnailHostResolver publicResolver = (_, _) =>
+        factory.RegisterNamedHandler(CandidateAttacher.HttpClientName, _thumbnailHandler);
+        CandidateHostResolver publicResolver = (_, _) =>
             Task.FromResult(new[] { System.Net.IPAddress.Parse("93.184.216.34") });
-        var attacher = new ThumbnailAttacher(
+        var attacher = new CandidateAttacher(
             _db, factory, _photoStorage, _clock,
-            NullLogger<ThumbnailAttacher>.Instance,
+            NullLogger<CandidateAttacher>.Instance,
             freshReader,
             publicResolver);
 
@@ -1309,6 +1334,75 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
 
         var reloaded = await _db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == import.Id);
+        Assert.Single(reloaded.CandidateStagedPhotoIds);
         Assert.NotNull(reloaded.ThumbnailStagedPhotoId);
+    }
+
+    // ── COVER-0: candidate list + legacy fallback ───────────────────
+
+    [Fact]
+    public async Task COVER0_Multiple_Candidates_Stage_In_Order()
+    {
+        // Python emits 3 candidate URLs on fbcdn. Each downloads
+        // successfully → three StagedPhoto rows with CandidateOrder
+        // 0/1/2, returned in that order via the candidate array.
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, """
+            {
+              "recipe": {
+                "title": "Multi-Cover",
+                "candidate_thumbnails": [
+                  "https://scontent-fra3-2.xx.fbcdn.net/v/a.jpg",
+                  "https://scontent-fra3-2.xx.fbcdn.net/v/b.jpg",
+                  "https://scontent-fra3-2.xx.fbcdn.net/v/c.jpg"
+                ]
+              },
+              "confidence": { "overall": "high", "notes": [] }
+            }
+            """);
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/png");
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/png");
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/png");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(3, reloaded.CandidateStagedPhotoIds.Length);
+        // Legacy field mirrors [0].
+        Assert.Equal(reloaded.CandidateStagedPhotoIds[0], reloaded.ThumbnailStagedPhotoId);
+
+        var staged = await _db.StagedPhotos.AsNoTracking()
+            .Where(s => s.LinkedImportId == import.Id)
+            .OrderBy(s => s.CandidateOrder)
+            .ToListAsync();
+        Assert.Equal(3, staged.Count);
+        Assert.Equal(new int?[] { 0, 1, 2 }, staged.Select(s => s.CandidateOrder).ToArray());
+    }
+
+    [Fact]
+    public async Task COVER0_Legacy_Thumbnail_Url_Only_Falls_Back_To_Single_Candidate()
+    {
+        // Defensive path: a transient Python build that emits
+        // thumbnail_url but no candidate_thumbnails field. The .NET
+        // side treats the single URL as a 1-element candidate list.
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, """
+            {
+              "recipe": {
+                "title": "Legacy",
+                "thumbnail_url": "https://scontent-fra3-2.xx.fbcdn.net/v/only.jpg"
+              },
+              "confidence": { "overall": "high", "notes": [] }
+            }
+            """);
+        _thumbnailHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/png");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Single(reloaded.CandidateStagedPhotoIds);
+        Assert.Equal(reloaded.CandidateStagedPhotoIds[0], reloaded.ThumbnailStagedPhotoId);
     }
 }

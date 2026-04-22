@@ -208,19 +208,19 @@ builder.Services.AddSingleton<ExtractorHmacSigner>();
 // /api/internal/imports/{id}/progress callback.
 builder.Services.AddSingleton<ImportProgressTokenService>();
 builder.Services.AddScoped<PythonExtractorRunner>();
-// BUG-018 — separate HttpClient for the post-extract video-thumbnail
-// download. Distinct from the Python extractor client so the SSRF /
-// timeout knobs stay independent: the thumbnail GET is a one-shot
-// against an external CDN and gets a tight per-request timeout
-// inside ThumbnailAttacher (5s) rather than the 150s Python budget.
+// COVER-0 — separate HttpClient for the post-extract candidate
+// thumbnails download. Distinct from the Python extractor client so
+// the SSRF / timeout knobs stay independent: each candidate GET is a
+// one-shot against an external CDN and gets a tight per-request timeout
+// inside CandidateAttacher (5s) rather than the 150s Python budget.
 // Auto-redirects are disabled so a malicious CDN can't redirect us
 // off the host allowlist mid-flight.
-builder.Services.AddHttpClient(ThumbnailAttacher.HttpClientName)
+builder.Services.AddHttpClient(CandidateAttacher.HttpClientName)
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
         AllowAutoRedirect = false,
     });
-builder.Services.AddScoped<ThumbnailAttacher>();
+builder.Services.AddScoped<CandidateAttacher>();
 builder.Services.AddScoped<ExtractRecipeFromUrlJob>();
 builder.Services.AddScoped<ExtractRecipeFromPhotosJob>();
 
@@ -243,7 +243,7 @@ builder.Services.AddScoped<ChatTitleService>();
 builder.Services.AddSingleton<ConfigKeyValidator>();
 // CFG-3 — read-only feature-flag reader over the ExtractorConfig
 // table. Scoped so it shares the request's AppDbContext lifetime;
-// the two call-sites (ThumbnailAttacher, ChatEndpoints.TurnAsync)
+// the two call-sites (CandidateAttacher, ChatEndpoints.TurnAsync)
 // issue one PK lookup per user-facing action, so no caching layer.
 builder.Services.AddScoped<IExtractorConfigReader, ExtractorConfigReader>();
 // PF1 — hourly sweep job that reaps abandoned staged photos (>24h old,

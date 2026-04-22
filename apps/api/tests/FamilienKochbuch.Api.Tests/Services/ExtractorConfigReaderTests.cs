@@ -11,7 +11,7 @@ namespace FamilienKochbuch.Api.Tests.Services;
 /// <summary>
 /// CFG-3 — unit tests for <see cref="ExtractorConfigReader"/>. The
 /// reader is the thin EF-projection-with-JSON-parse used by
-/// <see cref="ThumbnailAttacher"/> + <c>ChatEndpoints.TurnAsync</c>
+/// <see cref="CandidateAttacher"/> + <c>ChatEndpoints.TurnAsync</c>
 /// to consult feature-flag rows. The tests exercise every branch of
 /// the parse + fallback logic directly against an in-memory SQLite DB
 /// so the caller-visible contract stays explicit.

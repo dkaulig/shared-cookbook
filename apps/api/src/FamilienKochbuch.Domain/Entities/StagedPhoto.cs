@@ -102,11 +102,13 @@ public sealed class StagedPhoto
     public Guid? PromotedToRecipeId { get; private set; }
 
     /// <summary>
-    /// BUG-048 — origin URL the photo was sourced from, when the row was
-    /// produced by <see cref="Api.Services.ThumbnailAttacher"/> against a
-    /// Python-extractor <c>recipe.thumbnail_url</c>. <c>null</c> for
-    /// rows created by the user-facing staged-upload endpoint (where the
-    /// user directly uploaded a file and no origin URL exists).
+    /// BUG-048 / COVER-0 — origin URL the photo was sourced from, when
+    /// the row was produced by the candidate-download pipeline against
+    /// a Python-extractor <c>recipe.candidate_thumbnails</c> entry (or
+    /// a legacy <c>recipe.thumbnail_url</c> on the transitional slice).
+    /// <c>null</c> for rows created by the user-facing staged-upload
+    /// endpoint (where the user directly uploaded a file and no origin
+    /// URL exists).
     ///
     /// Used by the reimport flow to dedupe — a repeat reimport of the
     /// same source URL must not re-stage the thumbnail if a previous
