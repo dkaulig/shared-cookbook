@@ -6,32 +6,45 @@ import {
   useNavigate,
   useSearchParams,
 } from 'react-router-dom'
+import { Link2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useSession } from '@/features/auth/useSession'
-import { extractSharedUrl } from './extractSharedUrl'
+import { useMyGroups } from '@/features/groups/useMyGroups'
+import { useEnqueueUrlImport } from '@/features/imports/hooks'
+import { extractSharedUrls } from './extractSharedUrl'
 import { deleteSharePayload, readSharePayload } from './sharePayloadStore'
 
 type PhotoState = 'idle' | 'loading' | 'expired'
 
+// SHARE-2 — same sanity cap as the extractor. The picker only renders
+// up to 10 cards; anything above hits the "too many" rejection path.
+const MAX_URLS = 10
+
 /**
- * SHARE-0 + SHARE-1 — entry point for iOS / Android PWA share-sheet
- * shares. Single route handles three payload shapes:
+ * SHARE-0 + SHARE-1 + SHARE-2 — entry point for iOS / Android PWA
+ * share-sheet shares. Single route handles four payload shapes:
  *
  *   1. `?payload-key=<ts>` (SHARE-1) — service worker stashed file
  *      blobs in IndexedDB; read them back, hand them to the photo-
  *      import staging grid via router state, then delete the record.
- *   2. `?url=…` / `?text=…` / `?title=…` (SHARE-0) — extract the first
- *      usable http(s) URL and redirect into the URL-import flow.
- *   3. None of the above → German empty-state.
+ *   2. exactly one usable URL in `?url=` / `?text=` / `?title=`
+ *      (SHARE-0) — silent redirect to the URL-import flow.
+ *   3. 2-10 URLs (SHARE-2) — render the multi-URL picker. User picks
+ *      one card → redirect to URL-import, or hits "Alle importieren"
+ *      to fire N sequential enqueues + land on the import-list page.
+ *   4. None of the above (or >10 URLs, or hostile schemes only) →
+ *      German empty-state / too-many error.
  *
  * Unauthenticated users always hit `/login?next=/share-target?…` first
  * so the share payload survives login.
  *
- * Security: the payload is attacker-controlled. `extractSharedUrl`
- * gates the URL branch; `readSharePayload` only returns blobs the SW
- * itself wrote (the `payload-key` is a timestamp chosen by the SW,
- * not the caller — a guessed key at best reads another recent share
- * the same user already consumed). File blobs go to the photo-import
- * pipeline, never rendered as HTML.
+ * Security: the payload is attacker-controlled. `extractSharedUrls`
+ * gates the URL branch per-URL (http(s) only, ≤2000 chars, 10-item
+ * cap); `readSharePayload` only returns blobs the SW itself wrote
+ * (the `payload-key` is a timestamp chosen by the SW, not the caller
+ * — a guessed key at best reads another recent share the same user
+ * already consumed). File blobs go to the photo-import pipeline,
+ * never rendered as HTML.
  */
 export function ShareTargetPage() {
   const { status } = useSession()
@@ -39,7 +52,12 @@ export function ShareTargetPage() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const sharedUrl = extractSharedUrl(searchParams)
+  // SHARE-2 — raw URL extraction. >MAX_URLS hits the "too many"
+  // reject branch; exactly one hits the silent-redirect branch; 2-10
+  // render the picker inline below.
+  const rawUrlCount = countRawUrls(searchParams)
+  const sharedUrls = extractSharedUrls(searchParams)
+  const tooManyUrls = rawUrlCount > MAX_URLS
   const payloadKeyRaw = searchParams.get('payload-key')
   const payloadKey =
     payloadKeyRaw != null && /^\d+$/.test(payloadKeyRaw)
@@ -49,13 +67,18 @@ export function ShareTargetPage() {
     payloadKey != null ? 'loading' : 'idle',
   )
 
-  // SHARE-0 — URL payload branch. Unchanged from the original route.
+  // SHARE-0 — single-URL silent-redirect branch. Only fires when
+  // exactly one URL survived extraction; multi-URL payloads fall
+  // through to the picker below.
+  const autoRedirectUrl =
+    sharedUrls.length === 1 && !tooManyUrls ? sharedUrls[0]! : null
   useEffect(() => {
-    if (status !== 'authenticated' || sharedUrl == null) return
-    navigate(`/rezepte/import/url?url=${encodeURIComponent(sharedUrl)}`, {
-      replace: true,
-    })
-  }, [status, sharedUrl, navigate])
+    if (status !== 'authenticated' || autoRedirectUrl == null) return
+    navigate(
+      `/rezepte/import/url?url=${encodeURIComponent(autoRedirectUrl)}`,
+      { replace: true },
+    )
+  }, [status, autoRedirectUrl, navigate])
 
   // SHARE-1 — file payload branch. Async because IndexedDB reads are
   // promises; we flip to `expired` when the record isn't there (the
@@ -108,12 +131,40 @@ export function ShareTargetPage() {
     )
   }
 
-  // Loading OR authenticated-with-URL OR authenticated-with-payload-key:
-  // one of the effects is firing the redirect; show a neutral busy-
-  // state so we don't flash the error UI for a frame.
+  // SHARE-2 — >10 URLs reject. Attacker / accidental: a caption full
+  // of links. Render a bounded error + "Abbrechen" instead of
+  // silently taking the first 10 — the user explicitly picks what
+  // they meant to share.
+  if (tooManyUrls) {
+    return (
+      <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center px-5 py-12 text-center">
+        <h1 className="font-serif text-2xl font-semibold">
+          Zu viele Links
+        </h1>
+        <p className="mt-3 text-sm text-[hsl(var(--muted-foreground))]">
+          Maximal 10 Links auf einmal — bitte auswählen.
+        </p>
+        <Link
+          to="/rezepte/import/url"
+          className="mt-6 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          URL manuell importieren
+        </Link>
+      </main>
+    )
+  }
+
+  // SHARE-2 — 2-10 URLs → render the picker inline.
+  if (sharedUrls.length > 1 && status === 'authenticated') {
+    return <MultiUrlPicker urls={sharedUrls} />
+  }
+
+  // Loading OR authenticated-with-single-URL OR authenticated-with-
+  // payload-key: one of the effects is firing the redirect; show a
+  // neutral busy-state so we don't flash the error UI for a frame.
   if (
     status === 'loading' ||
-    sharedUrl != null ||
+    autoRedirectUrl != null ||
     photoState === 'loading'
   ) {
     const label =
@@ -148,4 +199,178 @@ export function ShareTargetPage() {
       </Link>
     </main>
   )
+}
+
+/**
+ * SHARE-2 — inline multi-URL picker.
+ *
+ * Renders 2-10 URL cards; tapping a card navigates to the single-URL
+ * import flow, "Alle importieren (N)" fires N POSTs in parallel via
+ * the same enqueue mutation the URL form uses then lands the user on
+ * the import-list page where Hangfire-driven progress rows tick down.
+ *
+ * Group selection: the user's FIRST group is used silently. The
+ * picker doesn't try to reproduce `ImportUrlPage`'s group-picker
+ * dialog — this is the "fast lane" for someone who just wants to
+ * fire off a bunch of imports and go. Users with multiple groups who
+ * want to route into a specific one can tap a single card to land on
+ * the full URL form (which DOES open the group picker).
+ */
+function MultiUrlPicker({ urls }: { urls: string[] }) {
+  const navigate = useNavigate()
+  const groups = useMyGroups()
+  const enqueue = useEnqueueUrlImport()
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  function goSingle(url: string) {
+    navigate(`/rezepte/import/url?url=${encodeURIComponent(url)}`, {
+      replace: true,
+    })
+  }
+
+  async function importAll() {
+    const list = groups.data ?? []
+    if (list.length === 0) {
+      setSubmitError(
+        'Du brauchst zuerst eine Gruppe, bevor du importieren kannst.',
+      )
+      return
+    }
+    const groupId = list[0]!.id
+    setSubmitError(null)
+    // Fire enqueue mutations in parallel. The server queues per-user
+    // so these land on Hangfire without racing; the N cap (≤10) is
+    // well below any per-user rate-limit the backend applies.
+    const results = await Promise.allSettled(
+      urls.map((url) => enqueue.mutateAsync({ url, groupId })),
+    )
+    const successes = results.filter((r) => r.status === 'fulfilled').length
+    if (successes === 0) {
+      setSubmitError(
+        'Die Imports konnten nicht gestartet werden. Bitte erneut versuchen.',
+      )
+      return
+    }
+    navigate('/rezepte/import', {
+      state: { batchImportCount: successes },
+    })
+  }
+
+  return (
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 py-8">
+      <h1 className="font-serif text-[clamp(22px,5vw,28px)] font-semibold leading-[1.15] tracking-[-0.01em]">
+        Welches Rezept willst du importieren?
+      </h1>
+      <p className="mt-2 text-[14px] text-[hsl(var(--muted-foreground))]">
+        {urls.length} Links in der Freigabe gefunden. Tippe einen an oder
+        starte alle gleichzeitig.
+      </p>
+
+      <ul className="mt-6 flex flex-col gap-2">
+        {urls.map((url) => (
+          <li key={url}>
+            <button
+              type="button"
+              data-testid="share-picker-card"
+              onClick={() => goSingle(url)}
+              className="flex w-full items-center gap-3 rounded-[14px] border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <span
+                aria-hidden="true"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary)/0.1)] text-primary"
+              >
+                <Link2 className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground">
+                {shortenUrl(url)}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {submitError && (
+        <p
+          role="alert"
+          className="mt-4 rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
+        >
+          {submitError}
+        </p>
+      )}
+
+      <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => navigate(-1)}
+          disabled={enqueue.isPending}
+        >
+          Abbrechen
+        </Button>
+        <Button
+          type="button"
+          onClick={() => void importAll()}
+          disabled={enqueue.isPending || urls.length === 0}
+        >
+          {enqueue.isPending
+            ? 'Importiere …'
+            : `Alle importieren (${urls.length})`}
+        </Button>
+      </div>
+    </main>
+  )
+}
+
+/**
+ * Counts the raw (pre-cap) http(s) URL tokens in the payload so the
+ * page can tell the difference between "user shared 2 URLs" (picker)
+ * and "user shared 15 URLs" (reject). `extractSharedUrls` caps at 10
+ * and doesn't tell callers it truncated; this standalone pass just
+ * runs the same regex but skips the cap.
+ */
+function countRawUrls(params: URLSearchParams): number {
+  const seen = new Set<string>()
+  for (const key of ['url', 'text', 'title'] as const) {
+    const raw = (params.get(key) ?? '').trim()
+    if (!raw) continue
+    const matches = raw.matchAll(/https?:\/\/[^\s<>"')\]]+/g)
+    for (const m of matches) {
+      try {
+        const u = new URL(m[0])
+        if (u.protocol === 'http:' || u.protocol === 'https:') {
+          seen.add(u.toString())
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    if (!/\s/.test(raw)) {
+      try {
+        const u = new URL(raw)
+        if (u.protocol === 'http:' || u.protocol === 'https:') {
+          seen.add(u.toString())
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+  return seen.size
+}
+
+/**
+ * Truncates a URL for the picker card. Hostname + first path segment
+ * so "fb.com/share/r/abc123xyz/extra/stuff" reads as "fb.com/share".
+ * Mirrors the row-shortener in `ImportListPage`.
+ */
+function shortenUrl(sourceUrl: string): string {
+  try {
+    const parsed = new URL(sourceUrl)
+    const host = parsed.host.replace(/^www\./, '')
+    const segments = parsed.pathname.split('/').filter((s) => s.length > 0)
+    if (segments.length === 0) return host
+    return `${host}/${segments[0]!.slice(0, 30)}${segments[0]!.length > 30 ? '…' : ''}`
+  } catch {
+    return sourceUrl
+  }
 }

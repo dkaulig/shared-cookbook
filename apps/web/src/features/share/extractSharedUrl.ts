@@ -1,24 +1,25 @@
 /**
- * SHARE-0 — extract a usable http(s) URL from an iOS/Android Web Share
- * Target payload.
+ * SHARE-0 + SHARE-2 — extract usable http(s) URL(s) from an iOS/Android
+ * Web Share Target payload.
  *
- * Priority:
- *   1. `url`  — Instagram sometimes drops the reel URL here.
- *   2. `text` — Facebook typically drops the URL here (sometimes
- *      embedded in multi-line caption text, so we fall back to a
- *      regex scan).
- *   3. `title` — last-resort fallback for share sources that stuff
- *      a link into the subject line.
+ * The share-sheet payload is attacker-controllable (anyone can craft
+ * a share link / caption). Both exports apply the same per-URL
+ * sanitise rules:
+ *   - Accept only `http:` / `https:`. Reject `javascript:`, `data:`,
+ *     `file:`, `ftp:`, etc.
+ *   - Cap each URL at 2000 chars.
  *
- * Security gates (the payload is attacker-controlled — anyone can
- * craft a share link):
- *   - Accepts only `http:` / `https:`. Rejects `javascript:`, `data:`,
- *     `file:`, `ftp:`, etc., so the rendered error path is the worst
- *     a hostile payload can achieve.
- *   - Caps at 2000 characters. Anything larger is almost certainly a
- *     garbage paste or an attempt to overflow downstream limits.
+ * SHARE-0 `extractSharedUrl` returns the first usable URL or null —
+ * used by the SHARE-0 single-URL redirect path.
+ * SHARE-2 `extractSharedUrls` returns all usable URLs (deduped, up to
+ * 10) across `url`/`text`/`title` — used by the multi-URL picker.
  */
 const MAX_URL_LENGTH = 2000
+const MAX_URL_COUNT = 10
+// Same token as the SHARE-0 regex fallback — stops at whitespace,
+// quotes, angle brackets, closing parens/brackets so we don't
+// over-capture trailing punctuation from free-form captions.
+const URL_TOKEN_RE = /https?:\/\/[^\s<>"')\]]+/g
 
 function sanitise(candidate: string): string | null {
   if (candidate.length > MAX_URL_LENGTH) return null
@@ -35,25 +36,54 @@ function sanitise(candidate: string): string | null {
   }
 }
 
-export function extractSharedUrl(params: URLSearchParams): string | null {
+/**
+ * Collect every http(s) URL candidate from `url` + `text` + `title`,
+ * regex-match additional tokens inside free-form text, sanitise each,
+ * dedupe by string equality, and cap at {@link MAX_URL_COUNT}.
+ *
+ * Ordering: params are visited in `url` → `text` → `title` order and
+ * within each value, the direct-sanitise hit comes before the regex
+ * tokens — so `?url=https://a` + `?text=https://b https://a` yields
+ * `[a, b]`.
+ */
+export function extractSharedUrls(params: URLSearchParams): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+
+  function push(candidate: string | null): boolean {
+    if (!candidate) return false
+    if (seen.has(candidate)) return false
+    seen.add(candidate)
+    out.push(candidate)
+    return out.length >= MAX_URL_COUNT
+  }
+
   for (const key of ['url', 'text', 'title'] as const) {
     const raw = (params.get(key) ?? '').trim()
     if (!raw) continue
 
-    const direct = sanitise(raw)
-    if (direct) return direct
+    // Direct sanitise — the value might be a bare URL. Guarded by
+    // the no-whitespace check: `new URL("https://a.example/0 …")`
+    // percent-encodes the embedded space into a single "URL", which
+    // would swallow the rest of the caption's URLs into one entry.
+    if (!/\s/.test(raw) && push(sanitise(raw))) return out
 
-    // Multi-line caption case: share sheets often drop the URL inside
-    // free-form text ("Check this reel: https://fb.com/x 🔥"). Regex
-    // pulls the first http(s) token out so we can still hand the user
-    // a working import link. Excludes common terminal characters that
-    // never appear in a URL path/query (whitespace, quotes, closing
-    // brackets) so we don't over-capture trailing punctuation.
-    const match = raw.match(/https?:\/\/[^\s<>"')\]]+/)
-    if (match) {
-      const extracted = sanitise(match[0])
-      if (extracted) return extracted
+    // Regex sweep — captions often embed one or more URLs in prose.
+    // Use String.prototype.matchAll so we don't have to reset a
+    // shared RegExp's lastIndex between calls.
+    for (const match of raw.matchAll(URL_TOKEN_RE)) {
+      if (push(sanitise(match[0]))) return out
     }
   }
-  return null
+
+  return out
+}
+
+/**
+ * SHARE-0 single-URL entry point — kept as a thin wrapper so callers
+ * that only care about the first usable URL (the silent-redirect
+ * branch) don't have to unpack a list.
+ */
+export function extractSharedUrl(params: URLSearchParams): string | null {
+  return extractSharedUrls(params)[0] ?? null
 }
