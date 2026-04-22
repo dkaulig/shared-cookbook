@@ -92,6 +92,27 @@ export default defineConfig({
           // scripts/render-pwa-icons.js.
           { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
+        // SHARE-0 — iOS 17.4+ (and Android Chrome) Web Share Target API.
+        // When the user taps "Familien-Kochbuch" from the share sheet
+        // of Safari / Facebook / Instagram / TikTok, the OS opens the
+        // PWA at `/share-target?title=…&text=…&url=…`. The route reads
+        // the payload, extracts the first usable http(s) URL (with
+        // `url` > `text` > `title` priority), and hands off to the
+        // existing `/rezepte/import/url` flow.
+        //
+        // NOTE: after this manifest lands the user MUST re-install the
+        // PWA on iOS (delete from Home Screen, re-add via "Zum
+        // Home-Bildschirm") for iOS to re-read the manifest and
+        // register the share-target. Documented in the release note.
+        share_target: {
+          action: '/share-target',
+          method: 'GET',
+          params: {
+            title: 'title',
+            text: 'text',
+            url: 'url',
+          },
+        },
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
