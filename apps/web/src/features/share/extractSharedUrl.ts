@@ -15,7 +15,13 @@
  * 10) across `url`/`text`/`title` — used by the multi-URL picker.
  */
 const MAX_URL_LENGTH = 2000
-const MAX_URL_COUNT = 10
+export const MAX_SHARED_URLS = 10
+// Internal walker cap — one above {@link MAX_SHARED_URLS} so callers
+// can detect "payload had more than the allowed max" without re-
+// walking the whole input. `extractSharedUrls` returns at most
+// MAX_SHARED_URLS + 1 entries; a caller that sees `length > MAX_SHARED_URLS`
+// renders the "too many" reject branch and slices the extras off.
+const INTERNAL_WALK_CAP = MAX_SHARED_URLS + 1
 // Same token as the SHARE-0 regex fallback — stops at whitespace,
 // quotes, angle brackets, closing parens/brackets so we don't
 // over-capture trailing punctuation from free-form captions.
@@ -39,7 +45,13 @@ function sanitise(candidate: string): string | null {
 /**
  * Collect every http(s) URL candidate from `url` + `text` + `title`,
  * regex-match additional tokens inside free-form text, sanitise each,
- * dedupe by string equality, and cap at {@link MAX_URL_COUNT}.
+ * and dedupe by string equality.
+ *
+ * Returns at most {@link MAX_SHARED_URLS} + 1 entries. Callers that
+ * only want the allowed subset should `.slice(0, MAX_SHARED_URLS)`;
+ * callers that need to distinguish "exactly max" from "too many"
+ * check `result.length > MAX_SHARED_URLS`. The extra slot lets the
+ * UI render a "too many" reject without re-walking the payload.
  *
  * Ordering: params are visited in `url` → `text` → `title` order and
  * within each value, the direct-sanitise hit comes before the regex
@@ -55,7 +67,7 @@ export function extractSharedUrls(params: URLSearchParams): string[] {
     if (seen.has(candidate)) return false
     seen.add(candidate)
     out.push(candidate)
-    return out.length >= MAX_URL_COUNT
+    return out.length >= INTERNAL_WALK_CAP
   }
 
   for (const key of ['url', 'text', 'title'] as const) {
