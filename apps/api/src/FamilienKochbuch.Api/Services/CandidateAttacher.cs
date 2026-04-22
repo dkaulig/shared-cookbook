@@ -103,6 +103,24 @@ public sealed class CandidateAttacher
     private readonly ILogger<CandidateAttacher> _logger;
     private readonly CandidateHostResolver _resolveHost;
     private readonly IExtractorConfigReader _configReader;
+    private readonly HashSet<string> _allowedInternalHosts;
+
+    /// <summary>COVER-0 fix — hostnames that skip the CDN suffix allowlist
+    /// + public-IP DNS gate. Populated from configuration at DI time so
+    /// ops can add / remove docker-internal services without a code
+    /// change. Exact-match only (case-insensitive). See
+    /// <see cref="IsInternalHost"/>.
+    ///
+    /// <para>Rationale: the python-extractor serves ffmpeg-extracted
+    /// video frames from its own <c>/extractor/frames</c> endpoint. The
+    /// hostname is <c>python-extractor</c> (docker-compose service name)
+    /// and DNS resolves to the compose network's private 172.28.x.x
+    /// range. The CDN allowlist doesn't match, and the public-IP gate
+    /// rejects private addresses — both would fail. Rather than weaken
+    /// the general rules, we carve out an exact-hostname allowlist
+    /// populated from configuration.</para>
+    /// </summary>
+    public IReadOnlyCollection<string> AllowedInternalHosts => _allowedInternalHosts;
 
     public CandidateAttacher(
         AppDbContext db,
@@ -111,7 +129,8 @@ public sealed class CandidateAttacher
         TimeProvider clock,
         ILogger<CandidateAttacher> logger,
         IExtractorConfigReader configReader,
-        CandidateHostResolver? resolveHost = null)
+        CandidateHostResolver? resolveHost = null,
+        IEnumerable<string>? allowedInternalHosts = null)
     {
         _db = db;
         _httpClientFactory = httpClientFactory;
@@ -120,7 +139,19 @@ public sealed class CandidateAttacher
         _logger = logger;
         _configReader = configReader;
         _resolveHost = resolveHost ?? Dns.GetHostAddressesAsync;
+        _allowedInternalHosts = new HashSet<string>(
+            (allowedInternalHosts ?? Array.Empty<string>())
+                .Where(h => !string.IsNullOrWhiteSpace(h))
+                .Select(h => h.Trim().ToLowerInvariant()),
+            StringComparer.Ordinal);
     }
+
+    /// <summary>Exact-match predicate for the internal-hosts carve-out.
+    /// Case-insensitive on host, scheme gate stays at the caller
+    /// (<see cref="DownloadOneAsync"/> insists on http/https before
+    /// consulting this).</summary>
+    private bool IsInternalHost(string host)
+        => _allowedInternalHosts.Contains(host.ToLowerInvariant());
 
     /// <summary>
     /// Downloads the <paramref name="candidateUrls"/> in parallel (bounded
@@ -222,6 +253,23 @@ public sealed class CandidateAttacher
         await gate.WaitAsync(ct);
         try
         {
+            // COVER-0 fix — the python-extractor serves ffmpeg frames
+            // via its own HTTP endpoint on the docker-internal network.
+            // An exact-hostname match against AllowedInternalHosts (+ an
+            // http/https scheme gate) lets those fetches pass the
+            // downloader's SSRF gauntlet. The public-IP + CDN checks
+            // stay active for every other URL.
+            if (TryParseHttpUri(url, out var internalUri)
+                && IsInternalHost(internalUri!.Host))
+            {
+                var (internalBytes, internalContentType) =
+                    await DownloadAsync(internalUri, ct);
+                if (internalBytes is null || internalContentType is null) return;
+                results.Add(new DownloadResult(
+                    order, url, internalBytes, internalContentType));
+                return;
+            }
+
             // SSRF allowlist / same-origin check fires BEFORE DNS + HTTP
             // so a hostile URL on a disallowed host never reaches the
             // socket layer. Matches the ThumbnailAttacher posture.
@@ -268,6 +316,23 @@ public sealed class CandidateAttacher
 
     private readonly record struct DownloadResult(
         int Order, string Url, byte[] Bytes, string ContentType);
+
+    /// <summary>Parse-and-scheme-gate a candidate URL. Returns
+    /// <c>true</c> only when the URL is absolute + http/https. Used by
+    /// the internal-host carve-out so a <c>file://</c> / <c>ftp://</c>
+    /// URL can never reach the fetcher even if its host portion
+    /// happens to match an entry in
+    /// <see cref="AllowedInternalHosts"/>.</summary>
+    private static bool TryParseHttpUri(string url, out Uri? uri)
+    {
+        uri = null;
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)) return false;
+        if (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)
+            return false;
+        uri = parsed;
+        return true;
+    }
 
     /// <summary>Pure allowlist / same-origin acceptance check. Kept
     /// <c>public static</c> so the regression tests can drive a parameter

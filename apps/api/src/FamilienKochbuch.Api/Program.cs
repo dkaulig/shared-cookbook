@@ -220,7 +220,24 @@ builder.Services.AddHttpClient(CandidateAttacher.HttpClientName)
     {
         AllowAutoRedirect = false,
     });
-builder.Services.AddScoped<CandidateAttacher>();
+// COVER-0 fix — internal docker-hostnames the CandidateAttacher is
+// allowed to fetch from directly (skips CDN + public-IP gates). Config
+// key ``CandidateAttacher:AllowedInternalHosts`` takes a string[]; the
+// compose stack injects the single entry ``python-extractor`` via the
+// CANDIDATE_ALLOWED_INTERNAL_HOSTS env var. Falls back to that default
+// when the setting is missing so the feature works out of the box.
+var allowedInternalHosts = builder.Configuration
+    .GetSection("CandidateAttacher:AllowedInternalHosts")
+    .Get<string[]>() ?? new[] { "python-extractor" };
+builder.Services.AddScoped<CandidateAttacher>(sp => new CandidateAttacher(
+    sp.GetRequiredService<AppDbContext>(),
+    sp.GetRequiredService<IHttpClientFactory>(),
+    sp.GetRequiredService<IPhotoStorage>(),
+    sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<ILogger<CandidateAttacher>>(),
+    sp.GetRequiredService<IExtractorConfigReader>(),
+    resolveHost: null,
+    allowedInternalHosts: allowedInternalHosts));
 builder.Services.AddScoped<ExtractRecipeFromUrlJob>();
 builder.Services.AddScoped<ExtractRecipeFromPhotosJob>();
 
