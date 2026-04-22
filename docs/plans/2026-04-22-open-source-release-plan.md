@@ -287,7 +287,7 @@ Tagline candidates:
      ~15 mutation sites. Worth doing before release — silent failures
      are THE most common new-user complaint in OSS apps.
 
-### P2 — nice to have (can follow up after release)
+### P2 — polish (all land before release too, not post-public)
 
 9. **`CONTRIBUTING.md`** — setup, PR conventions (Conventional
    Commits + Co-Authored-By trailer), test requirements, the 4-stage
@@ -491,11 +491,11 @@ Disabled without AI:
 9. **REL-2 workflow cleanup** (optional, can follow the first public
    release).
 
-Release-gate: REL-0 + REL-0b + REL-5 + REL-7 + REL-8 + REL-1 + REL-6
-all green. Tag-number at that moment is whatever semver we're at +
-one bump — could be v0.12, could be v0.15, could be v0.9000. The
+Release-gate: **every REL slice listed above** green (REL-0 + REL-0b
++ REL-1 + REL-2 + REL-3 + REL-4 + REL-5 + REL-6 + REL-7 + REL-8).
+Nothing gets deferred into post-public patch releases — when we flip
+visibility to public, the project is "complete" for what we've
+scoped. Tag-number at that moment is whatever semver we're at — the
 plan doesn't nail it because other features might land in between
 and push the number elsewhere. What matters: stay `v0.x` for the
 public release, reserve `v1.0.0` for a real stable-API commitment.
-i18n + error-code audit (REL-3/REL-4) can slip into patch releases
-after the initial public tag.
