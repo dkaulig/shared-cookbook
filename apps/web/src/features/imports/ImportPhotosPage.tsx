@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import type { ApiError, GroupSummary } from '@familien-kochbuch/shared'
 import {
   ArrowDown,
@@ -66,15 +66,22 @@ const ACCEPT: readonly string[] = ['image/jpeg', 'image/png', 'image/webp']
 
 export function ImportPhotosPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const groups = useMyGroups()
   const enqueue = useEnqueuePhotoImport()
 
-  const [files, setFiles] = useState<File[]>([])
+  // SHARE-1 — blobs arriving from the Web Share Target flow. Router
+  // state is read ONCE (on mount), filtered to the same MIME allowlist
+  // the gallery/camera inputs use, and then the state is cleared via
+  // `history.replaceState` so a remount (focus regain, hot reload)
+  // doesn't re-stage the same blobs a second time.
+  const [initialFiles, initialToast] = useInitialSharedFiles(location)
+  const [files, setFiles] = useState<File[]>(initialFiles)
   const [uploadPhase, setUploadPhase] = useState<
     'idle' | 'uploading' | 'enqueueing'
   >('idle')
   const [uploadedCount, setUploadedCount] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(initialToast)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [dragActive, setDragActive] = useState(false)
@@ -424,6 +431,62 @@ export function ImportPhotosPage() {
       )}
     </main>
   )
+}
+
+/**
+ * SHARE-1 — pull pre-staged blobs off `location.state.stagedBlobs`
+ * and filter them to the same MIME allowlist the interactive picker
+ * uses. Runs ONCE via useState's lazy initializer so a remount (e.g.
+ * React strict mode, hot reload) doesn't read the same state twice.
+ *
+ * After consumption we clear `window.history.state` so the state is
+ * gone from the next render cycle onwards — a simple null-write is
+ * enough because React Router reads through `window.history.state` on
+ * every `useLocation()` evaluation.
+ *
+ * Returns a tuple: the blobs that passed the filter, and a German
+ * toast string when at least one blob was dropped (or null when
+ * nothing was dropped / nothing was shared). The caller seeds the
+ * page's `error` state with the toast.
+ */
+function useInitialSharedFiles(location: ReturnType<typeof useLocation>) {
+  return useState<[File[], string | null]>(() => {
+    const raw = (location.state as { stagedBlobs?: unknown } | null)
+      ?.stagedBlobs
+    if (!Array.isArray(raw) || raw.length === 0) return [[], null]
+    const accepted: File[] = []
+    let droppedCount = 0
+    for (const entry of raw) {
+      if (
+        entry instanceof File &&
+        ACCEPT.includes(entry.type) &&
+        entry.size <= MAX_BYTES
+      ) {
+        accepted.push(entry)
+      } else {
+        droppedCount += 1
+      }
+      if (accepted.length >= MAX_PHOTOS) break
+    }
+    // Clear the router state so a remount doesn't double-stage. Uses
+    // window.history directly because React Router's `navigate(..., {
+    // state: null })` would push a history entry which breaks the Back
+    // button. `replaceState` keeps the URL identical and just strips
+    // the state payload.
+    if (typeof window !== 'undefined' && window.history.state != null) {
+      window.history.replaceState(
+        { ...window.history.state, usr: null },
+        '',
+      )
+    }
+    const toast =
+      droppedCount > 0
+        ? `Format nicht unterstützt — ${droppedCount} Bild${
+            droppedCount === 1 ? '' : 'er'
+          } übersprungen.`
+        : null
+    return [accepted, toast]
+  })[0]
 }
 
 interface FilledSlotProps {

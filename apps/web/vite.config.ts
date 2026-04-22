@@ -92,13 +92,17 @@ export default defineConfig({
           // scripts/render-pwa-icons.js.
           { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
-        // SHARE-0 — iOS 17.4+ (and Android Chrome) Web Share Target API.
-        // When the user taps "Familien-Kochbuch" from the share sheet
-        // of Safari / Facebook / Instagram / TikTok, the OS opens the
-        // PWA at `/share-target?title=…&text=…&url=…`. The route reads
-        // the payload, extracts the first usable http(s) URL (with
-        // `url` > `text` > `title` priority), and hands off to the
-        // existing `/rezepte/import/url` flow.
+        // SHARE-0 + SHARE-1 — iOS 17.4+ (and Android Chrome) Web Share
+        // Target API. A single POST+multipart entry handles both the
+        // URL-only share (old SHARE-0 behaviour — URL shows up in the
+        // `url`/`text`/`title` form fields) and the file-attachment
+        // share (new SHARE-1 behaviour — images land in `files`).
+        //
+        // The service worker intercepts POST /share-target, stashes
+        // any file blobs in IndexedDB, and redirects to the same path
+        // as GET so the React `<ShareTargetPage />` can keep a single
+        // code path. A URL-only POST falls through the SW to a 303 at
+        // `/share-target?url=…` which uses the existing SHARE-0 logic.
         //
         // NOTE: after this manifest lands the user MUST re-install the
         // PWA on iOS (delete from Home Screen, re-add via "Zum
@@ -106,11 +110,18 @@ export default defineConfig({
         // register the share-target. Documented in the release note.
         share_target: {
           action: '/share-target',
-          method: 'GET',
+          method: 'POST',
+          enctype: 'multipart/form-data',
           params: {
             title: 'title',
             text: 'text',
             url: 'url',
+            files: [
+              {
+                name: 'files',
+                accept: ['image/jpeg', 'image/png', 'image/heic', 'image/webp'],
+              },
+            ],
           },
         },
       },
@@ -119,6 +130,15 @@ export default defineConfig({
         // Keep the cache under ~3 MiB to leave room for the full recipe
         // collection's cover photos.
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        // SHARE-1 — side-load the POST /share-target fetch handler into
+        // the generated Workbox SW via `importScripts`. The file lives
+        // in `public/` so Vite copies it to `dist/` verbatim, and the
+        // SW picks it up as a same-origin script at runtime. Keeping
+        // the handler out of the main Workbox runtime caching config
+        // means we don't have to switch to `injectManifest` just for
+        // one POST route — the existing generateSW behaviour is
+        // untouched.
+        importScripts: ['share-target-sw.js'],
         runtimeCaching: [
           {
             // Signed photo URLs — cache-first so previously-viewed recipe

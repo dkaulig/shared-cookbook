@@ -7,6 +7,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { ShareTargetPage } from './ShareTargetPage'
+import {
+  deleteSharePayload,
+  saveSharePayload,
+} from './sharePayloadStore'
 
 /**
  * SHARE-0 — `/share-target` route tests.
@@ -28,11 +32,19 @@ function LocationProbe() {
   const loc = useLocation()
   // Data-only probe — never renders the raw search string as text so
   // hostile payloads never show up via queryByText in test assertions.
+  // `state` goes through JSON.stringify which erases Blob prototypes —
+  // we keep a separate slot for the raw `stagedBlobs` count so a
+  // passing assertion doesn't depend on JSON serialising File/Blob.
+  const state = (loc.state ?? null) as null | { stagedBlobs?: unknown[] }
+  const stagedCount = Array.isArray(state?.stagedBlobs)
+    ? state!.stagedBlobs.length
+    : ''
   return (
     <div
       data-testid="location"
       data-pathname={loc.pathname}
       data-search={loc.search}
+      data-staged-count={String(stagedCount)}
     />
   )
 }
@@ -51,6 +63,12 @@ function renderPage(initialEntry: string) {
             <Route
               path="/rezepte/import/url"
               element={<div data-testid="import-url-page">import-url</div>}
+            />
+            <Route
+              path="/rezepte/import/photos"
+              element={
+                <div data-testid="import-photos-page">import-photos</div>
+              }
             />
             <Route
               path="/login"
@@ -161,5 +179,63 @@ describe('<ShareTargetPage />', () => {
     // Defensive: the hostile URL must not be rendered back to the DOM
     // anywhere on the page (no XSS via rendering).
     expect(screen.queryByText(/alert\(1\)/i)).not.toBeInTheDocument()
+  })
+
+  /**
+   * SHARE-1 — file-share branch. The SW writes blobs to
+   * `sharePayloadStore` keyed by a timestamp then 303s to
+   * `/share-target?payload-key=<timestamp>`. The page reads the blobs
+   * back, hands them to the photo-import staging grid, and deletes
+   * the IDB record so a Back-button can't double-consume them.
+   */
+  describe('SHARE-1 — ?payload-key= branch', () => {
+    const PAYLOAD_KEY = 424242
+
+    afterEach(async () => {
+      await deleteSharePayload(PAYLOAD_KEY)
+    })
+
+    it('reads stashed blobs and navigates to /rezepte/import/photos with state.stagedBlobs', async () => {
+      signIn()
+      const a = new File(['hello'], 'a.jpg', { type: 'image/jpeg' })
+      const b = new File(['world'], 'b.png', { type: 'image/png' })
+      await saveSharePayload(PAYLOAD_KEY, [a, b])
+
+      renderPage('/share-target?payload-key=' + PAYLOAD_KEY)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('import-photos-page')).toBeInTheDocument()
+      })
+      const loc = screen.getByTestId('location')
+      expect(loc.getAttribute('data-pathname')).toBe('/rezepte/import/photos')
+      expect(loc.getAttribute('data-staged-count')).toBe('2')
+    })
+
+    it('renders the German empty-state when the payload-key has no record (expired / purged)', async () => {
+      signIn()
+      renderPage('/share-target?payload-key=999999999')
+      // Await one tick so the async IDB read resolves and the page
+      // drops out of its busy state.
+      await waitFor(() =>
+        expect(
+          screen.getByText(/Bild-Freigabe abgelaufen/i),
+        ).toBeInTheDocument(),
+      )
+    })
+
+    it('reading the payload deletes the IDB record (prevents Back-button double-consumption)', async () => {
+      signIn()
+      const a = new File(['hello'], 'a.jpg', { type: 'image/jpeg' })
+      await saveSharePayload(PAYLOAD_KEY, [a])
+
+      renderPage('/share-target?payload-key=' + PAYLOAD_KEY)
+      await waitFor(() =>
+        expect(screen.getByTestId('import-photos-page')).toBeInTheDocument(),
+      )
+
+      // IDB record must be gone after the handoff.
+      const { readSharePayload } = await import('./sharePayloadStore')
+      expect(await readSharePayload(PAYLOAD_KEY)).toBeNull()
+    })
   })
 })
