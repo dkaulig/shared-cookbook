@@ -271,35 +271,13 @@ public sealed class CandidateAttacher
 
     /// <summary>Pure allowlist / same-origin acceptance check. Kept
     /// <c>public static</c> so the regression tests can drive a parameter
-    /// table without spinning up the full attacher. Logic matches the old
-    /// <c>ThumbnailAttacher.IsAllowedThumbnailHostForImport</c>
-    /// verbatim — the CDN allowlist always wins; otherwise the URL is
-    /// accepted when it shares an eTLD+1 (leftmost-label-strip
-    /// approximation) with the import's <paramref name="sourceUrl"/>.
+    /// table without spinning up the full attacher. The CDN allowlist
+    /// always wins; otherwise the URL is accepted when it shares an
+    /// eTLD+1 (leftmost-label-strip approximation) with
+    /// <paramref name="sourceUrl"/>.
     /// </summary>
     public static bool IsAllowedHostForImport(
         string url, string? sourceUrl, out Uri? uri)
-    {
-        if (IsOnCdnAllowlist(url, out uri)) return true;
-
-        if (uri is null) return false;
-        if (string.IsNullOrWhiteSpace(sourceUrl)) return false;
-        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var sourceUri))
-            return false;
-        if (sourceUri.Scheme != Uri.UriSchemeHttp
-            && sourceUri.Scheme != Uri.UriSchemeHttps)
-        {
-            return false;
-        }
-
-        return SharesRegisteredDomain(uri.Host, sourceUri.Host);
-    }
-
-    /// <summary>Video-CDN-only allowlist: absolute http(s) URL whose host
-    /// ends with a known CDN suffix. No SourceUrl inheritance, so suitable
-    /// for the yt-dlp path (where the CDN is the only trust anchor).
-    /// </summary>
-    public static bool IsOnCdnAllowlist(string url, out Uri? uri)
     {
         uri = null;
         if (string.IsNullOrWhiteSpace(url)) return false;
@@ -311,12 +289,27 @@ public sealed class CandidateAttacher
         var host = parsed.Host.ToLowerInvariant();
         if (string.IsNullOrEmpty(host)) return false;
 
+        // CDN allowlist — suffix match anchored on the dot so
+        // "evilfbcdn.net" (no leading dot) doesn't slip past ".fbcdn.net".
         foreach (var suffix in AllowedHostSuffixes)
         {
             if (host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
-        return false;
+
+        // Same-origin branch: the Python extractor already SSRF-checked
+        // and fetched the source URL; a thumbnail on the same registered
+        // domain inherits that trust.
+        if (string.IsNullOrWhiteSpace(sourceUrl)) return false;
+        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var sourceUri))
+            return false;
+        if (sourceUri.Scheme != Uri.UriSchemeHttp
+            && sourceUri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+
+        return SharesRegisteredDomain(host, sourceUri.Host);
     }
 
     private static bool SharesRegisteredDomain(string host, string sourceHost)

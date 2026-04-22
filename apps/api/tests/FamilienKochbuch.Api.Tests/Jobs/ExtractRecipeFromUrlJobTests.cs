@@ -631,7 +631,11 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
     [InlineData("", false)]
     public void BUG018_Host_Allowlist_Suffix_Match(string url, bool allowed)
     {
-        Assert.Equal(allowed, CandidateAttacher.IsOnCdnAllowlist(url, out _));
+        // CDN allowlist behaviour is exposed via the same
+        // same-origin-aware helper with a null sourceUrl — the CDN
+        // branch fires first and is independent of SourceUrl.
+        Assert.Equal(allowed,
+            CandidateAttacher.IsAllowedHostForImport(url, sourceUrl: null, out _));
     }
 
     // ── BUG-047: accept blog-hosted thumbnails when they live on the

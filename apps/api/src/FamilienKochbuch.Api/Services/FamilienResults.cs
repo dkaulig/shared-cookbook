@@ -111,6 +111,19 @@ public static class FamilienResults
         => Results.Json(new ErrorResponse(code, message, details), JsonOptions,
             statusCode: StatusCodes.Status401Unauthorized);
 
+    /// <summary>
+    /// 410 Gone with a <see cref="ErrorResponse"/> body. Used when a
+    /// resource that existed has been intentionally cleaned up (e.g.
+    /// the COVER-0 sweep reaped import candidates) so the client can
+    /// disambiguate from a 404 (never existed) and stop polling.
+    /// </summary>
+    public static IResult Gone(
+        string code,
+        string message,
+        IReadOnlyDictionary<string, object>? details = null)
+        => Results.Json(new ErrorResponse(code, message, details), JsonOptions,
+            statusCode: StatusCodes.Status410Gone);
+
     /// <summary>500 Internal Server Error with a <see cref="ErrorResponse"/> body.</summary>
     public static IResult InternalServerError(
         string code,

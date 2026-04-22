@@ -106,7 +106,13 @@ public static class RecipeEndpoints
         // new recipe (ownership-checked, blobs copied into the recipe
         // namespace). Per-photo failures surface via
         // ``partialPhotoFailures`` instead of failing the request.
-        Guid[]? StagedPhotoIds = null);
+        Guid[]? StagedPhotoIds = null,
+        // COVER-0: optional cover override. When set, must be present
+        // in ``StagedPhotoIds``; the promote flow reorders the array
+        // so the cover ends up as Recipe.Photos[0]. When null/absent,
+        // falls back to StagedPhotoIds[0] as cover, matching the
+        // pre-COVER-0 implicit behaviour.
+        Guid? CoverStagedPhotoId = null);
 
     public record UpdateRecipeRequest(
         string Title,
@@ -369,6 +375,14 @@ public static class RecipeEndpoints
     /// </summary>
     public record PartialPhotoFailureDto(Guid StagedPhotoId, string Reason);
 
+    /// <summary>COVER-0 — body of <c>POST /api/recipes/:id/cover</c>.
+    /// The <see cref="StagedPhotoId"/> must be either already promoted
+    /// onto this recipe (reorder photos, demote the current cover to
+    /// additional) or an un-promoted candidate of this recipe's
+    /// origin-import (promote onto the recipe + swap). Any other
+    /// staged-photo ownership returns 400.</summary>
+    public record CoverSwapRequest(Guid StagedPhotoId);
+
     public record UploadPhotoResponse(string Url);
 
     public record RemovePhotoRequest(string Url);
@@ -421,6 +435,12 @@ public static class RecipeEndpoints
         // Empty body — the URL always comes from the DB so a client can
         // never redirect the job at an arbitrary host (SSRF guard).
         recipe.MapPost("/reimport", ReimportRecipeAsync);
+
+        // COVER-0: swap the recipe's cover photo. Body carries a
+        // staged-photo id that must be either already promoted onto
+        // this recipe (re-order existing photos) or an un-promoted
+        // candidate of this recipe's origin-import (promote + swap).
+        recipe.MapPost("/cover", SetRecipeCoverAsync);
 
         // P2-8: staged photo upload for the import-from-photos flow.
         // Lives outside the {id:guid} group because the photo isn't yet
@@ -639,13 +659,31 @@ public static class RecipeEndpoints
         await revisionService.RecordAsync(
             recipe.Id, userId, RecipeChangeType.Created, clock.GetUtcNow(), ct);
 
+        // COVER-0 — when the caller supplied a coverStagedPhotoId,
+        // reorder the promote array so that id lands at Photos[0].
+        // The ids stay in the same otherwise-stable caller-provided
+        // order. When coverStagedPhotoId is missing from stagedPhotoIds
+        // the request is a 400; null is the "default cover = [0]"
+        // baseline.
+        var promoteIds = body.StagedPhotoIds;
+        if (body.CoverStagedPhotoId is { } coverId)
+        {
+            if (promoteIds is null || !promoteIds.Contains(coverId))
+                return FamilienResults.BadRequest(
+                    "cover_not_in_staged_set",
+                    "Das Cover-Foto muss Teil der hochgeladenen Fotos sein.");
+            promoteIds = new[] { coverId }
+                .Concat(promoteIds.Where(id => id != coverId))
+                .ToArray();
+        }
+
         // Sequential + best-effort: a single failed photo doesn't
         // take down the others, and the saved recipe is kept even if
         // every promote fails (the user can re-upload from the detail
         // page).
         var partialFailures = await PromoteStagedPhotosAsync(
             db, photoStorage, clock, promoteLogger,
-            recipe, userId, body.StagedPhotoIds, ct);
+            recipe, userId, promoteIds, ct);
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct,
             partialPhotoFailures: partialFailures.Count == 0 ? null : partialFailures.ToArray());
@@ -1958,6 +1996,165 @@ public static class RecipeEndpoints
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
         return Results.Ok(detail);
+    }
+
+    // ── POST /api/recipes/{id}/cover (COVER-0) ──────────────────────
+
+    /// <summary>
+    /// COVER-0 — swap the recipe's cover photo. Two accepted input
+    /// shapes for <see cref="CoverSwapRequest.StagedPhotoId"/>:
+    /// <list type="bullet">
+    /// <item><b>Already promoted on this recipe</b>: the corresponding
+    /// path in <see cref="Recipe.Photos"/> is moved to index 0; the
+    /// previous cover becomes the second photo.</item>
+    /// <item><b>Un-promoted candidate of this recipe's origin-import</b>:
+    /// the staged blob is copied into the recipe namespace, appended at
+    /// position 0, and the previous cover demotes to position 1. The
+    /// origin-import is discovered by walking any already-promoted
+    /// staged photo on this recipe and reading its
+    /// <see cref="StagedPhoto.LinkedImportId"/> — a candidate is
+    /// accepted only when it shares that import id. This prevents
+    /// cross-import staged-photo stealing.</item>
+    /// </list>
+    ///
+    /// Authz: recipe owner (<see cref="Recipe.CreatedByUserId"/>) only —
+    /// admin is NOT auto-allowed through; the cover decision is UX-
+    /// personal rather than moderation.
+    /// </summary>
+    private static async Task<IResult> SetRecipeCoverAsync(
+        Guid id,
+        CoverSwapRequest body,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        if (body is null || body.StagedPhotoId == Guid.Empty)
+            return FamilienResults.BadRequest(
+                "invalid_staged_photo_id",
+                "Eine gültige StagedPhoto-ID ist erforderlich.");
+
+        var recipe = await LoadRecipeWithChildrenAsync(db, id, ct);
+        if (recipe is null) return Results.NotFound();
+
+        // Owner-only — admin doesn't automatically bypass here.
+        if (recipe.CreatedByUserId != userId)
+            return FamilienResults.Forbidden(
+                "forbidden", "Du bist nicht der Besitzer dieses Rezepts.");
+
+        var staged = await db.StagedPhotos
+            .FirstOrDefaultAsync(s => s.Id == body.StagedPhotoId, ct);
+        if (staged is null)
+            return FamilienResults.BadRequest(
+                "staged_photo_not_found",
+                "Foto wurde nicht gefunden.");
+
+        // Path A: already promoted onto THIS recipe → just reorder.
+        if (staged.PromotedAt is not null
+            && staged.PromotedToRecipeId == recipe.Id)
+        {
+            if (!ReorderCover(recipe, staged.PhotoId))
+                return FamilienResults.BadRequest(
+                    "cover_not_on_recipe",
+                    "Dieses Foto ist nicht auf dem Rezept vorhanden.");
+            await db.SaveChangesAsync(ct);
+            var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
+            return Results.Ok(detail);
+        }
+
+        // Path B: un-promoted candidate that belongs to this recipe's
+        // origin-import. Find the origin import by consulting any
+        // already-promoted StagedPhoto on this recipe; if none exists
+        // the candidate can't be linked to this recipe and we refuse.
+        if (staged.PromotedAt is null && staged.LinkedImportId is { } linkedImportId)
+        {
+            // Require (a) candidate belongs to this user AND (b) at
+            // least one of the recipe's existing promoted photos shares
+            // the same LinkedImportId OR the recipe was created from
+            // that import (via TargetRecipeId).
+            if (staged.UserId != userId)
+                return FamilienResults.BadRequest(
+                    "cover_wrong_owner",
+                    "Foto gehört nicht dir.");
+
+            var importMatches = await db.StagedPhotos.AsNoTracking()
+                .AnyAsync(s => s.PromotedToRecipeId == recipe.Id
+                    && s.LinkedImportId == linkedImportId, ct);
+            if (!importMatches)
+            {
+                // Fall back to checking RecipeImport.TargetRecipeId so a
+                // reimport path where the [0] candidate was demoted /
+                // removed still accepts its sibling candidates.
+                importMatches = await db.RecipeImports.AsNoTracking()
+                    .AnyAsync(i => i.Id == linkedImportId
+                        && i.TargetRecipeId == recipe.Id, ct);
+            }
+            if (!importMatches)
+                return FamilienResults.BadRequest(
+                    "cover_not_from_recipe_import",
+                    "Foto gehört nicht zu diesem Rezept.");
+
+            if (recipe.Photos.Count >= Recipe.MaxPhotos)
+                return FamilienResults.BadRequest(
+                    "photo_limit_reached",
+                    $"Maximal {Recipe.MaxPhotos} Fotos pro Rezept – Limit erreicht.");
+
+            string destinationPath;
+            try
+            {
+                destinationPath = await photoStorage.CopyAsync(
+                    staged.PhotoId, staged.ContentType, ct);
+            }
+            catch (Exception)
+            {
+                return FamilienResults.BadRequest(
+                    "cover_copy_failed",
+                    "Foto konnte nicht kopiert werden.");
+            }
+
+            recipe.AddPhoto(destinationPath);
+            ReorderCover(recipe, destinationPath);
+            staged.MarkPromoted(recipe.Id, clock.GetUtcNow());
+            await db.SaveChangesAsync(ct);
+
+            // Best-effort delete of the staged source blob. Same posture
+            // as PromoteStagedPhotosAsync — sweep reaps orphans.
+            try
+            {
+                await photoStorage.DeleteAsync(staged.PhotoId, ct);
+            }
+            catch { /* sweep reaps orphan blobs */ }
+
+            var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
+            return Results.Ok(detail);
+        }
+
+        return FamilienResults.BadRequest(
+            "cover_not_from_recipe_import",
+            "Foto gehört nicht zu diesem Rezept.");
+    }
+
+    /// <summary>Moves <paramref name="photoPath"/> to index 0 of
+    /// <see cref="Recipe.Photos"/>, preserving the relative order of the
+    /// remaining entries. Returns <c>false</c> when the path isn't in
+    /// the list. Bumps Version via Recipe's Remove/Add methods.</summary>
+    private static bool ReorderCover(Recipe recipe, string photoPath)
+    {
+        if (!recipe.Photos.Contains(photoPath)) return false;
+        if (recipe.Photos.Count > 0 && recipe.Photos[0] == photoPath) return true;
+
+        // Snapshot the remainder, clear, re-add cover first then the rest
+        // in their original relative order. The domain's Add/Remove both
+        // bump Version; reorderings count as a single semantic edit.
+        var remainder = recipe.Photos.Where(p => p != photoPath).ToList();
+        recipe.RemovePhoto(photoPath);
+        foreach (var p in remainder) recipe.RemovePhoto(p);
+        recipe.AddPhoto(photoPath);
+        foreach (var p in remainder) recipe.AddPhoto(p);
+        return true;
     }
 
     // ── POST /api/recipes/{id}/reimport (REIMPORT-0) ────────────────

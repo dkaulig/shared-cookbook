@@ -4,6 +4,7 @@ using FamilienKochbuch.Api.Jobs;
 using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Persistence;
+using FamilienKochbuch.Infrastructure.Services;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 
@@ -70,16 +71,26 @@ public static class ImportEndpoints
         int? SegmentsTotal,
         DateTimeOffset LastProgressAt,
         /// <summary>
-        /// BUG-018 — id of the <see cref="StagedPhoto"/> the URL job
-        /// downloaded from the extracted video thumbnail (yt-dlp frame).
-        /// Null when the source had no thumbnail or the download fell
-        /// back to the graceful-failure path (timeout, oversize,
-        /// non-image, host-allowlist reject). The frontend's import
-        /// prefill auto-adds this id to the staged-photo list it
-        /// forwards to <c>POST /api/recipes</c>, so the user gets the
-        /// thumbnail attached as a recipe photo without manual upload.
+        /// BUG-018 / COVER-0 — id of the <see cref="StagedPhoto"/> the
+        /// URL job picked as the default cover. During the COVER-0
+        /// wire-compat window this mirrors
+        /// <see cref="CandidateStagedPhotoIds"/>[0] when the candidate
+        /// array is non-empty; on pre-COVER-0 rows it's the legacy
+        /// single-thumbnail id. Null when the source had no thumbnail
+        /// or every download fell back to the graceful-failure path.
+        /// A later slice removes this field; new clients should read
+        /// <see cref="CandidateStagedPhotoIds"/>[0] directly.
         /// </summary>
         Guid? ThumbnailStagedPhotoId,
+        /// <summary>
+        /// COVER-0 — ordered list of <see cref="StagedPhoto"/> ids the
+        /// candidate-download pipeline produced for this import.
+        /// Index 0 is the default cover; later entries surface in the
+        /// RecipeFormPage grid + the "Cover ändern" modal. Empty
+        /// (never null) for pre-COVER-0 rows and imports where every
+        /// candidate download failed.
+        /// </summary>
+        Guid[] CandidateStagedPhotoIds,
         /// <summary>
         /// REIMPORT-0 — id of the target <see cref="Recipe"/> this
         /// import should update in place when it completes. Non-null
@@ -90,6 +101,26 @@ public static class ImportEndpoints
         /// back to the detail page for the target recipe.
         /// </summary>
         Guid? TargetRecipeId);
+
+    /// <summary>COVER-0 — one row of <c>GET /api/imports/:id/candidates</c>.
+    /// <see cref="SignedUrl"/> is re-signed on each request (the stored
+    /// <c>SignedUrl</c> on the row is a diagnostic fallback, not a
+    /// time-bounded wire token). <see cref="ExpiresAt"/> is the 7-day
+    /// reap horizon from <c>CreatedAt</c>; the frontend uses it to
+    /// pre-emptively hide the "Cover ändern" button when the window is
+    /// almost closed.</summary>
+    public record ImportCandidate(
+        Guid StagedPhotoId,
+        string SignedUrl,
+        string ContentType,
+        int CandidateOrder,
+        DateTimeOffset ExpiresAt);
+
+    /// <summary>COVER-0 — wire shape of
+    /// <c>GET /api/imports/:id/candidates</c>. Ordered by
+    /// <see cref="ImportCandidate.CandidateOrder"/> ascending so the
+    /// frontend can bind directly without re-sorting.</summary>
+    public record ImportCandidatesResponse(IReadOnlyList<ImportCandidate> Candidates);
 
     /// <summary>
     /// Wire shape of <c>GET /api/imports?mine=true</c>. Lighter than
@@ -178,6 +209,12 @@ public static class ImportEndpoints
     {
         var group = app.MapGroup("/api/imports").WithTags("Imports");
         group.MapGet("/{importId:guid}", GetImportAsync).RequireAuthorization();
+        // COVER-0 — un-promoted candidate staged photos for this import,
+        // freshly signed. Drives the RecipeDetailPage "Cover ändern"
+        // modal after the form-page flow has saved and dropped the
+        // import prefill.
+        group.MapGet("/{importId:guid}/candidates", GetImportCandidatesAsync)
+            .RequireAuthorization();
         // BUG-010 — list snapshot. Distinct route-shape from the
         // per-id GET; Minimal-APIs route-matches by template before
         // hitting the `mine` query, so they coexist cleanly.
@@ -242,14 +279,97 @@ public static class ImportEndpoints
             SegmentsDone: import.SegmentsDone,
             SegmentsTotal: import.SegmentsTotal,
             LastProgressAt: import.LastProgressAt,
-            // BUG-018 — surface the auto-attached video thumbnail
-            // staged-photo id so the frontend prefill can promote it
-            // alongside any user-uploaded photos without an extra round-trip.
+            // BUG-018 / COVER-0 — legacy single-thumbnail id mirrors
+            // CandidateStagedPhotoIds[0] during the wire-compat window
+            // so today's web prefill keeps rendering the default cover.
             ThumbnailStagedPhotoId: import.ThumbnailStagedPhotoId,
+            // COVER-0 — ordered candidate ids drive the 3×2 grid on
+            // the RecipeFormPage + the "Cover ändern" modal. Empty
+            // array (never null) on pre-COVER-0 rows and imports where
+            // every candidate download failed.
+            CandidateStagedPhotoIds: import.CandidateStagedPhotoIds,
             // REIMPORT-0 — surface the target-recipe id so the
             // progress page's terminal-state redirect can branch to
             // the detail page instead of the new-recipe form.
             TargetRecipeId: import.TargetRecipeId));
+    }
+
+    // ── GET /api/imports/{importId}/candidates (COVER-0) ────────────
+
+    /// <summary>
+    /// Returns the still-unpromoted <see cref="StagedPhoto"/> rows
+    /// linked to this import, freshly signed. Drives the
+    /// "Cover ändern" modal on the recipe detail page.
+    ///
+    /// Response semantics:
+    /// <list type="bullet">
+    /// <item>200 with the ordered candidate list when the import exists
+    /// AND the caller owns it AND at least one un-promoted candidate
+    /// is still within the 7-day window.</item>
+    /// <item>404 when the import doesn't exist.</item>
+    /// <item>403 when the caller isn't the import owner (admin is
+    /// NOT allowed through here — this endpoint is scoped to the
+    /// user's own imports; the admin surface lives elsewhere).</item>
+    /// <item>410 Gone when every candidate has already been promoted
+    /// or reaped. Distinct from 200-with-empty-list so the frontend
+    /// can show a one-shot "Import-Kandidaten sind nicht mehr
+    /// verfügbar" toast and stop polling. Returned whenever the import
+    /// exists, the caller owns it, but zero un-promoted candidate rows
+    /// match.</item>
+    /// </list>
+    /// </summary>
+    private static async Task<IResult> GetImportCandidatesAsync(
+        Guid importId,
+        HttpContext ctx,
+        AppDbContext db,
+        IPhotoStorage photoStorage,
+        CancellationToken ct)
+    {
+        if (!TryGetCallerId(ctx, out var callerId))
+            return Results.Unauthorized();
+
+        var import = await db.RecipeImports.AsNoTracking()
+            .Where(i => i.Id == importId)
+            .Select(i => new { i.Id, i.UserId })
+            .SingleOrDefaultAsync(ct);
+        if (import is null)
+            return FamilienResults.NotFound(
+                "import_not_found",
+                "Der angegebene Import wurde nicht gefunden.");
+
+        // Ownership check — NO admin bypass. The candidate list is the
+        // user's own import material; admins who need it can read the
+        // StagedPhotos table directly.
+        if (import.UserId != callerId)
+            return FamilienResults.Forbidden(
+                "forbidden", "Dieser Import gehört dir nicht.");
+
+        var rows = await db.StagedPhotos.AsNoTracking()
+            .Where(s => s.LinkedImportId == importId && s.PromotedAt == null)
+            .ToListAsync(ct);
+
+        if (rows.Count == 0)
+            return FamilienResults.Gone(
+                "candidates_expired",
+                "Import-Kandidaten sind nicht mehr verfügbar.");
+
+        // Order in memory (SQLite can't compare nullable ints at SQL
+        // level on every provider version; the row set is tiny so the
+        // in-memory sort is free).
+        var candidates = rows
+            .OrderBy(r => r.CandidateOrder)
+            .Select(r => new ImportCandidate(
+                StagedPhotoId: r.Id,
+                // Re-sign so the wire URL can't outlast its
+                // validity window — the row's stored SignedUrl was
+                // captured at upload-time and may be stale.
+                SignedUrl: photoStorage.GetPublicUrl(r.PhotoId),
+                ContentType: r.ContentType,
+                CandidateOrder: r.CandidateOrder ?? 0,
+                ExpiresAt: r.CreatedAt + SweepAbandonedStagedPhotosJob.CandidateAbandonAge))
+            .ToList();
+
+        return Results.Ok(new ImportCandidatesResponse(candidates));
     }
 
     // ── GET /api/imports?mine=true (BUG-010 list) ───────────────────
