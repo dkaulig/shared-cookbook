@@ -37,8 +37,6 @@ export interface PreAttachedPhoto {
   readonly stagedPhotoId: string
   /** Signed SeaweedFS proxy URL; rendered as `<img src>`. */
   readonly url: string
-  /** BUG-018 video thumbnail marker → shows a "Thumbnail" badge. */
-  readonly isThumbnail?: boolean
 }
 
 interface LiveProps {
@@ -284,7 +282,6 @@ function StagedGrid({
         kind: 'preAttached',
         stagedPhotoId: p.stagedPhotoId,
         url: p.url,
-        isThumbnail: p.isThumbnail === true,
         index: i,
       }),
     ),
@@ -331,7 +328,6 @@ type Slot =
       kind: 'preAttached'
       stagedPhotoId: string
       url: string
-      isThumbnail: boolean
       index: number
     }
 
@@ -454,7 +450,6 @@ function GridShell({
                 key={`pre-${slot.stagedPhotoId}`}
                 stagedPhotoId={slot.stagedPhotoId}
                 url={slot.url}
-                isThumbnail={slot.isThumbnail}
                 index={slot.index + 1}
                 onRemove={
                   onRemovePreAttached
@@ -542,15 +537,13 @@ function FilledSlot({ url, index, onRemove, pending }: FilledSlotProps) {
  * BUG-024 — a server-side staged-photo tile shown in create-mode
  * during the photo-import review. Identical visuals to the live
  * FilledSlot with two tweaks:
- *   - top-left pill labelling the provenance ("Import" or
- *     "Thumbnail" depending on `isThumbnail`),
+ *   - top-left "Import" provenance pill,
  *   - X button stays hidden when no `onRemove` is provided
  *     (caller opted out of the per-tile delete flow).
  */
 interface PreAttachedSlotProps {
   stagedPhotoId: string
   url: string
-  isThumbnail: boolean
   index: number
   onRemove?: () => void
 }
@@ -558,11 +551,9 @@ interface PreAttachedSlotProps {
 function PreAttachedSlot({
   stagedPhotoId,
   url,
-  isThumbnail,
   index,
   onRemove,
 }: PreAttachedSlotProps) {
-  const badgeLabel = isThumbnail ? 'Thumbnail' : 'Import'
   return (
     <div
       data-testid={`preattached-slot-${stagedPhotoId}`}
@@ -578,12 +569,10 @@ function PreAttachedSlot({
       {/* Top-left provenance pill — mirrors the site's
           tag/pill styling (small, muted, pill-shaped). */}
       <span
-        data-testid={
-          isThumbnail ? 'preattached-thumbnail-badge' : 'preattached-import-badge'
-        }
+        data-testid="preattached-import-badge"
         className="absolute left-1.5 top-1.5 rounded-full bg-[rgba(28,25,23,0.75)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.04em] text-white backdrop-blur-sm"
       >
-        {badgeLabel}
+        Import
       </span>
       {onRemove && (
         <button

@@ -344,15 +344,10 @@ export function RecipeFormPage({ mode }: Props) {
     // `recipe_empty` / `empty_reason` flags land on the prefill and
     // the wrapper can branch into `EmptyExtractionExplainer` below.
     prefill = extractedResultToPrefill(importQuery.data.result)
-    // BUG-018 — overlay the import-DTO-level fields (only the auto-
-    // attached video-thumbnail staged-photo id today) the inner
-    // recipe shape can't see.
+    // COVER-0 — overlay the candidate array so the picker grid in the
+    // inner form can render 1–6 tiles. Empty array = blog import
+    // without structured images; the picker stays dormant.
     prefill = withImportEnvelope(prefill, {
-      thumbnailStagedPhotoId: importQuery.data.thumbnailStagedPhotoId ?? null,
-      // COVER-0 — forward the full candidate array so the picker grid
-      // in the inner form can render 2–6 tiles. Empty array on legacy
-      // rows triggers the single-tile fallback inside the envelope
-      // helper (see importPrefill.ts).
       candidateStagedPhotoIds: importQuery.data.candidateStagedPhotoIds,
     })
   } else if (mode === 'create' && chatImportId) {
@@ -398,38 +393,16 @@ export function RecipeFormPage({ mode }: Props) {
   // Read at the wrapper level so the inner form can seed its
   // initial state without the setState-in-effect dance.
   //
-  // BUG-018 — additionally fold in the auto-attached video-thumbnail
-  // staged-photo id (URL-import path) so the create-recipe POST
-  // promotes it alongside any user-uploaded photos. Photo-import path
-  // doesn't carry a thumbnail (the user is the photo source).
-  //
-  // BUG-024 — we now surface these as {id, url} pairs so the review
-  // form can render the actual thumbnails via
-  // `PhotoUploadGrid.preAttached`. The BUG-018 thumbnail is a special
-  // case: the frontend doesn't have a signed URL for it (the import
-  // status endpoint only exposes the id), so we fall back to a
-  // url-less entry — the inner form filters those out before passing
-  // them to the grid, so the thumbnail stays "badge only" until /
-  // unless the backend starts exposing its url too.
+  // BUG-024 — we surface photo-import staged photos as {id, url} pairs
+  // so the review form can render actual thumbnails via
+  // `PhotoUploadGrid.preAttached`. URL-import cover candidates flow
+  // through the COVER-0 picker grid instead, so they don't land in
+  // `initialPreAttached`.
   const initialPreAttached: ImportStagedPhotoMemo[] = (() => {
     if (mode !== 'create' || !importId) return []
-    const base = prefill?.isPhotoImport
+    return prefill?.isPhotoImport
       ? recallImportStagedPhotos(importId) ?? []
       : []
-    const thumbId = prefill?.thumbnailStagedPhotoId
-    if (!thumbId) return base
-    // COVER-0 — when the picker grid is rendering (>=2 candidates),
-    // the legacy thumbnail is already `candidateStagedPhotoIds[0]`
-    // and sits inside the grid. Adding it to `preAttached` again
-    // would double-count on the save body (and surface an invisible
-    // no-URL entry). Suppress the legacy badge only when the grid
-    // takes over so the single-candidate path (length < 2) keeps its
-    // existing "badge only" fallback.
-    const candidateCount = prefill?.candidateStagedPhotoIds?.length ?? 0
-    if (candidateCount >= 2) return base
-    // Mark the thumbnail with an empty url so the grid can skip the
-    // <img> render (no signed URL available today).
-    return [...base, { stagedPhotoId: thumbId, url: '' }]
   })()
 
   return (
@@ -440,7 +413,6 @@ export function RecipeFormPage({ mode }: Props) {
       chatImportId={chatImportSource ? chatImportId : null}
       importId={importId ?? null}
       initialPreAttached={initialPreAttached}
-      thumbnailStagedPhotoId={prefill?.thumbnailStagedPhotoId ?? null}
     />
   )
 }
@@ -452,7 +424,6 @@ function RecipeFormInner({
   chatImportId,
   importId,
   initialPreAttached,
-  thumbnailStagedPhotoId,
 }: {
   mode: 'create' | 'edit'
   initial?: RecipeDetailDto
@@ -472,21 +443,11 @@ function RecipeFormInner({
   importId?: string | null
   /**
    * BUG-024 — server-side staged photos the wrapper recalled from the
-   * session memo (user-uploaded originals) plus the optional BUG-018
-   * video thumbnail. Each entry carries the signed SeaweedFS URL so
-   * the grid can render a thumbnail; entries with an empty URL (e.g.
-   * the BUG-018 thumbnail whose URL isn't exposed to the frontend)
-   * are still forwarded into the save payload but omitted from the
-   * visible grid, so BUG-018 keeps its pre-BUG-024 "badge only"
-   * fallback.
+   * session memo (user-uploaded originals, photo-import flow only).
+   * Each entry carries the signed SeaweedFS URL so the grid can
+   * render a thumbnail.
    */
   initialPreAttached?: readonly ImportStagedPhotoMemo[]
-  /**
-   * BUG-018 — present when the URL-import job auto-attached a video
-   * thumbnail. Forwarded into the save payload but rendered as "badge
-   * only" (no signed URL available on the frontend yet).
-   */
-  thumbnailStagedPhotoId?: string | null
 }) {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
@@ -685,13 +646,13 @@ function RecipeFormInner({
   const [stagedPhotos, setStagedPhotos] = useState<File[]>([])
 
   // ── COVER-0 — import-cover picker state ──────────────────────────
-  // The picker renders when the URL-extract job captured >=2 candidate
-  // thumbnails. Tile 0 is the default cover + default-selected; other
+  // The picker renders when the URL-extract job captured ≥1 candidate
+  // thumbnail. Tile 0 is the default cover + default-selected; other
   // tiles start unselected. Cover always stays ∈ selectedCandidateIds
   // — enforced by the ImportCandidatesGrid's event contract.
   const prefillCandidateIds = prefill?.candidateStagedPhotoIds ?? []
   const showCandidatePicker =
-    mode === 'create' && prefillCandidateIds.length >= 2
+    mode === 'create' && prefillCandidateIds.length >= 1
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>(
     () => (prefillCandidateIds[0] ? [prefillCandidateIds[0]] : []),
   )
@@ -720,43 +681,26 @@ function RecipeFormInner({
   >('idle')
 
   // BUG-024 + COVER-0 — the ids we forward into the create-recipe
-  // payload combine three sources, in precedence order:
+  // payload combine two sources:
   //   1. `preAttached` (user-uploaded staged photos, photo-import flow).
   //   2. `selectedCandidateIds` (the COVER-0 picker's active tiles).
-  //   3. `thumbnailStagedPhotoId` (BUG-018 legacy fallback) — only
-  //      when the picker isn't rendering (length < 2). When the
-  //      picker IS rendering, its own selection already contains the
-  //      legacy thumbnail (it IS `candidateStagedPhotoIds[0]`), so
-  //      folding the singleton in again would double-count.
   const stagedPhotoIds: string[] = (() => {
     const ids = preAttached.map((p) => p.stagedPhotoId)
-    // COVER-0 — add picker-selected tiles to the save payload.
     if (showCandidatePicker) {
       for (const id of selectedCandidateIds) {
         if (!ids.includes(id)) ids.push(id)
       }
-    } else if (
-      thumbnailStagedPhotoId
-      && !ids.includes(thumbnailStagedPhotoId)
-    ) {
-      ids.push(thumbnailStagedPhotoId)
     }
     return ids
   })()
 
-  // BUG-024 — tiles the grid should render (must have a URL; the
-  // BUG-018 thumbnail without a URL stays out of the visible grid
-  // and remains represented only by the amber "wird beim Speichern
-  // angehängt" pill).
-  const gridPreAttached = preAttached
-    .filter((p) => p.url !== '')
-    .map((p) => ({
-      stagedPhotoId: p.stagedPhotoId,
-      url: p.url,
-      isThumbnail:
-        thumbnailStagedPhotoId != null &&
-        p.stagedPhotoId === thumbnailStagedPhotoId,
-    }))
+  // BUG-024 — tiles the PhotoUploadGrid should render. All preAttached
+  // entries carry a URL (photo-import flow staged photos); the COVER-0
+  // picker owns its own grid for URL imports.
+  const gridPreAttached = preAttached.map((p) => ({
+    stagedPhotoId: p.stagedPhotoId,
+    url: p.url,
+  }))
 
   async function handleRemovePreAttached(stagedPhotoId: string): Promise<void> {
     // Optimistic removal — the X disappearing immediately matches

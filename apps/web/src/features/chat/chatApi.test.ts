@@ -31,7 +31,6 @@ const sampleResult: ExtractionResult = {
     steps: [],
     tags: ['vegan'],
     source_url: 'chat://session/abc',
-    thumbnail_url: null,
   },
   confidence: { overall: 'medium', notes: [] },
 }
