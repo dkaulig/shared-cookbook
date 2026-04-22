@@ -217,6 +217,14 @@ export interface CreateRecipeRequest {
    * than blocking the recipe creation itself.
    */
   stagedPhotoIds?: string[]
+  /**
+   * COVER-0 — which of the `stagedPhotoIds` should become the recipe's
+   * cover. Must be a member of `stagedPhotoIds` when set (400 otherwise);
+   * omit to fall back to the `stagedPhotoIds[0]`-default behaviour that
+   * predated the import-cover picker. Single-photo create paths that
+   * don't surface the picker can leave this unset.
+   */
+  coverStagedPhotoId?: string
 }
 
 export interface UpdateRecipeRequest extends CreateRecipeRequest {}

@@ -8,12 +8,15 @@ import type {
   ExtractionConfidence,
   ExtractionResult,
   ExtractionSignals,
+  ImportCandidate,
+  ImportCandidatesResponse,
   ImportEnqueueResponse,
   ImportSourceKind,
   ImportStatus,
   ImportSummaryDto,
   ImportUrlRequest,
   IngredientConfidenceLevel,
+  RecipeCoverSwapRequest,
   RecipeImportDto,
   StepConfidenceLevel,
 } from './imports.ts'
@@ -225,6 +228,7 @@ describe('imports.ts DTOs', () => {
       errorMessage: null,
       createdAt: '2026-04-18T00:00:00Z',
       completedAt: null,
+      candidateStagedPhotoIds: [],
     }
     expect(dto.status).toBe('running')
     expect(dto.progress).toBe(42)
@@ -245,6 +249,7 @@ describe('imports.ts DTOs', () => {
       errorMessage: null,
       createdAt: '2026-04-18T00:00:00Z',
       completedAt: '2026-04-18T00:00:05Z',
+      candidateStagedPhotoIds: [],
     }
     expect(dto.groupId).toBe('22222222-3333-4444-5555-666666666666')
   })
@@ -267,6 +272,7 @@ describe('imports.ts DTOs', () => {
       createdAt: '2026-04-21T00:00:00Z',
       completedAt: '2026-04-21T00:00:42Z',
       targetRecipeId: '33333333-4444-5555-6666-777777777777',
+      candidateStagedPhotoIds: [],
     }
     expect(reimport.targetRecipeId).toBe('33333333-4444-5555-6666-777777777777')
 
@@ -284,8 +290,130 @@ describe('imports.ts DTOs', () => {
       createdAt: '2026-04-21T00:00:00Z',
       completedAt: null,
       targetRecipeId: null,
+      candidateStagedPhotoIds: [],
     }
     expect(newImport.targetRecipeId).toBeNull()
+  })
+
+  // COVER-0 — `candidate_thumbnails` is the new-default wire field the
+  // Python extractor + .NET bridge emit alongside (and will eventually
+  // supersede) the legacy single-valued `thumbnail_url`. A rename on
+  // the Python `ExtractedRecipe` TypedDict or the .NET serialiser
+  // fails this compile-time gate.
+  it('COVER-0: ExtractedRecipe carries optional candidate_thumbnails array', () => {
+    const recipe: ExtractedRecipe = {
+      title: 'Rezept mit mehreren Coverbildern',
+      description: null,
+      servings: null,
+      difficulty: null,
+      prep_minutes: null,
+      cook_minutes: null,
+      components: [
+        { label: null, position: 0, ingredients: [], steps: [] },
+      ],
+      tags: [],
+      source_url: 'https://example.com/rezept',
+      thumbnail_url: 'https://example.com/thumb-0.jpg',
+      candidate_thumbnails: [
+        'https://example.com/thumb-0.jpg',
+        'https://example.com/thumb-1.jpg',
+        'https://example.com/thumb-2.jpg',
+      ],
+    }
+    expect(recipe.candidate_thumbnails).toHaveLength(3)
+    expect(recipe.candidate_thumbnails?.[0]).toBe(recipe.thumbnail_url)
+
+    // Absent `candidate_thumbnails` must still type-check — this
+    // is the additive-migration contract: legacy payloads keep working
+    // until the cleanup slice after D + E removes the legacy field.
+    const legacy: ExtractedRecipe = {
+      title: 'Altes Rezept',
+      description: null,
+      servings: null,
+      difficulty: null,
+      prep_minutes: null,
+      cook_minutes: null,
+      components: [
+        { label: null, position: 0, ingredients: [], steps: [] },
+      ],
+      tags: [],
+      source_url: 'https://example.com/alt',
+      thumbnail_url: null,
+    }
+    expect(legacy.candidate_thumbnails).toBeUndefined()
+  })
+
+  // COVER-0 — `candidateStagedPhotoIds` is the DTO-surface mirror for
+  // the wire `candidate_thumbnails`. Mandatory (always present on
+  // fresh server responses; `[]` for legacy rows / imports that yielded
+  // zero candidates) so the frontend never has to null-check before
+  // rendering the picker.
+  it('COVER-0: RecipeImportDto requires candidateStagedPhotoIds (may be empty)', () => {
+    const dto: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      source: 'url',
+      status: 'done',
+      progress: 100,
+      sourceUrl: 'https://example.com/video',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-22T00:00:00Z',
+      completedAt: '2026-04-22T00:00:42Z',
+      thumbnailStagedPhotoId: 'sp-0',
+      candidateStagedPhotoIds: ['sp-0', 'sp-1', 'sp-2'],
+    }
+    expect(dto.candidateStagedPhotoIds).toHaveLength(3)
+    // During the migration window, [0] mirrors the legacy field so
+    // the frontend can adopt either without breakage.
+    expect(dto.candidateStagedPhotoIds[0]).toBe(dto.thumbnailStagedPhotoId)
+
+    // Empty-array case: legacy rows + imports that yielded no candidates.
+    const empty: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      source: 'chat',
+      status: 'done',
+      progress: 100,
+      sourceUrl: null,
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-22T00:00:00Z',
+      completedAt: '2026-04-22T00:00:05Z',
+      candidateStagedPhotoIds: [],
+    }
+    expect(empty.candidateStagedPhotoIds).toEqual([])
+  })
+
+  // COVER-0 — wire shape for GET /api/imports/:id/candidates. The
+  // endpoint returns freshly-signed URLs for the un-promoted
+  // candidate staged photos so the picker UI can render tiles even
+  // after a soft-reload (staged-upload URLs are short-lived; the
+  // server re-signs on every GET).
+  it('COVER-0: ImportCandidate pins the tile-render fields', () => {
+    const candidate: ImportCandidate = {
+      stagedPhotoId: 'sp-0',
+      signedUrl: 'https://seaweedfs.example.com/staged/abc?sig=xyz',
+      contentType: 'image/jpeg',
+      candidateOrder: 0,
+      expiresAt: '2026-04-22T01:00:00Z',
+    }
+    expect(candidate.candidateOrder).toBe(0)
+    expect(candidate.contentType).toBe('image/jpeg')
+
+    const response: ImportCandidatesResponse = {
+      candidates: [candidate],
+    }
+    expect(response.candidates).toHaveLength(1)
+  })
+
+  // COVER-0 — POST /api/recipes/:id/cover body. One field: the
+  // StagedPhoto id the user picked in the "Cover ändern" modal.
+  it('COVER-0: RecipeCoverSwapRequest carries a single stagedPhotoId', () => {
+    const body: RecipeCoverSwapRequest = {
+      stagedPhotoId: 'sp-2',
+    }
+    expect(body.stagedPhotoId).toBe('sp-2')
   })
 
   // BUG-010 — compile-time regression guard on the list-DTO surface.

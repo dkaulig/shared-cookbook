@@ -110,6 +110,17 @@ export interface ExtractedRecipe {
   source_url: string
   thumbnail_url: string | null
   /**
+   * COVER-0 — up to 6 absolute URLs the Python extractor emitted as
+   * import-cover candidates (yt-dlp thumbnails + ffmpeg frames +
+   * JSON-LD `image[]`). Ordered; `[0]` is the default cover and mirrors
+   * the legacy `thumbnail_url` during the migration window. Absent on
+   * legacy / chat-import payloads that pre-date the field.
+   *
+   * A later cleanup slice (after D + E ship) removes the legacy
+   * `thumbnail_url` above and promotes this field to mandatory.
+   */
+  candidate_thumbnails?: string[]
+  /**
    * P2-10: optional per-portion nutrition estimate. Omitted or `null`
    * when the LLM couldn't infer quantities; mirrors the Python
    * `ExtractedRecipe` TypedDict key.
@@ -376,6 +387,18 @@ export interface RecipeImportDto {
    */
   thumbnailStagedPhotoId?: string | null
   /**
+   * COVER-0 — up to 6 staged-photo IDs captured as import-cover
+   * candidates (yt-dlp thumbnails + ffmpeg frames + JSON-LD image[]).
+   * Ordered; [0] is the default cover. `[]` on legacy rows + imports
+   * that yielded no candidates.
+   *
+   * During the migration window, `thumbnailStagedPhotoId` continues
+   * to mirror `candidateStagedPhotoIds[0]` — the frontend can adopt
+   * either field without breakage. A later slice removes the legacy
+   * `thumbnailStagedPhotoId` field.
+   */
+  candidateStagedPhotoIds: string[]
+  /**
    * REIMPORT-0 — id of the Recipe the URL-extract job should update in
    * place. Non-null exclusively for imports enqueued by
    * `POST /api/recipes/{id}/reimport`; standard URL / Photo / Chat
@@ -384,4 +407,54 @@ export interface RecipeImportDto {
    * back to detail page" (set) on the terminal-state redirect.
    */
   targetRecipeId?: string | null
+}
+
+/**
+ * COVER-0 — one un-promoted cover-candidate staged photo as returned by
+ * `GET /api/imports/{importId}/candidates`. The endpoint re-signs
+ * `signedUrl` on every call so the tile UI stays valid even after a
+ * soft-reload (staged-upload signatures are short-lived).
+ *
+ * Ownership-scoped on the server: the caller must own the import;
+ * admins do NOT bypass. Rows disappear from the response as the user
+ * promotes candidates onto recipes (becomes `IsAdopted`) or after the
+ * 7-day sweep reaps them; the endpoint then returns 410 Gone and the
+ * UI hides the "Cover ändern" surface.
+ */
+export interface ImportCandidate {
+  stagedPhotoId: string
+  signedUrl: string
+  contentType: string
+  /** 0-based deterministic order from the extractor; `[0]` is default cover. */
+  candidateOrder: number
+  /** ISO-8601. Time-at-which the signedUrl ceases to resolve. */
+  expiresAt: string
+}
+
+/**
+ * COVER-0 — wire envelope for `GET /api/imports/{importId}/candidates`.
+ * One array field so future endpoint-level metadata (e.g. expiry hint
+ * for the whole batch) can join without an interface rev.
+ */
+export interface ImportCandidatesResponse {
+  candidates: ImportCandidate[]
+}
+
+/**
+ * COVER-0 — body for `POST /api/recipes/{recipeId}/cover`.
+ *
+ * Two accepted shapes on the server:
+ *   - already-promoted-on-this-recipe: the `StagedPhoto` row is
+ *     already adopted onto this recipe → reorder-only, cheap.
+ *   - un-promoted candidate from this recipe's origin-import: the
+ *     server promotes the staged blob and swaps the cover in one
+ *     transaction.
+ *
+ * The server rejects cross-import photo-stealing (the candidate must
+ * belong to an import that targets this recipe, either via a promoted
+ * photo on the recipe or via `RecipeImport.TargetRecipeId` for
+ * reimports). 403 for non-owners; 400 for unknown or mismatched ids.
+ */
+export interface RecipeCoverSwapRequest {
+  stagedPhotoId: string
 }
