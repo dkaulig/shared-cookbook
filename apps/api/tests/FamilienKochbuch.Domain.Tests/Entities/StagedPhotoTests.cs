@@ -149,4 +149,92 @@ public class StagedPhotoTests
         // First promotion remains the source of truth.
         Assert.Equal(firstRecipe, staged.PromotedToRecipeId);
     }
+
+    // ── COVER-0 — import-candidate extension ──────────────────────────
+
+    [Fact]
+    public void Constructor_Without_LinkedImport_Has_Null_Candidate_Fields()
+    {
+        var staged = NewStagedPhoto();
+
+        // Legacy rows (user-uploaded via the staged-upload endpoint) never
+        // carry import-linkage metadata — the two fields stay null so the
+        // sweep job's 24h branch keeps treating them as before.
+        Assert.Null(staged.LinkedImportId);
+        Assert.Null(staged.CandidateOrder);
+    }
+
+    [Fact]
+    public void Constructor_With_LinkedImport_And_Order_Sets_Both()
+    {
+        var importId = Guid.NewGuid();
+        var staged = new StagedPhoto(
+            userId: Guid.NewGuid(),
+            photoId: "recipes/candidate-0.jpg",
+            signedUrl: "/api/photos/recipes/candidate-0.jpg?sig=x&exp=9",
+            contentType: "image/jpeg",
+            createdAt: DateTimeOffset.UtcNow,
+            sourceUrl: "https://cdn.example/thumb0.jpg",
+            linkedImportId: importId,
+            candidateOrder: 0);
+
+        Assert.Equal(importId, staged.LinkedImportId);
+        Assert.Equal(0, staged.CandidateOrder);
+    }
+
+    [Fact]
+    public void Constructor_Rejects_Empty_LinkedImportId()
+    {
+        Assert.Throws<ArgumentException>(() => new StagedPhoto(
+            userId: Guid.NewGuid(),
+            photoId: "recipes/c.jpg",
+            signedUrl: "/api/photos/recipes/c.jpg?sig=x&exp=9",
+            contentType: "image/jpeg",
+            createdAt: DateTimeOffset.UtcNow,
+            linkedImportId: Guid.Empty,
+            candidateOrder: 0));
+    }
+
+    [Fact]
+    public void Constructor_Rejects_Negative_CandidateOrder()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new StagedPhoto(
+            userId: Guid.NewGuid(),
+            photoId: "recipes/c.jpg",
+            signedUrl: "/api/photos/recipes/c.jpg?sig=x&exp=9",
+            contentType: "image/jpeg",
+            createdAt: DateTimeOffset.UtcNow,
+            linkedImportId: Guid.NewGuid(),
+            candidateOrder: -1));
+    }
+
+    [Fact]
+    public void Constructor_Rejects_CandidateOrder_Without_LinkedImport()
+    {
+        // A row that claims a candidate position must belong to an import —
+        // otherwise the sweep's 7-day branch can't find its cohort.
+        Assert.Throws<ArgumentException>(() => new StagedPhoto(
+            userId: Guid.NewGuid(),
+            photoId: "recipes/c.jpg",
+            signedUrl: "/api/photos/recipes/c.jpg?sig=x&exp=9",
+            contentType: "image/jpeg",
+            createdAt: DateTimeOffset.UtcNow,
+            linkedImportId: null,
+            candidateOrder: 0));
+    }
+
+    [Fact]
+    public void Constructor_Rejects_LinkedImport_Without_CandidateOrder()
+    {
+        // The two import-candidate fields move together — an import link
+        // without an order would render the grid-rendering path ambiguous.
+        Assert.Throws<ArgumentException>(() => new StagedPhoto(
+            userId: Guid.NewGuid(),
+            photoId: "recipes/c.jpg",
+            signedUrl: "/api/photos/recipes/c.jpg?sig=x&exp=9",
+            contentType: "image/jpeg",
+            createdAt: DateTimeOffset.UtcNow,
+            linkedImportId: Guid.NewGuid(),
+            candidateOrder: null));
+    }
 }

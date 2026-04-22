@@ -49,6 +49,15 @@ internal sealed class StagedPhotoConfiguration : IEntityTypeConfiguration<Staged
         e.Property(s => s.SourceUrl)
             .HasMaxLength(SourceUrlMaxLength);
 
+        // COVER-0 — nullable import linkage + 0-indexed position within
+        // the import's candidate cohort. No FK constraint: the
+        // RecipeImport row is kept indefinitely as an audit trail and
+        // we don't want a cascade to NULL the column out from under a
+        // sweep run. Index below supports the sweep's 7-day branch + the
+        // /api/imports/:id/candidates endpoint.
+        e.Property(s => s.LinkedImportId);
+        e.Property(s => s.CandidateOrder);
+
         // Composite index supporting both (a) the sweep job's "give me
         // abandoned uploads older than N hours" scan and (b) the
         // promote handler's per-user lookup.
@@ -59,6 +68,12 @@ internal sealed class StagedPhotoConfiguration : IEntityTypeConfiguration<Staged
         // adopted a staged photo from this origin URL?". Both columns
         // are nullable; the lookup only runs when both sides are known.
         e.HasIndex(s => new { s.PromotedToRecipeId, s.SourceUrl });
+
+        // COVER-0 — index on LinkedImportId. Hot for both the sweep's
+        // 7-day branch (filter where LinkedImportId IS NOT NULL) and
+        // the /api/imports/:id/candidates endpoint (pull every row
+        // linked to one import).
+        e.HasIndex(s => s.LinkedImportId);
 
         e.HasOne<User>()
             .WithMany()
