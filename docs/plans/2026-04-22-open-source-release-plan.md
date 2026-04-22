@@ -33,7 +33,8 @@ Tagline candidates:
 1. **Secrets audit.**
    - Grep git history for accidental commits of keys, tokens,
      passwords (`git log -p | grep -iE 'sk-|key|secret|password|
-     apikey|bearer' | less`).
+     apikey|bearer' | less`). Consider running `gitleaks detect` for
+     a systematic scan.
    - Rotate any leaked secret before going public. Fresh JWT signing
      key, Azure OpenAI key, SMTP password, Caddy ACME email, SeaweedFS
      access keys — if ANY appeared in git, rotate.
@@ -45,6 +46,63 @@ Tagline candidates:
    - Scrub migration seeds + test fixtures for real email addresses /
      names — `david.kaulig@ranger.de`, `Familie Müller` etc. Replace
      with neutral example values.
+
+1b. **Workflow + deployment visibility audit.** The repo becomes
+    public but the deploy workflow should keep working unchanged —
+    GitHub only exposes the workflow CODE (not secret values), and
+    only tag-pushes (which external contributors can't do) trigger
+    deploy. Things to verify before flipping repo-visibility to
+    public:
+    - Every `${{ secrets.XXX }}` reference in `.github/workflows/
+      deploy.yml` stays as-is (names visible, values hidden). No
+      change needed.
+    - `deploy.yml` contains no HARD-CODED sensitive values —
+      hostnames, email addresses, API URLs. Anything not
+      `${{ secrets.XXX }}` is public. Grep for `.com`, `.dev`,
+      `kaulig`, `@` inside the workflow + fail-fix any personal
+      references. Keep generic names like container-names (`familien-
+      kochbuch-api`) — those are fine to be public.
+    - Past workflow run logs go public too. Spot-check a handful of
+      recent runs in the GitHub UI — expand the log view, confirm all
+      `${{ secrets.XXX }}` values show as `***`. If any secret ever
+      leaked into a log line (e.g. `echo $AZURE_OPENAI_API_KEY` for
+      debugging) that run log is public when the repo is public. **You
+      can delete specific runs or clear run history entirely** in repo
+      settings before flipping to public — recommended as a final
+      safety step.
+    - GHCR package visibility: by default, packages inherit repo
+      visibility. If you flip the repo to public, the three packages
+      (`familien-kochbuch-api/web/python-extractor`) become public-
+      pullable unless you manually set `visibility: private` on each
+      at `github.com/orgs/kay-solutions/packages/container/<name>/
+      settings`. **Recommendation: make them public.** Easier for
+      external users to do `docker compose pull` without a GHCR
+      login, the image contents are just the OSS code anyway, and it
+      signals "this project is meant to be run by others".
+    - The `kay-solutions` org name appears in image paths
+      (`ghcr.io/kay-solutions/...`). That's fine to be public — just
+      be aware it's visible in the Compose files forever.
+    - Fork-PR secret isolation is GitHub's default behaviour —
+      external PRs cannot access secrets. No config needed to enable
+      that, but verify the `permissions:` block at the top of each
+      workflow isn't overly permissive (should be `contents: read` +
+      `packages: write` only where actually needed).
+    - Consider enabling "Require approval for all outside
+      contributors" in Actions settings so PRs from strangers need
+      maintainer approval to run CI. Prevents abuse of GitHub-hosted
+      runner minutes.
+    - Nice-to-have: enable GitHub's **Secret Scanning** + **Push
+      Protection** under Settings → Code security. Free for public
+      repos; catches future accidental secret commits before they
+      land.
+
+    **Ops architecture decision:** single public repo. No split into
+    "public code + private deploy-dispatcher" needed — the tag-only
+    trigger + fork-PR secret isolation are sufficient for a hobby
+    project. If paranoia-level later demands it, the escape-hatch is
+    to move `deploy.yml` into a separate private repo that receives
+    `repository_dispatch` from the public one. Documented as
+    follow-up, not a v0.12.0 gate.
 
 2. **`LICENSE` file.**
    - **MIT** — maximum permissive, simple two-paragraph license.
