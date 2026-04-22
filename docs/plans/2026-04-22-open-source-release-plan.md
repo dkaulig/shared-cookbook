@@ -208,6 +208,7 @@ Tagline candidates:
      SaaS forks. Not our concern for a hobby project → MIT.
 
 3. **`README.md` rewrite for external audience.**
+   > Detail brief lives in `docs/plans/2026-04-22-readme-and-setup-content-plan.md` — REL-1 sub-agent reads it as the authoritative section-by-section outline.
    - Remove family-specific framing. Short project description +
      "Why does this exist" + screenshots.
    - Architecture section: one diagram of the 3 services + their
@@ -505,7 +506,9 @@ Disabled without AI:
    Parallel to REL-3 where file-disjoint, otherwise sequential.
 7. **REL-1 LICENSE + README + rebrand to `familycookbook`** — final
    polish once the code is public-ready.
-8. **REL-6 SETUP.md HOWTO** — three clear paths:
+8. **REL-6 SETUP.md HOWTO** — detail brief in
+   `docs/plans/2026-04-22-readme-and-setup-content-plan.md`. Three
+   clear paths:
    - **Path 1 — Minimal** (default): `docker compose up -d`. No AI.
      ~1 GB disk, boots in < 2 min. Full app including JSON-LD blog
      imports + manual recipes + meal plan + shopping. Recommended
