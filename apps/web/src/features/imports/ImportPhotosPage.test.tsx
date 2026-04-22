@@ -35,14 +35,20 @@ function LocationProbe() {
   return <div data-testid="location">{loc.pathname}</div>
 }
 
-function renderPage() {
+function renderPage(
+  opts: { state?: { stagedBlobs?: File[] } | null } = {},
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   })
+  const initialEntry = {
+    pathname: '/rezepte/import/photos',
+    state: opts.state ?? null,
+  }
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={['/rezepte/import/photos']}>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <LocationProbe />
           <Routes>
             <Route path="/rezepte/import/photos" element={children} />
@@ -431,6 +437,97 @@ describe('<ImportPhotosPage />', () => {
       expect(
         screen.getByRole('button', { name: /Rezepte extrahieren/i }),
       ).not.toBeDisabled()
+    })
+  })
+
+  /**
+   * SHARE-1 — photos handed off from the Web Share Target flow.
+   *
+   * `<ShareTargetPage />` reads the SW-stashed file blobs out of
+   * IndexedDB and `navigate('/rezepte/import/photos', { state: {
+   * stagedBlobs: File[] } })`. The import page must pick them up on
+   * mount as if the user had picked them manually — no auto-fire of
+   * the Azure extraction, user still explicitly taps "Importieren".
+   */
+  describe('SHARE-1 — pre-staged blobs from router state', () => {
+    it('pre-stages blobs from location.state.stagedBlobs and does NOT auto-enqueue the import', async () => {
+      let enqueued = false
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'g-solo' })]),
+        ),
+        http.post('/api/recipes/import/photos', () => {
+          enqueued = true
+          return HttpResponse.json({ importId: 'imp-auto' }, { status: 202 })
+        }),
+      )
+      renderPage({
+        state: {
+          stagedBlobs: [
+            fakeJpeg('shared-1.jpg'),
+            fakeJpeg('shared-2.jpg'),
+          ],
+        },
+      })
+
+      // The grid should mount with two pre-staged thumbnails.
+      expect(await screen.findByAltText('Foto 1')).toBeInTheDocument()
+      expect(screen.getByAltText('Foto 2')).toBeInTheDocument()
+
+      // Submit button is enabled — user can still tap "Importieren" —
+      // but we must NOT have auto-fired the POST.
+      expect(
+        screen.getByRole('button', { name: /Rezepte extrahieren/i }),
+      ).not.toBeDisabled()
+      expect(enqueued).toBe(false)
+    })
+
+    it('drops unsupported MIME blobs from router state and surfaces a German partial-import toast', async () => {
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'g-solo' })]),
+        ),
+      )
+      // One valid JPEG, one PDF — the page must keep the JPEG and
+      // show an alert for the dropped one.
+      renderPage({
+        state: {
+          stagedBlobs: [
+            fakeJpeg('ok.jpg'),
+            new File([new Uint8Array(8)], 'doc.pdf', {
+              type: 'application/pdf',
+            }),
+          ],
+        },
+      })
+
+      expect(await screen.findByAltText('Foto 1')).toBeInTheDocument()
+      expect(screen.queryByAltText('Foto 2')).not.toBeInTheDocument()
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        /Format nicht unterstützt/i,
+      )
+    })
+
+    it('clears consumed state so a remount does NOT double-stage the same blobs', async () => {
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'g-solo' })]),
+        ),
+      )
+      const sharedFile = fakeJpeg('once.jpg')
+      const { rerender } = renderPage({
+        state: { stagedBlobs: [sharedFile] },
+      })
+      expect(await screen.findByAltText('Foto 1')).toBeInTheDocument()
+
+      // Simulate the React Router remounting the page (e.g. focus
+      // regained) — the router state should already be cleared so we
+      // don't end up with a second "Foto 1" thumbnail.
+      rerender(<ImportPhotosPage />)
+      const thumbs = screen.queryAllByRole('img')
+      // The only thumbnail the grid should have is the pre-staged one.
+      // A naive implementation would stage it twice on remount.
+      expect(thumbs.length).toBe(1)
     })
   })
 })
