@@ -228,6 +228,60 @@ describe('share-target-sw.js', () => {
     expect(res.headers.get('location')).toBe('/share-target')
   })
 
+  /**
+   * SHARE-2 — a POST share with no files but MULTIPLE URLs in `text`
+   * must forward the raw `text` verbatim so the React component can
+   * run multi-URL extraction on the query string. Crucially, a zero-
+   * file share must NOT create an IDB record (the SHARE-1 payload-key
+   * branch is reserved for blob payloads; surfacing it for URL-only
+   * shares would wedge the `<ShareTargetPage />` in "loading payload"
+   * waiting on a store that never gets populated).
+   */
+  it('handleShareTarget with 0 files + multi-URL text forwards ?text= and writes NO IDB record', async () => {
+    const fd = new FormData()
+    fd.append('text', 'https://fb.com/x\nhttps://ig.com/y')
+    const req = fakeRequest('https://app.example/share-target', 'POST', fd)
+    const res = await sw.exports.handleShareTarget(req)
+    expect(res.status).toBe(303)
+    const location = res.headers.get('location') ?? ''
+    // Location carries the raw text (URL-encoded) — not a payload-key.
+    expect(location).not.toMatch(/payload-key/)
+    expect(location).toContain('text=')
+    expect(decodeURIComponent(location)).toContain(
+      'https://fb.com/x\nhttps://ig.com/y',
+    )
+
+    // Confirm no IDB record was created. Because the SW only opens
+    // the DB when it has something to write, a zero-file share leaves
+    // the DB either non-existent or (if opened here by us) empty with
+    // zero rows in the payloads store.
+    const db = await new Promise<IDBDatabase>((resolveP, reject) => {
+      const r = indexedDB.open(sw.exports.DB_NAME, 1)
+      // If this test was the first to open the DB, create the store
+      // so the count() below can read from a known-empty table.
+      r.onupgradeneeded = () => {
+        if (!r.result.objectStoreNames.contains(sw.exports.STORE_NAME)) {
+          r.result.createObjectStore(sw.exports.STORE_NAME)
+        }
+      }
+      r.onsuccess = () => resolveP(r.result)
+      r.onerror = () => reject(r.error)
+    })
+    try {
+      const count = await new Promise<number>((resolveP, reject) => {
+        const c = db
+          .transaction(sw.exports.STORE_NAME, 'readonly')
+          .objectStore(sw.exports.STORE_NAME)
+          .count()
+        c.onsuccess = () => resolveP(c.result)
+        c.onerror = () => reject(c.error)
+      })
+      expect(count).toBe(0)
+    } finally {
+      db.close()
+    }
+  })
+
   it('the fetch listener passes through non-POST requests (never calls respondWith)', () => {
     let respondCount = 0
     const event = {

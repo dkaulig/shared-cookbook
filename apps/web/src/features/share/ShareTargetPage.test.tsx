@@ -2,8 +2,10 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { GroupSummary } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { ShareTargetPage } from './ShareTargetPage'
@@ -60,6 +62,10 @@ function renderPage(initialEntry: string) {
           <LocationProbe />
           <Routes>
             <Route path="/share-target" element={children} />
+            <Route
+              path="/rezepte/import"
+              element={<div data-testid="import-list-page">import-list</div>}
+            />
             <Route
               path="/rezepte/import/url"
               element={<div data-testid="import-url-page">import-url</div>}
@@ -236,6 +242,129 @@ describe('<ShareTargetPage />', () => {
       // IDB record must be gone after the handoff.
       const { readSharePayload } = await import('./sharePayloadStore')
       expect(await readSharePayload(PAYLOAD_KEY)).toBeNull()
+    })
+  })
+
+  /**
+   * SHARE-2 — multi-URL picker.
+   *
+   * When the share payload contains 2-10 usable http(s) URLs, render
+   * a picker so the user can choose one (or fire them all as batched
+   * URL imports). Attacker-controlled payload — per-URL sanitise is
+   * identical to SHARE-0 and the 10-item cap is a sanity guard.
+   */
+  describe('SHARE-2 — multi-URL picker', () => {
+    function groupSummary(over: Partial<GroupSummary>): GroupSummary {
+      return {
+        id: 'g1',
+        name: 'Familie',
+        description: null,
+        coverImageUrl: null,
+        defaultServings: 4,
+        isPrivateCollection: false,
+        memberCount: 4,
+        myRole: 'Admin',
+        version: 0,
+        ...over,
+      }
+    }
+
+    it('renders the picker with 2 cards when ?text= has two URLs', async () => {
+      signIn()
+      renderPage(
+        '/share-target?text=' +
+          encodeURIComponent('https://fb.com/x\nhttps://ig.com/y'),
+      )
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', {
+            name: /Welches Rezept willst du importieren\?/i,
+          }),
+        ).toBeInTheDocument()
+      })
+      // Two picker cards — each exposed as a button with the URL.
+      const cards = screen.getAllByTestId('share-picker-card')
+      expect(cards).toHaveLength(2)
+      // Stays on /share-target — no auto-redirect for multi-URL.
+      const loc = screen.getByTestId('location')
+      expect(loc.getAttribute('data-pathname')).toBe('/share-target')
+    })
+
+    it('tapping a picker card redirects to /rezepte/import/url?url=<that one>', async () => {
+      signIn()
+      const user = userEvent.setup()
+      renderPage(
+        '/share-target?text=' +
+          encodeURIComponent('https://fb.com/x\nhttps://ig.com/y'),
+      )
+      await waitFor(() =>
+        expect(screen.getAllByTestId('share-picker-card')).toHaveLength(2),
+      )
+      const [first] = screen.getAllByTestId('share-picker-card')
+      await user.click(first!)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('import-url-page')).toBeInTheDocument(),
+      )
+      const loc = screen.getByTestId('location')
+      expect(loc.getAttribute('data-pathname')).toBe('/rezepte/import/url')
+      expect(loc.getAttribute('data-search')).toBe(
+        '?url=https%3A%2F%2Ffb.com%2Fx',
+      )
+    })
+
+    it('"Alle importieren" fires N POSTs and navigates to /rezepte/import', async () => {
+      signIn()
+      const user = userEvent.setup()
+      const enqueued: string[] = []
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({})]),
+        ),
+        http.post('/api/recipes/import/url', async ({ request }) => {
+          const body = (await request.json()) as { url: string; groupId: string }
+          enqueued.push(body.url)
+          return HttpResponse.json({
+            importId: `imp-${enqueued.length}`,
+            cached: false,
+          })
+        }),
+      )
+
+      renderPage(
+        '/share-target?text=' +
+          encodeURIComponent('https://fb.com/x\nhttps://ig.com/y'),
+      )
+      await waitFor(() =>
+        expect(screen.getAllByTestId('share-picker-card')).toHaveLength(2),
+      )
+      const btn = screen.getByRole('button', { name: /Alle importieren \(2\)/i })
+      await user.click(btn)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('import-list-page')).toBeInTheDocument(),
+      )
+      expect(enqueued).toEqual(['https://fb.com/x', 'https://ig.com/y'])
+    })
+
+    it('rejects >10 URLs with a German error and no redirect', async () => {
+      signIn()
+      const urls = Array.from(
+        { length: 11 },
+        (_, i) => `https://a.example/${i}`,
+      )
+      renderPage(
+        '/share-target?text=' + encodeURIComponent(urls.join('\n')),
+      )
+      // Stays on /share-target — no picker, no redirect.
+      const loc = screen.getByTestId('location')
+      expect(loc.getAttribute('data-pathname')).toBe('/share-target')
+      expect(
+        screen.getByText(
+          /Maximal 10 Links auf einmal — bitte auswählen/i,
+        ),
+      ).toBeInTheDocument()
     })
   })
 })
