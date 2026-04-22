@@ -116,14 +116,42 @@ pnpm --filter web run test
 # Shared
 pnpm --filter shared run test
 
-# Python extractor
+# Python extractor — match CI gates locally (it runs `--strict`)
 cd apps/python-extractor && uv run pytest
+cd apps/python-extractor && uv run ruff check .
+cd apps/python-extractor && uv run ruff format --check .
+cd apps/python-extractor && uv run mypy --strict src tests
 
 # Full lint / build
 pnpm --filter web run lint
 pnpm --filter web run build
 dotnet build apps/api/FamilienKochbuch.sln
 ```
+
+### Pre-tag checklist
+
+A `v*` tag push burns CI minutes AND is the slowest feedback loop in
+the repo. Before tagging, run the Python four-gate (pytest + ruff
+check + ruff format + `mypy --strict`) AND the .NET + web suites
+locally. v0.12.x burned three tags to catch:
+
+- Unused `# type: ignore` comments (permissive local mypy hides them;
+  `--strict` in CI flags them).
+- `with TestClient(app)` in a test fixture kicking off the Whisper-
+  prefetch lifespan task — trivial locally where the HF cache is warm,
+  multi-minute hang on fresh CI runners.
+
+Guard the pattern by checking `PYTEST_CURRENT_TEST` in expensive
+lifespan / startup hooks, and by running the same commands CI runs
+before you tag.
+
+### Known-flaky tests
+
+- `FamilienKochbuch.Api.Tests.ChatEndpointsTests.Turn_AutoTitle_Triggered_On_First_Turn`
+  — occasional SQLite "database is locked" under high test-parallelism
+  on GHA runners. Re-run the failed job (`gh run rerun <id> --failed`)
+  before assuming a real regression; fix-commit only after a second
+  failure.
 
 ## Deploy
 
