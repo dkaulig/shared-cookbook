@@ -324,4 +324,151 @@ public class CandidateAttacherTests : IAsyncLifetime
         Assert.Equal(expected,
             CandidateAttacher.IsAllowedHostForImport(url, sourceUrl, out _));
     }
+
+    // COVER-0 fix — the python-extractor serves ffmpeg-extracted video
+    // frames via its own HTTP endpoint. The downloader treats the
+    // docker-internal hostname as an exact-match allowlist entry that
+    // bypasses the CDN suffix + DNS public-IP checks (the target IP is
+    // always private 172.28.x.x by design).
+
+    [Fact]
+    public async Task Internal_Host_Url_Bypasses_Cdn_Allowlist_And_Dns_Check()
+    {
+        var attacher = new CandidateAttacher(
+            _db, BuildFactory(), _photoStorage, _clock,
+            NullLogger<CandidateAttacher>.Instance,
+            _configReader,
+            // Private resolver — the fact that the fetch succeeds
+            // proves the internal-host branch skipped the public-IP
+            // gate. A non-internal host would get rejected here.
+            (_, _) => Task.FromResult(new[] { IPAddress.Parse("172.28.0.7") }),
+            allowedInternalHosts: new[] { "python-extractor" });
+
+        _downloadHandler.QueueBytesResponse(
+            HttpStatusCode.OK, FakePngBytes(), "image/jpeg");
+
+        var urls = new[]
+        {
+            "http://python-extractor:8000/extractor/frames/abc-123/0.jpg",
+        };
+        var ids = await attacher.DownloadAndStageAsync(
+            _userId, _importId, urls, sourceUrl: "https://facebook.com/x",
+            CancellationToken.None);
+
+        Assert.Single(ids);
+        Assert.Single(_downloadHandler.Requests);
+    }
+
+    [Fact]
+    public async Task Internal_Host_Allowlist_Requires_Exact_Match_Not_Suffix()
+    {
+        // "evil-python-extractor" ends in "python-extractor" but is NOT
+        // an exact match. The bypass must fire only on an exact hostname
+        // match; a naive suffix check would let an attacker with a
+        // controlled registered domain hop the allowlist.
+        var attacher = new CandidateAttacher(
+            _db, BuildFactory(), _photoStorage, _clock,
+            NullLogger<CandidateAttacher>.Instance,
+            _configReader,
+            (_, _) => Task.FromResult(new[] { IPAddress.Parse("93.184.216.34") }),
+            allowedInternalHosts: new[] { "python-extractor" });
+
+        // evil-python-extractor is not on the CDN allowlist either, so
+        // with no sourceUrl same-origin escape the URL should be
+        // skipped before the HTTP layer.
+        var urls = new[]
+        {
+            "http://evil-python-extractor:8000/extractor/frames/abc/0.jpg",
+        };
+        var ids = await attacher.DownloadAndStageAsync(
+            _userId, _importId, urls, sourceUrl: null,
+            CancellationToken.None);
+
+        Assert.Empty(ids);
+        Assert.Empty(_downloadHandler.Requests);
+    }
+
+    [Fact]
+    public async Task Internal_Host_Allowlist_Does_Not_Widen_Private_Ip_Gate_For_Other_Hosts()
+    {
+        // A random other host that resolves to a private IP must still
+        // be rejected. The internal-host bypass is narrow — only the
+        // exact hostname(s) we configured hop the DNS check.
+        var attacher = new CandidateAttacher(
+            _db, BuildFactory(), _photoStorage, _clock,
+            NullLogger<CandidateAttacher>.Instance,
+            _configReader,
+            (_, _) => Task.FromResult(new[] { IPAddress.Parse("192.168.1.1") }),
+            allowedInternalHosts: new[] { "python-extractor" });
+
+        // Use a same-origin pair so IsAllowedHostForImport accepts the
+        // URL — the DNS check is what must then reject it.
+        var urls = new[] { "https://internal.evil.com/admin.jpg" };
+        var ids = await attacher.DownloadAndStageAsync(
+            _userId, _importId, urls, sourceUrl: "https://evil.com/recipe",
+            CancellationToken.None);
+
+        Assert.Empty(ids);
+        Assert.Empty(_downloadHandler.Requests);
+    }
+
+    [Fact]
+    public async Task Internal_Host_Allowlist_Refuses_Non_Http_Schemes()
+    {
+        var attacher = new CandidateAttacher(
+            _db, BuildFactory(), _photoStorage, _clock,
+            NullLogger<CandidateAttacher>.Instance,
+            _configReader,
+            (_, _) => Task.FromResult(new[] { IPAddress.Parse("172.28.0.7") }),
+            allowedInternalHosts: new[] { "python-extractor" });
+
+        // file:// / ftp:// / data:// must never slip through even if the
+        // host portion looks internal — scheme check is load-bearing.
+        var urls = new[]
+        {
+            "file://python-extractor/etc/passwd",
+            "ftp://python-extractor:21/0.jpg",
+        };
+        var ids = await attacher.DownloadAndStageAsync(
+            _userId, _importId, urls, sourceUrl: null,
+            CancellationToken.None);
+
+        Assert.Empty(ids);
+        Assert.Empty(_downloadHandler.Requests);
+    }
+
+    [Fact]
+    public async Task Internal_Host_Mixed_With_Cdn_Url_Both_Succeed()
+    {
+        var attacher = new CandidateAttacher(
+            _db, BuildFactory(), _photoStorage, _clock,
+            NullLogger<CandidateAttacher>.Instance,
+            _configReader,
+            // Resolver returns a public IP for any host — the
+            // internal-host branch would bypass this anyway, but the
+            // CDN URL needs it to pass the public-IP gate.
+            (_, _) => Task.FromResult(new[] { IPAddress.Parse("93.184.216.34") }),
+            allowedInternalHosts: new[] { "python-extractor" });
+
+        var urls = new[]
+        {
+            "https://scontent-fra3-2.xx.fbcdn.net/v/a.jpg",
+            "http://python-extractor:8000/extractor/frames/abc/0.jpg",
+        };
+        _downloadHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/jpeg");
+        _downloadHandler.QueueBytesResponse(HttpStatusCode.OK, FakePngBytes(), "image/jpeg");
+
+        var ids = await attacher.DownloadAndStageAsync(
+            _userId, _importId, urls, sourceUrl: null,
+            CancellationToken.None);
+
+        Assert.Equal(2, ids.Length);
+    }
+
+    private StubHttpClientFactory BuildFactory()
+    {
+        var factory = new StubHttpClientFactory(_downloadHandler, new Uri("http://unused/"));
+        factory.RegisterNamedHandler(CandidateAttacher.HttpClientName, _downloadHandler);
+        return factory;
+    }
 }
