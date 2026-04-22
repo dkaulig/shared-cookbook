@@ -289,3 +289,22 @@ export interface RecipeSnapshot {
 export interface RecipeRevisionDetail extends RecipeRevisionSummary {
   snapshot: RecipeSnapshot
 }
+
+// ── COVER-0 Slice E — origin-import lookup ────────────────────────
+
+/**
+ * COVER-0 Slice E — wire shape of `GET /api/recipes/:id/origin-import`.
+ *
+ * Lets the RecipeDetailPage discover the `RecipeImport.id` that
+ * produced this recipe without threading the id through client-side
+ * state that was already torn down after save. The response is 200
+ * with `{ importId }` when a linkage exists, 404 otherwise. Only the
+ * recipe owner can call the endpoint (no admin bypass).
+ *
+ * The detail page uses the returned id to fire
+ * {@link ImportCandidatesResponse | `/api/imports/:id/candidates`}
+ * lazily — only when the "Cover ändern" button would render.
+ */
+export interface RecipeOriginImportResponse {
+  importId: string
+}

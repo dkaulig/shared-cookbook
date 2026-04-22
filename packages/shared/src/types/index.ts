@@ -40,6 +40,7 @@ export type {
   RecipeComponentDto,
   RecipeDetailDto,
   RecipeListSort,
+  RecipeOriginImportResponse,
   RecipeRevisionChangedBy,
   RecipeRevisionDetail,
   RecipeRevisionSummary,
