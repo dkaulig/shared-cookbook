@@ -31,6 +31,7 @@ import { WochenplanStub } from '@/features/stubs/WochenplanStub'
 import { ProfilStub } from '@/features/stubs/ProfilStub'
 import { AiUsagePage } from '@/features/admin/AiUsagePage'
 import { ExtractorConfigPage } from '@/features/admin/ExtractorConfigPage'
+import { ShareTargetPage } from '@/features/share/ShareTargetPage'
 
 /**
  * Route table.
@@ -185,6 +186,19 @@ export default function App() {
               element={<ExtractorConfigPage />}
             />
           </Route>
+
+          {/*
+            SHARE-0 — iOS PWA Web Share Target entry point. MUST stay
+            OUTSIDE the ProtectedRoute wrapper so the page itself can
+            craft a `/login?next=/share-target?…` redirect that
+            preserves the original share payload across login. The page
+            calls `useSession()` on mount to rehydrate silent-refresh,
+            then either bounces to `/login?next=…`, redirects to the
+            `/rezepte/import/url` flow with the extracted URL, or
+            renders a German empty-state when no usable link was in
+            the payload.
+          */}
+          <Route path="/share-target" element={<ShareTargetPage />} />
 
           {/*
             DS7: the catch-all now renders a real 404 page. Previously
