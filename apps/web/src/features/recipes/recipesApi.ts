@@ -4,8 +4,10 @@ import type {
   ForkRecipeRequest,
   ImportEnqueueResponse,
   NutritionEstimate,
+  RecipeCoverSwapRequest,
   RecipeDetailDto,
   RecipeListSort,
+  RecipeOriginImportResponse,
   RecipeSummaryListDto,
   TagDto,
   UpdateRecipeRequest,
@@ -186,6 +188,66 @@ export async function patchRecipeNutrition(
       body: JSON.stringify(body),
     },
   )
+}
+
+// ── Cover swap (COVER-0 Slice E) ──────────────────────────────────
+
+/**
+ * COVER-0 Slice E — swap the recipe's cover image.
+ *
+ * Accepts a `StagedPhoto.id` that must be either:
+ *   - already promoted onto this recipe (re-order cheap path), OR
+ *   - an un-promoted candidate of this recipe's origin-import
+ *     (promote + swap in one server-side transaction).
+ *
+ * Error surface (server-mapped codes):
+ *   - 400 `invalid_staged_photo_id` / `staged_photo_not_found` /
+ *     `cover_wrong_owner` / `cover_not_from_recipe_import` /
+ *     `cover_copy_failed` / `photo_limit_reached` / `cover_not_on_recipe`.
+ *   - 403 `forbidden` — caller isn't the recipe owner.
+ *   - 404 — missing recipe.
+ *
+ * Server also returns the refreshed `RecipeDetailDto` on success so the
+ * TanStack-Query mutation can `setQueryData` straight into the detail
+ * cache and the hero image re-renders without an extra GET.
+ */
+export async function swapRecipeCover(
+  recipeId: string,
+  body: RecipeCoverSwapRequest,
+): Promise<RecipeDetailDto> {
+  return request<RecipeDetailDto>(
+    `/api/recipes/${encodeURIComponent(recipeId)}/cover`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+}
+
+/**
+ * COVER-0 Slice E — lookup the `RecipeImport.id` that produced this
+ * recipe. Used by the RecipeDetailPage to decide whether to mount the
+ * "Cover ändern" modal trigger.
+ *
+ * Returns `null` when the server answers 404 (manual recipe OR
+ * every candidate has been consumed AND the recipe wasn't a reimport
+ * target). Every other error class propagates — the detail page can
+ * swallow it silently (missing button is the benign fallback) but the
+ * API surface stays honest about non-404 failures.
+ */
+export async function fetchRecipeOriginImport(
+  recipeId: string,
+): Promise<RecipeOriginImportResponse | null> {
+  try {
+    return await request<RecipeOriginImportResponse>(
+      `/api/recipes/${encodeURIComponent(recipeId)}/origin-import`,
+    )
+  } catch (err) {
+    const apiErr = err as ApiError
+    if (apiErr.code === 'http_404') return null
+    throw err
+  }
 }
 
 // ── Reimport (REIMPORT-1) ─────────────────────────────────────────

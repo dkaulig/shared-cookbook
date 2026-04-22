@@ -6,6 +6,7 @@ import type {
   NutritionEstimate,
   RecipeDetailDto,
   RecipeListSort,
+  RecipeOriginImportResponse,
   RecipeRevisionDetail,
   RecipeRevisionSummary,
   RecipeSummaryListDto,
@@ -21,15 +22,18 @@ import {
   fetchGroupRecipes,
   fetchGroupTags,
   fetchRecipe,
+  fetchRecipeOriginImport,
   forkRecipe,
   markRecipeAsCooked,
   patchRecipeNutrition,
   reimportRecipe,
+  swapRecipeCover,
   updateRecipe,
   uploadRecipePhoto,
 } from './recipesApi'
 import { fetchRecipeRevision, fetchRecipeRevisions } from './revisionsApi'
 import { recipeQueryKeys } from './queryKeys'
+import { importQueryKeys } from '@/features/imports/hooks'
 import { groupQueryKeys } from '@/features/groups/queryKeys'
 import { buildIfMatch } from '@/features/_shared/ifMatch'
 
@@ -222,6 +226,70 @@ export function useRemoveRecipePhoto(id: string) {
     mutationFn: (url) => deleteRecipePhoto(id, url),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: recipeQueryKeys.detail(id) })
+    },
+  })
+}
+
+// ── COVER-0 Slice E: Cover swap + origin-import lookup ────────────
+
+/**
+ * COVER-0 Slice E — lazy query for the recipe's originating
+ * `RecipeImport.id`. Drives the "Cover ändern" button on the detail
+ * page: the button only mounts when this query resolves to a non-null
+ * id AND the candidates-query (fired inside the modal) returns at
+ * least one un-promoted candidate.
+ *
+ * Returns `null` on the server's 404 (manual recipe / every candidate
+ * consumed + not a reimport target). Every other error surfaces as
+ * `query.isError` so the detail page can hide the button and log.
+ */
+export function useRecipeOriginImport(
+  recipeId: string | undefined,
+  options?: { enabled?: boolean },
+) {
+  const enabled = (options?.enabled ?? true) && !!recipeId
+  return useQuery<RecipeOriginImportResponse | null>({
+    queryKey: recipeId
+      ? recipeQueryKeys.originImport(recipeId)
+      : ['recipes', 'origin-import', 'disabled'],
+    queryFn: () => fetchRecipeOriginImport(recipeId!),
+    enabled,
+    // The linkage is effectively immutable for the recipe's lifetime
+    // (it flips to null only when the sweep reaps the last candidate
+    // row, after which the candidates endpoint 410s anyway). 5-minute
+    // staleness mirrors the candidates query so both refresh on the
+    // same cadence.
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * COVER-0 Slice E — mutation wrapper around
+ * `POST /api/recipes/:id/cover`.
+ *
+ * On success:
+ *   - seeds the refreshed `RecipeDetailDto` straight into the detail
+ *     cache so the hero image re-renders instantly,
+ *   - invalidates the candidates query so the modal reflects the new
+ *     "which candidates are still un-promoted" truth.
+ *
+ * The mutation deliberately does NOT surface 410 specially — the 410
+ * path is "the candidates list is gone, so the modal shouldn't even be
+ * open". Callers that want a 410-specific UX read it off the
+ * candidates query's `isError` / `error.code` in the modal.
+ */
+export function useSwapRecipeCover(recipeId: string, importId?: string | null) {
+  const client = useQueryClient()
+  return useMutation<RecipeDetailDto, Error, string>({
+    mutationFn: (stagedPhotoId) =>
+      swapRecipeCover(recipeId, { stagedPhotoId }),
+    onSuccess: (detail) => {
+      client.setQueryData(recipeQueryKeys.detail(recipeId), detail)
+      if (importId) {
+        void client.invalidateQueries({
+          queryKey: importQueryKeys.candidates(importId),
+        })
+      }
     },
   })
 }
