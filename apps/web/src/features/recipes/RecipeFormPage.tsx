@@ -1311,7 +1311,6 @@ function RecipeFormInner({
                 candidates={candidatesQuery.data!.map((c) => ({
                   stagedPhotoId: c.stagedPhotoId,
                   signedUrl: c.signedUrl,
-                  contentType: c.contentType,
                 }))}
                 selectedIds={selectedCandidateIds}
                 coverStagedPhotoId={coverStagedPhotoId}
