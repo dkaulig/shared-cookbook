@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace FamilienKochbuch.Api.Services;
 
 /// <summary>
-/// CFG-3 — read-only helper the .NET-side callers (<see cref="ThumbnailAttacher"/>,
+/// CFG-3 — read-only helper the .NET-side callers (<see cref="CandidateAttacher"/>,
 /// <see cref="FamilienKochbuch.Api.Endpoints.ChatEndpoints"/>) use to
 /// check an <c>ExtractorConfig</c> feature-flag row without reaching
 /// into EF directly. The write-path surface (admin PUT / reset +

@@ -46,7 +46,7 @@ public class ExtractRecipeFromUrlJob
 
     private readonly AppDbContext _db;
     private readonly PythonExtractorRunner _runner;
-    private readonly ThumbnailAttacher _thumbnailAttacher;
+    private readonly CandidateAttacher _candidateAttacher;
     private readonly IPhotoStorage _photoStorage;
     private readonly TimeProvider _clock;
     private readonly ILogger<ExtractRecipeFromUrlJob> _logger;
@@ -54,14 +54,14 @@ public class ExtractRecipeFromUrlJob
     public ExtractRecipeFromUrlJob(
         AppDbContext db,
         PythonExtractorRunner runner,
-        ThumbnailAttacher thumbnailAttacher,
+        CandidateAttacher candidateAttacher,
         IPhotoStorage photoStorage,
         TimeProvider clock,
         ILogger<ExtractRecipeFromUrlJob> logger)
     {
         _db = db;
         _runner = runner;
-        _thumbnailAttacher = thumbnailAttacher;
+        _candidateAttacher = candidateAttacher;
         _photoStorage = photoStorage;
         _clock = clock;
         _logger = logger;
@@ -143,17 +143,72 @@ public class ExtractRecipeFromUrlJob
             return;
         }
 
-        // BUG-018 — standard new-import path: opportunistically
-        // download the extracted video thumbnail and stage it as a
-        // recipe photo the frontend's promote-flow can adopt.
-        // Skipped on retry-after-success (ThumbnailStagedPhotoId
-        // already set) and on the error path (Status != Done).
+        // COVER-0 — standard new-import path: download every
+        // candidate thumbnail the extractor emitted and stage one row
+        // per success. Idempotent on a Hangfire retry that lands here
+        // after the previous attempt already attached candidates.
         if (import.Status == ImportStatus.Done
-            && import.ThumbnailStagedPhotoId is null
+            && import.CandidateStagedPhotoIds.Length == 0
             && !string.IsNullOrWhiteSpace(import.ResultJson))
         {
-            await _thumbnailAttacher.TryAttachAsync(import, import.ResultJson, ct);
+            var urls = ExtractCandidateUrls(import.ResultJson);
+            if (urls.Count > 0)
+            {
+                var stagedIds = await _candidateAttacher.DownloadAndStageAsync(
+                    import.UserId, import.Id, urls, import.SourceUrl, ct);
+                if (stagedIds.Length > 0)
+                {
+                    import.AttachCandidateStagedPhotos(stagedIds);
+                    await _db.SaveChangesAsync(ct);
+                }
+            }
         }
+    }
+
+    /// <summary>
+    /// COVER-0 — reads the ordered candidate-thumbnail URL list out of
+    /// the Python extractor's structured result JSON. Falls back to the
+    /// legacy single <c>recipe.thumbnail_url</c> when
+    /// <c>candidate_thumbnails</c> is missing or empty so a transient
+    /// Python build without the new field keeps working.
+    /// </summary>
+    internal static List<string> ExtractCandidateUrls(string resultJson)
+    {
+        var urls = new List<string>();
+        if (string.IsNullOrWhiteSpace(resultJson)) return urls;
+
+        using var doc = JsonDocument.Parse(resultJson);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object) return urls;
+        if (!doc.RootElement.TryGetProperty("recipe", out var recipe)
+            || recipe.ValueKind != JsonValueKind.Object)
+        {
+            return urls;
+        }
+
+        if (recipe.TryGetProperty("candidate_thumbnails", out var candidates)
+            && candidates.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in candidates.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.String) continue;
+                var raw = entry.GetString();
+                if (!string.IsNullOrWhiteSpace(raw)) urls.Add(raw);
+            }
+        }
+
+        // Defensive fallback: Python normally populates candidate_thumbnails
+        // on every URL path, but a partial deploy or extractor regression
+        // could leave just `thumbnail_url`. Handle that single-URL case
+        // as a one-element candidate list so the user still gets a cover.
+        if (urls.Count == 0
+            && recipe.TryGetProperty("thumbnail_url", out var thumb)
+            && thumb.ValueKind == JsonValueKind.String)
+        {
+            var raw = thumb.GetString();
+            if (!string.IsNullOrWhiteSpace(raw)) urls.Add(raw);
+        }
+
+        return urls;
     }
 
     /// <summary>
@@ -290,29 +345,42 @@ public class ExtractRecipeFromUrlJob
             _db.RecipeTags.Add(tagLink);
         await _db.SaveChangesAsync(ct);
 
-        // BUG-048 — auto-attach the extracted thumbnail onto the target
-        // recipe's Photos. Skipped on blogs with no og:image and on a
-        // repeat reimport of the same URL.
-        //
-        // Dedupe: a previous reimport may already have promoted a
-        // StagedPhoto sourced from this same thumbnail URL. The
-        // (PromotedToRecipeId, SourceUrl) index on StagedPhoto makes
-        // the lookup cheap; if any hit exists we skip the CDN fetch
-        // entirely so a frequent reimport doesn't bloat storage with
-        // duplicate thumbnails.
-        if (string.IsNullOrWhiteSpace(parsed.ThumbnailUrl)) return;
+        // COVER-0 — download every candidate thumbnail the extractor
+        // emitted, stage them linked to this import, and (when a fresh
+        // default cover survives the dedupe) promote [0] onto the
+        // recipe's Photos. The non-default candidates stay unpromoted
+        // and surface through the "Cover ändern" flow on the recipe
+        // detail page until the sweep reaps them.
+        var urls = ExtractCandidateUrls(import.ResultJson!);
+        if (urls.Count == 0) return;
 
-        var alreadyPromoted = await _db.StagedPhotos
+        // Dedupe by URL: a previous reimport may already have promoted
+        // a StagedPhoto from one of these URLs. Skip every URL whose
+        // (PromotedToRecipeId, SourceUrl) key already exists so a
+        // frequent reimport doesn't bloat storage with duplicates. The
+        // (PromotedToRecipeId, SourceUrl) index makes the lookup cheap.
+        var alreadyPromotedUrls = await _db.StagedPhotos
             .AsNoTracking()
-            .AnyAsync(s => s.PromotedToRecipeId == target.Id
-                && s.SourceUrl == parsed.ThumbnailUrl, ct);
-        if (alreadyPromoted) return;
+            .Where(s => s.PromotedToRecipeId == target.Id
+                && s.SourceUrl != null
+                && urls.Contains(s.SourceUrl))
+            .Select(s => s.SourceUrl!)
+            .ToListAsync(ct);
+        var freshUrls = urls.Where(u => !alreadyPromotedUrls.Contains(u)).ToList();
+        if (freshUrls.Count == 0) return;
 
-        var stagedId = await _thumbnailAttacher.TryAttachAsync(
-            import, import.ResultJson!, ct);
-        if (stagedId is null) return; // attacher logged the skip reason
+        var stagedIds = await _candidateAttacher.DownloadAndStageAsync(
+            import.UserId, import.Id, freshUrls, import.SourceUrl, ct);
+        if (stagedIds.Length == 0) return;
 
-        await PromoteThumbnailOntoRecipeAsync(target, stagedId.Value, ct);
+        import.AttachCandidateStagedPhotos(stagedIds);
+        await _db.SaveChangesAsync(ct);
+
+        // Promote the first fresh candidate onto the recipe's Photos so
+        // the detail page renders the new hero immediately. The rest stay
+        // un-promoted as alternative candidates for the "Cover ändern"
+        // flow until the 7-day sweep reaps them.
+        await PromoteThumbnailOntoRecipeAsync(target, stagedIds[0], ct);
     }
 
     /// <summary>
