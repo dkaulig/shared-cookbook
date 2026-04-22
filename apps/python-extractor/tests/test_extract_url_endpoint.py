@@ -20,11 +20,15 @@ from extractor.llm import LLMProvider, LLMProviderError, TokenUsage
 from extractor.main import create_app, get_llm_provider, get_video_stack
 from extractor.pipeline.video import (
     ExtractionError,
+    FrameExtractor,
     StubDownloader,
+    StubFrameExtractor,
     StubTranscriber,
+    ThumbnailCandidate,
     Transcriber,
     VideoAssets,
     VideoDownloader,
+    YtDlpThumbnail,
 )
 
 
@@ -124,11 +128,23 @@ class _FailingProvider(LLMProvider):
         raise self.error
 
 
-def _video_stack_factory(downloader: VideoDownloader, transcriber: Transcriber) -> object:
-    """Build the tuple returned by the ``get_video_stack`` dependency."""
+def _video_stack_factory(
+    downloader: VideoDownloader,
+    transcriber: Transcriber,
+    frame_extractor: FrameExtractor | None = None,
+) -> object:
+    """Build the tuple returned by the ``get_video_stack`` dependency.
+
+    COVER-0 slice A — tests that exercise the video path supply a
+    :class:`StubFrameExtractor` so no real ffmpeg shells out.
+    """
     from extractor.main import VideoStack
 
-    return VideoStack(downloader=downloader, transcriber=transcriber)
+    return VideoStack(
+        downloader=downloader,
+        transcriber=transcriber,
+        frame_extractor=frame_extractor or StubFrameExtractor(frames=[]),
+    )
 
 
 @pytest.fixture
@@ -406,3 +422,63 @@ def test_post_extract_url_accepts_valid_uuid_import_id(app_client: TestClient) -
         },
     )
     assert response.status_code == 200
+
+
+# ─────────────────────────────────────────────────────────────────────
+# COVER-0 slice A — candidate_thumbnails on the wire
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_post_extract_url_surfaces_candidate_thumbnails_on_video(
+    tmp_path: Path,
+) -> None:
+    """End-to-end: the /extract/url endpoint returns
+    ``recipe.candidate_thumbnails`` carrying top-2 yt-dlp + ffmpeg
+    frames. Additive next to the existing ``thumbnail_url`` field."""
+    app = create_app()
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="Reel",
+            description="",
+            thumbnail_url="https://cdn.example/poster.jpg",
+            candidate_thumbnails=(
+                YtDlpThumbnail(url="https://cdn.example/hi.jpg", width=1280, timestamp=None),
+                YtDlpThumbnail(url="https://cdn.example/mid.jpg", width=720, timestamp=None),
+            ),
+            duration_seconds=20.0,
+        )
+    )
+    transcriber = StubTranscriber(transcript="")
+    frame_extractor = StubFrameExtractor(
+        frames=[
+            ThumbnailCandidate(url="file:///tmp/f0.jpg", timestamp=3.0),
+            ThumbnailCandidate(url="file:///tmp/f1.jpg", timestamp=7.0),
+        ]
+    )
+    provider = _AnyCallProvider()
+
+    app.dependency_overrides[get_llm_provider] = lambda: provider
+    app.dependency_overrides[get_video_stack] = lambda: _video_stack_factory(
+        downloader, transcriber, frame_extractor
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/extract/url",
+        json={
+            "url": "https://youtu.be/abc",
+            "hint": {"group_id": "g1", "user_id": "u1"},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recipe"]["candidate_thumbnails"] == [
+        "https://cdn.example/hi.jpg",
+        "https://cdn.example/mid.jpg",
+        "file:///tmp/f0.jpg",
+        "file:///tmp/f1.jpg",
+    ]
+    # Legacy field stays populated — additive slice A.
+    assert body["recipe"]["thumbnail_url"] == "https://cdn.example/poster.jpg"

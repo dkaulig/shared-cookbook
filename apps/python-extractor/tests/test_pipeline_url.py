@@ -28,8 +28,11 @@ from extractor.pipeline.url import (
 from extractor.pipeline.video import (
     ExtractionError,
     StubDownloader,
+    StubFrameExtractor,
     StubTranscriber,
+    ThumbnailCandidate,
     VideoAssets,
+    YtDlpThumbnail,
 )
 from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
 from extractor.prompts.recipe_extraction import (
@@ -1550,6 +1553,161 @@ class _FailingProvider(LLMProvider):
         json_schema: dict[str, Any],
     ) -> tuple[dict[str, Any], TokenUsage]:
         raise self._error
+
+
+# ─────────────────────────────────────────────────────────────────────
+# COVER-0 slice A — candidate_thumbnails reach the ExtractionResult
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCoverCandidateThumbnails:
+    """The pipeline surfaces ``candidate_thumbnails`` on every result."""
+
+    async def test_video_path_populates_candidates_from_ytdlp_and_frames(
+        self, tmp_path: Path
+    ) -> None:
+        """Happy path: video with yt-dlp candidates + stub ffmpeg frames
+        → ``recipe.candidate_thumbnails`` carries the merged list."""
+        mp4 = tmp_path / "video.mp4"
+        mp4.write_bytes(b"stub")
+        downloader = StubDownloader(
+            assets=VideoAssets(
+                mp4_path=mp4,
+                title="Reel",
+                description="",
+                thumbnail_url="https://cdn.example/poster.jpg",
+                candidate_thumbnails=(
+                    YtDlpThumbnail(url="https://cdn.example/mid.jpg", width=720, timestamp=None),
+                    YtDlpThumbnail(url="https://cdn.example/hi.jpg", width=1280, timestamp=None),
+                ),
+                duration_seconds=20.0,
+            )
+        )
+        transcriber = StubTranscriber(transcript="")
+        frame_extractor = StubFrameExtractor(
+            frames=[
+                ThumbnailCandidate(url="file:///tmp/f0.jpg", timestamp=3.0),
+                ThumbnailCandidate(url="file:///tmp/f1.jpg", timestamp=7.0),
+            ]
+        )
+
+        mock = _AnyCallMock(_canonical_llm_response())
+        result = await extract_from_url(
+            "https://youtu.be/abc",
+            provider=mock,
+            downloader=downloader,
+            transcriber=transcriber,
+            frame_extractor=frame_extractor,
+        )
+        candidates = result["recipe"]["candidate_thumbnails"]
+        # Top 2 yt-dlp by width (hi > mid) + 2 frames.
+        assert candidates == [
+            "https://cdn.example/hi.jpg",
+            "https://cdn.example/mid.jpg",
+            "file:///tmp/f0.jpg",
+            "file:///tmp/f1.jpg",
+        ]
+        # Legacy thumbnail_url stays populated (additive slice A).
+        assert result["recipe"]["thumbnail_url"] == "https://cdn.example/poster.jpg"
+
+    async def test_video_path_emits_empty_candidates_when_no_ytdlp_and_no_frames(
+        self, tmp_path: Path
+    ) -> None:
+        """A legacy-shape StubDownloader (no candidate_thumbnails tuple)
+        still works — just emits ``[]`` instead of crashing."""
+        mp4 = tmp_path / "video.mp4"
+        mp4.write_bytes(b"stub")
+        downloader = StubDownloader(
+            assets=VideoAssets(
+                mp4_path=mp4,
+                title="t",
+                description="",
+                thumbnail_url="https://cdn.example/p.jpg",
+            )
+        )
+        transcriber = StubTranscriber(transcript="")
+        frame_extractor = StubFrameExtractor(frames=[])
+
+        mock = _AnyCallMock(_canonical_llm_response())
+        result = await extract_from_url(
+            "https://youtu.be/x",
+            provider=mock,
+            downloader=downloader,
+            transcriber=transcriber,
+            frame_extractor=frame_extractor,
+        )
+        assert result["recipe"]["candidate_thumbnails"] == []
+        # thumbnail_url still resolves via yt-dlp single-thumbnail field.
+        assert result["recipe"]["thumbnail_url"] == "https://cdn.example/p.jpg"
+
+    @respx.mock
+    async def test_blog_path_populates_candidates_from_jsonld_image_array(
+        self, tmp_path: Path, _fake_public_dns: None
+    ) -> None:
+        """Blog URL whose JSON-LD emits an ``image`` array → candidates
+        mirror the array (capped at 6)."""
+        html_with_images = """<!DOCTYPE html><html><head>
+        <meta property="og:image" content="https://cdn.example/og.jpg">
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "Recipe",
+          "name": "Testrezept",
+          "image": [
+            "https://cdn.example/1.jpg",
+            "https://cdn.example/2.jpg",
+            "https://cdn.example/3.jpg"
+          ],
+          "recipeIngredient": ["100 g Mehl"],
+          "recipeInstructions": ["Mischen."]
+        }
+        </script>
+        </head><body>content</body></html>
+        """
+        respx.get("https://example.com/jsonld-array").mock(
+            return_value=httpx.Response(
+                200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                text=html_with_images,
+            )
+        )
+
+        mock = _AnyCallMock(_canonical_llm_response())
+        result = await extract_from_url(
+            "https://example.com/jsonld-array",
+            provider=mock,
+        )
+        assert result["recipe"]["candidate_thumbnails"] == [
+            "https://cdn.example/1.jpg",
+            "https://cdn.example/2.jpg",
+            "https://cdn.example/3.jpg",
+        ]
+
+    @respx.mock
+    async def test_blog_path_emits_empty_candidates_when_no_jsonld(
+        self, tmp_path: Path, _fake_public_dns: None
+    ) -> None:
+        """A blog without JSON-LD still flows through but emits an empty
+        candidate list. The ``thumbnail_url`` falls back to og:image."""
+        html_no_jsonld = (
+            "<!DOCTYPE html><html><head>"
+            '<meta property="og:image" content="https://cdn.example/og.jpg">'
+            "</head><body>hi</body></html>"
+        )
+        respx.get("https://example.com/no-jsonld").mock(
+            return_value=httpx.Response(
+                200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                text=html_no_jsonld,
+            )
+        )
+
+        mock = _AnyCallMock(_canonical_llm_response())
+        result = await extract_from_url(
+            "https://example.com/no-jsonld",
+            provider=mock,
+        )
+        assert result["recipe"]["candidate_thumbnails"] == []
 
 
 # Silence unused-import-for-typeing warnings.

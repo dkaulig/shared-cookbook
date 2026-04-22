@@ -79,6 +79,7 @@ from extractor.pipeline.blog import (
     extract_bs4_fallback,
     extract_jsonld,
     extract_recipe_scrapers,
+    flatten_jsonld_image_candidates,
 )
 from extractor.pipeline.post_process import (
     GENERIC_COMPONENT_LABEL_BLACKLIST_DEFAULT,
@@ -87,9 +88,12 @@ from extractor.pipeline.post_process import (
 from extractor.pipeline.types import ConfigSnapshot, ExtractionResult, ExtractionSignals
 from extractor.pipeline.video import (
     ExtractionError,
+    FfmpegFrameExtractor,
+    FrameExtractor,
     Transcriber,
     VideoDownloader,
     YtDlpDownloader,
+    assemble_video_candidates,
 )
 from extractor.pipeline.video import (
     FasterWhisperTranscriber as _FasterWhisperTranscriber,  # for lazy default
@@ -541,6 +545,7 @@ async def extract_from_url(
     provider: LLMProvider,
     downloader: VideoDownloader | None = None,
     transcriber: Transcriber | None = None,
+    frame_extractor: FrameExtractor | None = None,
     reporter: ProgressReporter | None = None,
     config: ExtractorConfig | None = None,
 ) -> ExtractionResult:
@@ -610,6 +615,10 @@ async def extract_from_url(
     caption: str | None = None
     blog_text: str | None = None
     thumbnail_url: str | None = None
+    # COVER-0 slice A — the ordered candidate URL list. Empty on the
+    # non-URL paths (photo / chat); video path fills from yt-dlp +
+    # ffmpeg; blog path fills from JSON-LD ``image``.
+    candidate_thumbnails: list[str] = []
     notes: list[str] = []
     blog_text_untrusted: bool = False
     # BUG-034 — observability of the three source signals. Flipped at
@@ -635,10 +644,16 @@ async def extract_from_url(
                     "feature_disabled",
                     "Video-Import ist aktuell deaktiviert.",
                 )
-            (transcript, caption, thumbnail_url) = await _run_video_path(
+            (
+                transcript,
+                caption,
+                thumbnail_url,
+                candidate_thumbnails,
+            ) = await _run_video_path(
                 url=url,
                 downloader=downloader,
                 transcriber=transcriber,
+                frame_extractor=frame_extractor,
                 reporter=active_reporter,
             )
             # BUG-034 — treat the transcript as a real signal only when
@@ -676,12 +691,22 @@ async def extract_from_url(
                 # non-candidates (same-host, shorteners unresolved,
                 # video hosts).
                 had_caption_url = True
-                (blog_text, caption_thumbnail, caption_notes) = await _run_blog_path(
-                    external_url, untrusted=True
-                )
+                (
+                    blog_text,
+                    caption_thumbnail,
+                    caption_candidates,
+                    caption_notes,
+                ) = await _run_blog_path(external_url, untrusted=True)
                 notes.extend(caption_notes)
                 if thumbnail_url is None and caption_thumbnail is not None:
                     thumbnail_url = caption_thumbnail
+                # COVER-0 slice A — if the video path didn't surface any
+                # candidates but the caption-linked blog carries a JSON-LD
+                # ``image`` array, seed the candidate list from there.
+                # Keeps the picker useful for video imports where yt-dlp
+                # returned only one thumbnail and ffmpeg frames failed.
+                if not candidate_thumbnails and caption_candidates:
+                    candidate_thumbnails = caption_candidates
                 # Caption-linked blog text is attacker-controlled → wrap it in
                 # delimiter tags so the system prompt's anti-injection rule
                 # applies.
@@ -700,7 +725,12 @@ async def extract_from_url(
             # classifier + signal-aware copy explains the situation to
             # the user.
             if blog_follow_enabled:
-                (blog_text, thumbnail_url, notes) = await _run_blog_path(url, untrusted=False)
+                (
+                    blog_text,
+                    thumbnail_url,
+                    candidate_thumbnails,
+                    notes,
+                ) = await _run_blog_path(url, untrusted=False)
                 # BUG-034 — direct blog URL; the blog is the only signal
                 # source (no caption, no audio) so map a non-empty fetch
                 # result onto ``had_blog_source``.
@@ -768,6 +798,7 @@ async def extract_from_url(
             llm_output,
             original_url=url,
             fallback_thumbnail=thumbnail_url,
+            candidate_thumbnails=candidate_thumbnails,
             extra_notes=notes,
             usage=usage,
             signals=signals,
@@ -793,15 +824,24 @@ async def _run_video_path(
     url: str,
     downloader: VideoDownloader | None,
     transcriber: Transcriber | None,
+    frame_extractor: FrameExtractor | None,
     reporter: ProgressReporter,
-) -> tuple[str | None, str | None, str | None]:
-    """Execute the video branch. Returns (transcript, caption, thumbnail_url).
+) -> tuple[str | None, str | None, str | None, list[str]]:
+    """Execute the video branch.
+
+    Returns ``(transcript, caption, thumbnail_url, candidate_thumbnails)``.
 
     Progress wiring:
     - Fires ``downloading`` at 0% before handing off to yt-dlp, then
       per-chunk events as yt-dlp's ``progress_hooks`` tick.
     - Fires ``transcribing`` at 0% once the download returns, then
       per-segment events during faster-whisper's iteration.
+
+    COVER-0 slice A — after the download completes, the function also
+    assembles up to 6 candidate thumbnail URLs (top-2 yt-dlp + up to
+    4 ffmpeg frames). Frame extraction is best-effort: if the binary
+    is missing or a frame fails, the list degrades gracefully to the
+    yt-dlp thumbs only.
     """
     active_downloader = downloader or YtDlpDownloader()
     # FasterWhisperTranscriber is heavy; lazy-instantiate only if the
@@ -854,7 +894,26 @@ async def _run_video_path(
             assets.mp4_path, on_segment=transcribe_hook
         )
         logger.info("transcript_done host=%s len=%d", _redact_host(url), len(transcript))
-        return (transcript or None, assets.description or None, assets.thumbnail_url)
+
+        # COVER-0 slice A — assemble the candidate list. The frame
+        # extractor writes JPEGs into the same workdir that holds the
+        # mp4 so they are cleaned up when the ``TemporaryDirectory``
+        # context exits. Stub extractors (tests) don't write anything.
+        active_frame_extractor: FrameExtractor = frame_extractor or FfmpegFrameExtractor(
+            output_dir=workdir,
+        )
+        candidate_thumbnails = await assemble_video_candidates(
+            ytdlp_thumbs=list(assets.candidate_thumbnails),
+            mp4_path=assets.mp4_path,
+            duration_seconds=assets.duration_seconds,
+            frame_extractor=active_frame_extractor,
+        )
+        return (
+            transcript or None,
+            assets.description or None,
+            assets.thumbnail_url,
+            candidate_thumbnails,
+        )
 
 
 def _make_progress_hook(
@@ -999,28 +1058,45 @@ def _safe_percent(done: int, total: int) -> int:
 # ─────────────────────────────────────────────────────────────────────
 
 
-async def _run_blog_path(url: str, *, untrusted: bool) -> tuple[str | None, str | None, list[str]]:
+async def _run_blog_path(
+    url: str, *, untrusted: bool
+) -> tuple[str | None, str | None, list[str], list[str]]:
     """Fetch + run the three-layer extractor.
 
-    Returns ``(blog_text, thumbnail, notes)``. ``untrusted=True`` marks
-    the call as coming from a caption-linked (attacker-controlled) page
-    — the og:image query + fragment are stripped before the thumbnail
-    is returned as defence-in-depth.
+    Returns ``(blog_text, thumbnail, candidate_thumbnails, notes)``.
+    ``untrusted=True`` marks the call as coming from a caption-linked
+    (attacker-controlled) page — the og:image query + fragment are
+    stripped before the thumbnail is returned as defence-in-depth.
+
+    COVER-0 slice A — ``candidate_thumbnails`` carries the JSON-LD
+    ``image[]`` flattened into a list[str] capped at 6. Always
+    present; empty list when the page had no JSON-LD or the image
+    field was missing. Slice A only returns URLs — downloading +
+    SSRF enforcement lives on the .NET side in slice B.
     """
     try:
         html, fetched_thumbnail = await _fetch_blog(url)
     except SsrfBlockedError as exc:
         logger.warning("blog fetch blocked host=%s err=%s", _redact_host(url), exc)
-        return (None, None, ["Website blockiert (SSRF-Schutz)"])
+        return (None, None, [], ["Website blockiert (SSRF-Schutz)"])
     except httpx.HTTPError as exc:
         logger.warning("blog fetch failed host=%s err=%s", _redact_host(url), exc)
-        return (None, None, ["Website nicht erreichbar"])
+        return (None, None, [], ["Website nicht erreichbar"])
 
     if untrusted and fetched_thumbnail is not None:
         fetched_thumbnail = _strip_query_fragment(fetched_thumbnail)
 
     blog_text = _blog_layers_to_text(url=url, html=html)
-    return (blog_text, fetched_thumbnail, [])
+    # COVER-0 slice A — pull the JSON-LD ``image`` array when present.
+    # We re-parse the page; :func:`extract_jsonld` is cheap (regex +
+    # json.loads). Untrusted pages get their candidate URLs passed
+    # through to the .NET side as-is; the backend allowlist gate runs
+    # there.
+    candidates: list[str] = []
+    jsonld = extract_jsonld(html)
+    if jsonld is not None:
+        candidates = flatten_jsonld_image_candidates(jsonld)
+    return (blog_text, fetched_thumbnail, candidates, [])
 
 
 async def _fetch_blog(url: str) -> tuple[str, str | None]:

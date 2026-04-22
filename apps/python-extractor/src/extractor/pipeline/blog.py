@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Final
 
 # ``extruct`` doesn't ship PEP 561 stubs; add a module-scoped ignore
 # with a named reason rather than per-import ``type: ignore`` noise.
@@ -197,8 +197,77 @@ def extract_bs4_fallback(html: str) -> str:
     return _WHITESPACE_RUN.sub("\n\n", text)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# COVER-0 slice A — JSON-LD image-candidate flattener
+# ─────────────────────────────────────────────────────────────────────
+
+# COVER-0 cap: maximum number of candidate thumbnails emitted per
+# recipe. 6 matches the UX (3x2 grid) and bounds slice B's backend
+# download storm at <= 6 * 5 MB per import. Slice A only returns URLs —
+# no fetches happen here — so the cap is about hand-off hygiene, not
+# in-process memory.
+_CANDIDATE_THUMBNAIL_CAP: Final[int] = 6
+
+
+def flatten_jsonld_image_candidates(jsonld: dict[str, Any]) -> list[str]:
+    """Collapse schema.org ``image`` into an ordered ``list[str]``.
+
+    Schema.org Recipe allows four shapes for ``image``:
+
+    - ``"https://…"`` — single URL string.
+    - ``["a", "b", …]`` — array of URL strings.
+    - ``{"url": "https://…"}`` — ``ImageObject`` dict.
+    - ``[{"url": "a"}, {"url": "b"}]`` — array of ``ImageObject``.
+
+    The flattener accepts all four and returns a ``list[str]`` in
+    input order (first image wins as the default cover). Non-string /
+    non-object entries inside an array are dropped silently —
+    downstream the .NET-side candidate attacher applies the SSRF
+    allowlist + download caps anyway, so we stay lenient here.
+
+    Empty / whitespace-only URLs are dropped because they'd render a
+    broken tile. Duplicates collapse to their first-seen occurrence.
+
+    The result is capped at :data:`_CANDIDATE_THUMBNAIL_CAP` — a malicious
+    JSON-LD blog could otherwise plant a 1000-entry array and we'd hand
+    that to slice B's downloader. Slice A only *returns* URLs (no
+    fetches), so the cap is about giving slice B a bounded list.
+    """
+    raw = jsonld.get("image")
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def _append(candidate: Any) -> bool:
+        """Return True once the cap is reached so the outer loop can
+        short-circuit and not iterate through a 10k-entry hostile
+        array.
+        """
+        if not isinstance(candidate, str):
+            return False
+        stripped = candidate.strip()
+        if not stripped or stripped in seen:
+            return False
+        seen.add(stripped)
+        urls.append(stripped)
+        return len(urls) >= _CANDIDATE_THUMBNAIL_CAP
+
+    if isinstance(raw, str):
+        _append(raw)
+    elif isinstance(raw, list):
+        for entry in raw:
+            if isinstance(entry, str) and _append(entry):
+                break
+            if isinstance(entry, dict) and _append(entry.get("url")):
+                break
+    elif isinstance(raw, dict):
+        _append(raw.get("url"))
+
+    return urls
+
+
 __all__ = [
     "extract_bs4_fallback",
     "extract_jsonld",
     "extract_recipe_scrapers",
+    "flatten_jsonld_image_candidates",
 ]

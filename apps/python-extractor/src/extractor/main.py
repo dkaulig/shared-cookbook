@@ -50,6 +50,7 @@ from extractor.pipeline.types import ExtractionResult
 from extractor.pipeline.url import extract_from_url
 from extractor.pipeline.video import (
     ExtractionError,
+    FrameExtractor,
     Transcriber,
     VideoDownloader,
 )
@@ -299,11 +300,19 @@ class ChatToRecipeRequest(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class VideoStack:
-    """Bundle the two video-path components so tests can override both
-    with a single ``dependency_overrides`` call."""
+    """Bundle the video-path components so tests can override them with
+    a single ``dependency_overrides`` call.
+
+    COVER-0 slice A — ``frame_extractor`` is optional so the existing
+    test rigs that only set downloader + transcriber keep working;
+    when ``None``, the pipeline falls back to its lazy
+    :class:`FfmpegFrameExtractor` default (writing into the video
+    workdir).
+    """
 
     downloader: VideoDownloader
     transcriber: Transcriber
+    frame_extractor: FrameExtractor | None = None
 
 
 @lru_cache(maxsize=1)
@@ -607,6 +616,7 @@ def create_app() -> FastAPI:
         )
         downloader = video_stack.downloader if video_stack is not None else None
         transcriber = video_stack.transcriber if video_stack is not None else None
+        frame_extractor = video_stack.frame_extractor if video_stack is not None else None
         reporter = _build_reporter(
             callback_url=request.callback_url,
             callback_token=request.callback_token,
@@ -620,6 +630,7 @@ def create_app() -> FastAPI:
                     provider=provider,
                     downloader=downloader,
                     transcriber=transcriber,
+                    frame_extractor=frame_extractor,
                     reporter=reporter,
                     config=config,
                 )

@@ -1392,6 +1392,91 @@ def test_compfix_safeguard_preserves_meaningful_single_component_labels() -> Non
     assert components[0]["label"] == "Hähnchen und Füllung"
 
 
+# ─────────────────────────────────────────────────────────────────────
+# COVER-0 slice A — candidate_thumbnails flow-through
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_post_process_default_candidate_thumbnails_is_empty_list() -> None:
+    """Non-URL callers (photo, chat) don't supply candidates — the field
+    lands as an empty list on the wire so .NET's JSON reader never sees
+    a missing key."""
+    result = post_process(
+        _base_recipe_dict(),
+        original_url="https://x",
+        fallback_thumbnail=None,
+    )
+    assert result["recipe"]["candidate_thumbnails"] == []
+
+
+def test_post_process_passes_candidate_thumbnails_through() -> None:
+    """Caller-supplied ``candidate_thumbnails`` flow through verbatim in
+    the recipe payload."""
+    result = post_process(
+        _base_recipe_dict(),
+        original_url="https://x",
+        fallback_thumbnail=None,
+        candidate_thumbnails=[
+            "https://cdn.example/a.jpg",
+            "https://cdn.example/b.jpg",
+            "file:///tmp/frame-0.jpg",
+        ],
+    )
+    assert result["recipe"]["candidate_thumbnails"] == [
+        "https://cdn.example/a.jpg",
+        "https://cdn.example/b.jpg",
+        "file:///tmp/frame-0.jpg",
+    ]
+
+
+def test_post_process_candidate0_fills_empty_thumbnail_url() -> None:
+    """Transition lubricant: when no ``thumbnail_url`` resolved (LLM
+    null + ``fallback_thumbnail=None``) but candidates are present, the
+    first candidate becomes the legacy ``thumbnail_url``. Slice B
+    removes this wire once the .NET side consumes ``candidate_thumbnails``
+    directly."""
+    result = post_process(
+        _base_recipe_dict(),
+        original_url="https://x",
+        fallback_thumbnail=None,
+        candidate_thumbnails=[
+            "https://cdn.example/cover.jpg",
+            "https://cdn.example/extra.jpg",
+        ],
+    )
+    assert result["recipe"]["thumbnail_url"] == "https://cdn.example/cover.jpg"
+
+
+def test_post_process_keeps_existing_thumbnail_url_when_candidates_present() -> None:
+    """When the LLM or fallback already resolved a ``thumbnail_url``,
+    it wins over candidate[0] — the pipeline-supplied cover stays
+    authoritative."""
+    data = _base_recipe_dict()
+    data["thumbnail_url"] = "https://example.com/llm-thumb.jpg"
+    result = post_process(
+        data,
+        original_url="https://x",
+        fallback_thumbnail=None,
+        candidate_thumbnails=[
+            "https://cdn.example/cover.jpg",
+        ],
+    )
+    assert result["recipe"]["thumbnail_url"] == "https://example.com/llm-thumb.jpg"
+
+
+def test_post_process_empty_candidates_leaves_thumbnail_untouched() -> None:
+    """Empty candidate list with no LLM thumb + no fallback → thumbnail
+    stays None; no surprise promotion from an empty list."""
+    result = post_process(
+        _base_recipe_dict(),
+        original_url="https://x",
+        fallback_thumbnail=None,
+        candidate_thumbnails=[],
+    )
+    assert result["recipe"]["thumbnail_url"] is None
+    assert result["recipe"]["candidate_thumbnails"] == []
+
+
 def test_post_process_renumbers_step_positions_to_sequential_1_to_n() -> None:
     """Plan §2.5 post-process: step positions must be 1..N in input order
     even when the LLM returns gapped (1, 3, 5) or mis-ordered values.

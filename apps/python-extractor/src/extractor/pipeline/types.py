@@ -192,6 +192,14 @@ class ExtractedRecipe(TypedDict):
     tags: list[str]
     source_url: str
     thumbnail_url: str | None
+    # COVER-0 slice A — up to 6 absolute URLs (or file-URLs for locally-
+    # extracted ffmpeg frames), ordered so that ``[0]`` is the default
+    # cover. Always present on the wire; legacy / non-URL paths (photo
+    # import, chat-to-recipe) emit ``[]``. The existing
+    # ``thumbnail_url`` field stays populated in parallel — one
+    # migration cycle — until slice B replaces the .NET ``ThumbnailAttacher``
+    # with a candidate-downloader and drops ``thumbnail_url`` entirely.
+    candidate_thumbnails: list[str]
     nutrition_estimate: NutritionEstimate | None
 
 
