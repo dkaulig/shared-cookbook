@@ -775,7 +775,7 @@ async def extract_from_url(
         system_prompt = await get_str(config, "llm.structured.system_prompt", SYSTEM_PROMPT_DE)
         temperature = await get_float(config, "llm.structured.temperature", 0.0)
         max_completion_tokens = await get_int(config, "llm.structured.max_completion_tokens", 2048)
-        deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1-mini")
+        deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1")
 
         llm_output, usage = await _run_llm_structuring(
             provider=provider,

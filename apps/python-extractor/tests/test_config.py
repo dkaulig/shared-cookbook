@@ -48,7 +48,7 @@ def test_defaults_load_without_environment() -> None:
     assert settings.azure_openai_endpoint == ""
     assert settings.azure_openai_api_key == ""
     assert settings.azure_openai_api_version == "2025-04-01-preview"
-    assert settings.azure_openai_deployment_structuring == "gpt-4.1-mini"
+    assert settings.azure_openai_deployment_structuring == "gpt-4.1"
     assert settings.azure_openai_deployment_chat == "gpt-5.1-chat"
     assert settings.extractor_shared_secret == ""
 

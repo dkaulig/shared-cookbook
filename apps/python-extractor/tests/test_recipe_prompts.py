@@ -435,6 +435,25 @@ def test_build_user_message_returns_non_empty_when_no_sources() -> None:
     assert len(message) > 0
 
 
+def test_build_user_message_orders_caption_before_transcript() -> None:
+    """COMP-2 — a narrative Whisper transcript (no block separators)
+    was observed to flatten the LLM's component-split output when
+    placed ahead of the structured caption. Reorder caption-first so
+    the formal block markers (``⸻`` / sub-headers) are the first
+    structural signal the model encounters."""
+    message = build_user_message(
+        transcript="Hey guys today we make butter chicken",
+        caption="Ingredients\n⸻\nSauce\nbutter\n⸻\nSpices\ngaram masala",
+        blog_text=None,
+        thumbnail_url=None,
+    )
+    caption_idx = message.index("Ingredients")
+    transcript_idx = message.index("butter chicken")
+    assert caption_idx < transcript_idx, (
+        "Caption must appear before Transcript so structural signals dominate component detection."
+    )
+
+
 def test_build_user_message_labels_sections() -> None:
     """Each section has a clear label so the LLM can distinguish them."""
     message = build_user_message(
