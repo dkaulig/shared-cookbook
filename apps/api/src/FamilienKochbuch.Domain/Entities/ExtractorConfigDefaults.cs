@@ -52,16 +52,26 @@ public static class ExtractorConfigDefaults
     /// </summary>
     public static IReadOnlyList<Entry> All { get; } = new Entry[]
     {
-        // ── Structured extraction (gpt-4.1-mini Responses API) ──────────
+        // ── Structured extraction (gpt-4.1 Responses API) ──────────
         // CFG-1 seed: placeholder. The Python one-time startup-sync
         // overwrites this with SYSTEM_PROMPT_DE from
         // apps/python-extractor/src/extractor/prompts/recipe_extraction.py
         // the first time the extractor sees the placeholder.
+        //
+        // COMP-2 (2026-04-23): default bumped from gpt-4.1-mini to
+        // gpt-4.1. The mini model collapsed multi-block recipe captions
+        // (e.g. "Butter Chicken Sauce Base / Curry Spice Blend /
+        // Finishing Ingredients / Rice") into a single component when
+        // the Whisper transcript was narrative + non-block-structured.
+        // gpt-4.1 (full) weights the structured caption correctly even
+        // with a noisy transcript. Pricing: 5× gpt-4.1-mini ($2/$8/$0.5
+        // vs $0.4/$1.6/$0.1 per 1M tokens) — about $0.015 vs $0.003
+        // per import. Absolute cost still trivial for a family app.
         new("llm.structured.system_prompt", ExtractorConfigValueType.String,
             "\"PLACEHOLDER_STRUCTURED_PROMPT\""),
         new("llm.structured.temperature", ExtractorConfigValueType.Float, "0"),
         new("llm.structured.max_completion_tokens", ExtractorConfigValueType.Int, "2048"),
-        new("llm.structured.deployment", ExtractorConfigValueType.String, "\"gpt-4.1-mini\""),
+        new("llm.structured.deployment", ExtractorConfigValueType.String, "\"gpt-4.1\""),
 
         // ── Chat (gpt-5.1-chat) ──
         // CFG-1 seed: placeholder; Python overwrites with
