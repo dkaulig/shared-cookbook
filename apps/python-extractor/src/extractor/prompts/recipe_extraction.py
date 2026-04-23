@@ -201,15 +201,29 @@ SYSTEM_PROMPT_DE: Final[str] = (
     # "Hauptzutaten" component. The rewrite below pins three things:
     # a HARD rule (MUSST), an enumerated forbidden-label blacklist, and
     # a compact concrete mini-example.
-    "WENN du ≥ 2 unterschiedliche Zutaten-Blöcke in der Caption oder im "
-    "Transkript siehst (erkennbar an getrennten Überschriften, Emojis, "
-    "Einrückungen oder Sätzen wie 'For the X:' / 'X ingredients:' / "
-    "'Ingredients (Y):' / 'Für die Sauce:'), DANN MUSST du ≥ 2 Einträge "
-    "im Feld `components` emittieren — jeweils mit dem eigenen `label` "
-    "des Blocks. WENN du genau 1 Eintrag in `components` emittierst, "
-    "MUSS `label` den Wert `null` haben. Setze NIE ein generisches "
-    "Platzhalter-Label wie 'Hauptzutaten', 'Zutaten', 'Hauptgericht', "
-    "'Ingredients', 'Main', 'Main Ingredients' oder 'Recipe'. "
+    # COMP-2 — caption is the AUTHORITATIVE source for component
+    # structure. Whisper transcripts are narrative ("hey today we're
+    # making...") and almost never contain block separators; treating
+    # them as structurally equivalent to the caption caused gpt-4.1-mini
+    # to collapse a 5-block butter-chicken caption into 1 component.
+    # Explicit assertion below + caption-first ordering in
+    # build_user_message together pin the behaviour.
+    "Die CAPTION (Video-Beschreibung) ist die AUTORITATIVE Quelle für "
+    "die Struktur der `components`. Das Transkript (Video-Audio) "
+    "liefert ergänzend Schritte + Timing, strukturiert aber NIEMALS die "
+    "Components. "
+    "WENN du ≥ 2 unterschiedliche Zutaten-Blöcke in der Caption siehst "
+    "(erkennbar an getrennten Überschriften, Emojis, Einrückungen, "
+    "horizontalen Trennlinien wie '⸻' / '---' / '***', oder Sätzen wie "
+    "'For the X:' / 'X ingredients:' / 'Ingredients (Y):' / 'Für die "
+    "Sauce:' / unbezeichneten Block-Headern gefolgt von einer "
+    "Zutaten-Liste wie 'Butter Chicken Sauce Base\\n60g butter...'), "
+    "DANN MUSST du ≥ 2 Einträge im Feld `components` emittieren — "
+    "jeweils mit dem eigenen `label` des Blocks. WENN du genau 1 "
+    "Eintrag in `components` emittierst, MUSS `label` den Wert `null` "
+    "haben. Setze NIE ein generisches Platzhalter-Label wie "
+    "'Hauptzutaten', 'Zutaten', 'Hauptgericht', 'Ingredients', 'Main', "
+    "'Main Ingredients' oder 'Recipe'. "
     "Beispiel — eine Quesadilla-Quelle mit zwei sichtbaren Blöcken "
     "('For the filling:' und 'Honey Chipotle Sauce:') ergibt zwei "
     "`components`: "
@@ -267,11 +281,18 @@ def build_user_message(
     """
     sections: list[str] = []
 
-    if transcript and transcript.strip():
-        sections.append(f"Transkript (aus Video-Audio):\n{transcript.strip()}")
-
+    # COMP-2 — caption first, transcript second. Live 3-run isolation
+    # test showed Azure emits the expected N components deterministically
+    # from a structured caption alone, but collapses to 1 when a
+    # narrative transcript precedes it. Caption-first surfaces the
+    # structural block markers (``⸻`` / "For the X:" / sub-headers) as
+    # the primary signal; the transcript then becomes supplementary
+    # context for steps + timing, not a competing structural input.
     if caption and caption.strip():
         sections.append(f"Video-Beschreibung / Caption:\n{caption.strip()}")
+
+    if transcript and transcript.strip():
+        sections.append(f"Transkript (aus Video-Audio):\n{transcript.strip()}")
 
     if blog_text and blog_text.strip():
         sections.append(f"Blog-Webseite (Text):\n{blog_text.strip()}")

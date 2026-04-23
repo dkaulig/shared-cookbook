@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
     azure_openai_api_version: str = "2025-04-01-preview"
-    azure_openai_deployment_structuring: str = "gpt-4.1-mini"
+    azure_openai_deployment_structuring: str = "gpt-4.1"
     azure_openai_deployment_chat: str = "gpt-5.1-chat"
 
     # HMAC shared secret for the .NET ↔ Python bridge (P2-6).
