@@ -141,14 +141,25 @@ export default defineConfig({
         importScripts: ['share-target-sw.js'],
         runtimeCaching: [
           {
-            // Signed photo URLs — cache-first so previously-viewed recipe
-            // photos survive going offline.
+            // Signed photo URLs — stale-while-revalidate so previously-
+            // viewed recipe photos survive going offline AND get refreshed
+            // on every view. CacheFirst + `statuses: [0, 200]` was observed
+            // to cache partial/aborted image streams (status 0 includes
+            // cross-origin-opaque AND network-interrupted responses); with
+            // CacheFirst the garbage then served for 14 days, producing
+            // half-rendered images on recipe-list re-entries.
+            //
+            // SWR returns the cache immediately (offline-safe, instant
+            // paint on re-mount after back-nav) and fires a background
+            // re-fetch that overwrites the cache entry. `statuses: [200]`
+            // refuses to cache status-0 responses so a cancelled fetch
+            // never poisons the store in the first place.
             urlPattern: ({ url }) => url.pathname.startsWith('/api/photos/'),
-            handler: 'CacheFirst',
+            handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'fk-photos',
               expiration: { maxEntries: 50, maxAgeSeconds: 14 * 24 * 60 * 60 },
-              cacheableResponse: { statuses: [0, 200] },
+              cacheableResponse: { statuses: [200] },
             },
           },
           {
