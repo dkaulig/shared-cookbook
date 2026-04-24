@@ -43,6 +43,14 @@ builder.Services.PostConfigure<JwtOptions>(opts =>
 
 builder.Services.Configure<AppOptions>(builder.Configuration.GetSection(AppOptions.SectionName));
 
+// REL-7 — AI feature-gate flags (consumed by /api/meta/features so the
+// web frontend can hide import-from-photo / chat CTAs when the stack
+// boots without AI). Bound from the ``Ai:`` config section; docker-
+// compose forwards ``AI_ENABLED`` + ``LLM_PROVIDER`` from the shared
+// .env via ``Ai__Enabled`` + ``Ai__Provider`` mirrors.
+builder.Services.Configure<FamilienKochbuch.Api.Services.AiFeatureOptions>(
+    builder.Configuration.GetSection(FamilienKochbuch.Api.Services.AiFeatureOptions.SectionName));
+
 // P2-5 — Python extractor bridge config. SharedSecret comes from
 // EXTRACTOR_SHARED_SECRET at runtime; appsettings carries the dev
 // defaults. BaseUrl defaults to the internal docker hostname.
@@ -602,6 +610,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapHealthEndpoints();
+app.MapMetaEndpoints();
 app.MapAuthEndpoints();
 app.MapAccountEndpoints();
 app.MapInviteEndpoints();
