@@ -1,8 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Mail, Pencil, UserPlus } from 'lucide-react'
-import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,6 +10,7 @@ import { useAuth } from '@/features/auth/useAuth'
 import { useAuthStore } from '@/features/auth/authStore'
 import { changeDisplayName, changePassword } from '@/features/auth/accountClient'
 import { InviteDialog } from '@/features/invites/InviteDialog'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 
 const DISPLAYNAME_MIN = 2
 const DISPLAYNAME_MAX = 50
@@ -133,8 +133,14 @@ interface DisplayNameLineProps {
 function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(currentName)
-  const [error, setError] = useState<string | null>(null)
+  // REL-5d — inline field-error state. `null` = no error; otherwise
+  // `{ fieldName, message }`. `fieldName` is a machine identifier used
+  // only as a Map-key for focus routing — never rendered verbatim.
+  const [fieldError, setFieldError] = useState<
+    { fieldName: string | null; message: string } | null
+  >(null)
   const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
 
   const trimmed = draft.trim()
   const validLength = trimmed.length >= DISPLAYNAME_MIN && trimmed.length <= DISPLAYNAME_MAX
@@ -142,26 +148,40 @@ function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
 
   function enterEdit() {
     setDraft(currentName)
-    setError(null)
+    setFieldError(null)
     setEditing(true)
   }
 
   function cancel() {
     setEditing(false)
-    setError(null)
+    setFieldError(null)
   }
 
   async function save() {
     if (!canSave) return
     setSaving(true)
-    setError(null)
+    setFieldError(null)
     try {
       const next = await changeDisplayName({ displayName: trimmed })
       onSaved(next)
       setEditing(false)
     } catch (err) {
-      const apiErr = err as Partial<ApiError>
-      setError(apiErr.message ?? 'Anzeigename konnte nicht gespeichert werden.')
+      // REL-5d — route via the REL-5 classifier so the rendered copy
+      // comes from the `errors:*` i18n namespace (keyed by backend
+      // code), not the server-supplied English `message` text.
+      const classified = classifyMutationError(err)
+      const next = {
+        fieldName: classified.fieldName ?? null,
+        message: classified.message,
+      }
+      setFieldError(next)
+      // Only focus the input when the backend attributed the failure
+      // to the `displayName` field specifically (REL-4 fieldName).
+      // Other errors (network / generic) keep the inline banner but
+      // leave focus wherever the user put it.
+      if (classified.fieldName === 'displayName') {
+        inputRef.current?.focus()
+      }
     } finally {
       setSaving(false)
     }
@@ -202,12 +222,17 @@ function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <Input
           id="displayname-input"
+          ref={inputRef}
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           maxLength={DISPLAYNAME_MAX + 20}
           autoFocus
           className="sm:max-w-xs"
+          aria-invalid={fieldError?.fieldName === 'displayName' || undefined}
+          aria-describedby={
+            fieldError?.fieldName === 'displayName' ? 'displayname-error' : undefined
+          }
         />
         <div className="flex gap-2">
           <Button type="submit" size="sm" disabled={!canSave}>
@@ -223,12 +248,13 @@ function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
           Anzeigename muss zwischen {DISPLAYNAME_MIN} und {DISPLAYNAME_MAX} Zeichen lang sein.
         </p>
       )}
-      {error && (
+      {fieldError && (
         <p
+          id={fieldError.fieldName === 'displayName' ? 'displayname-error' : undefined}
           role="alert"
           className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
         >
-          {error}
+          {fieldError.message}
         </p>
       )}
     </form>
@@ -241,9 +267,21 @@ function PasswordCard() {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  // REL-5d — `fieldError` replaces the prior `error` string. `fieldName`
+  // is null for errors the backend did not attribute to a specific
+  // input (network / 401 / 5xx); those still render as an inline banner
+  // at the bottom of the form but do NOT move focus.
+  const [fieldError, setFieldError] = useState<
+    { fieldName: string | null; message: string } | null
+  >(null)
   const [success, setSuccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // Ref-map for REL-5d focus routing. Keys are the backend-emitted
+  // `fieldName` values (see apps/api/.../AccountEndpoints.cs). Kept as
+  // an object rather than a switch so adding a field stays a one-liner
+  // on both sides.
+  const fieldRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const allFilled = current.length > 0 && next.length > 0 && confirm.length > 0
   const matches = next === confirm
@@ -253,7 +291,7 @@ function PasswordCard() {
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!canSubmit) return
-    setError(null)
+    setFieldError(null)
     setSuccess(false)
     setSubmitting(true)
     try {
@@ -267,8 +305,20 @@ function PasswordCard() {
       setNext('')
       setConfirm('')
     } catch (err) {
-      const apiErr = err as Partial<ApiError>
-      setError(apiErr.message ?? 'Passwort konnte nicht geändert werden.')
+      // REL-5d — classify routes the raw backend error through the
+      // i18n `errors:<code>` namespace (REL-3). The message we render
+      // is the translated German copy, never the server's English
+      // dev-message. `fieldName` is a machine identifier, only used
+      // as a Map-key to focus the matching input.
+      const classified = classifyMutationError(err)
+      setFieldError({
+        fieldName: classified.fieldName ?? null,
+        message: classified.message,
+      })
+      const target = classified.fieldName
+        ? fieldRefs.current[classified.fieldName]
+        : null
+      target?.focus()
     } finally {
       setSubmitting(false)
     }
@@ -291,7 +341,7 @@ function PasswordCard() {
               onChange={(e) => {
                 setCurrent(e.target.value)
                 setSuccess(false)
-                setError(null)
+                setFieldError(null)
               }}
             />
           </div>
@@ -305,9 +355,27 @@ function PasswordCard() {
               onChange={(e) => {
                 setNext(e.target.value)
                 setSuccess(false)
-                setError(null)
+                setFieldError(null)
               }}
+              ref={(el) => {
+                fieldRefs.current.newPassword = el
+              }}
+              aria-invalid={fieldError?.fieldName === 'newPassword' || undefined}
+              aria-describedby={
+                fieldError?.fieldName === 'newPassword'
+                  ? 'new-password-error'
+                  : undefined
+              }
             />
+            {fieldError?.fieldName === 'newPassword' && (
+              <p
+                id="new-password-error"
+                role="alert"
+                className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+              >
+                {fieldError.message}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="new-password-confirm">Neues Passwort bestätigen</Label>
@@ -319,9 +387,29 @@ function PasswordCard() {
               onChange={(e) => {
                 setConfirm(e.target.value)
                 setSuccess(false)
-                setError(null)
+                setFieldError(null)
               }}
+              ref={(el) => {
+                fieldRefs.current.newPasswordConfirm = el
+              }}
+              aria-invalid={
+                fieldError?.fieldName === 'newPasswordConfirm' || undefined
+              }
+              aria-describedby={
+                fieldError?.fieldName === 'newPasswordConfirm'
+                  ? 'new-password-confirm-error'
+                  : undefined
+              }
             />
+            {fieldError?.fieldName === 'newPasswordConfirm' && (
+              <p
+                id="new-password-confirm-error"
+                role="alert"
+                className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+              >
+                {fieldError.message}
+              </p>
+            )}
           </div>
 
           {allFilled && !matches && (
@@ -343,12 +431,15 @@ function PasswordCard() {
               Passwort aktualisiert.
             </p>
           )}
-          {error && (
+          {fieldError && fieldError.fieldName === null && (
+            // Fallback banner — server returned an error the classifier
+            // did NOT attribute to a specific field (network / 401 /
+            // 5xx). Keeps the surface behaviour identical to pre-REL-5d.
             <p
               role="alert"
               className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
             >
-              {error}
+              {fieldError.message}
             </p>
           )}
 
