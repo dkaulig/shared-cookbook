@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type {
   ApiError,
@@ -229,6 +230,7 @@ type Props = {
  * `ImportPrefill` into the inner form.
  */
 export function RecipeFormPage({ mode }: Props) {
+  const { t } = useTranslation()
   const params = useParams<{ groupId: string; recipeId: string }>()
   const recipeId = params.recipeId ?? ''
   const [searchParams] = useSearchParams()
@@ -269,7 +271,7 @@ export function RecipeFormPage({ mode }: Props) {
   if (mode === 'edit' && recipeQuery.isLoading) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-10 text-[hsl(var(--muted-foreground))]">
-        Lade Rezept …
+        {t('recipes.form.loadingRecipe', { defaultValue: 'Lade Rezept …' })}
       </main>
     )
   }
@@ -281,7 +283,9 @@ export function RecipeFormPage({ mode }: Props) {
           role="alert"
           className="rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
         >
-          Rezept konnte nicht geladen werden.
+          {t('recipes.form.loadRecipeError', {
+            defaultValue: 'Rezept konnte nicht geladen werden.',
+          })}
         </p>
       </main>
     )
@@ -294,7 +298,9 @@ export function RecipeFormPage({ mode }: Props) {
   if (importId && importQuery.isLoading) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-10 text-[hsl(var(--muted-foreground))]">
-        Lade Import-Vorschau …
+        {t('recipes.form.loadImportPreview', {
+          defaultValue: 'Lade Import-Vorschau …',
+        })}
       </main>
     )
   }
@@ -313,7 +319,9 @@ export function RecipeFormPage({ mode }: Props) {
   ) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-10 text-[hsl(var(--muted-foreground))]">
-        Lade Rezept-Daten …
+        {t('recipes.form.loadRecipeData', {
+          defaultValue: 'Lade Rezept-Daten …',
+        })}
       </main>
     )
   }
@@ -328,8 +336,16 @@ export function RecipeFormPage({ mode }: Props) {
           role="alert"
           className="rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
         >
-          Import fehlgeschlagen:{' '}
-          {importQuery.data.errorMessage ?? 'Unbekannter Fehler'}
+          {t('recipes.form.importFailedTemplate', {
+            message:
+              importQuery.data.errorMessage ??
+              t('recipes.form.importFailedUnknown', {
+                defaultValue: 'Unbekannter Fehler',
+              }),
+            defaultValue: `Import fehlgeschlagen: ${
+              importQuery.data.errorMessage ?? 'Unbekannter Fehler'
+            }`,
+          })}
         </p>
       </main>
     )
@@ -453,6 +469,7 @@ function RecipeFormInner({
    */
   initialPreAttached?: readonly ImportStagedPhotoMemo[]
 }) {
+  const { t } = useTranslation()
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
   const groupId = params.groupId ?? ''
@@ -733,7 +750,10 @@ function RecipeFormInner({
       // the saved recipe.
       if (apiErr.code !== 'not_found' && apiErr.code !== 'http_404') {
         setError(
-          apiErr.message ?? 'Importiertes Foto konnte nicht entfernt werden.',
+          apiErr.message ??
+            t('recipes.form.errors.stagedPhotoRemoveFailed', {
+              defaultValue: 'Importiertes Foto konnte nicht entfernt werden.',
+            }),
         )
       }
     }
@@ -912,7 +932,11 @@ function RecipeFormInner({
     setError(null)
 
     if (title.trim().length === 0) {
-      setError('Titel ist erforderlich.')
+      setError(
+        t('recipes.form.errors.titleRequired', {
+          defaultValue: 'Titel ist erforderlich.',
+        }),
+      )
       return
     }
 
@@ -991,11 +1015,19 @@ function RecipeFormInner({
       0,
     )
     if (totalIngredients === 0) {
-      setError('Mindestens eine Zutat ist erforderlich.')
+      setError(
+        t('recipes.form.errors.atLeastOneIngredient', {
+          defaultValue: 'Mindestens eine Zutat ist erforderlich.',
+        }),
+      )
       return
     }
     if (totalSteps === 0) {
-      setError('Mindestens ein Schritt ist erforderlich.')
+      setError(
+        t('recipes.form.errors.atLeastOneStep', {
+          defaultValue: 'Mindestens ein Schritt ist erforderlich.',
+        }),
+      )
       return
     }
 
@@ -1070,7 +1102,12 @@ function RecipeFormInner({
             await uploadRecipePhoto(result.id, file)
           } catch (err) {
             const apiErr = err as ApiError
-            failures.push(apiErr.message ?? 'Upload fehlgeschlagen.')
+            failures.push(
+              apiErr.message ??
+                t('recipes.form.errors.uploadFailed', {
+                  defaultValue: 'Upload fehlgeschlagen.',
+                }),
+            )
           }
         }
         if (failures.length > 0) {
@@ -1082,7 +1119,12 @@ function RecipeFormInner({
           // then clear the uploading-photos pending state so the
           // primary button re-enables.
           setError(
-            `Rezept gespeichert, aber ${failures.length} von ${stagedPhotos.length} Fotos konnten nicht hochgeladen werden: ${failures[0]} Du kannst sie auf der Rezept-Seite nachtragen.`,
+            t('recipes.form.errors.partialPhotoFailuresTemplate', {
+              count: failures.length,
+              total: stagedPhotos.length,
+              firstMessage: failures[0],
+              defaultValue: `Rezept gespeichert, aber ${failures.length} von ${stagedPhotos.length} Fotos konnten nicht hochgeladen werden: ${failures[0]} Du kannst sie auf der Rezept-Seite nachtragen.`,
+            }),
           )
           setSubmitPhase('idle')
           return
@@ -1094,7 +1136,11 @@ function RecipeFormInner({
       // re-upload the missing ones from the detail page.
       if (promoteFailures.length > 0) {
         setError(
-          `Rezept gespeichert, aber ${promoteFailures.length} von ${promoteAttempted} Fotos konnten nicht angehängt werden — bitte manuell hochladen.`,
+          t('recipes.form.errors.promoteFailuresTemplate', {
+            count: promoteFailures.length,
+            total: promoteAttempted,
+            defaultValue: `Rezept gespeichert, aber ${promoteFailures.length} von ${promoteAttempted} Fotos konnten nicht angehängt werden — bitte manuell hochladen.`,
+          }),
         )
         setSubmitPhase('idle')
         return
@@ -1159,7 +1205,11 @@ function RecipeFormInner({
       const classified = classifyMutationError(err)
       if (classified.surface === 'toast') {
         showErrorToast(classified.message)
-        setError('Rezept konnte nicht gespeichert werden.')
+        setError(
+          t('recipes.form.errors.saveFailed', {
+            defaultValue: 'Rezept konnte nicht gespeichert werden.',
+          }),
+        )
       } else {
         setError(classified.message)
       }
@@ -1219,17 +1269,25 @@ function RecipeFormInner({
         <form onSubmit={handleSubmit} className="space-y-5" noValidate>
           {/* ── Grunddaten ─────────────────────────────────────── */}
           <FormCard
-            title="Grunddaten"
-            description="Titel und eine kurze Beschreibung, damit andere das Rezept wiedererkennen."
+            title={t('recipes.form.basicsHeading', { defaultValue: 'Grunddaten' })}
+            description={t('recipes.form.basicsDescription', {
+              defaultValue:
+                'Titel und eine kurze Beschreibung, damit andere das Rezept wiedererkennen.',
+            })}
           >
-            <Field htmlFor="recipe-title" label="Titel">
+            <Field
+              htmlFor="recipe-title"
+              label={t('recipes.form.titleLabel', { defaultValue: 'Titel' })}
+            >
               <FormInput
                 id="recipe-title"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 maxLength={TITLE_MAX}
-                placeholder="z.B. Mamas Apfelkuchen"
+                placeholder={t('recipes.form.titlePlaceholder', {
+                  defaultValue: 'z.B. Mamas Apfelkuchen',
+                })}
                 required
               />
               <CharCounter value={title} max={TITLE_MAX} />
@@ -1237,7 +1295,9 @@ function RecipeFormInner({
 
             <Field
               htmlFor="recipe-description"
-              label="Beschreibung"
+              label={t('recipes.form.descriptionLabel', {
+                defaultValue: 'Beschreibung',
+              })}
               optional
               className="mt-[14px]"
             >
@@ -1246,7 +1306,9 @@ function RecipeFormInner({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 maxLength={DESC_MAX}
-                placeholder="Ein Satz oder zwei zur Einordnung …"
+                placeholder={t('recipes.form.descriptionPlaceholder', {
+                  defaultValue: 'Ein Satz oder zwei zur Einordnung …',
+                })}
               />
               <CharCounter value={description} max={DESC_MAX} />
             </Field>
@@ -1263,8 +1325,13 @@ function RecipeFormInner({
           */}
           {showCandidatePicker && (candidatesQuery.data?.length ?? 0) > 0 && (
             <FormCard
-              title="Bilder aus Import"
-              description="Tippe auf das Sternsymbol, um das Cover festzulegen. Weitere Bilder werden dem Rezept hinzugefügt."
+              title={t('recipes.form.candidatesHeading', {
+                defaultValue: 'Bilder aus Import',
+              })}
+              description={t('recipes.form.candidatesDescription', {
+                defaultValue:
+                  'Tippe auf das Sternsymbol, um das Cover festzulegen. Weitere Bilder werden dem Rezept hinzugefügt.',
+              })}
             >
               <ImportCandidatesGrid
                 candidates={candidatesQuery.data!.map((c) => ({
@@ -1289,15 +1356,21 @@ function RecipeFormInner({
           */}
           {mode === 'edit' && initial ? (
             <FormCard
-              title="Fotos"
-              description="Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP."
+              title={t('recipes.photos.heading', { defaultValue: 'Fotos' })}
+              description={t('recipes.photos.descriptionEdit', {
+                defaultValue:
+                  'Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP.',
+              })}
             >
               <PhotoUploadGrid recipeId={recipeId} photos={initial.photos} />
             </FormCard>
           ) : (
             <FormCard
-              title="Fotos"
-              description="Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP. Werden beim Speichern hochgeladen."
+              title={t('recipes.photos.heading', { defaultValue: 'Fotos' })}
+              description={t('recipes.photos.descriptionStaged', {
+                defaultValue:
+                  'Bis zu 3 Bilder, je max. 5 MB. JPG, PNG oder WebP. Werden beim Speichern hochgeladen.',
+              })}
             >
               {/* BUG-024 — pill is now a copy-only reminder; the
                   actual thumbnails sit in the grid below. We keep the
@@ -1314,7 +1387,10 @@ function RecipeFormInner({
                     className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--primary)/0.08)] px-3 py-1 text-[12.5px] font-medium text-[hsl(var(--primary-hover,var(--primary)))] ring-1 ring-[hsl(var(--primary)/0.25)]"
                   >
                     <Sparkles className="h-3 w-3" aria-hidden="true" />
-                    Diese Fotos werden beim Speichern angehängt.
+                    {t('recipes.form.stagedPhotosInfo', {
+                      defaultValue:
+                        'Diese Fotos werden beim Speichern angehängt.',
+                    })}
                   </p>
                 )}
               <PhotoUploadGrid
@@ -1328,9 +1404,19 @@ function RecipeFormInner({
           )}
 
           {/* ── Details ──────────────────────────────────────── */}
-          <FormCard title="Details" description="Portionen, Zubereitungszeit, Schwierigkeit.">
+          <FormCard
+            title={t('recipes.form.detailsHeading', { defaultValue: 'Details' })}
+            description={t('recipes.form.detailsDescription', {
+              defaultValue: 'Portionen, Zubereitungszeit, Schwierigkeit.',
+            })}
+          >
             <div className="grid grid-cols-2 gap-3">
-              <Field htmlFor="recipe-servings" label="Portionen">
+              <Field
+                htmlFor="recipe-servings"
+                label={t('recipes.form.servingsLabel', {
+                  defaultValue: 'Portionen',
+                })}
+              >
                 <FormInput
                   id="recipe-servings"
                   type="number"
@@ -1342,7 +1428,12 @@ function RecipeFormInner({
                   }
                 />
               </Field>
-              <Field htmlFor="recipe-prep" label="Dauer (Min)">
+              <Field
+                htmlFor="recipe-prep"
+                label={t('recipes.form.prepTimeLabel', {
+                  defaultValue: 'Dauer (Min)',
+                })}
+              >
                 <FormInput
                   id="recipe-prep"
                   type="number"
@@ -1350,14 +1441,18 @@ function RecipeFormInner({
                   max={600}
                   value={prepTime}
                   onChange={(e) => setPrepTime(e.target.value)}
-                  placeholder="45"
+                  placeholder={t('recipes.form.prepTimePlaceholder', {
+                    defaultValue: '45',
+                  })}
                 />
               </Field>
             </div>
 
             <Field
               htmlFor="recipe-difficulty"
-              label="Schwierigkeit"
+              label={t('recipes.form.difficultyLabel', {
+                defaultValue: 'Schwierigkeit',
+              })}
               className="mt-[14px]"
             >
               <DifficultyPills value={difficulty} onChange={setDifficulty} />
@@ -1365,7 +1460,9 @@ function RecipeFormInner({
 
             <Field
               htmlFor="recipe-source"
-              label="Quelle (URL)"
+              label={t('recipes.form.sourceUrlLabel', {
+                defaultValue: 'Quelle (URL)',
+              })}
               optional
               className="mt-[14px]"
             >
@@ -1374,7 +1471,9 @@ function RecipeFormInner({
                 type="url"
                 value={sourceUrl}
                 onChange={(e) => setSourceUrl(e.target.value)}
-                placeholder="https://… — z.B. Foodblog oder Reel-Link"
+                placeholder={t('recipes.form.sourceUrlPlaceholderHint', {
+                  defaultValue: 'https://… — z.B. Foodblog oder Reel-Link',
+                })}
               />
             </Field>
           </FormCard>
@@ -1394,8 +1493,13 @@ function RecipeFormInner({
           {!isMultiComponentMode && components[0] ? (
             <>
               <FormCard
-                title="Zutaten"
-                description="Reihenfolge per Griff ziehen. Bei „nach Geschmack“ skalieren wir nicht mit."
+                title={t('recipes.form.ingredientsHeading', {
+                  defaultValue: 'Zutaten',
+                })}
+                description={t('recipes.form.ingredientsDescription', {
+                  defaultValue:
+                    'Reihenfolge per Griff ziehen. Bei „nach Geschmack“ skalieren wir nicht mit.',
+                })}
               >
                 <div className="mb-3 flex justify-end">
                   <AddComponentButton onClick={addComponent} />
@@ -1427,13 +1531,19 @@ function RecipeFormInner({
                 </DndContext>
                 <AddRowButton
                   onClick={() => addIngredientRow(0)}
-                  label="Zutat hinzufügen"
+                  label={t('recipes.form.addIngredient', {
+                    defaultValue: 'Zutat hinzufügen',
+                  })}
                 />
               </FormCard>
 
               <FormCard
-                title="Zubereitung"
-                description="Schrittweise. Reihenfolge per Griff umsortierbar."
+                title={t('recipes.form.preparationHeading', {
+                  defaultValue: 'Zubereitung',
+                })}
+                description={t('recipes.form.stepsDescription', {
+                  defaultValue: 'Schrittweise. Reihenfolge per Griff umsortierbar.',
+                })}
               >
                 <DndContext
                   sensors={dndSensors}
@@ -1460,14 +1570,21 @@ function RecipeFormInner({
                 </DndContext>
                 <AddRowButton
                   onClick={() => addStepRow(0)}
-                  label="Schritt hinzufügen"
+                  label={t('recipes.form.addStep', {
+                    defaultValue: 'Schritt hinzufügen',
+                  })}
                 />
               </FormCard>
             </>
           ) : (
             <FormCard
-              title="Komponenten"
-              description="Zutaten und Schritte gruppiert — z.B. „Chipotle Sauce“ + „Hauptgericht“. Zutaten lassen sich per Drag-and-Drop zwischen Komponenten verschieben."
+              title={t('recipes.form.componentsHeading', {
+                defaultValue: 'Komponenten',
+              })}
+              description={t('recipes.form.componentsDescription', {
+                defaultValue:
+                  'Zutaten und Schritte gruppiert — z.B. „Chipotle Sauce“ + „Hauptgericht“. Zutaten lassen sich per Drag-and-Drop zwischen Komponenten verschieben.',
+              })}
             >
               {/* One DndContext per kind so cross-component moves work
                   with a flat id-space but ingredient drags still can't
@@ -1530,11 +1647,16 @@ function RecipeFormInner({
 
           {/* ── Tags ──────────────────────────────────────────── */}
           <FormCard
-            title="Tags"
-            description="Tagge das Rezept für Filter und „Was kochen wir heute?“"
+            title={t('recipes.form.tagsLabel', { defaultValue: 'Tags' })}
+            description={t('recipes.form.tagsDescription', {
+              defaultValue:
+                'Tagge das Rezept für Filter und „Was kochen wir heute?“',
+            })}
           >
             {tagsQuery.isLoading ? (
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Lade Tags …</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                {t('recipes.form.tagsLoading', { defaultValue: 'Lade Tags …' })}
+              </p>
             ) : (
               <div className="space-y-3.5">
                 {CATEGORY_ORDER.filter((c) => tagsByCategory.has(c)).map((category, i) => (
@@ -1582,16 +1704,25 @@ function RecipeFormInner({
               on the DetailPage after the recipe is saved. */}
           {mode === 'create' && prefillNutrition && (
             <FormCard
-              title="Nährwerte (geschätzt)"
-              description="KI-Schätzung pro Portion. Nach dem Speichern kannst du die Werte auf der Rezept-Seite bearbeiten."
+              title={t('recipes.form.nutritionHeading', {
+                defaultValue: 'Nährwerte (geschätzt)',
+              })}
+              description={t('recipes.form.nutritionDescription', {
+                defaultValue:
+                  'KI-Schätzung pro Portion. Nach dem Speichern kannst du die Werte auf der Rezept-Seite bearbeiten.',
+              })}
             >
               <dl
                 className="grid grid-cols-2 gap-3 text-[14px]"
-                aria-label="Geschätzte Nährwerte pro Portion"
+                aria-label={t('recipes.form.nutritionAria', {
+                  defaultValue: 'Geschätzte Nährwerte pro Portion',
+                })}
               >
                 <div>
                   <dt className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                    Energie
+                    {t('recipes.form.nutritionEnergy', {
+                      defaultValue: 'Energie',
+                    })}
                   </dt>
                   <dd className="mt-0.5 font-medium text-foreground">
                     {prefillNutrition.kcal} kcal
@@ -1599,7 +1730,9 @@ function RecipeFormInner({
                 </div>
                 <div>
                   <dt className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                    Eiweiß
+                    {t('recipes.form.nutritionProtein', {
+                      defaultValue: 'Eiweiß',
+                    })}
                   </dt>
                   <dd className="mt-0.5 font-medium text-foreground">
                     {prefillNutrition.proteinG} g
@@ -1607,7 +1740,9 @@ function RecipeFormInner({
                 </div>
                 <div>
                   <dt className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                    Kohlenhydrate
+                    {t('recipes.form.nutritionCarbs', {
+                      defaultValue: 'Kohlenhydrate',
+                    })}
                   </dt>
                   <dd className="mt-0.5 font-medium text-foreground">
                     {prefillNutrition.carbsG} g
@@ -1615,7 +1750,9 @@ function RecipeFormInner({
                 </div>
                 <div>
                   <dt className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                    Fett
+                    {t('recipes.form.nutritionFat', {
+                      defaultValue: 'Fett',
+                    })}
                   </dt>
                   <dd className="mt-0.5 font-medium text-foreground">
                     {prefillNutrition.fatG} g
@@ -1637,7 +1774,7 @@ function RecipeFormInner({
           {/* Hidden submit keeps Enter-to-submit working on inputs. The
               visible submit lives in the sticky action bar. */}
           <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>
-            Rezept speichern
+            {t('recipes.form.submitSrOnly', { defaultValue: 'Rezept speichern' })}
           </button>
         </form>
 
@@ -1652,8 +1789,13 @@ function RecipeFormInner({
               setMergeEditorOpen(false)
               conflict.close()
             }}
-            title="Konflikt im Rezept"
-            subtitle="Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll."
+            title={t('recipes.form.conflictTitle', {
+              defaultValue: 'Konflikt im Rezept',
+            })}
+            subtitle={t('recipes.form.conflictSubtitle', {
+              defaultValue:
+                'Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll.',
+            })}
             currentServer={conflict.state.serverCurrent}
             localPending={conflict.state.localPending}
             renderDiff={({ current, local }) => (
@@ -1696,7 +1838,15 @@ function RecipeFormInner({
               navigate(`/groups/${groupId}/recipes/${recipeId}`)
             }}
             isLoading={updateMutation.isPending}
-            mergeLabel={mergeEditorOpen ? 'Zusammenführung übernehmen' : 'Manuell zusammenführen'}
+            mergeLabel={
+              mergeEditorOpen
+                ? t('recipes.form.mergeApply', {
+                    defaultValue: 'Zusammenführung übernehmen',
+                  })
+                : t('recipes.form.mergeManual', {
+                    defaultValue: 'Manuell zusammenführen',
+                  })
+            }
           />
         )}
       </main>
