@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { UserSearchResult } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +20,7 @@ export function InviteMemberDialog({
   groupId: string
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [rawQuery, setRawQuery] = useState('')
   const debouncedQuery = useDebouncedValue(rawQuery.trim(), 200)
   const search = useUserSearch(debouncedQuery, groupId)
@@ -50,30 +52,38 @@ export function InviteMemberDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="invite-member-dialog-title" className="mb-4 text-xl font-semibold text-stone-900">
-          Mitglied einladen
+          {t('groups.inviteDialog.title')}
         </h2>
 
         <div className="space-y-1.5">
-          <Label htmlFor="invite-search">Nutzer:in suchen</Label>
+          <Label htmlFor="invite-search">
+            {t('groups.inviteDialog.searchLabel')}
+          </Label>
           <Input
             id="invite-search"
             type="search"
             autoComplete="off"
             value={rawQuery}
             onChange={(e) => setRawQuery(e.target.value)}
-            placeholder="Name oder Anzeigename …"
+            placeholder={t('groups.inviteDialog.searchPlaceholder')}
           />
         </div>
 
         <div className="mt-3 min-h-24 max-h-72 overflow-auto rounded-md ring-1 ring-border">
           {debouncedQuery.length === 0 && (
-            <p className="px-3 py-2 text-sm text-stone-500">Tippe einen Namen, um zu suchen.</p>
+            <p className="px-3 py-2 text-sm text-stone-500">
+              {t('groups.inviteDialog.typeToSearch')}
+            </p>
           )}
           {debouncedQuery.length > 0 && search.isLoading && (
-            <p className="px-3 py-2 text-sm text-stone-500">Suche läuft …</p>
+            <p className="px-3 py-2 text-sm text-stone-500">
+              {t('groups.inviteDialog.searching')}
+            </p>
           )}
           {debouncedQuery.length > 0 && search.isSuccess && search.data?.length === 0 && (
-            <p className="px-3 py-2 text-sm text-stone-500">Keine Nutzer:innen gefunden.</p>
+            <p className="px-3 py-2 text-sm text-stone-500">
+              {t('groups.inviteDialog.noResults')}
+            </p>
           )}
           {search.isSuccess && search.data?.length > 0 && (
             <ul className="divide-y">
@@ -101,7 +111,7 @@ export function InviteMemberDialog({
 
         <div className="mt-4 flex justify-end">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Abbrechen
+            {t('common.cancel')}
           </Button>
         </div>
       </div>
