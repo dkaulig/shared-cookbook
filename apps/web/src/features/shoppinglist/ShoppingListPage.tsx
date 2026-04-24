@@ -34,6 +34,7 @@ import {
   useConflictResolver,
 } from '@/features/_shared/ConflictDialog'
 import { VersionMismatchError } from '@/features/_shared/apiError'
+import { toastMutationError } from '@/features/_shared/errorSurface'
 import { useQueryClient } from '@tanstack/react-query'
 import { AddItemDialog } from './AddItemDialog'
 import { CATEGORY_LABELS } from './categoryLabels'
@@ -213,7 +214,13 @@ function ShoppingListView({
                 { ...localProjection, version: list.version },
                 { current: { ...serverItem, version: list.version } },
               )
+              return
             }
+            // REL-5 — every non-409 failure (400 invalid_value, 500,
+            // network) used to vanish silently. Route it through the
+            // shared classifier so a toast surfaces. The optimistic
+            // splice has already been rolled back by the hook.
+            toastMutationError(err)
           },
         },
       )
@@ -239,6 +246,10 @@ function ShoppingListView({
       { itemId: pendingDelete.id },
       {
         onSettled: () => setPendingDelete(null),
+        // REL-5 — toast on every failure (400/404/500). Prior to REL-5
+        // the dialog simply closed on error and the row stayed in the
+        // list with no explanation.
+        onError: toastMutationError,
       },
     )
   }, [deleteItem, pendingDelete])
