@@ -6,6 +6,7 @@ import {
   useNavigate,
   useSearchParams,
 } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSession } from '@/features/auth/useSession'
@@ -44,6 +45,7 @@ type PhotoState = 'idle' | 'loading' | 'expired'
  */
 export function ShareTargetPage() {
   const { status } = useSession()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -115,16 +117,22 @@ export function ShareTargetPage() {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center px-5 py-12 text-center">
         <h1 className="font-serif text-2xl font-semibold">
-          Bild-Freigabe abgelaufen
+          {t('imports.sharePage.expiredTitle', {
+            defaultValue: 'Bild-Freigabe abgelaufen',
+          })}
         </h1>
         <p className="mt-3 text-sm text-[hsl(var(--muted-foreground))]">
-          Bitte erneut teilen.
+          {t('imports.sharePage.expiredHint', {
+            defaultValue: 'Bitte erneut teilen.',
+          })}
         </p>
         <Link
           to="/rezepte/import/photos"
           className="mt-6 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
         >
-          Foto manuell importieren
+          {t('imports.sharePage.photoImportFallback', {
+            defaultValue: 'Foto manuell importieren',
+          })}
         </Link>
       </main>
     )
@@ -138,16 +146,22 @@ export function ShareTargetPage() {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center px-5 py-12 text-center">
         <h1 className="font-serif text-2xl font-semibold">
-          Zu viele Links
+          {t('imports.sharePage.tooManyTitle', {
+            defaultValue: 'Zu viele Links',
+          })}
         </h1>
         <p className="mt-3 text-sm text-[hsl(var(--muted-foreground))]">
-          Maximal 10 Links auf einmal — bitte auswählen.
+          {t('imports.sharePage.tooManyHint', {
+            defaultValue: 'Maximal 10 Links auf einmal — bitte auswählen.',
+          })}
         </p>
         <Link
           to="/rezepte/import/url"
           className="mt-6 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
         >
-          URL manuell importieren
+          {t('imports.sharePage.urlImportFallback', {
+            defaultValue: 'URL manuell importieren',
+          })}
         </Link>
       </main>
     )
@@ -174,8 +188,12 @@ export function ShareTargetPage() {
   ) {
     const label =
       photoState === 'loading'
-        ? 'Foto aus Freigabe wird vorbereitet …'
-        : 'Rezept wird geöffnet …'
+        ? t('imports.sharePage.photoLoading', {
+            defaultValue: 'Foto aus Freigabe wird vorbereitet …',
+          })
+        : t('imports.sharePage.recipeLoading', {
+            defaultValue: 'Rezept wird geöffnet …',
+          })
     return (
       <main
         role="status"
@@ -191,16 +209,22 @@ export function ShareTargetPage() {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center px-5 py-12 text-center">
       <h1 className="font-serif text-2xl font-semibold">
-        Kein Link in der Freigabe gefunden
+        {t('imports.sharePage.emptyTitle', {
+          defaultValue: 'Kein Link in der Freigabe gefunden',
+        })}
       </h1>
       <p className="mt-3 text-sm text-[hsl(var(--muted-foreground))]">
-        Bitte manuell importieren.
+        {t('imports.sharePage.emptyHint', {
+          defaultValue: 'Bitte manuell importieren.',
+        })}
       </p>
       <Link
         to="/rezepte/import/url"
         className="mt-6 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
       >
-        URL manuell importieren
+        {t('imports.sharePage.urlImportFallback', {
+          defaultValue: 'URL manuell importieren',
+        })}
       </Link>
     </main>
   )
@@ -223,6 +247,7 @@ export function ShareTargetPage() {
  */
 function MultiUrlPicker({ urls }: { urls: string[] }) {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const groups = useMyGroups()
   const enqueue = useEnqueueUrlImport()
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -249,7 +274,10 @@ function MultiUrlPicker({ urls }: { urls: string[] }) {
     const successes = results.filter((r) => r.status === 'fulfilled').length
     if (successes === 0) {
       setSubmitError(
-        'Die Imports konnten nicht gestartet werden. Bitte erneut versuchen.',
+        t('imports.sharePage.submitErrorBatch', {
+          defaultValue:
+            'Die Imports konnten nicht gestartet werden. Bitte erneut versuchen.',
+        }),
       )
       return
     }
@@ -259,11 +287,15 @@ function MultiUrlPicker({ urls }: { urls: string[] }) {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 py-8">
       <h1 className="font-serif text-[clamp(22px,5vw,28px)] font-semibold leading-[1.15] tracking-[-0.01em]">
-        Welches Rezept willst du importieren?
+        {t('imports.sharePage.pickerTitle', {
+          defaultValue: 'Welches Rezept willst du importieren?',
+        })}
       </h1>
       <p className="mt-2 text-[14px] text-[hsl(var(--muted-foreground))]">
-        {urls.length} Links in der Freigabe gefunden. Tippe einen an oder
-        starte alle gleichzeitig.
+        {t('imports.sharePage.pickerHintTemplate', {
+          count: urls.length,
+          defaultValue: `${urls.length} Links in der Freigabe gefunden. Tippe einen an oder starte alle gleichzeitig.`,
+        })}
       </p>
 
       <ul className="mt-6 flex flex-col gap-2">
@@ -304,7 +336,7 @@ function MultiUrlPicker({ urls }: { urls: string[] }) {
           variant="ghost"
           onClick={() => navigate(-1)}
         >
-          Abbrechen
+          {t('imports.sharePage.cancelCta', { defaultValue: 'Abbrechen' })}
         </Button>
         <Button
           type="button"
@@ -312,8 +344,13 @@ function MultiUrlPicker({ urls }: { urls: string[] }) {
           disabled={enqueue.isPending || groups.isPending}
         >
           {enqueue.isPending
-            ? 'Importiere …'
-            : `Alle importieren (${urls.length})`}
+            ? t('imports.sharePage.importingAll', {
+                defaultValue: 'Importiere …',
+              })
+            : t('imports.sharePage.importAllCtaTemplate', {
+                count: urls.length,
+                defaultValue: `Alle importieren (${urls.length})`,
+              })}
         </Button>
       </div>
     </main>

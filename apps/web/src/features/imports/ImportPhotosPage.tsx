@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { ApiError, GroupSummary } from '@familien-kochbuch/shared'
+import i18n from '@/i18n'
 import {
   ArrowDown,
   ArrowUp,
@@ -75,11 +77,17 @@ export function ImportPhotosPage() {
   // tree — React treats them as separate components and the rule
   // applies per-component, not across the conditional.
   const features = useFeatures()
+  const { t } = useTranslation()
   if (!features.ai.features.photoImport) {
     return (
       <AiDisabledNotice
-        title="Foto-Import benötigt KI"
-        description="Diese Instanz läuft ohne KI-Anbieter. Foto-Importe brauchen die Vision-KI, um Zutaten und Schritte aus Seitenfotos zu lesen."
+        title={t('imports.photoPage.aiOff.title', {
+          defaultValue: 'Foto-Import benötigt KI',
+        })}
+        description={t('imports.photoPage.aiOff.description', {
+          defaultValue:
+            'Diese Instanz läuft ohne KI-Anbieter. Foto-Importe brauchen die Vision-KI, um Zutaten und Schritte aus Seitenfotos zu lesen.',
+        })}
       />
     )
   }
@@ -89,6 +97,7 @@ export function ImportPhotosPage() {
 function ImportPhotosPageForm() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useTranslation()
   const groups = useMyGroups()
   const enqueue = useEnqueuePhotoImport()
 
@@ -161,17 +170,30 @@ function ImportPhotosPageForm() {
     for (const f of list) {
       if (!ACCEPT.includes(f.type)) {
         setError(
-          'Nur JPG, PNG oder WebP werden unterstützt. Bitte HEIC vor dem Import als JPG/PNG speichern.',
+          t('imports.photoPage.errors.mimeReject', {
+            defaultValue:
+              'Nur JPG, PNG oder WebP werden unterstützt. Bitte HEIC vor dem Import als JPG/PNG speichern.',
+          }),
         )
         return
       }
       if (f.size > MAX_BYTES) {
-        setError(`"${f.name}" ist größer als 5 MB.`)
+        setError(
+          t('imports.photoPage.errors.tooLargeTemplate', {
+            name: f.name,
+            defaultValue: `"${f.name}" ist größer als 5 MB.`,
+          }),
+        )
         return
       }
     }
     if (files.length + list.length > MAX_PHOTOS) {
-      setError(`Maximal ${MAX_PHOTOS} Fotos pro Import.`)
+      setError(
+        t('imports.photoPage.errors.maxPhotosTemplate', {
+          max: MAX_PHOTOS,
+          defaultValue: `Maximal ${MAX_PHOTOS} Fotos pro Import.`,
+        }),
+      )
       return
     }
     setFiles([...files, ...list])
@@ -240,7 +262,12 @@ function ImportPhotosPageForm() {
     } catch (err) {
       setUploadPhase('idle')
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Foto-Upload fehlgeschlagen.')
+      setError(
+        apiErr.message ||
+          t('imports.photoPage.errors.uploadFailed', {
+            defaultValue: 'Foto-Upload fehlgeschlagen.',
+          }),
+      )
       return
     }
 
@@ -258,14 +285,23 @@ function ImportPhotosPageForm() {
     } catch (err) {
       setUploadPhase('idle')
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Der Import konnte nicht gestartet werden.')
+      setError(
+        apiErr.message ||
+          t('imports.photoPage.errors.enqueueFailed', {
+            defaultValue: 'Der Import konnte nicht gestartet werden.',
+          }),
+      )
     }
   }
 
   async function handleSubmit(e?: FormEvent<HTMLFormElement>) {
     e?.preventDefault()
     if (files.length === 0) {
-      setError('Bitte füge mindestens ein Foto hinzu.')
+      setError(
+        t('imports.photoPage.errors.atLeastOne', {
+          defaultValue: 'Bitte füge mindestens ein Foto hinzu.',
+        }),
+      )
       return
     }
     const list = groups.data ?? []
@@ -292,15 +328,18 @@ function ImportPhotosPageForm() {
     <main className="mx-auto w-full max-w-2xl px-5 py-8 md:px-8 md:py-12">
       <div className="mb-6 flex items-center gap-2 text-[13px] font-medium uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
         <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-        KI-Import
+        {t('imports.photoPage.kicker', { defaultValue: 'KI-Import' })}
       </div>
       <h1 className="font-serif text-[clamp(28px,6vw,36px)] font-semibold leading-[1.1] tracking-[-0.015em]">
-        Rezept aus Foto importieren
+        {t('imports.photoPage.heading', {
+          defaultValue: 'Rezept aus Foto importieren',
+        })}
       </h1>
       <p className="mt-2 font-serif-body text-[15px] italic leading-[1.5] text-[hsl(var(--muted-foreground))]">
-        Fotografiere eine Rezeptkarte oder lade bis zu 10 Bilder hoch — wir
-        erkennen Zutaten und Schritte und du kannst sie vor dem Speichern
-        prüfen.
+        {t('imports.photoPage.tagline', {
+          defaultValue:
+            'Fotografiere eine Rezeptkarte oder lade bis zu 10 Bilder hoch — wir erkennen Zutaten und Schritte und du kannst sie vor dem Speichern prüfen.',
+        })}
       </p>
 
       <form
@@ -310,7 +349,11 @@ function ImportPhotosPageForm() {
       >
         <label className="flex items-center gap-1.5 text-[13px] font-semibold tracking-[0.01em] text-foreground">
           <Camera className="h-3.5 w-3.5" aria-hidden="true" />
-          Fotos ({files.length} / {MAX_PHOTOS})
+          {t('imports.photoPage.photosLabel', {
+            count: files.length,
+            max: MAX_PHOTOS,
+            defaultValue: `Fotos (${files.length} / ${MAX_PHOTOS})`,
+          })}
         </label>
 
         {/* Photo grid. Each slot is a thumbnail + reorder/remove chrome;
@@ -331,6 +374,7 @@ function ImportPhotosPageForm() {
               url={url}
               index={index}
               total={files.length}
+              t={t}
               onRemove={() => handleRemove(index)}
               onMoveUp={() => handleMove(index, -1)}
               onMoveDown={() => handleMove(index, 1)}
@@ -342,6 +386,7 @@ function ImportPhotosPageForm() {
             <AddSlot
               onClick={() => galleryInputRef.current?.click()}
               disabled={submitPending}
+              t={t}
             />
           )}
         </div>
@@ -381,7 +426,7 @@ function ImportPhotosPageForm() {
             disabled={submitPending || atLimit}
           >
             <Camera className="h-4 w-4" aria-hidden="true" />
-            Kamera
+            {t('imports.photoPage.cameraCta', { defaultValue: 'Kamera' })}
           </Button>
           <Button
             type="button"
@@ -390,13 +435,17 @@ function ImportPhotosPageForm() {
             disabled={submitPending || atLimit}
           >
             <ImageIcon className="h-4 w-4" aria-hidden="true" />
-            Fotos auswählen
+            {t('imports.photoPage.galleryCta', {
+              defaultValue: 'Fotos auswählen',
+            })}
           </Button>
         </div>
 
         <p className="mt-3 text-[12.5px] text-[hsl(var(--muted-foreground))]">
-          Unterstützt: JPG, PNG, WebP bis 5 MB. HEIC (iPhone-Standard) bitte
-          vorher als JPG exportieren.
+          {t('imports.photoPage.formats', {
+            defaultValue:
+              'Unterstützt: JPG, PNG, WebP bis 5 MB. HEIC (iPhone-Standard) bitte vorher als JPG exportieren.',
+          })}
         </p>
 
         {error && (
@@ -414,7 +463,11 @@ function ImportPhotosPageForm() {
             data-testid="upload-progress"
             className="mt-4 text-[13px] font-medium text-[hsl(var(--muted-foreground))]"
           >
-            Fotos werden hochgeladen … ({uploadedCount} / {files.length})
+            {t('imports.photoPage.uploadProgress', {
+              count: uploadedCount,
+              total: files.length,
+              defaultValue: `Fotos werden hochgeladen … (${uploadedCount} / ${files.length})`,
+            })}
           </p>
         )}
 
@@ -425,17 +478,21 @@ function ImportPhotosPageForm() {
             onClick={() => navigate(-1)}
             disabled={submitPending}
           >
-            Abbrechen
+            {t('imports.photoPage.cancelCta', { defaultValue: 'Abbrechen' })}
           </Button>
           <Button
             type="submit"
             disabled={submitPending || files.length === 0}
           >
             {uploadPhase === 'uploading'
-              ? 'Lädt hoch …'
+              ? t('imports.photoPage.uploading', { defaultValue: 'Lädt hoch …' })
               : uploadPhase === 'enqueueing' || enqueue.isPending
-                ? 'Starte …'
-                : 'Rezepte extrahieren'}
+                ? t('imports.photoPage.enqueueing', {
+                    defaultValue: 'Starte …',
+                  })
+                : t('imports.photoPage.submitCta', {
+                    defaultValue: 'Rezepte extrahieren',
+                  })}
           </Button>
         </div>
       </form>
@@ -501,11 +558,23 @@ function useInitialSharedFiles(location: ReturnType<typeof useLocation>) {
         '',
       )
     }
+    // Non-hook fallback: the lazy initializer runs outside the React
+    // render tree, so useTranslation() isn't available. Use the i18n
+    // singleton (initialised at app bootstrap) when it's ready; fall
+    // through to the DE defaultValue otherwise — tests mount this page
+    // without an i18n provider and the singleton isn't bootstrapped in
+    // the vitest setup.
+    const germanFallback = `Format nicht unterstützt — ${droppedCount} Bild${
+      droppedCount === 1 ? '' : 'er'
+    } übersprungen.`
     const toast =
       droppedCount > 0
-        ? `Format nicht unterstützt — ${droppedCount} Bild${
-            droppedCount === 1 ? '' : 'er'
-          } übersprungen.`
+        ? i18n.isInitialized
+          ? i18n.t('imports.photoPage.errors.sharedSkipped', {
+              count: droppedCount,
+              defaultValue: germanFallback,
+            })
+          : germanFallback
         : null
     return [accepted, toast]
   })[0]
@@ -515,6 +584,7 @@ interface FilledSlotProps {
   url: string
   index: number
   total: number
+  t: ReturnType<typeof useTranslation>['t']
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
@@ -525,6 +595,7 @@ function FilledSlot({
   url,
   index,
   total,
+  t,
   onRemove,
   onMoveUp,
   onMoveDown,
@@ -532,18 +603,25 @@ function FilledSlot({
 }: FilledSlotProps) {
   const isFirst = index === 0
   const isLast = index === total - 1
+  const n = index + 1
   return (
     <div className="relative aspect-square overflow-hidden rounded-[12px] bg-[hsl(var(--muted))]">
       <img
         src={url}
-        alt={`Foto ${index + 1}`}
+        alt={t('imports.photoPage.photoAlt', {
+          n,
+          defaultValue: `Foto ${n}`,
+        })}
         className="h-full w-full object-cover"
         loading="lazy"
       />
       {/* Top-right: remove. */}
       <button
         type="button"
-        aria-label={`Foto ${index + 1} entfernen`}
+        aria-label={t('imports.photoPage.photoRemove', {
+          n,
+          defaultValue: `Foto ${n} entfernen`,
+        })}
         onClick={onRemove}
         disabled={disabled}
         className={cn(
@@ -559,7 +637,7 @@ function FilledSlot({
         aria-hidden="true"
         className="absolute bottom-1.5 left-1.5 grid h-[22px] w-[22px] place-items-center rounded-full bg-[rgba(28,25,23,0.7)] text-[11px] font-semibold text-white"
       >
-        {index + 1}
+        {n}
       </span>
       {/* Bottom-right: reorder buttons. Hidden when only one photo — the
           arrows would no-op anyway and the visual noise isn't worth it. */}
@@ -567,7 +645,10 @@ function FilledSlot({
         <div className="absolute bottom-1.5 right-1.5 flex gap-1">
           <button
             type="button"
-            aria-label={`Foto ${index + 1} nach oben verschieben`}
+            aria-label={t('imports.photoPage.photoMoveUp', {
+              n,
+              defaultValue: `Foto ${n} nach oben verschieben`,
+            })}
             onClick={onMoveUp}
             disabled={disabled || isFirst}
             className={cn(
@@ -580,7 +661,10 @@ function FilledSlot({
           </button>
           <button
             type="button"
-            aria-label={`Foto ${index + 1} nach unten verschieben`}
+            aria-label={t('imports.photoPage.photoMoveDown', {
+              n,
+              defaultValue: `Foto ${n} nach unten verschieben`,
+            })}
             onClick={onMoveDown}
             disabled={disabled || isLast}
             className={cn(
@@ -600,14 +684,18 @@ function FilledSlot({
 function AddSlot({
   onClick,
   disabled,
+  t,
 }: {
   onClick: () => void
   disabled: boolean
+  t: ReturnType<typeof useTranslation>['t']
 }) {
   return (
     <button
       type="button"
-      aria-label="Foto hinzufügen"
+      aria-label={t('imports.photoPage.addSlotAria', {
+        defaultValue: 'Foto hinzufügen',
+      })}
       onClick={onClick}
       disabled={disabled}
       className={cn(
@@ -619,9 +707,13 @@ function AddSlot({
     >
       <UploadCloud className="h-[22px] w-[22px]" aria-hidden="true" />
       <span className="text-center leading-tight">
-        Tippen zum Auswählen
+        {t('imports.photoPage.addSlotLine1', {
+          defaultValue: 'Tippen zum Auswählen',
+        })}
         <br />
-        oder hierhin ziehen
+        {t('imports.photoPage.addSlotLine2', {
+          defaultValue: 'oder hierhin ziehen',
+        })}
       </span>
     </button>
   )

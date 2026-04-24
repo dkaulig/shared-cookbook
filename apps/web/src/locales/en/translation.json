@@ -436,7 +436,84 @@
       "done": "Done",
       "failed": "Failed"
     },
-    "emptyList": "No imports yet."
+    "emptyList": "No imports yet.",
+    "urlPage": {
+      "kicker": "AI import",
+      "heading": "Import recipe from video",
+      "tagline": "Paste a URL (YouTube, Reel, blog) — we detect the recipe and you review before saving.",
+      "prefillWarningLead": "This URL came from a link.",
+      "prefillWarningBody": "Please check it before starting the import.",
+      "aiOffBannerLead": "This instance runs without AI.",
+      "aiOffBannerBody": "URLs with schema.org recipe data (many food blogs) still import, but reels and blogs without structured data come back empty and you'll need to add the recipe manually.",
+      "cacheHitTitle": "This URL has already been imported.",
+      "cacheHitBody": "We found a recipe from the same URL in the last 7 days. Open it directly, or re-run extraction if the video changed.",
+      "cacheHitGotoCta": "Open existing recipe",
+      "cacheHitForceCta": "Re-extract",
+      "urlFieldLabel": "Video or blog URL",
+      "urlPlaceholder": "https://…",
+      "urlHelp": "Supports: YouTube, Instagram Reels, TikTok, Facebook, food blogs with recipe JSON-LD.",
+      "cancelCta": "Cancel",
+      "importing": "Importing…",
+      "submitCta": "Import recipe",
+      "errors": {
+        "urlRequired": "Please enter a URL.",
+        "urlProtocol": "The URL must be absolute and start with http:// or https://.",
+        "enqueueFailed": "The import could not be started."
+      }
+    },
+    "sharePage": {
+      "expiredTitle": "Shared images expired",
+      "expiredHint": "Please share again.",
+      "photoImportFallback": "Import photo manually",
+      "tooManyTitle": "Too many links",
+      "tooManyHint": "Max 10 links at once — please pick.",
+      "urlImportFallback": "Import URL manually",
+      "photoLoading": "Preparing shared photo…",
+      "recipeLoading": "Opening recipe…",
+      "emptyTitle": "No link found in the share",
+      "emptyHint": "Please import manually.",
+      "pickerTitle": "Which recipe do you want to import?",
+      "pickerHintTemplate": "{{count}} links found in the share. Tap one or start all at once.",
+      "cancelCta": "Cancel",
+      "importingAll": "Importing…",
+      "importAllCtaTemplate": "Import all ({{count}})",
+      "submitErrorBatch": "Imports could not be started. Please try again."
+    },
+    "photoPage": {
+      "aiOff": {
+        "title": "Photo import needs AI",
+        "description": "This instance runs without an AI provider. Photo imports need vision AI to read ingredients and steps from page photos."
+      },
+      "kicker": "AI import",
+      "heading": "Import recipe from photo",
+      "tagline": "Snap a recipe card or upload up to 10 images — we'll detect ingredients and steps and you can review before saving.",
+      "photosLabel": "Photos ({{count}} / {{max}})",
+      "cameraCta": "Camera",
+      "galleryCta": "Pick photos",
+      "formats": "Supported: JPG, PNG, WebP up to 5 MB. Please export HEIC (iPhone default) as JPG first.",
+      "uploadProgress": "Uploading photos… ({{count}} / {{total}})",
+      "cancelCta": "Cancel",
+      "uploading": "Uploading…",
+      "enqueueing": "Starting…",
+      "submitCta": "Extract recipes",
+      "addSlotAria": "Add photo",
+      "addSlotLine1": "Tap to choose",
+      "addSlotLine2": "or drop here",
+      "photoAlt": "Photo {{n}}",
+      "photoRemove": "Remove photo {{n}}",
+      "photoMoveUp": "Move photo {{n}} up",
+      "photoMoveDown": "Move photo {{n}} down",
+      "errors": {
+        "mimeReject": "Only JPG, PNG or WebP are supported. Please save HEIC as JPG/PNG before import.",
+        "tooLargeTemplate": "\"{{name}}\" is larger than 5 MB.",
+        "maxPhotosTemplate": "Max {{max}} photos per import.",
+        "atLeastOne": "Please add at least one photo.",
+        "uploadFailed": "Photo upload failed.",
+        "enqueueFailed": "The import could not be started.",
+        "sharedSkipped_one": "Unsupported format — {{count}} image skipped.",
+        "sharedSkipped_other": "Unsupported format — {{count}} images skipped."
+      }
+    }
   },
   "chat": {
     "pageTitle": "Recipe chat",
