@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +13,7 @@ import { useCreateGroup } from './hooks'
  * screen-reader-announced alert.
  */
 export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -51,12 +53,12 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="create-group-dialog-title" className="mb-4 text-xl font-semibold text-stone-900">
-          Gruppe erstellen
+          {t('groups.create.title')}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-1.5">
-            <Label htmlFor="group-name">Name</Label>
+            <Label htmlFor="group-name">{t('groups.create.nameLabel')}</Label>
             <Input
               id="group-name"
               type="text"
@@ -68,7 +70,9 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="group-description">Beschreibung (optional)</Label>
+            <Label htmlFor="group-description">
+              {t('groups.create.descriptionLabel')}
+            </Label>
             <Input
               id="group-description"
               type="text"
@@ -86,10 +90,10 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
-              Abbrechen
+              {t('common.cancel')}
             </Button>
             <Button type="submit" disabled={!canSubmit}>
-              Erstellen
+              {t('groups.create.submitCta')}
             </Button>
           </div>
         </form>

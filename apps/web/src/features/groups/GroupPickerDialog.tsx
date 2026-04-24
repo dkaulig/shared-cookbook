@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { GroupSummary } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 
@@ -24,6 +25,7 @@ export function GroupPickerDialog({
   onPick: (group: GroupSummary) => void
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const firstChoiceRef = useRef<HTMLButtonElement | null>(null)
 
   // Move focus to the first group choice on mount so keyboard users can
@@ -58,10 +60,10 @@ export function GroupPickerDialog({
           id="group-picker-dialog-title"
           className="mb-1 text-xl font-semibold text-stone-900"
         >
-          In welcher Gruppe suchen?
+          {t('groups.picker.title')}
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Wähle eine deiner Gruppen — der Filter wird dort angewendet.
+          {t('groups.picker.subtitle')}
         </p>
 
         <ul className="flex flex-col gap-2">
@@ -78,10 +80,10 @@ export function GroupPickerDialog({
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {group.memberCount === 1 && group.isPrivateCollection
-                    ? 'nur du'
-                    : `${group.memberCount} ${
-                        group.memberCount === 1 ? 'Mitglied' : 'Mitglieder'
-                      }`}
+                    ? t('groups.picker.privateOnlyYou')
+                    : t('groups.list.memberCount', {
+                        count: group.memberCount,
+                      })}
                 </span>
               </button>
             </li>
@@ -90,7 +92,7 @@ export function GroupPickerDialog({
 
         <div className="mt-4 flex justify-end">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Abbrechen
+            {t('common.cancel')}
           </Button>
         </div>
       </div>
