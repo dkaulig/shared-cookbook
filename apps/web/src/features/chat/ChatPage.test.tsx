@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ReactNode } from 'react'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -14,19 +14,12 @@ import type {
 } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import i18n, { createI18n } from '@/i18n'
 import { ChatPage } from './ChatPage'
 import { recallChatImport } from './chatImportMemo'
 
-// REL-3d — `classifyMutationError` reads the global i18n singleton to
-// translate backend error-codes into `errors.json` copy. Boot the
-// singleton once per file so the rename-error localisation test sees
-// the resources loaded. Pin `de` so the REL-3d assertion matches the
-// German translation regardless of the environment's navigator.language.
-beforeAll(async () => {
-  await createI18n()
-  await i18n.changeLanguage('de')
-})
+// REL-3e — i18n is bootstrapped globally in `src/test/setup.ts`
+// (pinned to `de`), so no per-file `beforeAll(createI18n)` is needed
+// for `classifyMutationError` to resolve `errors.json` keys.
 
 const FIXED_SESSION_ID = '00000000-1111-2222-3333-444444444444'
 

@@ -126,7 +126,24 @@ describe('classifyMutationError', () => {
       status: 400,
     })
     expect(result.surface).toBe('inline')
-    expect(result.message).toBe('Portionen müssen > 0 sein.')
+    // REL-3e — the classifier prefers the `errors.json` translation
+    // over the raw backend message when the code is known. The rawest
+    // backend copy is only a fallback when no translation exists
+    // (covered in the separate test below).
+    expect(result.message).toBe('Ungültiger Wert.')
+  })
+
+  it('falls back to the raw backend message on inline 400 when the code has no errors.json entry', () => {
+    // Mirror of the test above, but with a code the errors.json
+    // catalog does not contain. The rawMessage is then preserved so
+    // the user still sees something actionable.
+    const result = classifyMutationError({
+      code: 'zz_no_such_code_in_catalog',
+      message: 'Backend-spezifischer Hinweis.',
+      status: 400,
+    })
+    expect(result.surface).toBe('inline')
+    expect(result.message).toBe('Backend-spezifischer Hinweis.')
   })
 
   it('routes 409 version_mismatch to the banner surface with reload copy', () => {
@@ -229,18 +246,19 @@ describe('classifyMutationError', () => {
     // REL-4 guarantees `status` in every ApiError body. If we see an
     // error without it, something's wrong at a lower layer and we
     // must NOT guess a status from the `code` string (the removed
-    // parseHttpStatusFromCode heuristic). A missing status with a
-    // code that looks 5xx-ish still falls through to the generic
-    // unknown-error toast.
+    // parseHttpStatusFromCode heuristic). The classifier falls
+    // through to the inline branch and looks up the `errors.json`
+    // translation; the key assertion is that the surface is NOT the
+    // 5xx `toast` bucket (the "status must drive routing, not code
+    // string" invariant).
     const result = classifyMutationError({
       code: 'server_error',
       message: 'No status field.',
     })
-    // Surface stays toast (the inline path needs status<500 + a
-    // non-409 non-auth body; unknown status falls through to the
-    // generic "actionFailed / unknown" copy). Key assertion: the
-    // message is NOT the "unknown, please retry" 500-bucket copy.
-    expect(result.message).not.toMatch(/bitte erneut versuchen/i)
+    expect(result.surface).toBe('inline')
+    // Route by `status`, not by code heuristic — a missing status
+    // with a 5xx-ish code must NOT land on the toast surface.
+    expect(result.surface).not.toBe('toast')
   })
 
   it('still routes a native Error (no body, no status) to the toast surface', () => {
