@@ -65,5 +65,9 @@ async function throwApiError(response: Response): Promise<never> {
   const err = new Error(`${code}: ${message}`) as Error & ApiError
   err.code = code
   err.message = message
+  // REL-4: pin status + fieldName from the body so downstream
+  // classifiers route by authoritative number.
+  err.status = error?.status ?? response.status
+  if (error?.fieldName) err.fieldName = error.fieldName
   throw err
 }

@@ -63,15 +63,32 @@ async function fetchGlobalSearch(
   if (!res.ok) {
     let code = `http_${res.status}`
     let message = res.statusText
+    let bodyStatus: number | undefined
+    let bodyFieldName: string | undefined
     try {
-      const body = (await res.json()) as { code?: string; message?: string }
+      const body = (await res.json()) as {
+        code?: string
+        message?: string
+        status?: number
+        fieldName?: string
+      }
       if (body?.code) code = body.code
       if (body?.message) message = body.message
+      if (typeof body?.status === 'number') bodyStatus = body.status
+      if (typeof body?.fieldName === 'string') bodyFieldName = body.fieldName
     } catch {
       /* non-JSON body — fall through */
     }
-    const err = new Error(`${code}: ${message}`) as Error & { code?: string }
+    const err = new Error(`${code}: ${message}`) as Error & {
+      code?: string
+      status?: number
+      fieldName?: string
+    }
     err.code = code
+    // REL-4: pin status + fieldName from the body so downstream
+    // classifiers route by authoritative number.
+    err.status = bodyStatus ?? res.status
+    if (bodyFieldName) err.fieldName = bodyFieldName
     throw err
   }
   return (await res.json()) as RecipeGlobalSearchResult

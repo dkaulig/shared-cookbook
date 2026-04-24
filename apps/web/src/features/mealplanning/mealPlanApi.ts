@@ -65,7 +65,9 @@ async function throwApiError(response: Response): Promise<never> {
     const body = payload as unknown as VersionMismatchErrorBody | null
     throw new VersionMismatchError(message, body?.current ?? null)
   }
-  throw new MealPlanApiError(code, message, response.status)
+  // REL-4: forward fieldName when present so form call-sites can
+  // attribute validation failures to a specific input.
+  throw new MealPlanApiError(code, message, response.status, payload?.fieldName)
 }
 
 export async function fetchMealPlan(

@@ -54,7 +54,17 @@ export interface CreateInviteResponse {
   expiresAt: string
 }
 
+/**
+ * Wire shape of every non-2xx response body from the .NET API. REL-4
+ * (commit 948e2c2) made `status` mandatory — it mirrors the HTTP status
+ * code so clients don't have to track it separately alongside the JSON
+ * body. `fieldName` is optional and only set on 400 validation failures
+ * that can be attributed to a specific request field (e.g. `servings`,
+ * `displayName`).
+ */
 export interface ApiError {
   code: string
   message: string
+  status: number
+  fieldName?: string
 }
