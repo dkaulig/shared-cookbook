@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 
 /**
  * /reset-password?token=... — completes the password-reset flow with
@@ -72,13 +73,17 @@ export function ResetPasswordPage() {
         body: JSON.stringify({ token, newPassword: password }),
       })
       if (!response.ok) {
-        const apiErr = (await safeJson<ApiError>(response)) ?? {
-          code: 'unknown',
-          message: t('auth.reset.errors.failed', {
-            defaultValue: 'Reset fehlgeschlagen.',
-          }),
-        }
-        setError(apiErr.message)
+        // REL-5f — route the ApiError body through the shared classifier
+        // so the rendered copy comes from `errors:<code>` (German). The
+        // backend tags `fieldName=resetToken` on invalid-token / reset-
+        // failed cases, but the reset-token lives in the URL — no form
+        // input to focus, so we render the banner either way. The
+        // classifier still picks the right i18n key by code.
+        const apiErr = await safeJson<ApiError>(response)
+        const classified = classifyMutationError(
+          apiErr ?? { code: 'unknown', message: '', status: response.status },
+        )
+        setError(classified.message)
         return
       }
       setSubmitted(true)
