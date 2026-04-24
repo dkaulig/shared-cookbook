@@ -1,4 +1,5 @@
 import { Dices, Search, SlidersHorizontal } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/useIsMobile'
 
@@ -37,12 +38,15 @@ export function GroupFilterBar({
   // shrunk search input on narrow viewports (~375 px). The BUG-006 fix made
   // the search item `flex-1 min-w-0` so it can shrink below content width
   // (keeping Filter + Zufall visible), which is functionally correct but
-  // causes the placeholder to be clipped. Swap to a short "Suchen…" label
+  // causes the placeholder to be clipped. Swap to a short placeholder
   // below the md breakpoint; desktop keeps the self-explanatory copy. The
-  // accessible name stays `aria-label="Suche"` regardless — screen-reader
-  // users always get the canonical short label.
+  // accessible name stays the translated `groups.filterBar.searchAria`
+  // regardless — screen-reader users always get the canonical short label.
+  const { t } = useTranslation()
   const isMobile = useIsMobile()
-  const placeholder = isMobile ? 'Suchen…' : 'Rezept oder Zutat suchen…'
+  const placeholder = isMobile
+    ? t('groups.filterBar.searchPlaceholderMobile')
+    : t('groups.filterBar.searchPlaceholderDesktop')
   return (
     <div className="flex items-stretch gap-2.5">
       {/* Search field — `min-w-0` is REQUIRED on this flex item: without it
@@ -61,10 +65,10 @@ export function GroupFilterBar({
           aria-hidden="true"
           className="h-[17px] w-[17px] shrink-0 text-[hsl(var(--muted-foreground))]"
         />
-        <span className="sr-only">Suche</span>
+        <span className="sr-only">{t('groups.filterBar.searchAria')}</span>
         <input
           type="search"
-          aria-label="Suche"
+          aria-label={t('groups.filterBar.searchAria')}
           placeholder={placeholder}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
@@ -85,7 +89,7 @@ export function GroupFilterBar({
         )}
       >
         <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-        Filter
+        {t('groups.filterBar.filterCta')}
         {activeFilterCount > 0 && (
           <span className="rounded-full bg-primary px-[7px] py-[1px] text-[11px] font-semibold text-primary-foreground">
             {activeFilterCount}
@@ -98,7 +102,7 @@ export function GroupFilterBar({
         type="button"
         onClick={onRandomPick}
         disabled={isRandomPending}
-        title="Zufälliges Rezept"
+        title={t('groups.filterBar.randomTitle')}
         className={cn(
           'inline-flex items-center justify-center gap-1.5 rounded-[12px] px-3.5 py-2.5',
           'border border-destructive bg-destructive text-sm font-semibold text-destructive-foreground',
@@ -109,7 +113,9 @@ export function GroupFilterBar({
         )}
       >
         <Dices className="h-4 w-4" aria-hidden="true" />
-        {isRandomPending ? 'Würfle…' : 'Zufall'}
+        {isRandomPending
+          ? t('groups.filterBar.randomPending')
+          : t('groups.filterBar.randomCta')}
       </button>
     </div>
   )

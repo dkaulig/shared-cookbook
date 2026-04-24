@@ -889,14 +889,14 @@
       "mealplanLabel": "Meal plan",
       "settingsAria": "Open settings",
       "settingsLabel": "Settings",
-      "recipe_one": "{{count}} recipe",
-      "recipe_other": "{{count}} recipes",
-      "member_one": "{{count}} member",
-      "member_other": "{{count}} members",
+      "recipeUnit_one": "recipe",
+      "recipeUnit_other": "recipes",
+      "memberUnit_one": "member",
+      "memberUnit_other": "members",
       "membersAria": "Members",
       "portion_one": "serving",
       "portion_other": "servings",
-      "defaultPortionsTemplate": "Default {{count}} {{unit}}"
+      "defaultPortionsLead": "Default"
     },
     "filterBar": {
       "searchPlaceholderMobile": "Search…",

@@ -1,4 +1,5 @@
 import { Mail } from 'lucide-react'
+import { Trans, useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { toastMutationError } from '@/features/_shared/errorSurface'
@@ -16,8 +17,14 @@ import { useAcceptInvite, useDeclineInvite, useMyReceivedInvites } from './hooks
  *
  * Hides itself while the query is loading or when no invites are
  * pending, exactly like the S2 version — only the visual changed.
+ *
+ * REL-3g — the invitation sentence is routed through `<Trans>` with
+ * two named children (`<strong>` + `<group>`) so the inviter + group
+ * name keep their emphasis styling after translation. The children are
+ * static span/strong — no user-provided HTML bleeds through.
  */
 export function ReceivedInvitesBanner() {
+  const { t } = useTranslation()
   const invites = useMyReceivedInvites()
   const accept = useAcceptInvite()
   const decline = useDeclineInvite()
@@ -29,7 +36,7 @@ export function ReceivedInvitesBanner() {
   return (
     <section
       data-testid="invites-banner"
-      aria-label="Offene Gruppen-Einladungen"
+      aria-label={t('groups.invitesReceived.regionAria')}
       className="space-y-2"
     >
       {invites.data.map((invite) => (
@@ -48,10 +55,17 @@ export function ReceivedInvitesBanner() {
           </span>
           <div className="flex-1">
             <p className="text-sm leading-[1.5] text-foreground">
-              <strong className="font-semibold">{invite.inviterDisplayName}</strong>{' '}
-              lädt dich zu{' '}
-              <span className="font-semibold text-primary">„{invite.groupName}"</span>{' '}
-              ein.
+              <Trans
+                i18nKey="groups.invitesReceived.invitationTemplate"
+                values={{
+                  inviter: invite.inviterDisplayName,
+                  group: invite.groupName,
+                }}
+                components={{
+                  strong: <strong className="font-semibold" />,
+                  group: <span className="font-semibold text-primary" />,
+                }}
+              />
             </p>
             <div className="mt-[10px] flex gap-2">
               <Button
@@ -66,7 +80,7 @@ export function ReceivedInvitesBanner() {
                 }
                 disabled={decline.isPending}
               >
-                Ablehnen
+                {t('groups.invitesReceived.decline')}
               </Button>
               <Button
                 type="button"
@@ -76,7 +90,7 @@ export function ReceivedInvitesBanner() {
                 }
                 disabled={accept.isPending}
               >
-                Annehmen
+                {t('groups.invitesReceived.accept')}
               </Button>
             </div>
           </div>

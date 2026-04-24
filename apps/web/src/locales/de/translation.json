@@ -889,14 +889,14 @@
       "mealplanLabel": "Wochenplan",
       "settingsAria": "Einstellungen öffnen",
       "settingsLabel": "Einstellungen",
-      "recipe_one": "{{count}} Rezept",
-      "recipe_other": "{{count}} Rezepte",
-      "member_one": "{{count}} Mitglied",
-      "member_other": "{{count}} Mitglieder",
+      "recipeUnit_one": "Rezept",
+      "recipeUnit_other": "Rezepte",
+      "memberUnit_one": "Mitglied",
+      "memberUnit_other": "Mitglieder",
       "membersAria": "Mitglieder",
       "portion_one": "Portion",
       "portion_other": "Portionen",
-      "defaultPortionsTemplate": "Standard {{count}} {{unit}}"
+      "defaultPortionsLead": "Standard"
     },
     "filterBar": {
       "searchPlaceholderMobile": "Suchen…",
