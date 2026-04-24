@@ -644,6 +644,29 @@ function RecipeFormInner({
   const [prefillNutrition] = useState(prefill?.nutritionEstimate ?? null)
   const [createTagOpen, setCreateTagOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // REL-5e — inline field-error routing. When the backend attributes a
+  // 400 to a specific field via `fieldName`, we scope the error to that
+  // FormCard (aria-invalid on the container + <p role="alert"> next to
+  // it + scroll into view). `fieldName` is a machine identifier used
+  // only as a Map-key — never rendered verbatim. Null when the error is
+  // not field-attributed; the bottom-of-form banner handles that path.
+  //
+  // Only fieldName values that the recipe create/update endpoints
+  // actually emit today:
+  //   - tagIds               (ErrorCodes.InvalidTag)
+  //   - coverStagedPhotoId   (ErrorCodes.CoverNotInStagedSet)
+  // Every other 400 from those endpoints carries no fieldName and
+  // lands in the generic `error` banner below (existing REL-3c path).
+  const [fieldError, setFieldError] = useState<{
+    fieldName: 'tagIds' | 'coverStagedPhotoId'
+    message: string
+  } | null>(null)
+  // Ref-map keyed by the backend-emitted fieldName so adding a new
+  // field stays a one-liner on both the ref-assignment + onError
+  // lookup side (see ProfilStub REL-5d blueprint). Stored as
+  // HTMLElement because the tag-picker + candidate-grid targets are
+  // <div>s, not <input>s.
+  const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
   /**
    * P2-7 — the AI banner surfaces the extraction provenance and is
    * independent of the prefilled data. Dismissing hides the banner;
@@ -919,6 +942,10 @@ function RecipeFormInner({
   async function handleSubmit(e?: FormEvent<HTMLFormElement>) {
     e?.preventDefault()
     setError(null)
+    // REL-5e — drop any residual inline field-error from a prior
+    // failed submit so the user sees the clean state before the
+    // re-attempt lands.
+    setFieldError(null)
 
     if (title.trim().length === 0) {
       setError(
@@ -1192,6 +1219,27 @@ function RecipeFormInner({
       // codes keep the backend message since it's already user-
       // actionable German today.
       const classified = classifyMutationError(err)
+      // REL-5e — when the backend attributed the 400 to a specific
+      // form field, render the inline error next to that field (and
+      // move focus) instead of dumping it into the bottom banner.
+      // Recipe create/update only emits `tagIds` + `coverStagedPhotoId`;
+      // everything else falls through to the banner path.
+      if (
+        classified.surface === 'inline' &&
+        (classified.fieldName === 'tagIds' ||
+          classified.fieldName === 'coverStagedPhotoId')
+      ) {
+        setFieldError({
+          fieldName: classified.fieldName,
+          message: classified.message,
+        })
+        const target = fieldRefs.current[classified.fieldName]
+        if (target) {
+          target.focus()
+          target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        }
+        return
+      }
       if (classified.surface === 'toast') {
         showErrorToast(classified.message)
         setError(
@@ -1336,26 +1384,59 @@ function RecipeFormInner({
             status response only carries the ids.
           */}
           {showCandidatePicker && (candidatesQuery.data?.length ?? 0) > 0 && (
-            <FormCard
-              title={t('recipes.form.candidatesHeading', {
-                defaultValue: 'Bilder aus Import',
-              })}
-              description={t('recipes.form.candidatesDescription', {
-                defaultValue:
-                  'Tippe auf das Sternsymbol, um das Cover festzulegen. Weitere Bilder werden dem Rezept hinzugefügt.',
-              })}
+            // REL-5e — same pattern as tagIds: focusable wrapper with
+            // literal-constant testid + aria-describedby id. The server
+            // emits fieldName=coverStagedPhotoId only on POST /recipes
+            // when the chosen cover is not part of the stagedPhotoIds
+            // set — extremely narrow case, but the inline surface still
+            // saves the user from hunting through the banner.
+            <div
+              ref={(el) => {
+                fieldRefs.current.coverStagedPhotoId = el
+              }}
+              tabIndex={-1}
+              data-testid="recipe-form-coverStagedPhotoId"
+              aria-invalid={
+                fieldError?.fieldName === 'coverStagedPhotoId' || undefined
+              }
+              aria-describedby={
+                fieldError?.fieldName === 'coverStagedPhotoId'
+                  ? 'recipe-form-coverStagedPhotoId-error'
+                  : undefined
+              }
+              className="focus:outline-none focus-visible:outline-none"
             >
-              <ImportCandidatesGrid
-                candidates={candidatesQuery.data!.map((c) => ({
-                  stagedPhotoId: c.stagedPhotoId,
-                  signedUrl: c.signedUrl,
-                }))}
-                selectedIds={selectedCandidateIds}
-                coverStagedPhotoId={coverStagedPhotoId}
-                onSelectionChange={setSelectedCandidateIds}
-                onCoverChange={setCoverStagedPhotoId}
-              />
-            </FormCard>
+              <FormCard
+                title={t('recipes.form.candidatesHeading', {
+                  defaultValue: 'Bilder aus Import',
+                })}
+                description={t('recipes.form.candidatesDescription', {
+                  defaultValue:
+                    'Tippe auf das Sternsymbol, um das Cover festzulegen. Weitere Bilder werden dem Rezept hinzugefügt.',
+                })}
+              >
+                <ImportCandidatesGrid
+                  candidates={candidatesQuery.data!.map((c) => ({
+                    stagedPhotoId: c.stagedPhotoId,
+                    signedUrl: c.signedUrl,
+                  }))}
+                  selectedIds={selectedCandidateIds}
+                  coverStagedPhotoId={coverStagedPhotoId}
+                  onSelectionChange={setSelectedCandidateIds}
+                  onCoverChange={setCoverStagedPhotoId}
+                />
+                {fieldError?.fieldName === 'coverStagedPhotoId' && (
+                  <p
+                    id="recipe-form-coverStagedPhotoId-error"
+                    data-testid="recipe-form-coverStagedPhotoId-error"
+                    role="alert"
+                    className="mt-3 rounded-md bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
+                  >
+                    {fieldError.message}
+                  </p>
+                )}
+              </FormCard>
+            </div>
           )}
 
           {/* ── Fotos ─────────────────────────────────────────── */}
@@ -1658,57 +1739,91 @@ function RecipeFormInner({
           )}
 
           {/* ── Tags ──────────────────────────────────────────── */}
-          <FormCard
-            title={t('recipes.form.tagsLabel', { defaultValue: 'Tags' })}
-            description={t('recipes.form.tagsDescription', {
-              defaultValue:
-                'Tagge das Rezept für Filter und „Was kochen wir heute?“',
-            })}
+          {/*
+            REL-5e — the tag-picker has no single <input> the backend's
+            `fieldName: "tagIds"` error can focus. We wrap the card in a
+            focusable <div> (tabIndex=-1) that the onError handler can
+            target via the shared fieldRefs map, and render the inline
+            error directly under the chip grid. The literal testid and
+            aria-describedby id are constants (not derived from
+            fieldName) so no user-controlled string reaches the DOM.
+          */}
+          <div
+            ref={(el) => {
+              fieldRefs.current.tagIds = el
+            }}
+            tabIndex={-1}
+            data-testid="recipe-form-tagIds"
+            aria-invalid={fieldError?.fieldName === 'tagIds' || undefined}
+            aria-describedby={
+              fieldError?.fieldName === 'tagIds'
+                ? 'recipe-form-tagIds-error'
+                : undefined
+            }
+            className="focus:outline-none focus-visible:outline-none"
           >
-            {tagsQuery.isLoading ? (
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                {t('recipes.form.tagsLoading', { defaultValue: 'Lade Tags …' })}
-              </p>
-            ) : (
-              <div className="space-y-3.5">
-                {CATEGORY_ORDER.filter((c) => tagsByCategory.has(c)).map((category, i) => (
-                  <div
-                    key={category}
-                    className={cn(
-                      i > 0 && 'border-t border-dashed border-border pt-3.5',
-                    )}
-                  >
-                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                      {categoryLabels[category]}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(tagsByCategory.get(category) ?? []).map((tag) => (
-                        <TagChip
-                          key={tag.id}
-                          label={tag.name}
-                          selected={selectedTagIds.includes(tag.id)}
-                          onToggle={() => toggleTag(tag.id)}
-                        />
-                      ))}
-                      {category === 'Custom' && (
-                        <CustomTagButton onClick={() => setCreateTagOpen(true)} />
+            <FormCard
+              title={t('recipes.form.tagsLabel', { defaultValue: 'Tags' })}
+              description={t('recipes.form.tagsDescription', {
+                defaultValue:
+                  'Tagge das Rezept für Filter und „Was kochen wir heute?“',
+              })}
+            >
+              {tagsQuery.isLoading ? (
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  {t('recipes.form.tagsLoading', { defaultValue: 'Lade Tags …' })}
+                </p>
+              ) : (
+                <div className="space-y-3.5">
+                  {CATEGORY_ORDER.filter((c) => tagsByCategory.has(c)).map((category, i) => (
+                    <div
+                      key={category}
+                      className={cn(
+                        i > 0 && 'border-t border-dashed border-border pt-3.5',
                       )}
+                    >
+                      <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
+                        {categoryLabels[category]}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(tagsByCategory.get(category) ?? []).map((tag) => (
+                          <TagChip
+                            key={tag.id}
+                            label={tag.name}
+                            selected={selectedTagIds.includes(tag.id)}
+                            onToggle={() => toggleTag(tag.id)}
+                          />
+                        ))}
+                        {category === 'Custom' && (
+                          <CustomTagButton onClick={() => setCreateTagOpen(true)} />
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-                {!hasCustomCategory && (
-                  <div className="border-t border-dashed border-border pt-3.5">
-                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                      {categoryLabels.Custom}
+                  ))}
+                  {!hasCustomCategory && (
+                    <div className="border-t border-dashed border-border pt-3.5">
+                      <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
+                        {categoryLabels.Custom}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <CustomTagButton onClick={() => setCreateTagOpen(true)} />
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <CustomTagButton onClick={() => setCreateTagOpen(true)} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </FormCard>
+                  )}
+                  {fieldError?.fieldName === 'tagIds' && (
+                    <p
+                      id="recipe-form-tagIds-error"
+                      data-testid="recipe-form-tagIds-error"
+                      role="alert"
+                      className="mt-2 rounded-md bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
+                    >
+                      {fieldError.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </FormCard>
+          </div>
 
           {/* P2-10 — read-only preview of the LLM-estimated per-portion
               nutrition. Only rendered in create mode when the import
