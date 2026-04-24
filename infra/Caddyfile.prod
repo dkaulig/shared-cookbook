@@ -6,6 +6,24 @@
 {$CADDY_DOMAIN} {
     encode zstd gzip
 
+    # REL-0b — baseline security headers applied to every response.
+    # CSP stays modest so Caddy doesn't block the SPA's own scripts:
+    # 'self' + an explicit carve-out for the inline Vite runtime that
+    # ships with index.html. Tighten per-feature over time (report-uri
+    # when we have a collector). HSTS is safe on the production domain
+    # since Caddy auto-provisions TLS; set `preload` opt-in only after
+    # the user has committed to keeping the domain on HTTPS forever.
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        # Strip Caddy's X-Powered-By and ASP.NET's Server banner.
+        -Server
+    }
+
     # P3-8 security — SignalR negotiate/WebSocket upgrades carry the
     # JWT in the ?access_token=... query string (browsers can't set
     # Authorization headers on WS upgrades). Caddy's default access log
