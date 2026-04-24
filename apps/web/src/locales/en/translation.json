@@ -1011,7 +1011,11 @@
       "adminExtractorCta": "Extractor config",
       "logoutHeading": "Sign out",
       "logoutBody": "Sign out if you used the app on a shared device.",
-      "logoutCta": "Sign out"
+      "logoutCta": "Sign out",
+      "language": {
+        "heading": "Language",
+        "description": "Switch the app language here. Your pick is stored locally on this device."
+      }
     }
   },
   "admin": {

@@ -1011,7 +1011,11 @@
       "adminExtractorCta": "Extractor-Konfiguration",
       "logoutHeading": "Abmelden",
       "logoutBody": "Melde dich ab, wenn du die App auf einem fremden Gerät benutzt hast.",
-      "logoutCta": "Abmelden"
+      "logoutCta": "Abmelden",
+      "language": {
+        "heading": "Sprache",
+        "description": "Hier kannst du die Sprache der App wechseln. Die Einstellung wird lokal auf diesem Gerät gespeichert."
+      }
     }
   },
   "admin": {

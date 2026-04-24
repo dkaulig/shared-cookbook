@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { LanguageToggle } from '@/components/layout/LanguageToggle'
 import { useAuth } from '@/features/auth/useAuth'
 import { useAuthStore } from '@/features/auth/authStore'
 import { changeDisplayName, changePassword } from '@/features/auth/accountClient'
@@ -73,6 +74,21 @@ export function ProfilStub() {
       </Card>
 
       <PasswordCard />
+
+      {/* REL-3h — language switcher lives here, not in TopNav. Casual
+          users don't stumble onto it mid-navigation; enthusiasts find
+          it under /profil next to the other account controls. */}
+      <Card className="mt-5">
+        <CardHeader>
+          <CardTitle>{t('account.profilePage.language.heading')}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            {t('account.profilePage.language.description')}
+          </p>
+          <LanguageToggle />
+        </CardContent>
+      </Card>
 
       <Card className="mt-5">
         <CardHeader>
