@@ -23,6 +23,8 @@ import {
   rememberImportStagedPhotos,
   type ImportStagedPhotoMemo,
 } from './importGroupMemo'
+import { AiDisabledNotice } from '@/features/_shared/AiDisabledNotice'
+import { useFeatures } from '@/features/_shared/useFeatures'
 
 /**
  * P2-8 — `/rezepte/import/photos` entry form.
@@ -65,6 +67,26 @@ const MAX_BYTES = 5 * 1024 * 1024
 const ACCEPT: readonly string[] = ['image/jpeg', 'image/png', 'image/webp']
 
 export function ImportPhotosPage() {
+  // REL-7 — AI must be on for photo import (vision LLM call). The
+  // feature-gate runs BEFORE all the form's hooks so the hooks-order
+  // rule stays intact even if features flip between renders
+  // (placeholder → fetched-data transition). The gate branches
+  // between two disjoint sub-components, each owning its own hook
+  // tree — React treats them as separate components and the rule
+  // applies per-component, not across the conditional.
+  const features = useFeatures()
+  if (!features.ai.features.photoImport) {
+    return (
+      <AiDisabledNotice
+        title="Foto-Import benötigt KI"
+        description="Diese Instanz läuft ohne KI-Anbieter. Foto-Importe brauchen die Vision-KI, um Zutaten und Schritte aus Seitenfotos zu lesen."
+      />
+    )
+  }
+  return <ImportPhotosPageForm />
+}
+
+function ImportPhotosPageForm() {
   const navigate = useNavigate()
   const location = useLocation()
   const groups = useMyGroups()

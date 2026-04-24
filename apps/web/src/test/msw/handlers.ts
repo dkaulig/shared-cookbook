@@ -12,6 +12,25 @@ export const handlers = [
       timestamp: new Date().toISOString(),
     }),
   ),
+  // REL-7 — default "AI on" response so the existing HomePage /
+  // ImportPhotos / Chat tests (which assume every import surface is
+  // visible) keep their current behaviour. AI-off tests override this
+  // via `server.use(...)`.
+  http.get('/api/meta/features', () =>
+    HttpResponse.json({
+      ai: {
+        enabled: true,
+        provider: 'azure',
+        features: {
+          urlImport: true,
+          jsonldImport: true,
+          videoImport: true,
+          photoImport: true,
+          chat: true,
+        },
+      },
+    }),
+  ),
   // P3-8 — any component using <AppLayout /> or ProtectedRoute
   // transitively invokes `useLiveSync`, which negotiates against
   // `/api/hubs/live`. Return a 404 so SignalR's start() rejects fast;
