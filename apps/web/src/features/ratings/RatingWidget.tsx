@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Star } from 'lucide-react'
-import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useDeleteRating, useRatings, useUpsertRating } from './hooks'
 
 /**
@@ -89,8 +89,8 @@ function RatingForm({
         comment: comment.trim() === '' ? undefined : comment.trim(),
       })
     } catch (err) {
-      const apiErr = err as ApiError
-      setError(apiErr.message || 'Bewertung konnte nicht gespeichert werden.')
+      // REL-3f — localise via errors.json + drop 5xx leaks.
+      setError(classifyMutationError(err).message)
     }
   }
 
@@ -101,8 +101,7 @@ function RatingForm({
       setStars(0)
       setComment('')
     } catch (err) {
-      const apiErr = err as ApiError
-      setError(apiErr.message || 'Bewertung konnte nicht gelöscht werden.')
+      setError(classifyMutationError(err).message)
     }
   }
 

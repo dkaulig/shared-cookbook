@@ -115,10 +115,19 @@ describe('<LoginPage />', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/gültige e-mail/i)
   })
 
-  it('on 401 surfaces the server German error message', async () => {
+  // REL-3f — backend error-codes route through the localised errors.json
+  // copy; the raw English Dev-Message never leaks verbatim.
+  it('on 401 surfaces the localised errors:invalid_credentials copy', async () => {
     server.use(
       http.post('/api/auth/login', () =>
-        HttpResponse.json({ code: 'invalid_credentials', message: 'E-Mail oder Passwort ungültig.' }, { status: 401 }),
+        HttpResponse.json(
+          {
+            code: 'invalid_credentials',
+            message: 'Invalid email or password.',
+            status: 401,
+          },
+          { status: 401 },
+        ),
       ),
     )
 
@@ -129,7 +138,9 @@ describe('<LoginPage />', () => {
     await user.type(screen.getByLabelText(/passwort/i), 'wrong')
     await user.click(screen.getByRole('button', { name: /^anmelden$/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/E-Mail oder Passwort ungültig/i)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/E-Mail oder Passwort ist nicht korrekt/i)
+    expect(alert).not.toHaveTextContent(/Invalid email or password/)
   })
 
   it('on 200 redirects to "/" and populates the auth store', async () => {

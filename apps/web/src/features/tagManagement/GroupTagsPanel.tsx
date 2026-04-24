@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import type { ApiError, TagDto } from '@familien-kochbuch/shared'
+import type { TagDto } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { useGroup } from '@/features/groups/hooks'
 import { useGroupTags } from '@/features/recipes/hooks'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { CreateTagDialog } from './CreateTagDialog'
 import { useDeleteGroupTag } from './hooks'
 
@@ -61,8 +62,8 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
       await deleteMutation.mutateAsync(tag.id)
       setPendingDelete(null)
     } catch (err) {
-      const apiErr = err as ApiError
-      setError(apiErr.message || 'Tag konnte nicht gelöscht werden.')
+      // REL-3f — localise via errors.json + drop 5xx leaks.
+      setError(classifyMutationError(err).message)
       setPendingDelete(null)
     }
   }
