@@ -21,7 +21,7 @@
     "actionFailed": "Aktion fehlgeschlagen."
   },
   "nav": {
-    "home": "Startseite",
+    "home": "Start",
     "groups": "Gruppen",
     "recipes": "Rezepte",
     "mealplan": "Wochenplan",
@@ -32,7 +32,20 @@
     "import": "Import",
     "settings": "Einstellungen",
     "aiUsage": "KI-Verbrauch",
-    "extractor": "Extractor-Config"
+    "extractor": "Extractor-Config",
+    "newRecipe": "Neues Rezept",
+    "newShort": "Neu"
+  },
+  "a11y": {
+    "mainNav": "Hauptnavigation",
+    "sideRail": "Seitenleiste",
+    "desktopNav": "Desktop-Navigation",
+    "accountNav": "Kontonavigation",
+    "closeDialog": "Dialog schließen",
+    "brandHome": "Familien-Kochbuch — Startseite",
+    "refreshPage": "Seite aktualisieren",
+    "searchRecipes": "Rezepte suchen",
+    "yourProfile": "Dein Profil"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -224,7 +237,7 @@
       "title": "KI ist deaktiviert",
       "photoDescription": "Import aus Foto braucht ein aktives KI-Modell. Bitte aktiviere AI in der .env oder importiere per URL mit Rohtext-Fallback.",
       "chatDescription": "Der Chat benötigt ein aktives KI-Modell. Rezepte lassen sich weiter manuell erfassen.",
-      "adminHint": "Admin-Hinweis: setze {{aiEnabledKey}} und {{providerKey}} in der .env und starte die Container neu.",
+      "adminHintTemplate": "Admin-Hinweis: setze <aiFlag>AI_ENABLED=true</aiFlag> und <providerFlag>LLM_PROVIDER=azure</providerFlag> oder <ollamaFlag>LLM_PROVIDER=ollama</ollamaFlag> in der <envFile>.env</envFile> und starte die Container neu.",
       "back": "Zurück zur Startseite"
     }
   },
@@ -245,8 +258,8 @@
     "updateCta": "Aktualisieren"
   },
   "notFound": {
-    "title": "Seite nicht gefunden",
-    "body": "Die angeforderte Seite existiert nicht oder wurde verschoben.",
+    "title": "404 · Hier kocht niemand",
+    "body": "Diese Seite gibt's nicht (mehr).",
     "home": "Zur Startseite"
   }
 }

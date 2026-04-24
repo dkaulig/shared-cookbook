@@ -1,8 +1,10 @@
 import { RefreshCw, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useIsFetching, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { ChefHatLogo } from '@/components/brand/ChefHatLogo'
 import { NetworkIndicator } from '@/components/layout/NetworkIndicator'
+import { LanguageToggle } from '@/components/layout/LanguageToggle'
 import { useAuth } from '@/features/auth/useAuth'
 import { cn } from '@/lib/utils'
 
@@ -27,6 +29,7 @@ import { cn } from '@/lib/utils'
  */
 export function TopNav() {
   const { user } = useAuth()
+  const { t } = useTranslation()
   const initial = user?.displayName?.trim()?.charAt(0)?.toUpperCase() || '·'
 
   // 2026-04-21 Pull-to-refresh substitute. Standalone-PWAs (Chrome /
@@ -59,7 +62,9 @@ export function TopNav() {
       <Link
         to="/"
         className="flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        aria-label="Familien-Kochbuch — Startseite"
+        aria-label={t('a11y.brandHome', {
+          defaultValue: 'Familien-Kochbuch — Startseite',
+        })}
       >
         <span
           aria-hidden="true"
@@ -72,14 +77,19 @@ export function TopNav() {
         </span>
       </Link>
 
-      <nav aria-label="Kontonavigation" className="flex items-center gap-1">
+      <nav
+        aria-label={t('a11y.accountNav', { defaultValue: 'Kontonavigation' })}
+        className="flex items-center gap-1"
+      >
         {/* OFF2 — offline + queued-replay indicator. Silent when online
             and queue is empty so the happy-path UI stays quiet. */}
         <NetworkIndicator />
         <button
           type="button"
-          aria-label="Seite aktualisieren"
-          title="Aktualisieren"
+          aria-label={t('a11y.refreshPage', {
+            defaultValue: 'Seite aktualisieren',
+          })}
+          title={t('common.retry', { defaultValue: 'Aktualisieren' })}
           onClick={handleRefresh}
           className="grid h-10 w-10 place-items-center rounded-[10px] text-muted-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
@@ -90,15 +100,18 @@ export function TopNav() {
         </button>
         <Link
           to="/suche"
-          aria-label="Suche"
-          title="Rezepte suchen"
+          aria-label={t('nav.search', { defaultValue: 'Suche' })}
+          title={t('a11y.searchRecipes', { defaultValue: 'Rezepte suchen' })}
           className="grid h-10 w-10 place-items-center rounded-[10px] text-muted-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <Search className="h-5 w-5" aria-hidden="true" />
         </Link>
+        {/* REL-3 — language switcher: DE ↔ EN, persisted to
+            localStorage via i18next-browser-languagedetector. */}
+        <LanguageToggle />
         <Link
           to="/profil"
-          aria-label="Dein Profil"
+          aria-label={t('a11y.yourProfile', { defaultValue: 'Dein Profil' })}
           title={user?.displayName ?? undefined}
           className="ml-1 grid h-9 w-9 place-items-center rounded-full border-2 border-background bg-[linear-gradient(135deg,#c3d4ca_0%,#8daea0_100%)] text-[14px] font-semibold text-[#2b4435] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >

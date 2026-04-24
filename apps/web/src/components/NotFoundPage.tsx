@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button'
  * reads cleanly in the Sage Modern skin.
  */
 export function NotFoundPage() {
+  const { t } = useTranslation()
   return (
     <main
       className="flex min-h-[60vh] flex-col items-center justify-center bg-background px-6 py-16 text-center"
@@ -27,13 +29,17 @@ export function NotFoundPage() {
           🫕
         </span>
         <h1 className="mb-3 font-serif text-[clamp(30px,7vw,44px)] font-semibold leading-[1.05] tracking-[-0.015em] text-foreground">
-          404 · Hier kocht niemand
+          {t('notFound.title', { defaultValue: '404 · Hier kocht niemand' })}
         </h1>
         <p className="mb-8 font-serif-body text-[15px] italic leading-[1.55] text-muted-foreground">
-          Diese Seite gibt's nicht (mehr).
+          {t('notFound.body', {
+            defaultValue: "Diese Seite gibt's nicht (mehr).",
+          })}
         </p>
         <Button asChild size="lg">
-          <Link to="/">Zur Startseite</Link>
+          <Link to="/">
+            {t('notFound.home', { defaultValue: 'Zur Startseite' })}
+          </Link>
         </Button>
       </div>
     </main>

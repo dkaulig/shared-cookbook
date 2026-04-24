@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { navItems, type NavItem } from './navItems'
 
@@ -32,9 +33,10 @@ import { navItems, type NavItem } from './navItems'
  *   and BottomNav use.
  */
 export function DesktopTopNav() {
+  const { t } = useTranslation()
   return (
     <nav
-      aria-label="Desktop-Navigation"
+      aria-label={t('a11y.desktopNav', { defaultValue: 'Desktop-Navigation' })}
       className={cn(
         // Only visible at ≥ xl (1280 px+); hidden below so BottomNav /
         // SideRail own those viewports with zero layout math — the
@@ -52,11 +54,13 @@ export function DesktopTopNav() {
 
 function DesktopTopNavLink({ item }: { item: NavItem }) {
   const Icon = item.icon
+  const { t } = useTranslation()
+  const label = t(item.labelKey, { defaultValue: item.label })
   return (
     <NavLink
       to={item.to}
       end={item.to === '/'}
-      aria-label={item.label}
+      aria-label={label}
       className={({ isActive }) =>
         cn(
           'inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium',
@@ -70,7 +74,7 @@ function DesktopTopNavLink({ item }: { item: NavItem }) {
       }
     >
       <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
-      <span className="leading-none">{item.label}</span>
+      <span className="leading-none">{label}</span>
     </NavLink>
   )
 }

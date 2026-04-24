@@ -61,8 +61,9 @@ describe('i18n foundation', () => {
         <TestHarness />
       </I18nextProvider>,
     )
-    // `nav.home` must be "Startseite" in German copy.
-    expect(screen.getByTestId('known-key').textContent).toBe('Startseite')
+    // `nav.home` must be "Start" in German copy (matches the existing
+    // BottomNav/SideRail label).
+    expect(screen.getByTestId('known-key').textContent).toBe('Start')
   })
 
   it('switches to English when changeLanguage is called', async () => {

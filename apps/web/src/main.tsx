@@ -6,6 +6,11 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 // does not call Google Fonts (Inter-only typography per DS8).
 import './styles/fonts'
 import './index.css'
+// REL-3 — side-effect import initialises the default i18n singleton
+// before the React tree mounts so the first render already has
+// translations available. Runs before `import App` so module-level
+// code in nav / layout components can read translations eagerly.
+import './i18n/bootstrap'
 import App from './App.tsx'
 import { PwaUpdatePrompt } from './pwa/PwaUpdatePrompt'
 import {
