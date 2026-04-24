@@ -120,6 +120,27 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.NotNull(body);
         Assert.Equal("invite_not_found", body!.Code);
+        // REL-4b — invite-code failures pin the "inviteToken" form field so
+        // SignupPage can focus the invite-code input on the error.
+        Assert.Equal("inviteToken", body.FieldName);
+    }
+
+    [Fact]
+    public async Task Signup_Without_Token_Returns_400_With_InviteToken_FieldName()
+    {
+        // REL-4b — missing ?token= query param emits the same "inviteToken"
+        // field hint as an unknown / invalid invite so the frontend can
+        // surface the error on the same input regardless of which failure
+        // path the backend takes.
+        var response = await _client.PostAsJsonAsync(
+            "/api/auth/signup",
+            new AuthEndpoints.SignupRequest("x@example.com", "Passwort123!", "X"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invite_token_missing", body!.Code);
+        Assert.Equal("inviteToken", body.FieldName);
     }
 
     [Fact]
@@ -136,6 +157,7 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("invite_invalid", body!.Code);
+        Assert.Equal("inviteToken", body.FieldName);
     }
 
     [Fact]
@@ -150,6 +172,44 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
         Assert.Equal("invite_invalid", body!.Code);
+        Assert.Equal("inviteToken", body.FieldName);
+    }
+
+    [Fact]
+    public async Task Signup_With_Duplicate_Email_Returns_400_With_Email_FieldName()
+    {
+        // REL-4b — the duplicate-email branch pins "email" so the signup
+        // form can highlight the email field rather than a top-level banner.
+        await SeedUserAsync("taken@example.com", "Passwort123!");
+        var invite = await CreateInviteAsync();
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/auth/signup?token={invite.Token}",
+            new AuthEndpoints.SignupRequest("taken@example.com", "Passwort123!", "Neuer Nutzer"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("email_taken", body!.Code);
+        Assert.Equal("email", body.FieldName);
+    }
+
+    [Fact]
+    public async Task Signup_With_Weak_Password_Returns_400_With_NewPassword_FieldName()
+    {
+        // REL-4b — Identity's policy-rejection (too short / weak) pins
+        // "newPassword" so the form can focus the password field.
+        var invite = await CreateInviteAsync();
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/auth/signup?token={invite.Token}",
+            new AuthEndpoints.SignupRequest("weak@example.com", "x", "Neuer Nutzer"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("password_rejected", body!.Code);
+        Assert.Equal("newPassword", body.FieldName);
     }
 
     // ── LOGIN ───────────────────────────────────────────────────────
@@ -189,6 +249,34 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
             new AuthEndpoints.LoginRequest("no-such-user@example.com", "whatever"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_Invalid_Credentials_Does_Not_Emit_FieldName()
+    {
+        // REL-4b — the three 401 branches (unknown email / wrong password /
+        // locked-out) MUST stay indistinguishable from each other to avoid
+        // leaking account existence or lockout state. Emitting a fieldName
+        // like "email" vs "password" would re-introduce the exact leak the
+        // shared invalid_credentials code was designed to prevent. See
+        // ErrorCodes.InvalidCredentials XML docs.
+        await SeedUserAsync("existing@example.com", "Correct123!");
+
+        var unknownEmail = await _client.PostAsJsonAsync(
+            "/api/auth/login",
+            new AuthEndpoints.LoginRequest("ghost@example.com", "whatever"));
+        var wrongPassword = await _client.PostAsJsonAsync(
+            "/api/auth/login",
+            new AuthEndpoints.LoginRequest("existing@example.com", "Wrong123!"));
+
+        foreach (var response in new[] { unknownEmail, wrongPassword })
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+            Assert.NotNull(body);
+            Assert.Equal("invalid_credentials", body!.Code);
+            Assert.Null(body.FieldName);
+        }
     }
 
     // REL-0b — Identity's AccessFailedCount + Lockout must activate on
@@ -387,6 +475,60 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Empty(_factory.Email.Messages);
+    }
+
+    [Fact]
+    public async Task PasswordReset_With_Malformed_Token_Returns_400_With_ResetToken_FieldName()
+    {
+        // REL-4b — a malformed reset link pins "resetToken" so the reset
+        // page can highlight that the link is the source of the failure.
+        var response = await _client.PostAsJsonAsync(
+            "/api/auth/password-reset",
+            new AuthEndpoints.PasswordResetBody("not-a-valid-composite", "NeuesPasswort1!"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_token", body!.Code);
+        Assert.Equal("resetToken", body.FieldName);
+    }
+
+    [Fact]
+    public async Task PasswordReset_With_Unknown_User_Returns_400_With_ResetToken_FieldName()
+    {
+        var unknownUser = Guid.NewGuid();
+        var response = await _client.PostAsJsonAsync(
+            "/api/auth/password-reset",
+            new AuthEndpoints.PasswordResetBody($"{unknownUser}|some-opaque-token", "NeuesPasswort1!"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_token", body!.Code);
+        Assert.Equal("resetToken", body.FieldName);
+    }
+
+    [Fact]
+    public async Task PasswordReset_With_Identity_Failure_Returns_400_With_ResetToken_FieldName()
+    {
+        // REL-4b — Identity ResetPasswordAsync failing (bad raw token part)
+        // pins "resetToken" because the most common real-world cause is an
+        // expired / already-consumed link, which the user's only lever is
+        // to request a new one.
+        await SeedUserAsync("reset-failed@example.com", "AltesPasswort1!");
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var user = await db.Users.SingleAsync(u => u.Email == "reset-failed@example.com");
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/auth/password-reset",
+            new AuthEndpoints.PasswordResetBody($"{user.Id}|bogus-raw-token", "NeuesPasswort1!"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("reset_failed", body!.Code);
+        Assert.Equal("resetToken", body.FieldName);
     }
 
     [Fact]
