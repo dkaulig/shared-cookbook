@@ -113,8 +113,8 @@ public static class AdminExtractorConfigEndpoints
             .SingleOrDefaultAsync(c => c.Key == key, ct);
         if (row is null)
             return FamilienResults.NotFound(
-                "config_key_not_found",
-                $"Unbekannter Konfigurationsschlüssel '{key}'.");
+                ErrorCodes.ConfigKeyNotFound,
+                $"Unknown configuration key '{key}'.");
 
         // SQLite can't translate DateTimeOffset in ORDER BY; same
         // workaround as AdminAiUsageEndpoints — fetch + sort in memory
@@ -174,13 +174,13 @@ public static class AdminExtractorConfigEndpoints
         var row = await db.ExtractorConfigs.SingleOrDefaultAsync(c => c.Key == key, ct);
         if (row is null)
             return FamilienResults.NotFound(
-                "config_key_not_found",
-                $"Unbekannter Konfigurationsschlüssel '{key}'.");
+                ErrorCodes.ConfigKeyNotFound,
+                $"Unknown configuration key '{key}'.");
 
         if (row.Version != body.ExpectedVersion)
             return FamilienResults.Conflict(
-                "version_mismatch",
-                $"Die aktuelle Version ({row.Version}) stimmt nicht mit der erwarteten Version ({body.ExpectedVersion}) überein.",
+                ErrorCodes.VersionMismatch,
+                $"Version mismatch: server has {row.Version}, client expected {body.ExpectedVersion}. Reload and retry.",
                 current: new
                 {
                     key = row.Key,
@@ -190,7 +190,10 @@ public static class AdminExtractorConfigEndpoints
 
         var validation = validator.Validate(key, body.Value);
         if (!validation.IsValid)
-            return FamilienResults.BadRequest("invalid_value", validation.ErrorMessage!);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidValue,
+                validation.ErrorMessage!,
+                fieldName: "value");
 
         var editorId = ctx.User.GetUserId();
         var oldJson = row.UpdateValue(
@@ -216,8 +219,8 @@ public static class AdminExtractorConfigEndpoints
             // write — treat identically to the endpoint-level 409
             // so the admin UI has one branch to handle.
             return FamilienResults.Conflict(
-                "version_mismatch",
-                "Die Konfiguration wurde zwischenzeitlich von jemand anderem geändert.");
+                ErrorCodes.VersionMismatch,
+                "Configuration was changed by someone else; reload and retry.");
         }
 
         var userNames = editorId is { } eid
@@ -237,14 +240,14 @@ public static class AdminExtractorConfigEndpoints
 
         if (!ExtractorConfigDefaults.ByKey.TryGetValue(key, out var entry))
             return FamilienResults.NotFound(
-                "config_key_not_found",
-                $"Unbekannter Konfigurationsschlüssel '{key}'.");
+                ErrorCodes.ConfigKeyNotFound,
+                $"Unknown configuration key '{key}'.");
 
         var row = await db.ExtractorConfigs.SingleOrDefaultAsync(c => c.Key == key, ct);
         if (row is null)
             return FamilienResults.NotFound(
-                "config_key_not_found",
-                $"Unbekannter Konfigurationsschlüssel '{key}'.");
+                ErrorCodes.ConfigKeyNotFound,
+                $"Unknown configuration key '{key}'.");
 
         var editorId = ctx.User.GetUserId();
         var oldJson = row.UpdateValue(

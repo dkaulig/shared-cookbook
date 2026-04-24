@@ -135,7 +135,8 @@ public static class ShoppingListEndpoints
     {
         var plan = await db.MealPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
         if (plan is null)
-            return (null, FamilienResults.NotFound("mealplan.not_found", "MealPlan wurde nicht gefunden."));
+            return (null, FamilienResults.NotFound(
+                ErrorCodes.MealplanNotFound, "Meal plan not found."));
         if (!await IsGroupMemberAsync(db, plan.GroupId, userId, ct))
             return (null, Results.Forbid());
         return (plan, null);
@@ -162,8 +163,8 @@ public static class ShoppingListEndpoints
             .Where(i => i.ShoppingListId == list.Id)
             .ToListAsync(ct);
         return FamilienResults.Conflict(
-            "version_mismatch",
-            "Der Eintrag wurde zwischenzeitlich geändert.",
+            ErrorCodes.VersionMismatch,
+            "Version mismatch; reload and retry.",
             (object?)ToDto(list, items));
     }
 
@@ -192,8 +193,8 @@ public static class ShoppingListEndpoints
             currentDto = ToDto(fresh, items);
         }
         return FamilienResults.Conflict(
-            "version_mismatch",
-            "Der Eintrag wurde zwischenzeitlich geändert.",
+            ErrorCodes.VersionMismatch,
+            "Version mismatch; reload and retry.",
             (object?)currentDto);
     }
 
@@ -202,15 +203,15 @@ public static class ShoppingListEndpoints
     {
         var list = await db.ShoppingLists.FirstOrDefaultAsync(l => l.Id == listId, ct);
         if (list is null)
-            return (null, null, FamilienResults.NotFound("shopping_list.not_found",
-                "Einkaufsliste wurde nicht gefunden."));
+            return (null, null, FamilienResults.NotFound(
+                ErrorCodes.ShoppingListNotFound, "Shopping list not found."));
         var plan = await db.MealPlans.FirstOrDefaultAsync(p => p.Id == list.MealPlanId, ct);
         if (plan is null)
             // Orphan list — shouldn't happen given the cascade FK, but
             // treat like a missing plan so we fail fast rather than
             // leak the row.
-            return (null, null, FamilienResults.NotFound("mealplan.not_found",
-                "MealPlan wurde nicht gefunden."));
+            return (null, null, FamilienResults.NotFound(
+                ErrorCodes.MealplanNotFound, "Meal plan not found."));
         if (!await IsGroupMemberAsync(db, plan.GroupId, userId, ct))
             return (null, null, Results.Forbid());
         return (list, plan, null);
@@ -251,8 +252,9 @@ public static class ShoppingListEndpoints
         var list = await db.ShoppingLists
             .FirstOrDefaultAsync(l => l.MealPlanId == plan!.Id, ct);
         if (list is null)
-            return FamilienResults.NotFound("shopping_list.not_found",
-                "Für diesen Wochenplan existiert noch keine Einkaufsliste. Erzeuge sie via POST /shopping-list/generate.");
+            return FamilienResults.NotFound(
+                ErrorCodes.ShoppingListNotFound,
+                "No shopping list exists for this meal plan yet. Generate one via POST /shopping-list/generate.");
 
         var items = await db.ShoppingListItems
             .Where(i => i.ShoppingListId == list.Id)
@@ -501,7 +503,10 @@ public static class ShoppingListEndpoints
         // would otherwise persist a nonsense bucket that UIs can't
         // render and downstream sort code can't group.
         if (body.Category is { } cat && !Enum.IsDefined(typeof(IngredientCategory), cat))
-            return FamilienResults.BadRequest("category.invalid", "Unbekannte Kategorie.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidCategory,
+                "Unknown ingredient category.",
+                fieldName: "category");
 
         var now = clock.GetUtcNow();
 
@@ -529,9 +534,10 @@ public static class ShoppingListEndpoints
                 carriedOverFromPreviousWeek: false,
                 createdAt: now);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid shopping list payload.");
         }
 
         db.ShoppingListItems.Add(item);
@@ -584,17 +590,19 @@ public static class ShoppingListEndpoints
         var item = await db.ShoppingListItems
             .FirstOrDefaultAsync(i => i.Id == itemId, ct);
         if (item is null || item.ShoppingListId != list!.Id)
-            return FamilienResults.NotFound("shopping_item.not_found",
-                "Einkaufslisten-Item wurde nicht gefunden.");
+            return FamilienResults.NotFound(
+                ErrorCodes.ShoppingItemNotFound,
+                "Shopping list item not found.");
 
         ItemPatchRequest patch;
         try
         {
             patch = await ItemPatchRequest.ReadAsync(request, ct);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid shopping list payload.");
         }
 
         var now = clock.GetUtcNow();
@@ -605,8 +613,10 @@ public static class ShoppingListEndpoints
             {
                 var e = patch.IsChecked.Value;
                 if (e.ValueKind != JsonValueKind.True && e.ValueKind != JsonValueKind.False)
-                    return FamilienResults.BadRequest("invalid_input",
-                        "Feld 'isChecked' muss true oder false sein.");
+                    return FamilienResults.BadRequest(
+                        ErrorCodes.InvalidValue,
+                        "Field 'isChecked' must be true or false.",
+                        fieldName: "isChecked");
                 item.SetChecked(e.GetBoolean(), now);
             }
             if (patch.Note.HasValue)
@@ -615,13 +625,16 @@ public static class ShoppingListEndpoints
                 if (e.ValueKind == JsonValueKind.Null) item.SetNote(null, now);
                 else if (e.ValueKind == JsonValueKind.String) item.SetNote(e.GetString(), now);
                 else
-                    return FamilienResults.BadRequest("invalid_input",
-                        "Feld 'note' muss ein Text oder null sein.");
+                    return FamilienResults.BadRequest(
+                        ErrorCodes.InvalidValue,
+                        "Field 'note' must be a string or null.",
+                        fieldName: "note");
             }
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid shopping list payload.");
         }
 
         list!.Touch(now);
@@ -669,8 +682,9 @@ public static class ShoppingListEndpoints
         var item = await db.ShoppingListItems
             .FirstOrDefaultAsync(i => i.Id == itemId, ct);
         if (item is null || item.ShoppingListId != list!.Id)
-            return FamilienResults.NotFound("shopping_item.not_found",
-                "Einkaufslisten-Item wurde nicht gefunden.");
+            return FamilienResults.NotFound(
+                ErrorCodes.ShoppingItemNotFound,
+                "Shopping list item not found.");
 
         db.ShoppingListItems.Remove(item);
         list!.Touch(clock.GetUtcNow());

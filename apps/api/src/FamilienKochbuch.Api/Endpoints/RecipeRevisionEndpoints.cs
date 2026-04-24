@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Domain.Entities;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
@@ -149,7 +150,9 @@ public static class RecipeRevisionEndpoints
         var snapshot = JsonSerializer.Deserialize<RecipeRevisionService.RecipeSnapshot>(
             revision.SnapshotJson, SnapshotJsonOptions);
         if (snapshot is null)
-            return Results.Problem("Revision snapshot konnte nicht gelesen werden.");
+            return FamilienResults.InternalServerError(
+                ErrorCodes.InternalError,
+                "Revision snapshot could not be deserialised.");
 
         var snapshotDto = new RecipeSnapshotDto(
             snapshot.Title,

@@ -1332,7 +1332,7 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.NotNull(body.PartialPhotoFailures);
         var failure = Assert.Single(body.PartialPhotoFailures!);
         Assert.Equal(foreignStagedId, failure.StagedPhotoId);
-        Assert.Contains("gehört nicht dir", failure.Reason);
+        Assert.Contains("does not belong to the caller", failure.Reason);
 
         // The foreign staged photo row stays untouched (still owned by
         // the other user, still un-promoted).
@@ -1368,7 +1368,7 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.NotNull(body.PartialPhotoFailures);
         var failure = Assert.Single(body.PartialPhotoFailures!);
         Assert.Equal(stagedId, failure.StagedPhotoId);
-        Assert.Contains("bereits", failure.Reason);
+        Assert.Contains("already attached", failure.Reason);
     }
 
     [Fact]
@@ -1389,7 +1389,7 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.NotNull(body.PartialPhotoFailures);
         var failure = Assert.Single(body.PartialPhotoFailures!);
         Assert.Equal(unknown, failure.StagedPhotoId);
-        Assert.Contains("nicht gefunden", failure.Reason);
+        Assert.Contains("Photo not found", failure.Reason);
     }
 
     [Fact]

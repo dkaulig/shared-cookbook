@@ -653,7 +653,7 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
             new StringContent($$"""{"parentSlotId": "{{a.Id}}"}""", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.BadRequest, step2.StatusCode);
         var err = await step2.Content.ReadFromJsonAsync<ErrorResponseDto>();
-        Assert.Equal("parent.cycle", err!.Code);
+        Assert.Equal("parent_cycle", err!.Code);
     }
 
     private sealed record ErrorResponseDto(string Code, string Message);
@@ -1086,7 +1086,7 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
         var body = await res.Content.ReadFromJsonAsync<ErrorResponseDto>();
         Assert.NotNull(body);
-        Assert.Equal("copy.target_not_empty", body!.Code);
+        Assert.Equal("copy_target_not_empty", body!.Code);
     }
 
     // ── OFF3 ETag + If-Match ─────────────────────────────────────────

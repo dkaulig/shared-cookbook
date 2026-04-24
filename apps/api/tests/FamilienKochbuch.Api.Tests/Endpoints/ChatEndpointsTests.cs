@@ -975,7 +975,7 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         using var doc = JsonDocument.Parse(body);
         Assert.Equal("feature_disabled",
             doc.RootElement.GetProperty("code").GetString());
-        Assert.Equal("Chat ist aktuell deaktiviert.",
+        Assert.Equal("Chat is currently disabled.",
             doc.RootElement.GetProperty("message").GetString());
 
         // No DB write — user's message must not be persisted.

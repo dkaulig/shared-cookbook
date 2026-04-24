@@ -139,48 +139,61 @@ public static class InternalImportProgressEndpoints
         // ── Payload validation ──
         if (body is null)
             return ValidationProblem(
-                "Der Request-Body fehlt oder ist leer.", "body_missing");
+                "Request body is missing or empty.", "body_missing");
         // PV1 security — bound the attempt field to [1, MaxAttempt] so
         // a compromised / forged callback cannot wedge the monotonic
         // phase guard permanently ahead of legitimate updates by
         // claiming attempt=999 in a forged future.
         if (body.Attempt is null || body.Attempt.Value < 1 || body.Attempt.Value > MaxAttempt)
             return ValidationProblem(
-                $"Das Feld 'attempt' muss zwischen 1 und {MaxAttempt} liegen.",
-                "attempt.out_of_range");
+                $"Field 'attempt' must be between 1 and {MaxAttempt}.",
+                "attempt_out_of_range",
+                fieldName: "attempt");
         if (body.PhaseProgress is null || body.PhaseProgress is < 0 or > 100)
             return ValidationProblem(
-                "Das Feld 'phase_progress' muss zwischen 0 und 100 liegen.", "phase_progress_invalid");
+                "Field 'phase_progress' must be between 0 and 100.",
+                "phase_progress_invalid",
+                fieldName: "phase_progress");
         if (!RecipeImportPhaseWire.TryParse(body.Phase, out var phase))
             return ValidationProblem(
-                $"Das Feld 'phase' '{body.Phase}' ist kein gültiger Phasen-Wert.",
-                "phase_invalid");
+                $"Field 'phase' value '{body.Phase}' is not a recognised phase.",
+                "phase_invalid",
+                fieldName: "phase");
         // PV1 security — reject terminal phases on the progress
         // callback. Terminal transitions (Done / Error) are owned by
         // MarkDone / MarkError invoked from the Hangfire job; allowing
         // them here would let a compromised python-extractor (or an
         // attacker who stole a valid token) flip the import to Done
         // without actually persisting a recipe, leaving the user with
-        // a "Fertig" banner and an empty cookbook. Domain-level
+        // a "done" banner and an empty cookbook. Domain-level
         // UpdateProgress ALSO rejects these values as defence-in-depth,
         // but the endpoint returns a louder 422 so a mis-wired reporter
         // gets a clear signal instead of a silent 204 no-op.
         if (phase is RecipeImportPhase.Done or RecipeImportPhase.Error)
             return ValidationProblem(
-                "Das Feld 'phase' darf keinen terminalen Zustand ('done' / 'error') tragen.",
-                "phase.illegal_terminal_state");
+                "Field 'phase' must not carry a terminal state ('done' / 'error').",
+                "phase_illegal_terminal_state",
+                fieldName: "phase");
         if (body.BytesDownloaded() is long bd && bd < 0)
             return ValidationProblem(
-                "Das Feld 'bytes_done' darf nicht negativ sein.", "bytes_done_invalid");
+                "Field 'bytes_done' must not be negative.",
+                "bytes_done_invalid",
+                fieldName: "bytes_done");
         if (body.BytesTotal is long bt && bt < 0)
             return ValidationProblem(
-                "Das Feld 'bytes_total' darf nicht negativ sein.", "bytes_total_invalid");
+                "Field 'bytes_total' must not be negative.",
+                "bytes_total_invalid",
+                fieldName: "bytes_total");
         if (body.SegmentsDone is int sd && sd < 0)
             return ValidationProblem(
-                "Das Feld 'segments_done' darf nicht negativ sein.", "segments_done_invalid");
+                "Field 'segments_done' must not be negative.",
+                "segments_done_invalid",
+                fieldName: "segments_done");
         if (body.SegmentsTotal is int st && st < 0)
             return ValidationProblem(
-                "Das Feld 'segments_total' darf nicht negativ sein.", "segments_total_invalid");
+                "Field 'segments_total' must not be negative.",
+                "segments_total_invalid",
+                fieldName: "segments_total");
 
         // ── Load import ──
         var import = await db.RecipeImports.SingleOrDefaultAsync(i => i.Id == importId, ct);
@@ -248,13 +261,21 @@ public static class InternalImportProgressEndpoints
         return true;
     }
 
-    private static IResult ValidationProblem(string detail, string code)
+    private static IResult ValidationProblem(string detail, string code, string? fieldName = null)
     {
         // 422 Unprocessable Entity — the body parsed as JSON but failed
         // our domain validation. Consistent with FastAPI's 422 behaviour
         // on the Python side so error-handling code is symmetrical.
+        // REL-4 — emit the same uniform ErrorResponse shape the rest
+        // of the API uses, so consumers can parse a single envelope
+        // type regardless of which endpoint fired.
         return Results.Json(
-            new { code, message = detail },
+            new ErrorResponse(
+                code,
+                detail,
+                StatusCodes.Status422UnprocessableEntity,
+                fieldName),
+            FamilienKochbuch.Api.Services.FamilienResults.JsonOptions,
             statusCode: StatusCodes.Status422UnprocessableEntity);
     }
 }

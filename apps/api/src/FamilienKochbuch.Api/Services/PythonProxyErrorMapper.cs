@@ -17,7 +17,7 @@ namespace FamilienKochbuch.Api.Services;
 /// we pull the message out and re-wrap it in our uniform
 /// <see cref="ErrorResponse"/> shape via <see cref="FamilienResults"/>.</item>
 /// <item>Message sanitising. 401 (HMAC mismatch) MUST NOT leak the
-/// Python-side detail — surface the generic "Interner Fehler" copy
+/// Python-side detail — surface the generic "internal error" copy
 /// instead.</item>
 /// </list>
 ///
@@ -29,19 +29,19 @@ namespace FamilienKochbuch.Api.Services;
 /// </summary>
 public static class PythonProxyErrorMapper
 {
-    /// <summary>German copy used for Python 503 and transport failures.
-    /// Public so tests can pin the exact wording.</summary>
+    /// <summary>English developer-facing copy used for Python 503 and
+    /// transport failures. Public so tests can pin the exact wording.</summary>
     public const string AiServiceUnavailableMessage =
-        "KI-Service momentan nicht erreichbar. Bitte später erneut versuchen.";
+        "AI service is temporarily unavailable. Please retry shortly.";
 
     /// <summary>Generic 500 copy when Python returned 401 (HMAC drift)
     /// or any other response we don't want to leak.</summary>
     public const string InternalErrorMessage =
-        "Interner Fehler bei der KI-Verarbeitung.";
+        "Internal error while contacting the AI backend.";
 
     /// <summary>Generic 502 copy for malformed / surprise responses.</summary>
     public const string BadGatewayMessage =
-        "KI-Service hat eine unerwartete Antwort geliefert. Bitte erneut versuchen.";
+        "AI service returned an unexpected response. Please retry.";
 
     /// <summary>
     /// Translates a completed Python <see cref="HttpResponseMessage"/>
@@ -63,27 +63,35 @@ public static class PythonProxyErrorMapper
         // Python 401 = HMAC mismatch. Internal. Never leak.
         if (status == StatusCodes.Status401Unauthorized)
         {
-            return FamilienResults.InternalServerError("extractor_internal", InternalErrorMessage);
+            return FamilienResults.InternalServerError(
+                ErrorCodes.ExtractorInternal, InternalErrorMessage);
         }
 
         // 503 from Python = LLM outage / rate-limit. Pass through with
-        // our canonical German copy (don't trust Python's exact wording
+        // our canonical English copy (don't trust Python's exact wording
         // in case future versions change it).
         if (status == StatusCodes.Status503ServiceUnavailable)
         {
             return Results.Json(
-                new ErrorResponse("ai_service_unavailable", AiServiceUnavailableMessage),
+                new ErrorResponse(
+                    ErrorCodes.AiServiceUnavailable,
+                    AiServiceUnavailableMessage,
+                    StatusCodes.Status503ServiceUnavailable),
                 FamilienResults.JsonOptions,
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
 
-        // 413 passes through unchanged (German copy if Python provided
-        // one, generic fallback otherwise).
+        // 413 passes through unchanged (detail from Python if provided,
+        // generic fallback otherwise). Python owns the detail copy —
+        // it's the authoritative voice on "which size limit tripped".
         if (status == StatusCodes.Status413PayloadTooLarge)
         {
-            var msg = detail ?? "Die Eingabe ist zu groß.";
+            var msg = detail ?? "Payload too large.";
             return Results.Json(
-                new ErrorResponse("payload_too_large", msg),
+                new ErrorResponse(
+                    ErrorCodes.PayloadTooLarge,
+                    msg,
+                    StatusCodes.Status413PayloadTooLarge),
                 FamilienResults.JsonOptions,
                 statusCode: StatusCodes.Status413PayloadTooLarge);
         }
@@ -95,8 +103,8 @@ public static class PythonProxyErrorMapper
             || status == StatusCodes.Status422UnprocessableEntity)
         {
             return FamilienResults.BadRequest(
-                "invalid_input",
-                detail ?? "Die Eingabe ist ungültig.");
+                ErrorCodes.InvalidInput,
+                detail ?? "Invalid request payload.");
         }
 
         // Any other 4xx — pass through verbatim in terms of status,
@@ -104,7 +112,10 @@ public static class PythonProxyErrorMapper
         if (status >= 400 && status < 500)
         {
             return Results.Json(
-                new ErrorResponse("extractor_client_error", detail ?? $"HTTP {status}"),
+                new ErrorResponse(
+                    ErrorCodes.ExtractorClientError,
+                    detail ?? $"HTTP {status}",
+                    status),
                 FamilienResults.JsonOptions,
                 statusCode: status);
         }
@@ -113,7 +124,10 @@ public static class PythonProxyErrorMapper
         // honest signal; add the retry-later hint so the UI can show
         // the right message.
         return Results.Json(
-            new ErrorResponse("extractor_bad_gateway", BadGatewayMessage),
+            new ErrorResponse(
+                ErrorCodes.ExtractorBadGateway,
+                BadGatewayMessage,
+                StatusCodes.Status502BadGateway),
             FamilienResults.JsonOptions,
             statusCode: StatusCodes.Status502BadGateway);
     }
@@ -123,7 +137,10 @@ public static class PythonProxyErrorMapper
     public static IResult MapTransportFailure()
     {
         return Results.Json(
-            new ErrorResponse("extractor_unreachable", AiServiceUnavailableMessage),
+            new ErrorResponse(
+                ErrorCodes.ExtractorUnreachable,
+                AiServiceUnavailableMessage,
+                StatusCodes.Status502BadGateway),
             FamilienResults.JsonOptions,
             statusCode: StatusCodes.Status502BadGateway);
     }
