@@ -1,4 +1,5 @@
 using FamilienKochbuch.Api.Jobs;
+using FamilienKochbuch.Api.Services;
 using FamilienKochbuch.Infrastructure.Ai;
 using FamilienKochbuch.Infrastructure.Persistence;
 using FamilienKochbuch.Infrastructure.Services;
@@ -77,6 +78,14 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
     /// setup and scripts a chunk sequence via the <c>Queue*</c>
     /// methods.</summary>
     public FakeAzureOpenAIChatClient AzureOpenAi { get; } = new();
+
+    /// <summary>FLAKY-1 — records fire-and-forget background tasks
+    /// (currently only the chat auto-title path) so integration
+    /// tests can await completion deterministically before asserting
+    /// on DB side-effects. Without this, the background task's DbContext
+    /// write races the test's foreground read on the shared in-memory
+    /// SQLite connection.</summary>
+    public TrackingBackgroundTaskTracker BackgroundTasks { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -178,6 +187,13 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
             // consumers resolve by interface.
             services.RemoveAll<IAzureOpenAIChatClient>();
             services.AddSingleton<IAzureOpenAIChatClient>(AzureOpenAi);
+
+            // FLAKY-1 — swap the no-op production tracker for the
+            // tracking double. Tests that exercise the chat auto-title
+            // path call await _factory.BackgroundTasks.WhenAllAsync()
+            // before asserting on the resulting row.
+            services.RemoveAll<IBackgroundTaskTracker>();
+            services.AddSingleton<IBackgroundTaskTracker>(BackgroundTasks);
         });
     }
 

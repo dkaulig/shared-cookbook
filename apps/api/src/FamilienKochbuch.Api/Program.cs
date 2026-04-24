@@ -270,6 +270,12 @@ builder.Services.AddHttpClient<IAzureOpenAIChatClient, AzureOpenAIChatClient>(
     AzureOpenAIChatClient.HttpClientName,
     client => client.Timeout = TimeSpan.FromSeconds(120));
 builder.Services.AddScoped<ChatTitleService>();
+// FLAKY-1 — fire-and-forget seam for the chat auto-title Task.Run
+// call in ChatEndpoints.TurnAsync. Production no-op; integration
+// tests override with a tracking implementation so assertions can
+// await background completion deterministically instead of polling
+// (which races against the shared in-memory SQLite connection).
+builder.Services.AddSingleton<IBackgroundTaskTracker, NullBackgroundTaskTracker>();
 
 // CFG-0 — per-key validator for the admin extractor-config PUT
 // endpoint. Stateless; singleton keeps the compiled regex + rule

@@ -38,6 +38,12 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
             new WebApplicationFactoryClientOptions { HandleCookies = true });
         _factory.ExtractorHandler.Reset();
         _factory.AzureOpenAi.Reset();
+        // FLAKY-1 — drain any background tasks from the previous test
+        // (e.g. a turn that scheduled an auto-title we never awaited)
+        // before touching the DB, so the ResetAsync delete chain can't
+        // race a still-running DbContext write on the shared SQLite
+        // connection.
+        await _factory.BackgroundTasks.WhenAllAsync();
         await ResetAsync();
     }
 
@@ -727,34 +733,17 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         var response = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
         await ReadSseAsync(response);
 
-        // Fire-and-forget — poll briefly. Wrap reads in a try/catch
-        // because the shared SQLite in-memory connection can hiccup
-        // when the background title Task completes concurrently with a
-        // read in the foreground.
-        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
-        string? title = null;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            try
-            {
-                using var scope = _factory.Services.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var s = await db.ChatSessions.FirstOrDefaultAsync(x => x.Id == sessionId);
-                if (s?.Title is not null) { title = s.Title; break; }
-            }
-            catch (ObjectDisposedException)
-            {
-                // Transient — the background save closed our scope's
-                // context; retry on the next tick.
-            }
-            catch (InvalidOperationException)
-            {
-                // EF saw the shared connection in an awkward state;
-                // retry on the next tick.
-            }
-            await Task.Delay(50);
-        }
-        Assert.Equal("Pasta-Abend", title);
+        // FLAKY-1 — deterministic await on the fire-and-forget title
+        // task. The previous poll-with-try/catch raced the background
+        // DbContext write against the foreground read on the shared
+        // in-memory SQLite connection (SqliteException: database is
+        // locked / ObjectDisposedException under test parallelism).
+        await _factory.BackgroundTasks.WhenAllAsync();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var s = await db.ChatSessions.FirstOrDefaultAsync(x => x.Id == sessionId);
+        Assert.Equal("Pasta-Abend", s?.Title);
     }
 
     [Fact]
@@ -772,10 +761,11 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         var response = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
         await ReadSseAsync(response);
 
-        // The title-service fire-and-forget should never have been
-        // scheduled because the session already had a title. Give the
-        // background a beat to prove the negative.
-        await Task.Delay(200);
+        // FLAKY-1 — drain whatever background tasks the turn scheduled
+        // (there should be none, because Title is already set). Swapping
+        // the old arbitrary Task.Delay(200) for WhenAllAsync keeps the
+        // assertion deterministic and zero-cost on the happy path.
+        await _factory.BackgroundTasks.WhenAllAsync();
 
         Assert.Empty(_factory.AzureOpenAi.CompleteCalls);
         using var scope = _factory.Services.CreateScope();
