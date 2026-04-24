@@ -57,16 +57,22 @@ public static class AuthEndpoints
     {
         if (string.IsNullOrWhiteSpace(token))
             return FamilienResults.BadRequest(
-                ErrorCodes.InviteTokenMissing, "An invite token is required.");
+                ErrorCodes.InviteTokenMissing,
+                "An invite token is required.",
+                fieldName: "inviteToken");
 
         var now = clock.GetUtcNow();
         var invite = await db.AppInvites.SingleOrDefaultAsync(i => i.Token == token, ct);
         if (invite is null)
             return FamilienResults.BadRequest(
-                ErrorCodes.InviteNotFound, "Invite not found.");
+                ErrorCodes.InviteNotFound,
+                "Invite not found.",
+                fieldName: "inviteToken");
         if (!invite.IsValid(now))
             return FamilienResults.BadRequest(
-                ErrorCodes.InviteInvalid, "Invite expired or already used.");
+                ErrorCodes.InviteInvalid,
+                "Invite expired or already used.",
+                fieldName: "inviteToken");
 
         if (string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.Password) || string.IsNullOrWhiteSpace(body.DisplayName))
             return FamilienResults.BadRequest(
@@ -91,7 +97,9 @@ public static class AuthEndpoints
 
         if (await users.FindByEmailAsync(user.Email!) is not null)
             return FamilienResults.BadRequest(
-                ErrorCodes.EmailTaken, "Email is already registered.");
+                ErrorCodes.EmailTaken,
+                "Email is already registered.",
+                fieldName: "email");
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var createResult = await users.CreateAsync(user, body.Password);
@@ -101,9 +109,16 @@ public static class AuthEndpoints
             // framework level; don't forward them verbatim — use a
             // fixed English message and let the frontend render a
             // user-facing hint from the code.
+            //
+            // REL-4b — pin fieldName to "newPassword" so SignupPage can
+            // focus the password input. The wire field is `password` but
+            // we emit "newPassword" to match the canonical password-reject
+            // vocabulary shared with ChangePassword / PasswordReset; the
+            // frontend maps the hint to its actual input id.
             return FamilienResults.BadRequest(
                 ErrorCodes.PasswordRejected,
-                "Password does not meet the policy.");
+                "Password does not meet the policy.",
+                fieldName: "newPassword");
         }
 
         invite.MarkUsed(user.Id, now);
@@ -252,12 +267,16 @@ public static class AuthEndpoints
         var parts = body.Token.Split('|', 2);
         if (parts.Length != 2 || !Guid.TryParse(parts[0], out var userId))
             return FamilienResults.BadRequest(
-                ErrorCodes.InvalidToken, "Invalid reset link.");
+                ErrorCodes.InvalidToken,
+                "Invalid reset link.",
+                fieldName: "resetToken");
 
         var user = await users.FindByIdAsync(userId.ToString());
         if (user is null)
             return FamilienResults.BadRequest(
-                ErrorCodes.InvalidToken, "Invalid reset link.");
+                ErrorCodes.InvalidToken,
+                "Invalid reset link.",
+                fieldName: "resetToken");
 
         var result = await users.ResetPasswordAsync(user, parts[1], body.NewPassword);
         if (!result.Succeeded)
@@ -265,9 +284,17 @@ public static class AuthEndpoints
             // Same rationale as SignupAsync: don't forward Identity's
             // localized error descriptions — pin a stable English
             // message + rely on the code for branching.
+            //
+            // REL-4b — pin fieldName to "resetToken". Identity's failure
+            // mode here lumps "bad token" and "password policy" together;
+            // in practice an expired / already-consumed link is the most
+            // common cause and the user's only recovery lever is to
+            // request a new reset email, so the reset-token field is the
+            // right focus target.
             return FamilienResults.BadRequest(
                 ErrorCodes.ResetFailed,
-                "Password reset failed. The link may be expired or the password rejected.");
+                "Password reset failed. The link may be expired or the password rejected.",
+                fieldName: "resetToken");
         }
 
         await tokens.RevokeAllForUserAsync(user.Id, ct);
