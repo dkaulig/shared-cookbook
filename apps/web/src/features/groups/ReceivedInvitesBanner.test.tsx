@@ -6,6 +6,10 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
+import {
+  ErrorToastHost,
+  clearAllErrorToasts,
+} from '@/features/_shared/errorSurface'
 import { ReceivedInvitesBanner } from './ReceivedInvitesBanner'
 
 function renderBanner() {
@@ -132,6 +136,58 @@ describe('<ReceivedInvitesBanner />', () => {
     })
     expect(screen.getByText(/Backkurs-Crew/)).toBeInTheDocument()
     expect(screen.getByText(/Sonntags-Brunch/)).toBeInTheDocument()
+  })
+
+  it('surfaces a toast when accept fails with 500 (REL-5 silent-failure guard)', async () => {
+    clearAllErrorToasts()
+    server.use(
+      http.get('/api/groups/invites', () =>
+        HttpResponse.json([
+          {
+            id: 'i1',
+            groupId: 'g1',
+            groupName: 'Familie',
+            inviterDisplayName: 'Alice',
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+      ),
+      http.post('/api/groups/invites/:id/accept', () =>
+        // Return a non-ApiError body so `throwApiError` synthesises a
+        // `http_500` code — simulates the realistic path where the
+        // server 500s from an unhandled exception (no ApiError DTO).
+        // If the backend starts shipping structured 5xx bodies later,
+        // REL-4 will add `status` to the thrown Error uniformly across
+        // every feature api-helper; see the inventory in the REL-5
+        // report for the open flag.
+        HttpResponse.text('Internal Server Error', { status: 500 }),
+      ),
+    )
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    }
+    render(
+      <>
+        <ErrorToastHost />
+        <ReceivedInvitesBanner />
+      </>,
+      { wrapper: Wrapper },
+    )
+
+    const acceptButton = await screen.findByRole('button', { name: /annehmen/i })
+    const user = userEvent.setup()
+    await user.click(acceptButton)
+
+    await waitFor(() => {
+      const alerts = screen.getAllByRole('alert')
+      expect(
+        alerts.some((el) =>
+          /unbekannter fehler/i.test(el.textContent ?? ''),
+        ),
+      ).toBe(true)
+    })
   })
 
   it('hides the invite row after decline', async () => {

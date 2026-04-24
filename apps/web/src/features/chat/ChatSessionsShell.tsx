@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { SplitPane } from '@/components/layout/SplitPane'
 import { useConfirmDialog } from '@/features/_shared/ConfirmDialog'
+import { toastMutationError } from '@/features/_shared/errorSurface'
 import { ChatSessionsList } from './ChatSessionsList'
 import { RenameSessionDialog } from './RenameSessionDialog'
 import {
@@ -73,8 +74,11 @@ export function ChatSessionsShell({
       const res = await createMutation.mutateAsync()
       setDrawerOpen(false)
       navigate(`/chat/${res.sessionId}`)
-    } catch {
-      /* Surface errors via mutation state; caller doesn't need to react. */
+    } catch (err) {
+      // REL-5 — surface server failures as a toast. Pre-REL-5 this
+      // branch swallowed the error silently; the user tapped "Neu"
+      // and nothing happened until they tried again.
+      toastMutationError(err)
     }
   }
 
@@ -118,8 +122,10 @@ export function ChatSessionsShell({
     if (!ok) return
     try {
       await deleteMutation.mutateAsync({ sessionId: session.id })
-    } catch {
-      /* Optimistic rollback already triggered in the hook. */
+    } catch (err) {
+      // REL-5 — the hook already rolls back its optimistic splice, but
+      // the user still needs to know WHY the delete didn't stick.
+      toastMutationError(err)
       return
     }
     // If the user just deleted the active session, bounce back to the
