@@ -898,26 +898,52 @@ public static class RecipeEndpoints
     }
 
     /// <summary>
-    /// REL-4c — map a domain-guard <see cref="ArgumentException"/> raised
-    /// inside <see cref="CreateRecipeAsync"/> / <see cref="UpdateRecipeAsync"/>
-    /// onto a stable (ErrorCode, fieldName) pair. The ParamName on the
-    /// exception names the domain parameter (e.g. <c>title</c>,
-    /// <c>defaultServings</c>); this helper projects that onto the REL-4
-    /// catalogue + the camelCase <c>fieldName</c> the frontend's inline
-    /// field-focus routing (<c>RecipeFormPage</c>, REL-5e) keys off.
+    /// REL-4c / REL-4d — map a domain-guard <see cref="ArgumentException"/>
+    /// raised inside <see cref="CreateRecipeAsync"/> /
+    /// <see cref="UpdateRecipeAsync"/> onto a stable (ErrorCode, fieldName)
+    /// pair. The ParamName on the exception names the domain parameter
+    /// (e.g. <c>title</c>, <c>defaultServings</c>); this helper projects
+    /// that onto the REL-4 catalogue + the camelCase <c>fieldName</c> the
+    /// frontend's inline field-focus routing (<c>RecipeFormPage</c>,
+    /// REL-5e / REL-4d) keys off.
     ///
     /// <para>Unknown / missing ParamNames collapse to the legacy
     /// <see cref="ErrorCodes.InvalidInput"/> with <c>fieldName = null</c>
-    /// so the banner fallback keeps working for novel guards. Nested
-    /// ingredient / step violations surface with the section-level
-    /// <c>ingredients</c> / <c>steps</c> fieldName — path-style indices
-    /// like <c>ingredients[3].amount</c> would need a frontend parser
-    /// that doesn't exist yet and would obscure the intent of this
-    /// mapping; section-level focus is the pragmatic REL-4c scope.</para>
+    /// so the banner fallback keeps working for novel guards.</para>
+    ///
+    /// <para>REL-4d — <see cref="MaterializeComponents"/> wraps per-row
+    /// ctor failures and re-throws with a pre-formatted pathed ParamName
+    /// (<c>ingredients[i].amount</c> / <c>steps[i].text</c>) for the
+    /// single-default-component case. Those paths short-circuit the
+    /// switch below and are emitted verbatim as the wire <c>fieldName</c>
+    /// so the FE can focus + scroll the exact row input. Multi-component
+    /// payloads fall back to the REL-4c section-level
+    /// <c>ingredients</c> / <c>steps</c> hint until REL-4e lands the
+    /// 2-deep shape.</para>
     /// </summary>
     internal static (string Code, string? FieldName) MapRecipeValidationError(
         ArgumentException ex)
     {
+        // REL-4d — pre-formatted nested paths take precedence. The
+        // MissingField / InvalidValue split keeps parity with the simpler
+        // top-level fields: blank-name / blank-content → MissingField;
+        // everything else (too-long, non-positive quantity) → InvalidValue.
+        if (TryMapNestedParamName(ex, out var nestedCode, out var nestedField))
+        {
+            return (nestedCode, nestedField);
+        }
+
+        // REL-4d — section-level ``ingredients`` / ``steps`` ParamNames
+        // (emitted either directly by Recipe.ReplaceComponents invariants
+        // or via MaterializeComponents' multi-component fallback) also
+        // honour the MissingField vs InvalidValue split so blank-row
+        // reports surface as missing_field even when the path is
+        // coarse-grained.
+        var sectionCode = (ex.Message ?? string.Empty).Contains(
+            "must not be blank", StringComparison.Ordinal)
+            ? ErrorCodes.MissingField
+            : ErrorCodes.InvalidValue;
+
         return ex.ParamName switch
         {
             "title" => (ErrorCodes.InvalidTitle, "title"),
@@ -926,24 +952,67 @@ public static class RecipeEndpoints
             "prepTimeMinutes" => (ErrorCodes.InvalidValue, "prepTimeMinutes"),
             "difficulty" => (ErrorCodes.InvalidValue, "difficulty"),
             "sourceUrl" => (ErrorCodes.InvalidSourceUrl, "sourceUrl"),
-            // Nested-components surface as section-level hints. The FE's
-            // Ref-map can target the Zutaten / Schritte / Komponenten
-            // container even without a path parser.
-            "ingredients" => (ErrorCodes.InvalidValue, "ingredients"),
-            "steps" => (ErrorCodes.InvalidValue, "steps"),
+            // Nested-components surface as section-level hints when the
+            // nested path shape isn't tractable (multi-component payloads
+            // — see MaterializeComponents). The FE's Ref-map can target
+            // the Zutaten / Schritte / Komponenten container even without
+            // a path parser.
+            "ingredients" => (sectionCode, "ingredients"),
+            "steps" => (sectionCode, "steps"),
             "components" or "componentRequests"
-                => (ErrorCodes.InvalidValue, "components"),
+                => (sectionCode, "components"),
             _ => (ErrorCodes.InvalidInput, null),
         };
     }
 
     /// <summary>
-    /// COMP-0 — materialize the nested component request shape into domain
-    /// entities. Does no persistence: returns three lists the caller
-    /// (create + update endpoints) hands to
+    /// REL-4d — project a pre-formatted pathed ParamName (emitted by
+    /// <see cref="MaterializeComponents"/>) onto a (code, fieldName) pair.
+    /// Returns <c>false</c> when the ParamName is not a nested path so
+    /// the caller falls through to the top-level switch.
+    /// </summary>
+    private static bool TryMapNestedParamName(
+        ArgumentException ex, out string code, out string? fieldName)
+    {
+        var name = ex.ParamName;
+        if (name is null || (name.IndexOf('[') < 0))
+        {
+            code = ErrorCodes.InvalidInput;
+            fieldName = null;
+            return false;
+        }
+
+        // Message prefix decides MissingField vs InvalidValue. The
+        // Ingredient / RecipeStep ctors use "must not be blank" for
+        // missing values and everything else (length, negative quantity)
+        // is a generic invalid value.
+        var msg = ex.Message ?? string.Empty;
+        code = msg.Contains("must not be blank", StringComparison.Ordinal)
+            ? ErrorCodes.MissingField
+            : ErrorCodes.InvalidValue;
+        fieldName = name;
+        return true;
+    }
+
+    /// <summary>
+    /// COMP-0 / REL-4d — materialize the nested component request shape
+    /// into domain entities. Does no persistence: returns three lists the
+    /// caller (create + update endpoints) hands to
     /// <see cref="Recipe.ReplaceComponents"/>. Thrown
     /// <see cref="ArgumentException"/> instances surface as 400
     /// <c>invalid_input</c> upstream.
+    ///
+    /// <para>REL-4d: for the single-default-component case (the 99% path
+    /// covered by <c>RecipeFormPage</c>'s default flow) per-row ctor
+    /// failures are re-thrown with a pathed ParamName like
+    /// <c>ingredients[3].amount</c> or <c>steps[1].text</c> so
+    /// <see cref="MapRecipeValidationError"/> can emit the exact row
+    /// address as the wire <c>fieldName</c>. Multi-component payloads
+    /// (ambiguous 1-deep paths) fall back to the section-level
+    /// <c>ingredients</c> / <c>steps</c> ParamName until REL-4e lands the
+    /// 2-deep <c>components[i].ingredients[j].amount</c> shape. The
+    /// position-within-array reflects the caller's array order (matches
+    /// <c>RecipeFormPage</c>'s row indices on the wire).</para>
     /// </summary>
     internal static (List<RecipeComponent> Components, List<Ingredient> Ingredients, List<RecipeStep> Steps)
         MaterializeComponents(Guid recipeId, RecipeComponentRequest[]? componentRequests)
@@ -951,6 +1020,12 @@ public static class RecipeEndpoints
         if (componentRequests is null || componentRequests.Length == 0)
             throw new ArgumentException(
                 "A recipe must have at least one component.", nameof(componentRequests));
+
+        // REL-4d — the FE only registers per-row refs in the single-
+        // default-component layout. Multi-component recipes stay on the
+        // section-level hint so we don't emit a path the FE can't
+        // disambiguate across components.
+        var emitRowPaths = componentRequests.Length == 1;
 
         var components = new List<RecipeComponent>();
         var ingredients = new List<Ingredient>();
@@ -965,34 +1040,104 @@ public static class RecipeEndpoints
 
             if (componentReq.Ingredients is { } ings)
             {
-                foreach (var ing in ings.OrderBy(i => i.Position))
+                // Preserve the caller's array order so row indices in
+                // nested fieldName paths match RecipeFormPage's rendered
+                // rows. (The final persisted sort still uses Position on
+                // read via ProjectDetailAsync.)
+                for (var idx = 0; idx < ings.Length; idx++)
                 {
-                    ingredients.Add(new Ingredient(
-                        recipeId: recipeId,
-                        componentId: component.Id,
-                        position: ing.Position,
-                        quantity: ing.Quantity,
-                        unit: ing.Unit,
-                        name: ing.Name,
-                        note: ing.Note,
-                        scalable: ing.Scalable));
+                    var ing = ings[idx];
+                    try
+                    {
+                        ingredients.Add(new Ingredient(
+                            recipeId: recipeId,
+                            componentId: component.Id,
+                            position: ing.Position,
+                            quantity: ing.Quantity,
+                            unit: ing.Unit,
+                            name: ing.Name,
+                            note: ing.Note,
+                            scalable: ing.Scalable));
+                    }
+                    catch (ArgumentException inner)
+                    {
+                        // REL-4d: single-default-component → pathed
+                        // fieldName; multi-component → section-level
+                        // ingredients hint (ParamName="ingredients") until
+                        // REL-4e lands the 2-deep shape. The original
+                        // message is preserved so
+                        // MapRecipeValidationError's MissingField vs
+                        // InvalidValue split still works.
+                        throw new ArgumentException(
+                            inner.Message,
+                            paramName: emitRowPaths
+                                ? $"ingredients[{idx}].{MapIngredientProp(inner.ParamName)}"
+                                : "ingredients",
+                            innerException: inner);
+                    }
                 }
             }
 
             if (componentReq.Steps is { } sts)
             {
-                foreach (var step in sts.OrderBy(s => s.Position))
+                for (var idx = 0; idx < sts.Length; idx++)
                 {
-                    steps.Add(new RecipeStep(
-                        recipeId: recipeId,
-                        componentId: component.Id,
-                        position: step.Position,
-                        content: step.Content));
+                    var step = sts[idx];
+                    try
+                    {
+                        steps.Add(new RecipeStep(
+                            recipeId: recipeId,
+                            componentId: component.Id,
+                            position: step.Position,
+                            content: step.Content));
+                    }
+                    catch (ArgumentException inner)
+                    {
+                        // Step rows only carry a single wire prop (``text``)
+                        // so the path is always steps[idx].text in the
+                        // single-component branch.
+                        throw new ArgumentException(
+                            inner.Message,
+                            paramName: emitRowPaths
+                                ? $"steps[{idx}].text"
+                                : "steps",
+                            innerException: inner);
+                    }
                 }
             }
         }
         return (components, ingredients, steps);
     }
+
+    /// <summary>
+    /// REL-4d — project an Ingredient ctor ParamName onto the camelCase
+    /// wire property the frontend's IngredientRow uses. <c>quantity</c>
+    /// surfaces as <c>amount</c> because the user-facing input is labelled
+    /// "Menge" / "Amount" and the FE row model uses <c>amount</c>
+    /// historically. Unknown ParamNames fall back to a generic <c>row</c>
+    /// bucket so the FE lands on the row-level container.
+    /// </summary>
+    private static string MapIngredientProp(string? paramName) => paramName switch
+    {
+        "quantity" => "amount",
+        "scalable" => "amount",
+        "name" => "name",
+        "unit" => "unit",
+        "note" => "note",
+        _ => "row",
+    };
+
+    /// <summary>
+    /// REL-4d — project a RecipeStep ctor ParamName onto the camelCase
+    /// wire property for the step row. The textarea is labelled "Schritt
+    /// N" and the FE row model uses <c>text</c>; map both <c>content</c>
+    /// variants onto it.
+    /// </summary>
+    private static string MapStepProp(string? paramName) => paramName switch
+    {
+        "content" => "text",
+        _ => "text",
+    };
 
     private static async Task<bool> AreTagIdsValidForGroupAsync(
         AppDbContext db, IReadOnlyCollection<Guid> tagIds, Guid groupId, CancellationToken ct)
