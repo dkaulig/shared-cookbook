@@ -145,6 +145,15 @@ public sealed class PythonExtractorRunner
         };
         await _signer.ApplyAsync(request, import.UserId, ct);
 
+        // LANG-1 — forward the caller's UI language so the Python
+        // extractor's FastAPI dependency picks it up and feeds it into
+        // the system-prompt directive. Pre-LANG-1 import rows have no
+        // value and fall back to "en" (matches REL-3h).
+        var languageHeader = string.IsNullOrWhiteSpace(import.RequestedLanguage)
+            ? LanguageNormalizer.DefaultLanguage
+            : import.RequestedLanguage;
+        request.Headers.TryAddWithoutValidation("Accept-Language", languageHeader);
+
         HttpResponseMessage response;
         string bodyText;
         try

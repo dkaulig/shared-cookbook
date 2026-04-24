@@ -905,4 +905,42 @@ public class ImportEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    // ── LANG-1: Accept-Language → RecipeImport.RequestedLanguage ────
+
+    [Theory]
+    [InlineData("de", "de")]
+    [InlineData("en", "en")]
+    [InlineData("de-DE,de;q=0.9,en;q=0.8", "de")]
+    [InlineData("en-US", "en")]
+    [InlineData("fr", "en")]   // unsupported → fallback
+    [InlineData("", "en")]      // missing → fallback
+    public async Task Url_Import_Persists_Normalised_Accept_Language(
+        string acceptLanguageHeader, string expectedStored)
+    {
+        var (userId, token) = await SignupAsync(
+            $"alice-{Guid.NewGuid():N}@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+
+        _factory.Jobs.Reset();
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/url");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (!string.IsNullOrEmpty(acceptLanguageHeader))
+        {
+            req.Headers.TryAddWithoutValidation("Accept-Language", acceptLanguageHeader);
+        }
+        req.Content = JsonContent.Create(new UrlImportRequest(
+            "https://example.com/rezept-lang", groupId));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ImportEnqueueResponse>())!;
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = await db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == body.ImportId);
+        Assert.Equal(expectedStored, import.RequestedLanguage);
+    }
 }
