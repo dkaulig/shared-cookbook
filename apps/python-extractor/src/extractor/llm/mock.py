@@ -251,3 +251,45 @@ class NullProvider(LLMProvider):
         json_schema: dict[str, Any],
     ) -> tuple[dict[str, Any], TokenUsage]:
         raise LLMProviderError(self._MESSAGE, code="not_configured")
+
+
+class DisabledProvider(LLMProvider):
+    """REL-7 — operator explicitly set ``LLM_PROVIDER=disabled``.
+
+    Distinct from :class:`NullProvider` so the FastAPI layer can map the
+    two differently: ``not_configured`` is a misconfigure (500, admin-
+    facing), ``ai_disabled`` is an intentional operator choice (503,
+    user-visible "AI ist aus" message). The design-doc reserves the
+    ``ai_disabled`` code for this exact case — see REL-7 in
+    ``docs/plans/2026-04-22-open-source-release-plan.md``.
+    """
+
+    _MESSAGE = (
+        "AI is disabled for this instance (LLM_PROVIDER=disabled). "
+        "Operator must set LLM_PROVIDER=azure or ollama to enable "
+        "AI-powered imports + chat."
+    )
+
+    async def extract_structured(
+        self,
+        system_prompt: str,
+        messages: Sequence[ChatMessage],
+        json_schema: dict[str, Any],
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        raise LLMProviderError(self._MESSAGE, code="ai_disabled")
+
+    async def chat(
+        self,
+        system_prompt: str,
+        messages: Sequence[ChatMessage],
+    ) -> tuple[str, TokenUsage]:
+        raise LLMProviderError(self._MESSAGE, code="ai_disabled")
+
+    async def vision_extract(
+        self,
+        system_prompt: str,
+        images: Sequence[VisionInput],
+        instruction: str,
+        json_schema: dict[str, Any],
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        raise LLMProviderError(self._MESSAGE, code="ai_disabled")

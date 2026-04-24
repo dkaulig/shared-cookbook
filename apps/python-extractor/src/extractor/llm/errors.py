@@ -10,6 +10,9 @@ orchestrator branch on the classification:
 - ``schema_mismatch``      — response didn't match ``json_schema``; do NOT retry.
 - ``auth_failure``         — 401 from Azure (bad key); do NOT retry.
 - ``not_configured``       — provider was asked to run without credentials.
+- ``ai_disabled``          — REL-7: operator-set ``LLM_PROVIDER=disabled``.
+  Distinct from ``not_configured`` so the caller can map it to a 503 with
+  a user-visible "läuft ohne AI" message instead of a 500 "misconfigured".
 
 The set of codes is part of the public API; adding / removing one is a
 breaking change. ``LLM_ERROR_CODES`` + the ``LLMErrorCode`` literal keep
@@ -27,6 +30,7 @@ LLMErrorCode = Literal[
     "schema_mismatch",
     "auth_failure",
     "not_configured",
+    "ai_disabled",
 ]
 
 # Runtime-accessible tuple of every valid code. Tests pin this to catch

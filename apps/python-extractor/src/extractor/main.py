@@ -430,6 +430,19 @@ def _http_from_llm_error(exc: LLMProviderError) -> HTTPException:
                 "und erneut versuchen."
             ),
         )
+    if code == "ai_disabled":
+        # REL-7 — operator set LLM_PROVIDER=disabled intentionally. The
+        # frontend's feature-gate normally hides these endpoints, but a
+        # direct / stale-client call still reaches here; respond with a
+        # clean 503 so the web layer can render a user-visible German
+        # message instead of the generic 500 "unknown error" fallback.
+        return HTTPException(
+            status_code=503,
+            detail=(
+                "KI-Funktionen sind auf dieser Instanz deaktiviert. "
+                "Admin muss LLM_PROVIDER in .env auf azure oder ollama setzen."
+            ),
+        )
     if code == "not_configured":
         # Service misconfig: admin-facing. Log at ERROR and hide the
         # internal message from the caller.
@@ -523,8 +536,19 @@ async def _prefetch_whisper_model() -> None:
     ``with TestClient(app)`` would kick off a 3 GB download that still
     runs when the context exits — shutdown then blocks on task.cancel()
     + await task, compounding across tests into a multi-minute hang.
+
+    REL-7 — also skipped when ``AI_ENABLED=false``. The design-doc's
+    "Runs-without-AI" inventory lists Whisper as a local-compute
+    dependency (not AI strictly), but Video-URL imports only make sense
+    with AI available (either LLM-structuring or raw-text pre-fill;
+    the second path still needs the 3 GB Whisper weights). Skipping the
+    prefetch saves the download on the Path-1 minimal install the
+    design doc explicitly optimises for.
     """
     if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    if not _get_settings().ai_enabled:
+        logger.info("whisper prefetch skipped: AI_ENABLED=false — no video imports supported.")
         return
     try:
         from extractor.pipeline.video import FasterWhisperTranscriber

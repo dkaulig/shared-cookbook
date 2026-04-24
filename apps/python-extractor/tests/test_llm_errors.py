@@ -44,6 +44,10 @@ def test_error_code_enumeration_is_complete() -> None:
         "schema_mismatch",
         "auth_failure",
         "not_configured",
+        # REL-7 — operator-set LLM_PROVIDER=disabled, distinct from
+        # "not_configured" so the FastAPI layer can map it to a 503
+        # instead of a 500.
+        "ai_disabled",
     }
 
 

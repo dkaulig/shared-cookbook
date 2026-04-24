@@ -16,6 +16,8 @@ hacking, CI) run without credentials and still need a bootable service.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,12 +27,47 @@ class Settings(BaseSettings):
     service_name: str = "extractor"
     log_level: str = "INFO"
 
+    # REL-7 — explicit AI-capability switches. Defaults to "AI off"
+    # because the open-source release must boot without Azure
+    # credentials (see docs/plans/2026-04-22-open-source-release-plan.md
+    # REL-7). Operators flip ``ai_enabled=true`` + pick ``llm_provider``
+    # in their ``.env``; docker-compose's ``--profile ai`` wires those
+    # through.
+    #
+    # ``ai_enabled=false`` short-circuits the provider factory to a
+    # :class:`DisabledProvider` that raises ``ai_disabled`` (not
+    # ``not_configured``) so the FastAPI layer can return a clean 503
+    # with a German "AI-Funktionen sind deaktiviert" message instead of
+    # a generic 500.
+    #
+    # ``llm_provider`` chooses the concrete backend when AI is enabled:
+    # - ``"azure"`` — existing :class:`AzureOpenAIProvider` (default).
+    # - ``"ollama"`` — new :class:`OllamaProvider` (self-hosted, via
+    #   ``/api/chat`` with ``format: {json-schema}``).
+    # - ``"disabled"`` — forces the disabled branch even if
+    #   ``ai_enabled=true`` (belt-and-suspenders).
+    ai_enabled: bool = False
+    llm_provider: Literal["azure", "ollama", "disabled"] = "disabled"
+
     # Azure OpenAI placeholders — consumed from P2-1 onward.
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
     azure_openai_api_version: str = "2025-04-01-preview"
     azure_openai_deployment_structuring: str = "gpt-4.1"
     azure_openai_deployment_chat: str = "gpt-5.1-chat"
+
+    # REL-7 — Ollama native backend. Reachable only over the internal
+    # docker network when the compose stack runs the ``ollama`` profile;
+    # operators can also point this at a host-run Ollama for development.
+    # Base URL has no trailing slash — the provider appends ``/api/chat``.
+    ollama_base_url: str = "http://ollama:11434"
+    # Gemma 3 12B is the design-doc default (REL-6 Path-3). Qwen 2.5 14B
+    # is a viable alternative on 12 GB VRAM. Operators override via env.
+    ollama_model: str = "gemma3:12b"
+    # Vision-capable model for photo imports. Gemma 3 12B is multimodal
+    # (supports image inputs in chat); the split key lets operators pick
+    # a different multimodal model without touching the text-only one.
+    ollama_vision_model: str = "gemma3:12b"
 
     # HMAC shared secret for the .NET ↔ Python bridge (P2-6).
     extractor_shared_secret: str = ""
