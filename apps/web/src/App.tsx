@@ -32,6 +32,7 @@ import { ProfilStub } from '@/features/stubs/ProfilStub'
 import { AiUsagePage } from '@/features/admin/AiUsagePage'
 import { ExtractorConfigPage } from '@/features/admin/ExtractorConfigPage'
 import { ShareTargetPage } from '@/features/share/ShareTargetPage'
+import { ErrorToastHost } from '@/features/_shared/errorSurface'
 
 /**
  * Route table.
@@ -48,6 +49,16 @@ export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
+        {/*
+          REL-5 — global error-toast host. Mounted once so any mutation
+          hook / apiClient onError can poke the singleton store via
+          `showErrorToast(...)` without a hook context. Renders above
+          BottomNav + home-indicator safe-area so it never hides behind
+          the docked nav. Layout tokens (`--bottom-nav-height`) stay
+          untouched — the host uses `env(safe-area-inset-bottom)` + a
+          fixed 88 px buffer, same pattern as RecipeActionBar's notifier.
+        */}
+        <ErrorToastHost />
         <Routes>
           <Route element={<AuthLayout />}>
             <Route path="/login" element={<LoginPage />} />
