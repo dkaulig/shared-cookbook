@@ -18,6 +18,10 @@ import type {
 } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
+import {
+  ErrorToastHost,
+  clearAllErrorToasts,
+} from '@/features/_shared/errorSurface'
 import { ShoppingListPage } from './ShoppingListPage'
 
 const GROUP_ID = 'g1'
@@ -70,10 +74,11 @@ function makePlan(): MealPlanDto {
   }
 }
 
-function withProviders(): ReactNode {
+function withProviders(options?: { mountToastHost?: boolean }): ReactNode {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return (
     <QueryClientProvider client={client}>
+      {options?.mountToastHost && <ErrorToastHost />}
       <MemoryRouter
         initialEntries={[`/groups/${GROUP_ID}/mealplan/${WEEK_START}/shopping-list`]}
       >
@@ -670,5 +675,47 @@ describe('ShoppingListPage sticky sub-nav (BUG-032)', () => {
 
   it('sub-nav nav element sits below TopNav (z-10, not z-20)', () => {
     expect(SOURCE).toMatch(/sticky top-0 z-10/)
+  })
+})
+
+/**
+ * REL-5 — silent-failure regression guard for the check-off + delete
+ * flows. Pre-REL-5 `patchItem.mutate()` ran with an `onError` handler
+ * that ONLY captured `VersionMismatchError` (409); any other failure
+ * (400 validation, 500, network) rolled back the optimistic splice in
+ * the hook but showed the user nothing.
+ */
+describe('<ShoppingListPage /> silent-failure guards (REL-5)', () => {
+  beforeEach(() => {
+    clearAllErrorToasts()
+  })
+
+  it('surfaces a toast when the check-off PATCH fails with 500', async () => {
+    const ITEM_ID = 'it-1'
+    server.use(
+      respondWithPlan(),
+      respondWithList([makeItem({ id: ITEM_ID, name: 'Tomate' })]),
+      http.patch(
+        `/api/shopping-lists/${LIST_ID}/items/${ITEM_ID}`,
+        () => HttpResponse.text('Internal Server Error', { status: 500 }),
+      ),
+    )
+    render(withProviders({ mountToastHost: true }))
+
+    // Wait for the row + its checkbox to render.
+    const row = await screen.findByText('Tomate')
+    expect(row).toBeInTheDocument()
+    const user = userEvent.setup()
+    const checkbox = await screen.findByRole('checkbox', { name: /tomate/i })
+    await user.click(checkbox)
+
+    await waitFor(() => {
+      const alerts = screen.getAllByRole('alert')
+      expect(
+        alerts.some((el) =>
+          /unbekannter fehler/i.test(el.textContent ?? ''),
+        ),
+      ).toBe(true)
+    })
   })
 })

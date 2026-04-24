@@ -29,6 +29,7 @@ import {
   useConflictResolver,
 } from '@/features/_shared/ConflictDialog'
 import { VersionMismatchError } from '@/features/_shared/apiError'
+import { toastMutationError } from '@/features/_shared/errorSurface'
 import { AddSlotDialog } from './AddSlotDialog'
 import { DeleteSlotDialog } from './DeleteSlotDialog'
 import { EditSlotDialog } from './EditSlotDialog'
@@ -310,7 +311,12 @@ export function MealPlanPage() {
                 { ...localProjection, version: plan.version },
                 { current: { ...serverSlot, version: plan.version } },
               )
+              return
             }
+            // REL-5 — non-409 failures (400 validation, 500, network)
+            // pre-REL-5 vanished silently; the checkbox flipped back
+            // without a hint. Toast surfaces the why.
+            toastMutationError(err)
           },
         },
       )
