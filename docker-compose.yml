@@ -3,13 +3,15 @@ services:
     image: postgres:17-alpine
     container_name: familien-kochbuch-postgres
     environment:
-      POSTGRES_DB: familien_kochbuch
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: "${POSTGRES_DB:-familien_kochbuch}"
+      POSTGRES_USER: "${POSTGRES_USER:-app}"
+      # Dev-only throwaway default. Override via POSTGRES_PASSWORD in
+      # .env before any public deploy; the prod compose requires it.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-dev}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d familien_kochbuch"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-familien_kochbuch}"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -47,16 +49,18 @@ services:
     container_name: familien-kochbuch-api
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Postgres: "Host=postgres;Database=familien_kochbuch;Username=app;Password=dev"
+      ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-familien_kochbuch};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD:-dev}"
       ConnectionStrings__Redis: "redis:6379"
       # Seeded admin (first boot only). Falls back to SeedDataService's
       # compiled defaults + a loud warning when unset.
-      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@familien-kochbuch.local}"
-      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-ChangeMe!Admin2026}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@example.com}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-CHANGE_ME_admin_password}"
       ADMIN_DISPLAY_NAME: "${ADMIN_DISPLAY_NAME:-Familienkoch}"
       # JWT signing key — MUST be set in production via the .env file.
       # Also drives the per-URL photo signatures (SHA256 over "img-sign:" + this).
-      JWT_SIGNING_KEY: "${JWT_SIGNING_KEY:-dev-only-signing-key-replace-via-JWT_SIGNING_KEY-env-var}"
+      # Dev default is deliberately a loud placeholder; rotate via .env
+      # (`openssl rand -base64 48`) before exposing this stack publicly.
+      JWT_SIGNING_KEY: "${JWT_SIGNING_KEY:-CHANGE_ME_dev_only_jwt_signing_key_min_32_chars}"
       App__FrontendBaseUrl: "${APP_FRONTEND_BASE_URL:-http://localhost}"
       # SeaweedFS filer (plain HTTP, internal docker network). The photo
       # upload + proxy endpoints both route through this URL.
