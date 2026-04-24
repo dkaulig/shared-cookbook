@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ApiError,
@@ -67,14 +68,11 @@ const FLAG_KEYS = [
   'feature.chat_enabled',
 ] as const
 
-const FLAG_LABELS: Record<(typeof FLAG_KEYS)[number], string> = {
-  'feature.video_import_enabled': 'Aktivieren des Video-Imports',
-  'feature.blog_follow_enabled': 'Blog-URL automatisch folgen',
-  'feature.nutrition_estimate_enabled': 'Nährwert-Schätzung aktivieren',
-  'feature.thumbnail_auto_attach_enabled':
-    'Thumbnail automatisch anhängen',
-  'feature.chat_enabled': 'Chat-Funktion aktivieren',
-}
+/**
+ * Flag keys are stable; labels live in `admin.extractor.flagLabels.*`
+ * keyed by the same dotted-path so the FlagsSection can look them up
+ * per-render and flip locale with `i18n.changeLanguage()`.
+ */
 
 const THRESHOLD_NUMBER_KEYS = [
   'pipeline.min_transcript_chars',
@@ -102,6 +100,7 @@ type SectionKey = 'prompts' | 'models' | 'flags' | 'thresholds'
 const LIST_QUERY_KEY = ['admin-extractor-config'] as const
 
 export function ExtractorConfigPage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const listQuery = useQuery<ExtractorConfigListResponse>({
     queryKey: LIST_QUERY_KEY,
@@ -178,9 +177,7 @@ export function ExtractorConfigPage() {
     } catch (err) {
       const apiErr = err as Partial<ApiError>
       if (apiErr.code === 'version_mismatch') {
-        setConflictBanner(
-          'Ein anderer Admin hat gerade geändert — neu geladen.',
-        )
+        setConflictBanner(t('admin.extractor.conflictBanner'))
         await listQuery.refetch()
         return
       }
@@ -253,11 +250,10 @@ export function ExtractorConfigPage() {
           id="extractor-config-heading"
           className="font-serif text-[clamp(30px,7vw,40px)] font-semibold leading-[1.05] tracking-[-0.015em]"
         >
-          Extractor-Konfiguration
+          {t('admin.extractor.heading')}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Prompts, Modelle, Feature-Flags und Schwellenwerte für den
-          Rezept-Extraktor — Änderungen wirken nach spätestens 60 Sekunden.
+          {t('admin.extractor.description')}
         </p>
       </header>
 
@@ -267,7 +263,7 @@ export function ExtractorConfigPage() {
           aria-live="polite"
           className="text-sm text-muted-foreground"
         >
-          Lade Konfiguration …
+          {t('admin.extractor.loading')}
         </p>
       )}
 
@@ -276,7 +272,7 @@ export function ExtractorConfigPage() {
           role="alert"
           className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
         >
-          Konfiguration konnte nicht geladen werden.
+          {t('admin.extractor.loadError')}
         </p>
       )}
 
@@ -348,13 +344,14 @@ interface SectionProps {
 function PromptsSection(
   props: SectionProps & { onSave: () => void; onReset: (key: string) => void },
 ) {
+  const { t } = useTranslation()
   const { baseline, drafts, savedAt, fieldErrors, setDraft, onSave, onReset } =
     props
   return (
     <Card className="mb-6">
       <CardHeader>
         <h2 className="font-serif text-2xl font-semibold leading-tight tracking-tight">
-          Prompts
+          {t('admin.extractor.sections.prompts')}
         </h2>
       </CardHeader>
       <CardContent>
@@ -392,7 +389,9 @@ function PromptsSection(
                 />
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs text-muted-foreground">
-                    {value.length} Zeichen
+                    {t('admin.extractor.charCountTemplate', {
+                      count: value.length,
+                    })}
                   </span>
                   <div className="flex items-center gap-3">
                     <SavedIndicator savedAt={savedAt[key]} />
@@ -402,7 +401,7 @@ function PromptsSection(
                       size="sm"
                       onClick={() => onReset(key)}
                     >
-                      Zurücksetzen
+                      {t('admin.extractor.resetCta')}
                     </Button>
                   </div>
                 </div>
@@ -412,7 +411,7 @@ function PromptsSection(
           })}
 
           <div className="flex justify-end">
-            <Button type="submit">Prompts speichern</Button>
+            <Button type="submit">{t('admin.extractor.promptsSaveCta')}</Button>
           </div>
         </form>
       </CardContent>
@@ -421,12 +420,13 @@ function PromptsSection(
 }
 
 function ModelsSection(props: SectionProps & { onSave: () => void }) {
+  const { t } = useTranslation()
   const { baseline, drafts, savedAt, fieldErrors, setDraft, onSave } = props
   return (
     <Card className="mb-6">
       <CardHeader>
         <h2 className="font-serif text-2xl font-semibold leading-tight tracking-tight">
-          Modelle &amp; Parameter
+          {t('admin.extractor.sections.models')}
         </h2>
       </CardHeader>
       <CardContent>
@@ -439,7 +439,7 @@ function ModelsSection(props: SectionProps & { onSave: () => void }) {
           className="space-y-8"
         >
           <ModelGroup
-            title="Structured"
+            title={t('admin.extractor.groupStructured')}
             deploymentKey="llm.structured.deployment"
             temperatureKey="llm.structured.temperature"
             maxTokensKey="llm.structured.max_completion_tokens"
@@ -450,7 +450,7 @@ function ModelsSection(props: SectionProps & { onSave: () => void }) {
             setDraft={setDraft}
           />
           <ModelGroup
-            title="Chat"
+            title={t('admin.extractor.groupChat')}
             deploymentKey="llm.chat.deployment"
             maxTokensKey="llm.chat.max_completion_tokens"
             baseline={baseline}
@@ -460,7 +460,7 @@ function ModelsSection(props: SectionProps & { onSave: () => void }) {
             setDraft={setDraft}
           />
           <ModelGroup
-            title="Vision"
+            title={t('admin.extractor.groupVision')}
             deploymentKey="llm.vision.deployment"
             temperatureKey="llm.vision.temperature"
             maxTokensKey="llm.vision.max_completion_tokens"
@@ -472,7 +472,7 @@ function ModelsSection(props: SectionProps & { onSave: () => void }) {
           />
 
           <div className="flex justify-end">
-            <Button type="submit">Modelle speichern</Button>
+            <Button type="submit">{t('admin.extractor.modelsSaveCta')}</Button>
           </div>
         </form>
       </CardContent>
@@ -546,12 +546,13 @@ function FlagsSection(props: {
   fieldErrors: FieldErrorMap
   onToggle: (key: string, next: boolean) => void
 }) {
+  const { t } = useTranslation()
   const { baseline, drafts, savedAt, fieldErrors, onToggle } = props
   return (
     <Card className="mb-6">
       <CardHeader>
         <h2 className="font-serif text-2xl font-semibold leading-tight tracking-tight">
-          Feature-Flags
+          {t('admin.extractor.sections.flags')}
         </h2>
       </CardHeader>
       <CardContent>
@@ -565,7 +566,7 @@ function FlagsSection(props: {
                 <label htmlFor={key} className="flex-1 min-w-[200px] cursor-pointer">
                   <span className="block text-sm font-medium">{key}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {FLAG_LABELS[key]}
+                    {t(`admin.extractor.flagLabels.${key}`)}
                   </span>
                 </label>
                 <SavedIndicator savedAt={savedAt[key]} />
@@ -589,12 +590,13 @@ function FlagsSection(props: {
 }
 
 function ThresholdsSection(props: SectionProps & { onSave: () => void }) {
+  const { t } = useTranslation()
   const { baseline, drafts, savedAt, fieldErrors, setDraft, onSave } = props
   return (
     <Card className="mb-6">
       <CardHeader>
         <h2 className="font-serif text-2xl font-semibold leading-tight tracking-tight">
-          Thresholds
+          {t('admin.extractor.sections.thresholds')}
         </h2>
       </CardHeader>
       <CardContent>
@@ -632,7 +634,7 @@ function ThresholdsSection(props: SectionProps & { onSave: () => void }) {
           ))}
 
           <div className="flex justify-end">
-            <Button type="submit">Thresholds speichern</Button>
+            <Button type="submit">{t('admin.extractor.thresholdsSaveCta')}</Button>
           </div>
         </form>
       </CardContent>
@@ -641,16 +643,17 @@ function ThresholdsSection(props: SectionProps & { onSave: () => void }) {
 }
 
 function HistoryFooter() {
+  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader>
         <h2 className="font-serif text-2xl font-semibold leading-tight tracking-tight">
-          Letzte Änderungen
+          {t('admin.extractor.sections.history')}
         </h2>
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground">
-          Letzte Änderungen werden nachgerüstet.
+          {t('admin.extractor.historyPending')}
         </p>
       </CardContent>
     </Card>
@@ -752,6 +755,7 @@ function NumberField(props: NumberFieldProps) {
 }
 
 function StringListField(props: FieldProps) {
+  const { t } = useTranslation()
   const { fieldKey, baseline, drafts, savedAt, fieldErrors, setDraft } = props
   const [input, setInput] = useState('')
   const base = baseline[fieldKey]
@@ -785,7 +789,7 @@ function StringListField(props: FieldProps) {
     }
   }
 
-  const addLabel = `${fieldKey} — Eintrag hinzufügen`
+  const addLabel = t('admin.extractor.listAddAriaTemplate', { key: fieldKey })
 
   return (
     <div className="space-y-2">
@@ -798,7 +802,7 @@ function StringListField(props: FieldProps) {
       <div className="flex flex-wrap gap-1.5">
         {list.length === 0 && (
           <span className="text-xs text-muted-foreground">
-            Noch keine Einträge.
+            {t('admin.extractor.listEmpty')}
           </span>
         )}
         {list.map((entry) => (
@@ -810,7 +814,7 @@ function StringListField(props: FieldProps) {
             <button
               type="button"
               onClick={() => remove(entry)}
-              aria-label={`${entry} entfernen`}
+              aria-label={t('admin.extractor.listRemoveAriaTemplate', { entry })}
               className="text-muted-foreground transition-colors hover:text-foreground"
             >
               ×
@@ -826,10 +830,10 @@ function StringListField(props: FieldProps) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="Neuer Eintrag …"
+          placeholder={t('admin.extractor.listNewPlaceholder')}
         />
         <Button type="button" variant="outline" onClick={commit}>
-          Hinzufügen
+          {t('admin.extractor.listAddCta')}
         </Button>
       </div>
       <SavedIndicator savedAt={savedAt[fieldKey]} />
@@ -844,10 +848,11 @@ function EditorChip({ item }: { item: ExtractorConfigItem }) {
   if (!item.updatedBy) return null
   return (
     <span className="text-xs text-muted-foreground">
-      Geändert von{' '}
-      <span className="font-medium text-foreground">
-        {item.updatedBy.displayName}
-      </span>
+      <Trans
+        i18nKey="admin.extractor.editedByTemplate"
+        values={{ name: item.updatedBy.displayName }}
+        components={{ who: <span className="font-medium text-foreground" /> }}
+      />
     </span>
   )
 }
@@ -860,6 +865,7 @@ function SavedIndicator({ savedAt }: { savedAt?: number }) {
   // the interval — the delta computation in render then naturally
   // starts from ~0 Sek because `now` and `savedAt` are set within a
   // few ms of each other.
+  const { t } = useTranslation()
   const [now, setNow] = useState<number>(() => Date.now())
 
   useEffect(() => {
@@ -880,7 +886,7 @@ function SavedIndicator({ savedAt }: { savedAt?: number }) {
       aria-live="polite"
       className="text-xs text-emerald-700"
     >
-      Gespeichert vor {deltaSec} Sek.
+      {t('admin.extractor.savedAgoTemplate', { sec: deltaSec })}
     </span>
   )
 }
