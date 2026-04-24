@@ -3,6 +3,7 @@
 // pattern is duplicated across 10+ dialogs in the codebase.
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   AddShoppingListItemRequest,
   IngredientCategory,
@@ -37,6 +38,7 @@ export function AddItemDialog({
   listId: string
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState('')
@@ -51,7 +53,11 @@ export function AddItemDialog({
     setError(null)
     const trimmedName = name.trim()
     if (trimmedName.length === 0) {
-      setError('Bitte gib einen Namen ein.')
+      setError(
+        t('shoppingList.errors.nameRequired', {
+          defaultValue: 'Bitte gib einen Namen ein.',
+        }),
+      )
       return
     }
     const body: AddShoppingListItemRequest = {
@@ -69,10 +75,13 @@ export function AddItemDialog({
       await addMutation.mutateAsync(body)
       onClose()
     } catch (err) {
+      const fallback = t('shoppingList.errors.addFailed', {
+        defaultValue: 'Eintrag konnte nicht angelegt werden.',
+      })
       if (err instanceof ShoppingListApiError) {
-        setError(err.message || 'Eintrag konnte nicht angelegt werden.')
+        setError(err.message || fallback)
       } else {
-        setError('Eintrag konnte nicht angelegt werden.')
+        setError(fallback)
       }
     }
   }
@@ -93,21 +102,29 @@ export function AddItemDialog({
           id="add-shopping-item-dialog-title"
           className="mb-1 font-serif text-xl font-semibold"
         >
-          Eintrag hinzufügen
+          {t('shoppingList.addDialog.title', {
+            defaultValue: 'Eintrag hinzufügen',
+          })}
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Manuelle Ergänzung zur Einkaufsliste.
+          {t('shoppingList.addDialog.subtitle', {
+            defaultValue: 'Manuelle Ergänzung zur Einkaufsliste.',
+          })}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-1.5">
-            <Label htmlFor="add-item-name">Name</Label>
+            <Label htmlFor="add-item-name">
+              {t('shoppingList.addDialog.nameLabel', { defaultValue: 'Name' })}
+            </Label>
             <Input
               id="add-item-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="z.B. Avocado"
+              placeholder={t('shoppingList.addDialog.namePlaceholder', {
+                defaultValue: 'z.B. Avocado',
+              })}
               maxLength={200}
               autoFocus
             />
@@ -115,31 +132,47 @@ export function AddItemDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="add-item-quantity">Menge (optional)</Label>
+              <Label htmlFor="add-item-quantity">
+                {t('shoppingList.addDialog.quantityLabel', {
+                  defaultValue: 'Menge (optional)',
+                })}
+              </Label>
               <Input
                 id="add-item-quantity"
                 type="text"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                placeholder="z.B. 2"
+                placeholder={t('shoppingList.addDialog.quantityPlaceholder', {
+                  defaultValue: 'z.B. 2',
+                })}
                 maxLength={32}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="add-item-unit">Einheit (optional)</Label>
+              <Label htmlFor="add-item-unit">
+                {t('shoppingList.addDialog.unitLabel', {
+                  defaultValue: 'Einheit (optional)',
+                })}
+              </Label>
               <Input
                 id="add-item-unit"
                 type="text"
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
-                placeholder="z.B. Stk"
+                placeholder={t('shoppingList.addDialog.unitPlaceholder', {
+                  defaultValue: 'z.B. Stk',
+                })}
                 maxLength={32}
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="add-item-category">Kategorie</Label>
+            <Label htmlFor="add-item-category">
+              {t('shoppingList.addDialog.categoryLabel', {
+                defaultValue: 'Kategorie',
+              })}
+            </Label>
             <Select
               id="add-item-category"
               value={category}
@@ -156,13 +189,19 @@ export function AddItemDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="add-item-note">Notiz (optional)</Label>
+            <Label htmlFor="add-item-note">
+              {t('shoppingList.addDialog.noteLabel', {
+                defaultValue: 'Notiz (optional)',
+              })}
+            </Label>
             <Input
               id="add-item-note"
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="z.B. reif, bio"
+              placeholder={t('shoppingList.addDialog.notePlaceholder', {
+                defaultValue: 'z.B. reif, bio',
+              })}
               maxLength={200}
             />
           </div>
@@ -178,10 +217,16 @@ export function AddItemDialog({
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
-              Abbrechen
+              {t('common.cancel', { defaultValue: 'Abbrechen' })}
             </Button>
             <Button type="submit" disabled={addMutation.isPending}>
-              {addMutation.isPending ? 'Speichert …' : 'Hinzufügen'}
+              {addMutation.isPending
+                ? t('shoppingList.addDialog.saving', {
+                    defaultValue: 'Speichert …',
+                  })
+                : t('shoppingList.addDialog.submitCta', {
+                    defaultValue: 'Hinzufügen',
+                  })}
             </Button>
           </div>
         </form>

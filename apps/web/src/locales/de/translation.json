@@ -254,7 +254,82 @@
     "pending": "Ausstehend",
     "quantity": "Menge",
     "unit": "Einheit",
-    "item": "Artikel"
+    "item": "Artikel",
+    "a11y": {
+      "subNav": "Einkaufsliste-Navigation",
+      "backToPlan": "Zurück zum Wochenplan",
+      "regenerate": "Einkaufsliste neu erzeugen",
+      "progress": "Fortschritt",
+      "progressBar": "Einkaufs-Fortschritt",
+      "sortGroup": "Sortierung",
+      "toggleCheckedTemplate": "{{name}} {{action}}",
+      "toggleCheckedOn": "abhaken",
+      "toggleCheckedOff": "abhaken rückgängig",
+      "detailsFor": "Details zu {{name}}",
+      "removeFor": "{{name}} entfernen",
+      "closeDetail": "Detail schließen",
+      "carriedOver": "Aus letzter Woche übernommen",
+      "detailFor": "Detail: {{name}}"
+    },
+    "regeneratePending": "Wird erzeugt …",
+    "regenerateCta": "Neu erzeugen",
+    "addEntryCta": "Eintrag",
+    "planErrorLoad": "Der Wochenplan konnte nicht geladen werden.",
+    "planMissing": "Für diese Woche existiert noch kein Wochenplan.",
+    "gotoPlan": "Zum Wochenplan",
+    "listErrorLoad": "Die Einkaufsliste konnte nicht geladen werden.",
+    "emptyEntriesHint": "Noch keine Einträge — lege welche über „Eintrag\" an oder erzeuge die Liste neu.",
+    "progressTemplate": "{{checked}} von {{total}} abgehakt",
+    "allDone": "Einkauf komplett!",
+    "sortCategory": "Nach Kategorie",
+    "sortAlphabetic": "Alphabetisch",
+    "detailSelectHint": "Wähle einen Eintrag links, um Details zu sehen.",
+    "conflictTitle": "Konflikt in der Einkaufsliste",
+    "conflictSubtitle": "Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll.",
+    "deleteDialog": {
+      "title": "Zutat wirklich löschen?",
+      "descriptionTemplate": "\"{{name}}\" wird aus der Liste entfernt. Plan-basierte Einträge tauchen erst beim nächsten \"Neu erzeugen\" wieder auf.",
+      "confirmCta": "Löschen"
+    },
+    "detail": {
+      "quantity": "Menge",
+      "status": "Status",
+      "statusChecked": "Abgehakt",
+      "statusOpen": "Offen",
+      "source": "Quelle",
+      "sourceManual": "Manuell hinzugefügt",
+      "sourcePlan": "Aus Wochenplan",
+      "carriedOverLabel": "Übernommen",
+      "carriedOverValue": "Aus letzter Woche",
+      "note": "Notiz",
+      "actionsHint": "Abhaken oder Entfernen über die Zeile links."
+    },
+    "emptyState": {
+      "heading": "Noch keine Einkaufsliste",
+      "description": "Lass die Liste aus deinem Wochenplan erzeugen — Zutaten werden nach Kategorie sortiert.",
+      "generateCta": "Liste erzeugen"
+    },
+    "errors": {
+      "rateLimited": "Zu viele Anfragen — bitte kurz warten, bevor du die Liste erneut erzeugst.",
+      "generateFailed": "Liste konnte nicht erzeugt werden.",
+      "addFailed": "Eintrag konnte nicht angelegt werden.",
+      "nameRequired": "Bitte gib einen Namen ein."
+    },
+    "addDialog": {
+      "title": "Eintrag hinzufügen",
+      "subtitle": "Manuelle Ergänzung zur Einkaufsliste.",
+      "nameLabel": "Name",
+      "namePlaceholder": "z.B. Avocado",
+      "quantityLabel": "Menge (optional)",
+      "quantityPlaceholder": "z.B. 2",
+      "unitLabel": "Einheit (optional)",
+      "unitPlaceholder": "z.B. Stk",
+      "categoryLabel": "Kategorie",
+      "noteLabel": "Notiz (optional)",
+      "notePlaceholder": "z.B. reif, bio",
+      "saving": "Speichert …",
+      "submitCta": "Hinzufügen"
+    }
   },
   "imports": {
     "pageTitle": "Rezept importieren",
