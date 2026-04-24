@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import type { ApiError, TagCategory } from '@familien-kochbuch/shared'
+import type { TagCategory } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useCreateGroupTag } from './hooks'
 
 const CATEGORIES: { value: TagCategory; label: string }[] = [
@@ -48,8 +49,8 @@ export function CreateTagDialog({
       await mutation.mutateAsync({ name: name.trim(), category })
       onClose()
     } catch (err) {
-      const apiErr = err as ApiError
-      setError(apiErr.message || 'Tag konnte nicht erstellt werden.')
+      // REL-3f — localise via errors.json + drop 5xx leaks.
+      setError(classifyMutationError(err).message)
     }
   }
 

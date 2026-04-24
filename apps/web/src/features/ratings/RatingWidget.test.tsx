@@ -159,4 +159,38 @@ describe('RatingWidget', () => {
 
     await waitFor(() => expect(deleteCalled).toBe(true))
   })
+
+  // REL-3f — backend error-codes route through `classifyMutationError`
+  // → localised `errors.json` copy. 5xx responses must NOT leak raw
+  // server messages (stack traces / SQL fragments) into the UI.
+  it('surfaces a generic German fallback on 5xx upsert failures', async () => {
+    mockRatings({
+      aggregate: { avg: null, count: 0, myStars: null, myComment: null },
+      ratings: [],
+    })
+    server.use(
+      http.post('/api/recipes/r1/ratings', () =>
+        HttpResponse.json(
+          {
+            code: 'internal_error',
+            message: 'DbUpdateException at RatingsService.cs:88',
+            status: 500,
+          },
+          { status: 500 },
+        ),
+      ),
+    )
+
+    renderWidget()
+    const user = userEvent.setup()
+    await waitFor(() =>
+      expect(screen.getByText(/Noch keine Bewertung/i)).toBeInTheDocument(),
+    )
+    await user.click(screen.getByRole('button', { name: /5 Sterne/i }))
+    await user.click(screen.getByRole('button', { name: /Speichern/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Unbekannter Fehler/)
+    expect(alert).not.toHaveTextContent(/DbUpdateException/)
+  })
 })

@@ -48,19 +48,24 @@ describe('CreateTagDialog', () => {
     await waitFor(() => expect(closed).toBe(true))
   })
 
-  it('shows API error message on duplicate', async () => {
+  // REL-3f — backend error-codes route through `classifyMutationError`
+  // → localised `errors.json` copy instead of the raw Dev-Message.
+  it('shows the localised errors:<code> copy on duplicate', async () => {
     server.use(
       http.post('/api/groups/g1/tags', () =>
-        HttpResponse.json({ code: 'tag_exists', message: 'Dieser Tag existiert schon.' }, { status: 400 }),
+        HttpResponse.json(
+          { code: 'tag_exists', message: 'Tag already exists.', status: 400 },
+          { status: 400 },
+        ),
       ),
     )
     renderDialog()
     const user = userEvent.setup()
     await user.type(screen.getByLabelText(/Name/i), 'Dup')
     await user.click(screen.getByRole('button', { name: /Tag anlegen/i }))
-    await waitFor(() =>
-      expect(screen.getByText(/Dieser Tag existiert schon/i)).toBeInTheDocument(),
-    )
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Dieser Tag existiert bereits\./)
+    expect(alert).not.toHaveTextContent(/Tag already exists/)
   })
 
   it('rejects blank name without calling API', async () => {

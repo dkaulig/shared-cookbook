@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import {
   fetchExtractorConfigList,
   resetExtractorConfig,
@@ -183,17 +184,23 @@ export function ExtractorConfigPage() {
         await listQuery.refetch()
         return
       }
-      if (apiErr.code === 'invalid_value') {
+      // REL-3f — admin screen: for 400 validation errors we deliberately
+      // PREFER the backend's precise message (e.g. "Temperatur muss
+      // zwischen 0 und 2 liegen") over the generic `invalid_value` →
+      // "Ungültiger Wert." localisation — the admin needs the concrete
+      // constraint to fix the input. `classifyMutationError` is still
+      // used as the fallback so 5xx / auth / network errors get the
+      // generic German copy instead of leaking stack traces.
+      if (apiErr.code === 'invalid_value' && apiErr.message) {
         setFieldErrors((prev) => ({
           ...prev,
-          [key]: apiErr.message ?? 'Ungültiger Wert.',
+          [key]: apiErr.message as string,
         }))
         return
       }
       setFieldErrors((prev) => ({
         ...prev,
-        [key]:
-          apiErr.message ?? 'Speichern fehlgeschlagen. Bitte erneut versuchen.',
+        [key]: classifyMutationError(err).message,
       }))
     }
   }
@@ -220,11 +227,13 @@ export function ExtractorConfigPage() {
       markSaved(updated)
       setConflictBanner(null)
     } catch (err) {
-      const apiErr = err as Partial<ApiError>
+      // REL-3f — admin reset: same policy as saveKey. For now there's no
+      // 400-specific field constraint on reset, so the classifier's code→
+      // `errors.json` translation path applies; 5xx falls back to the
+      // generic toast copy automatically.
       setFieldErrors((prev) => ({
         ...prev,
-        [key]:
-          apiErr.message ?? 'Zurücksetzen fehlgeschlagen. Bitte erneut versuchen.',
+        [key]: classifyMutationError(err).message,
       }))
     }
   }
