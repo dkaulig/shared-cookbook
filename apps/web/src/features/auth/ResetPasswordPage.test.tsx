@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -6,7 +6,6 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AuthLayout } from './AuthLayout'
 import { ResetPasswordPage } from './ResetPasswordPage'
 import { server } from '@/test/msw/server'
-import { createI18n } from '@/i18n'
 
 function renderReset(search: string = '?token=reset-token') {
   return render(
@@ -22,14 +21,9 @@ function renderReset(search: string = '?token=reset-token') {
 }
 
 describe('<ResetPasswordPage />', () => {
-  // REL-5f — init the shared i18n singleton so `classifyMutationError`
-  // resolves `errors:<code>` keys to German copy. REL-5f tests assert
-  // the translated string lands in the fallback banner for `resetToken`
-  // (no form-input to focus — token lives in the URL).
-  beforeAll(async () => {
-    window.localStorage.setItem('i18nextLng', 'de')
-    await createI18n()
-  })
+  // REL-3e — i18n is bootstrapped globally in `src/test/setup.ts`
+  // (pinned to `de`), so no per-file init is needed for
+  // `classifyMutationError` to resolve `errors:<code>` keys.
 
   afterEach(() => {
     server.resetHandlers()

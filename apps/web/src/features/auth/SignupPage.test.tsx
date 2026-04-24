@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -7,7 +7,6 @@ import { AuthLayout } from './AuthLayout'
 import { SignupPage } from './SignupPage'
 import { useAuthStore } from './authStore'
 import { server } from '@/test/msw/server'
-import { createI18n } from '@/i18n'
 
 function renderSignup(search: string = '?token=the-token') {
   return render(
@@ -24,14 +23,8 @@ function renderSignup(search: string = '?token=the-token') {
 }
 
 describe('<SignupPage />', () => {
-  // REL-5f — init the shared i18n singleton so `classifyMutationError`
-  // resolves `errors:<code>` keys to German copy. The inline field-focus
-  // tests below assert the translated string, not the server-supplied
-  // English dev-message.
-  beforeAll(async () => {
-    window.localStorage.setItem('i18nextLng', 'de')
-    await createI18n()
-  })
+  // REL-3e — i18n is bootstrapped globally in `src/test/setup.ts`
+  // (pinned to `de`), so no per-file init is needed.
 
   beforeEach(() => {
     useAuthStore.getState().clear()

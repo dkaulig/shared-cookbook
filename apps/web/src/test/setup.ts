@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest'
 import 'fake-indexeddb/auto'
 import { cleanup } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
+import i18n, { createI18n } from '../i18n'
 import { server } from './msw/server.ts'
 
 // REL-3 — jsdom in this vitest build ships an incomplete localStorage
@@ -54,3 +55,22 @@ afterEach(() => {
   cleanup()
 })
 afterAll(() => server.close())
+
+// REL-3e — boot the i18n singleton once for the whole vitest run so
+// any feature-level test that renders components with `useTranslation`
+// or calls `classifyMutationError` sees the resources loaded without
+// a local `beforeAll(createI18n())` workaround. The default singleton
+// is idempotent: `createI18n()` without `initialLng` mutates the
+// shared instance and is safe to call before other module imports
+// that might themselves import `@/i18n`.
+//
+// Pinned to `de` so tests that assert German `errors.json` /
+// `translation.json` copy don't depend on the navigator.language of
+// the test environment.
+//
+// Using top-level-await so the promise is resolved before vitest
+// starts collecting test files — i18next's `init()` is synchronous in
+// practice (resources are passed inline; there's no async backend)
+// but awaiting here is the documented contract.
+await createI18n()
+await i18n.changeLanguage('de')

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -7,7 +7,6 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import { createI18n } from '@/i18n'
 import { ProfilStub } from './ProfilStub'
 
 function renderPage() {
@@ -30,16 +29,8 @@ function renderPage() {
 }
 
 describe('<ProfilStub />', () => {
-  // REL-5d — init the shared i18n singleton so `classifyMutationError`
-  // resolves `errors:<code>` keys to German copy instead of falling
-  // back to the server-supplied English dev-message. Tests for the
-  // inline-field-focus migration assert the translated string lands
-  // under the focused input. `createI18n()` without `initialLng`
-  // mutates the default singleton (see `apps/web/src/i18n/index.ts`).
-  beforeAll(async () => {
-    window.localStorage.setItem('i18nextLng', 'de')
-    await createI18n()
-  })
+  // REL-3e — i18n is bootstrapped globally in `src/test/setup.ts`
+  // (pinned to `de`), so no per-file init is needed.
 
   beforeEach(() => {
     useAuthStore.getState().setSession('tok', {
