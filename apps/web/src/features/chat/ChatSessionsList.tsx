@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { MessageSquarePlus, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import type { ChatSessionListItem } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
@@ -33,7 +34,11 @@ export interface ChatSessionsListProps {
   onCreateNew: () => void
   /** `true` while a `createChatSession` mutation is in flight. */
   isCreating?: boolean
-  /** Optional heading; defaults to German "Unterhaltungen". */
+  /**
+   * Optional heading override. Defaults to the translated
+   * `chat.sessions.heading` (German: "Unterhaltungen"). Callers that
+   * already own the label (e.g. a mobile drawer title) pass it in.
+   */
   heading?: string
 }
 
@@ -45,13 +50,15 @@ export function ChatSessionsList({
   onDelete,
   onCreateNew,
   isCreating = false,
-  heading = 'Unterhaltungen',
+  heading,
 }: ChatSessionsListProps) {
+  const { t } = useTranslation()
+  const resolvedHeading = heading ?? t('chat.sessions.heading')
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
         <h2 className="font-serif text-[16px] font-semibold tracking-[-0.005em] text-foreground">
-          {heading}
+          {resolvedHeading}
         </h2>
         <Button
           type="button"
@@ -59,10 +66,12 @@ export function ChatSessionsList({
           onClick={onCreateNew}
           disabled={isCreating}
           className="gap-1.5"
-          aria-label="Neue Unterhaltung"
+          aria-label={t('chat.sessions.newAria')}
         >
           <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
-          {isCreating ? 'Erstelle …' : 'Neu'}
+          {isCreating
+            ? t('chat.sessions.creating')
+            : t('chat.sessions.newShort')}
         </Button>
       </div>
 
@@ -92,6 +101,7 @@ export function ChatSessionsList({
 }
 
 function EmptySessions() {
+  const { t } = useTranslation()
   return (
     <div className="mx-auto mt-8 max-w-xs rounded-[14px] border border-dashed border-[hsl(var(--input))] bg-card/60 p-4 text-center">
       <Sparkles
@@ -99,7 +109,7 @@ function EmptySessions() {
         aria-hidden="true"
       />
       <p className="mt-1.5 text-[13.5px] leading-[1.4] text-[hsl(var(--muted-foreground))]">
-        Noch keine Unterhaltungen. Starte mit „Neu“.
+        {t('chat.sessions.emptyHint')}
       </p>
     </div>
   )
@@ -118,9 +128,10 @@ function SessionRow({
   onRename: () => void
   onDelete: () => void
 }) {
+  const { t } = useTranslation()
   const title = session.title ?? ''
   const fallback = !title
-  const displayTitle = title || 'Neue Unterhaltung'
+  const displayTitle = title || t('chat.sessions.fallbackTitle')
   const when = formatRelativeTime(session.updatedAt)
 
   function handleRowKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -140,7 +151,7 @@ function SessionRow({
       <div
         role="button"
         tabIndex={0}
-        aria-label={`Unterhaltung öffnen: ${displayTitle}`}
+        aria-label={t('chat.sessions.openAriaTemplate', { title: displayTitle })}
         aria-current={isActive ? 'true' : undefined}
         onClick={onSelect}
         onKeyDown={handleRowKeyDown}
@@ -180,7 +191,9 @@ function SessionRow({
         >
           <button
             type="button"
-            aria-label={`Umbenennen: ${displayTitle}`}
+            aria-label={t('chat.sessions.renameAriaTemplate', {
+              title: displayTitle,
+            })}
             onClick={(e) => {
               e.stopPropagation()
               onRename()
@@ -191,7 +204,9 @@ function SessionRow({
           </button>
           <button
             type="button"
-            aria-label={`Löschen: ${displayTitle}`}
+            aria-label={t('chat.sessions.deleteAriaTemplate', {
+              title: displayTitle,
+            })}
             onClick={(e) => {
               e.stopPropagation()
               onDelete()

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { toastMutationError } from '@/features/_shared/errorSurface'
 import {
@@ -21,6 +22,7 @@ import {
  * `useEffect`-driven `navigate()` call after the POST resolves.
  */
 export function ChatIndexRedirect() {
+  const { t } = useTranslation()
   const sessionsQuery = useChatSessions()
   const createMutation = useCreateChatSession()
   const navigate = useNavigate()
@@ -57,7 +59,7 @@ export function ChatIndexRedirect() {
           className="h-6 w-6 animate-spin text-[hsl(var(--muted-foreground))]"
           aria-hidden="true"
         />
-        <span className="sr-only">Unterhaltungen werden geladen …</span>
+        <span className="sr-only">{t('chat.sessions.indexLoadingSr')}</span>
       </div>
     )
   }
@@ -74,7 +76,7 @@ export function ChatIndexRedirect() {
         className="h-6 w-6 animate-spin text-[hsl(var(--muted-foreground))]"
         aria-hidden="true"
       />
-      <span className="sr-only">Neue Unterhaltung wird erstellt …</span>
+      <span className="sr-only">{t('chat.sessions.indexMintingSr')}</span>
     </div>
   )
 }
