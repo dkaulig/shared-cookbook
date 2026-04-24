@@ -1,0 +1,252 @@
+{
+  "common": {
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "close": "Schließen",
+    "back": "Zurück",
+    "next": "Weiter",
+    "confirm": "Bestätigen",
+    "loading": "Wird geladen…",
+    "search": "Suchen",
+    "add": "Hinzufügen",
+    "remove": "Entfernen",
+    "more": "Mehr",
+    "retry": "Erneut versuchen",
+    "unknownError": "Unbekannter Fehler. Bitte erneut versuchen.",
+    "networkError": "Unbekannter Fehler. Bitte Verbindung prüfen und erneut versuchen.",
+    "forbidden": "Fehlende Berechtigung. Bitte neu anmelden oder Admin kontaktieren.",
+    "versionConflict": "Jemand anderes hat das inzwischen bearbeitet. Bitte neu laden.",
+    "actionFailed": "Aktion fehlgeschlagen."
+  },
+  "nav": {
+    "home": "Startseite",
+    "groups": "Gruppen",
+    "recipes": "Rezepte",
+    "mealplan": "Wochenplan",
+    "shoppingList": "Einkaufsliste",
+    "chat": "Rezept-Chat",
+    "search": "Suche",
+    "profile": "Profil",
+    "import": "Import",
+    "settings": "Einstellungen",
+    "aiUsage": "KI-Verbrauch",
+    "extractor": "Extractor-Config"
+  },
+  "auth": {
+    "signIn": "Anmelden",
+    "signUp": "Registrieren",
+    "signOut": "Abmelden",
+    "email": "E-Mail",
+    "password": "Passwort",
+    "passwordConfirm": "Passwort bestätigen",
+    "displayName": "Anzeigename",
+    "forgotPassword": "Passwort vergessen?",
+    "resetPassword": "Passwort zurücksetzen",
+    "newPassword": "Neues Passwort",
+    "loginCta": "Anmelden",
+    "signupCta": "Konto erstellen",
+    "backToLogin": "Zurück zur Anmeldung",
+    "noAccountYet": "Noch kein Konto?",
+    "alreadyHaveAccount": "Schon registriert?",
+    "sendResetLink": "Link zum Zurücksetzen senden",
+    "resetDone": "Passwort aktualisiert. Du kannst dich jetzt anmelden."
+  },
+  "home": {
+    "greeting": "Willkommen zurück",
+    "recentRecipes": "Zuletzt hinzugefügt",
+    "quickImport": "Schnell importieren",
+    "importUrl": "Von URL",
+    "importPhoto": "Aus Foto",
+    "importChat": "Per Chat erfassen",
+    "empty": "Noch keine Rezepte. Lege dein erstes Rezept an."
+  },
+  "recipes": {
+    "list": {
+      "empty": "Noch keine Rezepte in dieser Gruppe.",
+      "createCta": "Neues Rezept",
+      "importCta": "Importieren",
+      "searchPlaceholder": "Rezepte durchsuchen…",
+      "sortNewest": "Neueste zuerst",
+      "sortOldest": "Älteste zuerst",
+      "sortBestRated": "Beste Bewertung",
+      "filterTag": "Nach Tag filtern",
+      "clearFilters": "Filter zurücksetzen"
+    },
+    "detail": {
+      "servingsLabel": "Portionen",
+      "prepTime": "Zubereitung",
+      "cookTime": "Kochzeit",
+      "totalTime": "Gesamtzeit",
+      "minutes": "Min.",
+      "ingredients": "Zutaten",
+      "steps": "Zubereitung",
+      "nutrition": "Nährwerte",
+      "cookNow": "Jetzt kochen",
+      "edit": "Bearbeiten",
+      "fork": "Kopie erstellen",
+      "delete": "Rezept löschen",
+      "deleteConfirm": "Dieses Rezept wirklich löschen? Das kann nicht rückgängig gemacht werden.",
+      "addToMealPlan": "Zum Wochenplan hinzufügen",
+      "copyIngredients": "Zutaten kopieren",
+      "rate": "Bewerten",
+      "share": "Teilen"
+    },
+    "form": {
+      "titleLabel": "Titel",
+      "titlePlaceholder": "z.B. Pasta Carbonara",
+      "descriptionLabel": "Beschreibung",
+      "servingsLabel": "Portionen",
+      "prepTimeLabel": "Zubereitung (Min.)",
+      "cookTimeLabel": "Kochzeit (Min.)",
+      "difficultyLabel": "Schwierigkeit",
+      "categoryLabel": "Kategorie",
+      "tagsLabel": "Tags",
+      "ingredientsHeading": "Zutaten",
+      "stepsHeading": "Zubereitungsschritte",
+      "sourceLabel": "Quelle",
+      "sourceUrlPlaceholder": "https://…",
+      "addIngredient": "Zutat hinzufügen",
+      "addStep": "Schritt hinzufügen",
+      "saveCta": "Speichern",
+      "saveAndContinue": "Speichern & weiter",
+      "cancelCta": "Abbrechen",
+      "unsavedChangesWarning": "Es gibt ungespeicherte Änderungen. Wirklich verwerfen?",
+      "savedToast": "Rezept gespeichert.",
+      "createdToast": "Rezept erstellt."
+    },
+    "difficulty": {
+      "easy": "Einfach",
+      "medium": "Mittel",
+      "hard": "Aufwendig"
+    }
+  },
+  "mealplan": {
+    "pageTitle": "Wochenplan",
+    "prevWeek": "Vorherige Woche",
+    "nextWeek": "Nächste Woche",
+    "today": "Heute",
+    "addSlot": "Eintrag hinzufügen",
+    "emptySlot": "Leer",
+    "slots": {
+      "breakfast": "Frühstück",
+      "lunch": "Mittagessen",
+      "dinner": "Abendessen",
+      "snack": "Snack"
+    },
+    "weekdays": {
+      "mon": "Montag",
+      "tue": "Dienstag",
+      "wed": "Mittwoch",
+      "thu": "Donnerstag",
+      "fri": "Freitag",
+      "sat": "Samstag",
+      "sun": "Sonntag"
+    },
+    "actions": {
+      "openShoppingList": "Einkaufsliste öffnen",
+      "deleteSlot": "Eintrag entfernen",
+      "empty": "Noch kein Plan für diese Woche. Tippe auf einen Slot, um einen Eintrag hinzuzufügen."
+    }
+  },
+  "shoppingList": {
+    "pageTitle": "Einkaufsliste",
+    "empty": "Keine Artikel auf der Liste.",
+    "addCustomItem": "Eigenen Artikel hinzufügen",
+    "markAllBought": "Alle abhaken",
+    "clearBought": "Abgehakte löschen",
+    "bought": "Abgehakt",
+    "pending": "Ausstehend",
+    "quantity": "Menge",
+    "unit": "Einheit",
+    "item": "Artikel"
+  },
+  "imports": {
+    "pageTitle": "Rezept importieren",
+    "urlTab": "Von URL",
+    "photoTab": "Aus Foto",
+    "chatTab": "Per Chat",
+    "urlPlaceholder": "Blog-Link oder Social-Video-URL einfügen…",
+    "urlCta": "Importieren",
+    "urlHelp": "Aus Food-Blogs, Instagram-Reels, TikTok und YouTube. Audio wird transkribiert, Text wird strukturiert.",
+    "photoDrop": "Fotos hierher ziehen oder auswählen",
+    "photoHelp": "Bis zu 10 Fotos eines Kochbuchs oder Rezept-Ausschnitts.",
+    "chatHint": "Frage im Chat nach einem Rezept und speichere das Ergebnis.",
+    "progress": {
+      "queued": "In Warteschlange",
+      "downloading": "Lade herunter",
+      "transcribing": "Transkribiere",
+      "analyzing": "Analysiere",
+      "extracting": "Extrahiere",
+      "persisting": "Speichere",
+      "done": "Fertig",
+      "failed": "Fehlgeschlagen"
+    },
+    "emptyList": "Noch keine Importe gestartet."
+  },
+  "chat": {
+    "pageTitle": "Rezept-Chat",
+    "sessionsTitle": "Sitzungen",
+    "newSession": "Neue Unterhaltung",
+    "inputPlaceholder": "Frag nach einem Rezept, Zutat oder einer Technik…",
+    "send": "Senden",
+    "stop": "Stoppen",
+    "thinking": "Denke nach…",
+    "saveAsRecipe": "Als Rezept speichern",
+    "emptySessions": "Noch keine Chats. Starte unten eine neue Unterhaltung.",
+    "disabled": "KI ist deaktiviert. Der Chat steht deshalb gerade nicht zur Verfügung.",
+    "systemWelcome": "Hallo! Ich helfe dir bei Rezepten, Zutaten-Substituten und Zubereitungstipps."
+  },
+  "groups": {
+    "pageTitle": "Gruppen",
+    "createGroup": "Neue Gruppe",
+    "manageMembers": "Mitglieder verwalten",
+    "invite": "Einladen",
+    "invitePlaceholder": "E-Mail oder @Nutzername",
+    "leaveGroup": "Gruppe verlassen",
+    "memberRole": {
+      "admin": "Admin",
+      "member": "Mitglied",
+      "pending": "Offen"
+    },
+    "emptyRecipes": "Noch keine Rezepte in dieser Gruppe.",
+    "settings": {
+      "nameLabel": "Gruppenname",
+      "descriptionLabel": "Beschreibung",
+      "dangerZone": "Gefahrenbereich",
+      "deleteGroup": "Gruppe löschen",
+      "deleteConfirm": "Diese Gruppe wirklich löschen? Alle Rezepte und Pläne gehen verloren."
+    }
+  },
+  "ai": {
+    "offNotice": {
+      "title": "KI ist deaktiviert",
+      "photoDescription": "Import aus Foto braucht ein aktives KI-Modell. Bitte aktiviere AI in der .env oder importiere per URL mit Rohtext-Fallback.",
+      "chatDescription": "Der Chat benötigt ein aktives KI-Modell. Rezepte lassen sich weiter manuell erfassen.",
+      "adminHint": "Admin-Hinweis: setze {{aiEnabledKey}} und {{providerKey}} in der .env und starte die Container neu.",
+      "back": "Zurück zur Startseite"
+    }
+  },
+  "account": {
+    "menu": {
+      "profile": "Profil",
+      "language": "Sprache",
+      "settings": "Einstellungen",
+      "logout": "Abmelden"
+    }
+  },
+  "languageNames": {
+    "de": "Deutsch",
+    "en": "English"
+  },
+  "pwa": {
+    "updateReady": "Neue Version verfügbar",
+    "updateCta": "Aktualisieren"
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "body": "Die angeforderte Seite existiert nicht oder wurde verschoben.",
+    "home": "Zur Startseite"
+  }
+}

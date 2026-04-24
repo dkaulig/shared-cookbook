@@ -1,0 +1,252 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "loading": "Loading…",
+    "search": "Search",
+    "add": "Add",
+    "remove": "Remove",
+    "more": "More",
+    "retry": "Try again",
+    "unknownError": "Something went wrong. Please try again.",
+    "networkError": "Connection problem. Please check your network and try again.",
+    "forbidden": "Missing permission. Please sign in again or contact an admin.",
+    "versionConflict": "Someone else already edited this. Please reload.",
+    "actionFailed": "Action failed."
+  },
+  "nav": {
+    "home": "Home",
+    "groups": "Groups",
+    "recipes": "Recipes",
+    "mealplan": "Meal plan",
+    "shoppingList": "Shopping list",
+    "chat": "Recipe chat",
+    "search": "Search",
+    "profile": "Profile",
+    "import": "Import",
+    "settings": "Settings",
+    "aiUsage": "AI usage",
+    "extractor": "Extractor config"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signUp": "Sign up",
+    "signOut": "Sign out",
+    "email": "Email",
+    "password": "Password",
+    "passwordConfirm": "Confirm password",
+    "displayName": "Display name",
+    "forgotPassword": "Forgot your password?",
+    "resetPassword": "Reset password",
+    "newPassword": "New password",
+    "loginCta": "Sign in",
+    "signupCta": "Create account",
+    "backToLogin": "Back to sign-in",
+    "noAccountYet": "No account yet?",
+    "alreadyHaveAccount": "Already registered?",
+    "sendResetLink": "Send reset link",
+    "resetDone": "Password updated. You can sign in now."
+  },
+  "home": {
+    "greeting": "Welcome back",
+    "recentRecipes": "Recently added",
+    "quickImport": "Quick import",
+    "importUrl": "From URL",
+    "importPhoto": "From photo",
+    "importChat": "Via chat",
+    "empty": "No recipes yet. Create your first one."
+  },
+  "recipes": {
+    "list": {
+      "empty": "No recipes in this group yet.",
+      "createCta": "New recipe",
+      "importCta": "Import",
+      "searchPlaceholder": "Search recipes…",
+      "sortNewest": "Newest first",
+      "sortOldest": "Oldest first",
+      "sortBestRated": "Highest rated",
+      "filterTag": "Filter by tag",
+      "clearFilters": "Reset filters"
+    },
+    "detail": {
+      "servingsLabel": "Servings",
+      "prepTime": "Prep time",
+      "cookTime": "Cook time",
+      "totalTime": "Total time",
+      "minutes": "min",
+      "ingredients": "Ingredients",
+      "steps": "Instructions",
+      "nutrition": "Nutrition",
+      "cookNow": "Cook now",
+      "edit": "Edit",
+      "fork": "Fork",
+      "delete": "Delete recipe",
+      "deleteConfirm": "Really delete this recipe? This cannot be undone.",
+      "addToMealPlan": "Add to meal plan",
+      "copyIngredients": "Copy ingredients",
+      "rate": "Rate",
+      "share": "Share"
+    },
+    "form": {
+      "titleLabel": "Title",
+      "titlePlaceholder": "e.g. Pasta Carbonara",
+      "descriptionLabel": "Description",
+      "servingsLabel": "Servings",
+      "prepTimeLabel": "Prep time (min)",
+      "cookTimeLabel": "Cook time (min)",
+      "difficultyLabel": "Difficulty",
+      "categoryLabel": "Category",
+      "tagsLabel": "Tags",
+      "ingredientsHeading": "Ingredients",
+      "stepsHeading": "Instructions",
+      "sourceLabel": "Source",
+      "sourceUrlPlaceholder": "https://…",
+      "addIngredient": "Add ingredient",
+      "addStep": "Add step",
+      "saveCta": "Save",
+      "saveAndContinue": "Save & continue",
+      "cancelCta": "Cancel",
+      "unsavedChangesWarning": "There are unsaved changes. Really discard?",
+      "savedToast": "Recipe saved.",
+      "createdToast": "Recipe created."
+    },
+    "difficulty": {
+      "easy": "Easy",
+      "medium": "Medium",
+      "hard": "Hard"
+    }
+  },
+  "mealplan": {
+    "pageTitle": "Meal plan",
+    "prevWeek": "Previous week",
+    "nextWeek": "Next week",
+    "today": "Today",
+    "addSlot": "Add entry",
+    "emptySlot": "Empty",
+    "slots": {
+      "breakfast": "Breakfast",
+      "lunch": "Lunch",
+      "dinner": "Dinner",
+      "snack": "Snack"
+    },
+    "weekdays": {
+      "mon": "Monday",
+      "tue": "Tuesday",
+      "wed": "Wednesday",
+      "thu": "Thursday",
+      "fri": "Friday",
+      "sat": "Saturday",
+      "sun": "Sunday"
+    },
+    "actions": {
+      "openShoppingList": "Open shopping list",
+      "deleteSlot": "Remove entry",
+      "empty": "No plan for this week yet. Tap a slot to add one."
+    }
+  },
+  "shoppingList": {
+    "pageTitle": "Shopping list",
+    "empty": "No items on the list.",
+    "addCustomItem": "Add custom item",
+    "markAllBought": "Mark all",
+    "clearBought": "Clear checked",
+    "bought": "Checked",
+    "pending": "Pending",
+    "quantity": "Quantity",
+    "unit": "Unit",
+    "item": "Item"
+  },
+  "imports": {
+    "pageTitle": "Import recipe",
+    "urlTab": "From URL",
+    "photoTab": "From photo",
+    "chatTab": "Via chat",
+    "urlPlaceholder": "Paste a blog link or social video URL…",
+    "urlCta": "Import",
+    "urlHelp": "Supports food blogs, Instagram reels, TikTok and YouTube. Audio is transcribed, text is structured.",
+    "photoDrop": "Drop photos here or select them",
+    "photoHelp": "Up to 10 photos of a cookbook page or recipe clipping.",
+    "chatHint": "Ask the chat for a recipe and save the result.",
+    "progress": {
+      "queued": "Queued",
+      "downloading": "Downloading",
+      "transcribing": "Transcribing",
+      "analyzing": "Analyzing",
+      "extracting": "Extracting",
+      "persisting": "Saving",
+      "done": "Done",
+      "failed": "Failed"
+    },
+    "emptyList": "No imports yet."
+  },
+  "chat": {
+    "pageTitle": "Recipe chat",
+    "sessionsTitle": "Sessions",
+    "newSession": "New conversation",
+    "inputPlaceholder": "Ask for a recipe, ingredient or technique…",
+    "send": "Send",
+    "stop": "Stop",
+    "thinking": "Thinking…",
+    "saveAsRecipe": "Save as recipe",
+    "emptySessions": "No chats yet. Start a new conversation below.",
+    "disabled": "AI is disabled, so chat is unavailable right now.",
+    "systemWelcome": "Hi! I help with recipes, ingredient substitutes and cooking tips."
+  },
+  "groups": {
+    "pageTitle": "Groups",
+    "createGroup": "New group",
+    "manageMembers": "Manage members",
+    "invite": "Invite",
+    "invitePlaceholder": "Email or @username",
+    "leaveGroup": "Leave group",
+    "memberRole": {
+      "admin": "Admin",
+      "member": "Member",
+      "pending": "Pending"
+    },
+    "emptyRecipes": "No recipes in this group yet.",
+    "settings": {
+      "nameLabel": "Group name",
+      "descriptionLabel": "Description",
+      "dangerZone": "Danger zone",
+      "deleteGroup": "Delete group",
+      "deleteConfirm": "Really delete this group? All recipes and plans are lost."
+    }
+  },
+  "ai": {
+    "offNotice": {
+      "title": "AI is disabled",
+      "photoDescription": "Photo import needs an active AI model. Enable AI in .env or import via URL with the raw-text fallback.",
+      "chatDescription": "Chat requires an active AI model. You can still manage recipes manually.",
+      "adminHint": "Admin hint: set {{aiEnabledKey}} and {{providerKey}} in .env and restart the containers.",
+      "back": "Back to home"
+    }
+  },
+  "account": {
+    "menu": {
+      "profile": "Profile",
+      "language": "Language",
+      "settings": "Settings",
+      "logout": "Sign out"
+    }
+  },
+  "languageNames": {
+    "de": "Deutsch",
+    "en": "English"
+  },
+  "pwa": {
+    "updateReady": "New version available",
+    "updateCta": "Update"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The page you requested doesn't exist or has been moved.",
+    "home": "Go home"
+  }
+}
