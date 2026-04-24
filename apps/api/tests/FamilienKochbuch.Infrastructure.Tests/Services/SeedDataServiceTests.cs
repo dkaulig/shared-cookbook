@@ -93,7 +93,7 @@ public class SeedDataServiceTests : IAsyncLifetime
         await BuildSeeder(config).SeedAsync();
 
         var bot = await _db.Users.FirstOrDefaultAsync(
-            u => u.Email == "orchestrator@EXAMPLE_HOST");
+            u => u.Email == "orchestrator@example.com");
         Assert.Null(bot);
     }
 
@@ -110,7 +110,7 @@ public class SeedDataServiceTests : IAsyncLifetime
         await BuildSeeder(config).SeedAsync();
 
         var bot = await _db.Users.FirstOrDefaultAsync(
-            u => u.Email == "orchestrator@EXAMPLE_HOST");
+            u => u.Email == "orchestrator@example.com");
         Assert.Null(bot);
     }
 
@@ -127,7 +127,7 @@ public class SeedDataServiceTests : IAsyncLifetime
         await BuildSeeder(config).SeedAsync();
 
         var bot = await _db.Users.SingleAsync(
-            u => u.Email == "orchestrator@EXAMPLE_HOST");
+            u => u.Email == "orchestrator@example.com");
         Assert.Equal("Orchestrator", bot.DisplayName);
         Assert.Equal(UserRole.User, bot.Role);
         Assert.True(bot.EmailConfirmed);
@@ -174,7 +174,7 @@ public class SeedDataServiceTests : IAsyncLifetime
         await BuildSeeder(config).SeedAsync();
 
         var firstHash = (await _db.Users.SingleAsync(
-            u => u.Email == "orchestrator@EXAMPLE_HOST")).PasswordHash;
+            u => u.Email == "orchestrator@example.com")).PasswordHash;
 
         // Detach so the second seed reloads from the DB instead of reusing
         // the tracked instance.
@@ -192,7 +192,7 @@ public class SeedDataServiceTests : IAsyncLifetime
         await BuildSeeder(rotated).SeedAsync();
 
         var bot = await _db.Users.SingleAsync(
-            u => u.Email == "orchestrator@EXAMPLE_HOST");
+            u => u.Email == "orchestrator@example.com");
         // Hash-equality is the authoritative "not rehashed" guarantee.  We
         // deliberately don't assert "old password verifies / new doesn't"
         // here — an Identity hasher version bump would re-verify through
@@ -216,7 +216,7 @@ public class SeedDataServiceTests : IAsyncLifetime
         await BuildSeeder(firstConfig).SeedAsync();
 
         var firstHash = (await _db.Users.SingleAsync(
-            u => u.Email == "orchestrator@EXAMPLE_HOST")).PasswordHash;
+            u => u.Email == "orchestrator@example.com")).PasswordHash;
 
         _db.ChangeTracker.Clear();
 
@@ -231,7 +231,7 @@ public class SeedDataServiceTests : IAsyncLifetime
         await BuildSeeder(rotateConfig).SeedAsync();
 
         var bot = await _db.Users.SingleAsync(
-            u => u.Email == "orchestrator@EXAMPLE_HOST");
+            u => u.Email == "orchestrator@example.com");
 
         // Hash must have changed — the rotate path re-hashed via Identity.
         Assert.NotEqual(firstHash, bot.PasswordHash);
@@ -257,6 +257,6 @@ public class SeedDataServiceTests : IAsyncLifetime
         await BuildSeeder(config).SeedAsync();
 
         Assert.Equal(1, await _db.Users.CountAsync(
-            u => u.Email == "orchestrator@EXAMPLE_HOST"));
+            u => u.Email == "orchestrator@example.com"));
     }
 }

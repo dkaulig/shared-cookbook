@@ -31,7 +31,7 @@ public class SeedDataService(
     // any future orchestrator automation.  Email is a fixed service
     // identity, not operator-configurable; password flows in via the
     // ORCHESTRATOR_PASSWORD env var and is never logged.
-    internal const string OrchestratorEmail = "orchestrator@EXAMPLE_HOST";
+    internal const string OrchestratorEmail = "orchestrator@example.com";
     internal const string OrchestratorDisplayName = "Orchestrator";
 
     public async Task SeedAsync(CancellationToken ct = default)
