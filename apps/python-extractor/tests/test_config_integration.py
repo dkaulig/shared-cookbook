@@ -41,6 +41,7 @@ from extractor.pipeline.video import (
     StubTranscriber,
     VideoAssets,
 )
+from extractor.prompts.language import append_language_directive
 from extractor.prompts.photo_recipe import SYSTEM_PROMPT_DE as PHOTO_SYSTEM_PROMPT_DE
 from extractor.prompts.photo_recipe import build_photo_instruction
 from extractor.prompts.recipe_extraction import (
@@ -264,8 +265,9 @@ async def test_video_path_still_runs_when_flag_on(_public_dns: None, tmp_path: P
         blog_text=None,
         thumbnail_url=None,
     )
+    # LANG-1 — pipeline appends the language directive; default is "en".
     key = make_script_key(
-        system_prompt=SYSTEM_PROMPT_DE,
+        system_prompt=append_language_directive(SYSTEM_PROMPT_DE, "en"),
         messages=[{"role": "user", "content": user_message}],
     )
     provider = MockLLMProvider(scripted={key: _canonical_llm_response()})
@@ -343,8 +345,9 @@ async def test_url_pipeline_records_config_snapshot(_public_dns: None, tmp_path:
         blog_text=None,
         thumbnail_url=None,
     )
+    # LANG-1 — pipeline appends directive; default lang is "en".
     key = make_script_key(
-        system_prompt=SYSTEM_PROMPT_DE,
+        system_prompt=append_language_directive(SYSTEM_PROMPT_DE, "en"),
         messages=[{"role": "user", "content": user_message}],
     )
     provider = MockLLMProvider(scripted={key: _canonical_llm_response()})
@@ -379,8 +382,9 @@ async def test_photo_pipeline_records_config_snapshot() -> None:
     )
     photo_url = "https://example.test/a.jpg"
     instruction = build_photo_instruction(1)
+    # LANG-1 — pipeline appends directive; default lang is "en".
     key = make_script_key(
-        system_prompt=PHOTO_SYSTEM_PROMPT_DE,
+        system_prompt=append_language_directive(PHOTO_SYSTEM_PROMPT_DE, "en"),
         messages=[{"role": "user", "content": instruction}],
         extra=("vision", photo_url, "auto"),
     )
