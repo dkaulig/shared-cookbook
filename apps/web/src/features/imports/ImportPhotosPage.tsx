@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { ApiError, GroupSummary } from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@familien-kochbuch/shared'
 import i18n from '@/i18n'
 import {
   ArrowDown,
@@ -27,6 +27,7 @@ import {
 } from './importGroupMemo'
 import { AiDisabledNotice } from '@/features/_shared/AiDisabledNotice'
 import { useFeatures } from '@/features/_shared/useFeatures'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 
 /**
  * P2-8 — `/rezepte/import/photos` entry form.
@@ -261,13 +262,8 @@ function ImportPhotosPageForm() {
       }
     } catch (err) {
       setUploadPhase('idle')
-      const apiErr = err as ApiError
-      setError(
-        apiErr.message ||
-          t('imports.photoPage.errors.uploadFailed', {
-            defaultValue: 'Foto-Upload fehlgeschlagen.',
-          }),
-      )
+      // REL-3f — localise via errors.json + drop 5xx leaks.
+      setError(classifyMutationError(err).message)
       return
     }
 
@@ -284,13 +280,7 @@ function ImportPhotosPageForm() {
       navigate(`/rezepte/import/${importId}`, { state: { groupId } })
     } catch (err) {
       setUploadPhase('idle')
-      const apiErr = err as ApiError
-      setError(
-        apiErr.message ||
-          t('imports.photoPage.errors.enqueueFailed', {
-            defaultValue: 'Der Import konnte nicht gestartet werden.',
-          }),
-      )
+      setError(classifyMutationError(err).message)
     }
   }
 

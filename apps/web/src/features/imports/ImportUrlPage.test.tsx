@@ -423,7 +423,10 @@ describe('<ImportUrlPage />', () => {
     )
   })
 
-  it('surfaces a server 400 error inline (no navigation)', async () => {
+  // REL-3f — backend error-codes route through `classifyMutationError`
+  // → localised `errors.json` copy. The test also asserts that the raw
+  // English Dev-Message never surfaces verbatim.
+  it('surfaces a server 400 error via errors:<code> localisation (no navigation)', async () => {
     const user = userEvent.setup()
     server.use(
       http.get('/api/groups', () =>
@@ -431,7 +434,11 @@ describe('<ImportUrlPage />', () => {
       ),
       http.post('/api/recipes/import/url', () =>
         HttpResponse.json(
-          { code: 'invalid_url', message: 'Die URL ist nicht erlaubt.' },
+          {
+            code: 'invalid_url',
+            message: 'URL is not allowed.',
+            status: 400,
+          },
           { status: 400 },
         ),
       ),
@@ -442,8 +449,40 @@ describe('<ImportUrlPage />', () => {
       'https://example.com/r',
     )
     await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(/nicht erlaubt/i)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/URL ist ungültig\./)
+    expect(alert).not.toHaveTextContent(/URL is not allowed/)
     expect(screen.getByTestId('location')).toHaveTextContent('/rezepte/import/url')
+  })
+
+  // REL-3f — 5xx responses must never leak raw server messages
+  // (stack traces, SQL fragments) into the UI.
+  it('surfaces a generic German fallback on 5xx without leaking raw message', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'only' })]),
+      ),
+      http.post('/api/recipes/import/url', () =>
+        HttpResponse.json(
+          {
+            code: 'internal_error',
+            message: 'yt-dlp crashed: TypeError at extractors.py:42',
+            status: 500,
+          },
+          { status: 500 },
+        ),
+      ),
+    )
+    renderPage()
+    await user.type(
+      screen.getByLabelText(/Video- oder Blog-URL/i),
+      'https://example.com/r',
+    )
+    await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Unbekannter Fehler/)
+    expect(alert).not.toHaveTextContent(/yt-dlp crashed/)
   })
 
   describe('BUG-025 regression: input font-size ≥ 16px', () => {

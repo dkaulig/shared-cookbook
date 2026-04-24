@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { ApiError, GroupSummary } from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@familien-kochbuch/shared'
 import { Sparkles, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMyGroups } from '@/features/groups/useMyGroups'
 import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
 import { useFeatures } from '@/features/_shared/useFeatures'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useEnqueueUrlImport } from './hooks'
 import { rememberImportGroup } from './importGroupMemo'
 
@@ -137,13 +138,8 @@ export function ImportUrlPage() {
 
       navigate(`/rezepte/import/${response.importId}`, { state: { groupId } })
     } catch (err) {
-      const apiErr = err as ApiError
-      setError(
-        apiErr.message ||
-          t('imports.urlPage.errors.enqueueFailed', {
-            defaultValue: 'Der Import konnte nicht gestartet werden.',
-          }),
-      )
+      // REL-3f — localise via errors.json + drop 5xx leaks.
+      setError(classifyMutationError(err).message)
     }
   }
 
