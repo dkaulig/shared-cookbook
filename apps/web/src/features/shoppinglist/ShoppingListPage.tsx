@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
   CalendarDays,
@@ -115,6 +116,7 @@ function ShoppingListView({
   groupId: string
   weekStart: string
 }) {
+  const { t } = useTranslation()
   const {
     plan,
     notFound: planNotFound,
@@ -288,11 +290,15 @@ function ShoppingListView({
           'sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
-        aria-label="Einkaufsliste-Navigation"
+        aria-label={t('shoppingList.a11y.subNav', {
+          defaultValue: 'Einkaufsliste-Navigation',
+        })}
       >
         <Link
           to={`/groups/${groupId}/mealplan/${weekStart}`}
-          aria-label="Zurück zum Wochenplan"
+          aria-label={t('shoppingList.a11y.backToPlan', {
+            defaultValue: 'Zurück zum Wochenplan',
+          })}
           className="grid h-10 w-10 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground"
         >
           <ArrowLeft className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -303,7 +309,7 @@ function ShoppingListView({
             aria-hidden="true"
           />
           <span className="truncate font-serif text-[18px] font-semibold tracking-[-0.005em]">
-            Einkaufsliste
+            {t('shoppingList.pageTitle', { defaultValue: 'Einkaufsliste' })}
           </span>
         </div>
       </nav>
@@ -329,10 +335,18 @@ function ShoppingListView({
               size="sm"
               onClick={handleGenerate}
               disabled={generate.isPending}
-              aria-label="Einkaufsliste neu erzeugen"
+              aria-label={t('shoppingList.a11y.regenerate', {
+                defaultValue: 'Einkaufsliste neu erzeugen',
+              })}
             >
               <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              {generate.isPending ? 'Wird erzeugt …' : 'Neu erzeugen'}
+              {generate.isPending
+                ? t('shoppingList.regeneratePending', {
+                    defaultValue: 'Wird erzeugt …',
+                  })
+                : t('shoppingList.regenerateCta', {
+                    defaultValue: 'Neu erzeugen',
+                  })}
             </Button>
             <Button
               type="button"
@@ -340,7 +354,7 @@ function ShoppingListView({
               onClick={() => setShowAdd(true)}
             >
               <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              Eintrag
+              {t('shoppingList.addEntryCta', { defaultValue: 'Eintrag' })}
             </Button>
           </div>
         )}
@@ -360,21 +374,25 @@ function ShoppingListView({
             role="alert"
             className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
           >
-            Der Wochenplan konnte nicht geladen werden.
+            {t('shoppingList.planErrorLoad', {
+              defaultValue: 'Der Wochenplan konnte nicht geladen werden.',
+            })}
           </p>
         )}
 
         {planNotFound && (
           <div className="rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 px-6 py-10 text-center">
             <p className="text-sm text-muted-foreground">
-              Für diese Woche existiert noch kein Wochenplan.
+              {t('shoppingList.planMissing', {
+                defaultValue: 'Für diese Woche existiert noch kein Wochenplan.',
+              })}
             </p>
             <div className="mt-3">
               <Link
                 to={`/groups/${groupId}/mealplan/${weekStart}`}
                 className="text-sm font-medium text-primary underline-offset-4 hover:underline"
               >
-                Zum Wochenplan
+                {t('shoppingList.gotoPlan', { defaultValue: 'Zum Wochenplan' })}
               </Link>
             </div>
           </div>
@@ -385,7 +403,9 @@ function ShoppingListView({
             role="alert"
             className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
           >
-            Die Einkaufsliste konnte nicht geladen werden.
+            {t('shoppingList.listErrorLoad', {
+              defaultValue: 'Die Einkaufsliste konnte nicht geladen werden.',
+            })}
           </p>
         )}
 
@@ -394,7 +414,7 @@ function ShoppingListView({
             onGenerate={handleGenerate}
             isPending={generate.isPending}
             errorMessage={
-              generate.isError ? generateErrorMessage(generate.error) : null
+              generate.isError ? generateErrorMessage(generate.error, t) : null
             }
           />
         )}
@@ -408,8 +428,10 @@ function ShoppingListView({
             <SortToggle mode={sortMode} onChange={handleSortChange} />
             {totals.total === 0 ? (
               <p className="mt-4 rounded-md border border-dashed border-input bg-card/60 px-4 py-6 text-center text-sm text-muted-foreground">
-                Noch keine Einträge — lege welche über „Eintrag" an
-                oder erzeuge die Liste neu.
+                {t('shoppingList.emptyEntriesHint', {
+                  defaultValue:
+                    'Noch keine Einträge — lege welche über „Eintrag" an oder erzeuge die Liste neu.',
+                })}
               </p>
             ) : sortMode === 'category' ? (
               <CategoryList
@@ -442,7 +464,9 @@ function ShoppingListView({
       role="status"
     >
       <p className="max-w-sm text-[15px] leading-[1.5]">
-        Wähle einen Eintrag links, um Details zu sehen.
+        {t('shoppingList.detailSelectHint', {
+          defaultValue: 'Wähle einen Eintrag links, um Details zu sehen.',
+        })}
       </p>
     </div>
   )
@@ -451,7 +475,7 @@ function ShoppingListView({
     listContent
   ) : (
     <SplitPane
-      leftLabel="Einkaufsliste"
+      leftLabel={t('shoppingList.pageTitle', { defaultValue: 'Einkaufsliste' })}
       rightLabel="Eintrag-Detail"
       left={listContent}
       right={detailPane}
@@ -476,13 +500,20 @@ function ShoppingListView({
         onOpenChange={(next) => {
           if (!next) setPendingDelete(null)
         }}
-        title="Zutat wirklich löschen?"
+        title={t('shoppingList.deleteDialog.title', {
+          defaultValue: 'Zutat wirklich löschen?',
+        })}
         description={
           pendingDelete
-            ? `"${pendingDelete.name}" wird aus der Liste entfernt. Plan-basierte Einträge tauchen erst beim nächsten "Neu erzeugen" wieder auf.`
+            ? t('shoppingList.deleteDialog.descriptionTemplate', {
+                name: pendingDelete.name,
+                defaultValue: `"${pendingDelete.name}" wird aus der Liste entfernt. Plan-basierte Einträge tauchen erst beim nächsten "Neu erzeugen" wieder auf.`,
+              })
             : ''
         }
-        confirmLabel="Löschen"
+        confirmLabel={t('shoppingList.deleteDialog.confirmCta', {
+          defaultValue: 'Löschen',
+        })}
         onConfirm={handleConfirmDelete}
         isLoading={deleteItem.isPending}
       />
@@ -491,8 +522,13 @@ function ShoppingListView({
         <ConflictDialog<ShoppingListItemDto & { version: number }>
           open={conflict.state.open}
           onClose={conflict.close}
-          title="Konflikt in der Einkaufsliste"
-          subtitle="Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll."
+          title={t('shoppingList.conflictTitle', {
+            defaultValue: 'Konflikt in der Einkaufsliste',
+          })}
+          subtitle={t('shoppingList.conflictSubtitle', {
+            defaultValue:
+              'Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll.',
+          })}
           currentServer={conflict.state.serverCurrent}
           localPending={conflict.state.localPending}
           renderDiff={({ current, local }) => (
@@ -514,21 +550,26 @@ function ProgressHeader({
   checked: number
   total: number
 }) {
+  const { t } = useTranslation()
   const pct = total === 0 ? 0 : Math.round((checked / total) * 100)
   const complete = total > 0 && checked === total
   return (
     <section
-      aria-label="Fortschritt"
+      aria-label={t('shoppingList.a11y.progress', { defaultValue: 'Fortschritt' })}
       className="mb-4 rounded-md border border-border bg-card/60 p-3"
     >
       <div className="mb-1.5 flex items-center justify-between text-sm">
         <span className="font-medium">
-          {checked} von {total} abgehakt
+          {t('shoppingList.progressTemplate', {
+            checked,
+            total,
+            defaultValue: `${checked} von ${total} abgehakt`,
+          })}
         </span>
         {complete ? (
           <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
             <Sparkles className="h-4 w-4" aria-hidden="true" />
-            Einkauf komplett!
+            {t('shoppingList.allDone', { defaultValue: 'Einkauf komplett!' })}
           </span>
         ) : (
           <span className="text-xs text-muted-foreground">{pct}%</span>
@@ -539,7 +580,9 @@ function ProgressHeader({
         aria-valuenow={checked}
         aria-valuemin={0}
         aria-valuemax={total}
-        aria-label="Einkaufs-Fortschritt"
+        aria-label={t('shoppingList.a11y.progressBar', {
+          defaultValue: 'Einkaufs-Fortschritt',
+        })}
         className="h-2 w-full overflow-hidden rounded-full bg-muted"
       >
         <div
@@ -558,10 +601,11 @@ function SortToggle({
   mode: SortMode
   onChange: (next: SortMode) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div
       role="radiogroup"
-      aria-label="Sortierung"
+      aria-label={t('shoppingList.a11y.sortGroup', { defaultValue: 'Sortierung' })}
       className="mb-4 inline-flex rounded-md border border-border bg-card/60 p-1 text-sm"
     >
       <button
@@ -576,7 +620,7 @@ function SortToggle({
             : 'text-muted-foreground hover:text-foreground',
         )}
       >
-        Nach Kategorie
+        {t('shoppingList.sortCategory', { defaultValue: 'Nach Kategorie' })}
       </button>
       <button
         type="button"
@@ -590,7 +634,7 @@ function SortToggle({
             : 'text-muted-foreground hover:text-foreground',
         )}
       >
-        Alphabetisch
+        {t('shoppingList.sortAlphabetic', { defaultValue: 'Alphabetisch' })}
       </button>
     </div>
   )
@@ -684,6 +728,7 @@ function ItemRow({
   isSelected?: boolean
   showCategoryChip?: boolean
 }) {
+  const { t } = useTranslation()
   const qtyLabel = formatQuantity(item.quantity, item.unit)
   return (
     <li
@@ -700,7 +745,19 @@ function ItemRow({
         type="button"
         role="checkbox"
         aria-checked={item.isChecked}
-        aria-label={`${item.name} ${item.isChecked ? 'abhaken rückgängig' : 'abhaken'}`}
+        aria-label={t('shoppingList.a11y.toggleCheckedTemplate', {
+          name: item.name,
+          action: item.isChecked
+            ? t('shoppingList.a11y.toggleCheckedOff', {
+                defaultValue: 'abhaken rückgängig',
+              })
+            : t('shoppingList.a11y.toggleCheckedOn', {
+                defaultValue: 'abhaken',
+              }),
+          defaultValue: `${item.name} ${
+            item.isChecked ? 'abhaken rückgängig' : 'abhaken'
+          }`,
+        })}
         onClick={() => onToggle(item)}
         // P3-10: 44×44 px tap target around a 20×20 px visual checkbox.
         // The outer button is the hit-area; the inner `<span>` carries
@@ -738,7 +795,10 @@ function ItemRow({
         type="button"
         onClick={() => onSelect?.(item.id)}
         aria-pressed={isSelected}
-        aria-label={`Details zu ${item.name}`}
+        aria-label={t('shoppingList.a11y.detailsFor', {
+          name: item.name,
+          defaultValue: `Details zu ${item.name}`,
+        })}
         className="block min-w-0 flex-1 cursor-pointer rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -756,8 +816,12 @@ function ItemRow({
           {item.carriedOverFromPreviousWeek && (
             <span
               className="inline-flex items-center gap-0.5 text-[hsl(var(--muted-foreground))]"
-              title="Aus letzter Woche übernommen"
-              aria-label="Aus letzter Woche übernommen"
+              title={t('shoppingList.a11y.carriedOver', {
+                defaultValue: 'Aus letzter Woche übernommen',
+              })}
+              aria-label={t('shoppingList.a11y.carriedOver', {
+                defaultValue: 'Aus letzter Woche übernommen',
+              })}
             >
               <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
             </span>
@@ -776,7 +840,10 @@ function ItemRow({
       <button
         type="button"
         onClick={() => onDelete(item)}
-        aria-label={`${item.name} entfernen`}
+        aria-label={t('shoppingList.a11y.removeFor', {
+          name: item.name,
+          defaultValue: `${item.name} entfernen`,
+        })}
         // P3-10: ≥44×44 mobile tap target.
         className="grid min-h-[44px] min-w-[44px] shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-700"
       >
@@ -799,10 +866,14 @@ function ItemDetail({
   item: ShoppingListItemDto
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const qtyLabel = formatQuantity(item.quantity, item.unit)
   return (
     <article
-      aria-label={`Detail: ${item.name}`}
+      aria-label={t('shoppingList.a11y.detailFor', {
+        name: item.name,
+        defaultValue: `Detail: ${item.name}`,
+      })}
       className="mx-auto w-full max-w-lg px-5 py-6 md:px-8 md:py-8"
     >
       <header className="flex items-start justify-between gap-3">
@@ -822,7 +893,9 @@ function ItemDetail({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Detail schließen"
+          aria-label={t('shoppingList.a11y.closeDetail', {
+            defaultValue: 'Detail schließen',
+          })}
           className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground"
         >
           ×
@@ -833,7 +906,7 @@ function ItemDetail({
         {qtyLabel && (
           <div className="rounded-[14px] border border-border bg-card/60 px-4 py-3">
             <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Menge
+              {t('shoppingList.detail.quantity', { defaultValue: 'Menge' })}
             </dt>
             <dd className="mt-1 text-lg font-semibold text-foreground">
               {qtyLabel}
@@ -842,28 +915,42 @@ function ItemDetail({
         )}
         <div className="rounded-[14px] border border-border bg-card/60 px-4 py-3">
           <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Status
+            {t('shoppingList.detail.status', { defaultValue: 'Status' })}
           </dt>
           <dd className="mt-1 text-sm font-medium text-foreground">
-            {item.isChecked ? 'Abgehakt' : 'Offen'}
+            {item.isChecked
+              ? t('shoppingList.detail.statusChecked', {
+                  defaultValue: 'Abgehakt',
+                })
+              : t('shoppingList.detail.statusOpen', { defaultValue: 'Offen' })}
           </dd>
         </div>
         <div className="rounded-[14px] border border-border bg-card/60 px-4 py-3">
           <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Quelle
+            {t('shoppingList.detail.source', { defaultValue: 'Quelle' })}
           </dt>
           <dd className="mt-1 text-sm text-foreground">
-            {item.source === 'Manual' ? 'Manuell hinzugefügt' : 'Aus Wochenplan'}
+            {item.source === 'Manual'
+              ? t('shoppingList.detail.sourceManual', {
+                  defaultValue: 'Manuell hinzugefügt',
+                })
+              : t('shoppingList.detail.sourcePlan', {
+                  defaultValue: 'Aus Wochenplan',
+                })}
           </dd>
         </div>
         {item.carriedOverFromPreviousWeek && (
           <div className="rounded-[14px] border border-border bg-card/60 px-4 py-3">
             <dt className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
-              Übernommen
+              {t('shoppingList.detail.carriedOverLabel', {
+                defaultValue: 'Übernommen',
+              })}
             </dt>
             <dd className="mt-1 text-sm text-foreground">
-              Aus letzter Woche
+              {t('shoppingList.detail.carriedOverValue', {
+                defaultValue: 'Aus letzter Woche',
+              })}
             </dd>
           </div>
         )}
@@ -872,7 +959,7 @@ function ItemDetail({
       {item.note && (
         <section className="mt-5">
           <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Notiz
+            {t('shoppingList.detail.note', { defaultValue: 'Notiz' })}
           </h3>
           <p className="mt-1 whitespace-pre-wrap rounded-[12px] border border-border bg-card/60 px-4 py-3 text-sm text-foreground">
             {item.note}
@@ -881,7 +968,9 @@ function ItemDetail({
       )}
 
       <p className="mt-6 text-xs text-muted-foreground">
-        Abhaken oder Entfernen über die Zeile links.
+        {t('shoppingList.detail.actionsHint', {
+          defaultValue: 'Abhaken oder Entfernen über die Zeile links.',
+        })}
       </p>
     </article>
   )
@@ -896,6 +985,7 @@ function EmptyListState({
   isPending: boolean
   errorMessage: string | null
 }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 px-6 py-10 text-center">
       <ShoppingBasket
@@ -903,15 +993,25 @@ function EmptyListState({
         aria-hidden="true"
       />
       <h2 className="font-serif text-[22px] font-semibold text-foreground">
-        Noch keine Einkaufsliste
+        {t('shoppingList.emptyState.heading', {
+          defaultValue: 'Noch keine Einkaufsliste',
+        })}
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Lass die Liste aus deinem Wochenplan erzeugen — Zutaten werden nach
-        Kategorie sortiert.
+        {t('shoppingList.emptyState.description', {
+          defaultValue:
+            'Lass die Liste aus deinem Wochenplan erzeugen — Zutaten werden nach Kategorie sortiert.',
+        })}
       </p>
       <div className="mt-4">
         <Button type="button" onClick={onGenerate} disabled={isPending}>
-          {isPending ? 'Wird erzeugt …' : 'Liste erzeugen'}
+          {isPending
+            ? t('shoppingList.regeneratePending', {
+                defaultValue: 'Wird erzeugt …',
+              })
+            : t('shoppingList.emptyState.generateCta', {
+                defaultValue: 'Liste erzeugen',
+              })}
         </Button>
       </div>
       {errorMessage && (
@@ -932,11 +1032,19 @@ function EmptyListState({
  * would prompt a fruitless retry loop. Every other failure falls back
  * to the generic German message.
  */
-function generateErrorMessage(error: Error | null): string {
+function generateErrorMessage(
+  error: Error | null,
+  t: ReturnType<typeof useTranslation>['t'],
+): string {
   if (error instanceof ShoppingListApiError && error.status === 429) {
-    return 'Zu viele Anfragen — bitte kurz warten, bevor du die Liste erneut erzeugst.'
+    return t('shoppingList.errors.rateLimited', {
+      defaultValue:
+        'Zu viele Anfragen — bitte kurz warten, bevor du die Liste erneut erzeugst.',
+    })
   }
-  return 'Liste konnte nicht erzeugt werden.'
+  return t('shoppingList.errors.generateFailed', {
+    defaultValue: 'Liste konnte nicht erzeugt werden.',
+  })
 }
 
 function formatQuantity(

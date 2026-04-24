@@ -254,7 +254,82 @@
     "pending": "Pending",
     "quantity": "Quantity",
     "unit": "Unit",
-    "item": "Item"
+    "item": "Item",
+    "a11y": {
+      "subNav": "Shopping list navigation",
+      "backToPlan": "Back to meal plan",
+      "regenerate": "Regenerate shopping list",
+      "progress": "Progress",
+      "progressBar": "Shopping progress",
+      "sortGroup": "Sort",
+      "toggleCheckedTemplate": "{{name}} {{action}}",
+      "toggleCheckedOn": "check off",
+      "toggleCheckedOff": "undo check",
+      "detailsFor": "Details for {{name}}",
+      "removeFor": "Remove {{name}}",
+      "closeDetail": "Close detail",
+      "carriedOver": "Carried over from last week",
+      "detailFor": "Detail: {{name}}"
+    },
+    "regeneratePending": "Generating…",
+    "regenerateCta": "Regenerate",
+    "addEntryCta": "Entry",
+    "planErrorLoad": "Meal plan could not be loaded.",
+    "planMissing": "No meal plan for this week yet.",
+    "gotoPlan": "Go to meal plan",
+    "listErrorLoad": "Shopping list could not be loaded.",
+    "emptyEntriesHint": "No entries yet — add one via \"Entry\" or regenerate the list.",
+    "progressTemplate": "{{checked}} of {{total}} checked",
+    "allDone": "Shopping complete!",
+    "sortCategory": "By category",
+    "sortAlphabetic": "Alphabetic",
+    "detailSelectHint": "Pick an entry on the left to see details.",
+    "conflictTitle": "Shopping list conflict",
+    "conflictSubtitle": "Your changes conflict with a server change. Choose which version to keep.",
+    "deleteDialog": {
+      "title": "Really delete this item?",
+      "descriptionTemplate": "\"{{name}}\" will be removed from the list. Plan-derived entries reappear on next regenerate.",
+      "confirmCta": "Delete"
+    },
+    "detail": {
+      "quantity": "Quantity",
+      "status": "Status",
+      "statusChecked": "Checked",
+      "statusOpen": "Open",
+      "source": "Source",
+      "sourceManual": "Added manually",
+      "sourcePlan": "From meal plan",
+      "carriedOverLabel": "Carried over",
+      "carriedOverValue": "From last week",
+      "note": "Note",
+      "actionsHint": "Check off or remove via the row on the left."
+    },
+    "emptyState": {
+      "heading": "No shopping list yet",
+      "description": "Generate one from your meal plan — ingredients will be sorted by category.",
+      "generateCta": "Generate list"
+    },
+    "errors": {
+      "rateLimited": "Too many requests — please wait a moment before regenerating.",
+      "generateFailed": "Could not generate the list.",
+      "addFailed": "Entry could not be created.",
+      "nameRequired": "Please enter a name."
+    },
+    "addDialog": {
+      "title": "Add entry",
+      "subtitle": "Manual addition to the shopping list.",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Avocado",
+      "quantityLabel": "Quantity (optional)",
+      "quantityPlaceholder": "e.g. 2",
+      "unitLabel": "Unit (optional)",
+      "unitPlaceholder": "e.g. pcs",
+      "categoryLabel": "Category",
+      "noteLabel": "Note (optional)",
+      "notePlaceholder": "e.g. ripe, organic",
+      "saving": "Saving…",
+      "submitCta": "Add"
+    }
   },
   "imports": {
     "pageTitle": "Import recipe",
