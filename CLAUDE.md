@@ -147,11 +147,10 @@ before you tag.
 
 ### Known-flaky tests
 
-- `FamilienKochbuch.Api.Tests.ChatEndpointsTests.Turn_AutoTitle_Triggered_On_First_Turn`
-  — occasional SQLite "database is locked" under high test-parallelism
-  on GHA runners. Re-run the failed job (`gh run rerun <id> --failed`)
-  before assuming a real regression; fix-commit only after a second
-  failure.
+None currently. FLAKY-1 (chat auto-title) was fixed by introducing a
+test seam (`IBackgroundTaskTracker`) so integration tests can await
+fire-and-forget background work deterministically instead of racing
+the shared in-memory SQLite connection.
 
 ## Deploy
 
