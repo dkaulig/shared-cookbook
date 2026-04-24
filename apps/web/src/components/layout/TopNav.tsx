@@ -4,7 +4,6 @@ import { useIsFetching, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { ChefHatLogo } from '@/components/brand/ChefHatLogo'
 import { NetworkIndicator } from '@/components/layout/NetworkIndicator'
-import { LanguageToggle } from '@/components/layout/LanguageToggle'
 import { useAuth } from '@/features/auth/useAuth'
 import { cn } from '@/lib/utils'
 
@@ -106,9 +105,10 @@ export function TopNav() {
         >
           <Search className="h-5 w-5" aria-hidden="true" />
         </Link>
-        {/* REL-3 — language switcher: DE ↔ EN, persisted to
-            localStorage via i18next-browser-languagedetector. */}
-        <LanguageToggle />
+        {/* REL-3h — the language switcher moved from TopNav into the
+            ProfilStub settings section so casual users don't stumble
+            onto it mid-navigation. Persistence still lives in
+            localStorage (`i18nextLng`) via i18next-browser-languagedetector. */}
         <Link
           to="/profil"
           aria-label={t('a11y.yourProfile', { defaultValue: 'Dein Profil' })}

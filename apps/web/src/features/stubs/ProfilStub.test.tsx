@@ -130,6 +130,46 @@ describe('<ProfilStub />', () => {
     expect(dialog).toBeInTheDocument()
   })
 
+  // ── REL-3h language section ──────────────────────────────────────
+
+  describe('language section (REL-3h)', () => {
+    it('renders a "Sprache"-Card with heading and description on /profil', () => {
+      renderPage()
+      // Heading: the Card title — exact match, not ambiguous with the
+      // toggle's aria-label which is also "Sprache".
+      expect(
+        screen.getByRole('heading', { level: 3, name: /^sprache$/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(/lokal auf diesem gerät gespeichert/i),
+      ).toBeInTheDocument()
+    })
+
+    it('renders the LanguageToggle trigger inside the section', () => {
+      renderPage()
+      // The toggle renders a button with aria-label "Sprache" — this is
+      // the only button in the Profil-page whose a11y name matches.
+      expect(
+        screen.getByRole('button', { name: /^sprache$/i }),
+      ).toBeInTheDocument()
+    })
+
+    it('clicking the toggle opens a DE/EN dropdown menu', async () => {
+      renderPage()
+      const user = userEvent.setup()
+      await user.click(screen.getByRole('button', { name: /^sprache$/i }))
+      const menu = await screen.findByRole('menu', { name: /sprache/i })
+      expect(menu).toBeInTheDocument()
+      // Both DE + EN options present as menuitemradio entries.
+      expect(
+        screen.getByRole('menuitemradio', { name: /deutsch/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('menuitemradio', { name: /english/i }),
+      ).toBeInTheDocument()
+    })
+  })
+
   // ── Displayname inline-edit ─────────────────────────────────────
 
   describe('displayname inline-edit', () => {
