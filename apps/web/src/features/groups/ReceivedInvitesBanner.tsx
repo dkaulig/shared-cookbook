@@ -1,6 +1,7 @@
 import { Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { toastMutationError } from '@/features/_shared/errorSurface'
 import { useAcceptInvite, useDeclineInvite, useMyReceivedInvites } from './hooks'
 
 /**
@@ -57,7 +58,12 @@ export function ReceivedInvitesBanner() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => decline.mutate(invite.id)}
+                onClick={() =>
+                  // REL-5 — surface server errors as a toast. The row
+                  // stays visible on failure so the user can retry;
+                  // otherwise a 500 would look like a phantom success.
+                  decline.mutate(invite.id, { onError: toastMutationError })
+                }
                 disabled={decline.isPending}
               >
                 Ablehnen
@@ -65,7 +71,9 @@ export function ReceivedInvitesBanner() {
               <Button
                 type="button"
                 size="sm"
-                onClick={() => accept.mutate(invite.id)}
+                onClick={() =>
+                  accept.mutate(invite.id, { onError: toastMutationError })
+                }
                 disabled={accept.isPending}
               >
                 Annehmen

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
+import { toastMutationError } from '@/features/_shared/errorSurface'
 import {
   useChatSessions,
   useCreateChatSession,
@@ -37,11 +38,15 @@ export function ChatIndexRedirect() {
       .then((res) => {
         navigate(`/chat/${res.sessionId}`, { replace: true })
       })
-      .catch(() => {
+      .catch((err) => {
         // Let the user retry via the sidebar "Neu" button. Resetting
         // the mint-guard so a transient 500 doesn't permanently block
         // the fallback mint.
         didMint.current = false
+        // REL-5 — surface the failure so the user understands why the
+        // page is stuck on the spinner. Previously this path swallowed
+        // the error and left a permanent zero-sessions shell.
+        toastMutationError(err)
       })
   }, [hasNoSessions, createMutation, navigate])
 
