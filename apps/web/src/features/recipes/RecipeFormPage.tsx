@@ -83,6 +83,7 @@ import {
   classifyMutationError,
   showErrorToast,
 } from '@/features/_shared/errorSurface'
+import { InlineFieldError } from '@/features/_shared/inlineFieldError'
 import { useQueryClient } from '@tanstack/react-query'
 import { recipeQueryKeys } from './queryKeys'
 
@@ -1488,14 +1489,11 @@ function RecipeFormInner({
               />
               <CharCounter value={title} max={TITLE_MAX} />
               {fieldError?.fieldName === 'title' && (
-                <p
+                <InlineFieldError
                   id="recipe-form-title-error"
-                  data-testid="recipe-form-title-error"
-                  role="alert"
-                  className="mt-1 text-sm text-[hsl(var(--destructive))]"
-                >
-                  {fieldError.message}
-                </p>
+                  testId="recipe-form-title-error"
+                  message={fieldError.message}
+                />
               )}
             </Field>
 
@@ -1529,14 +1527,11 @@ function RecipeFormInner({
               />
               <CharCounter value={description} max={DESC_MAX} />
               {fieldError?.fieldName === 'description' && (
-                <p
+                <InlineFieldError
                   id="recipe-form-description-error"
-                  data-testid="recipe-form-description-error"
-                  role="alert"
-                  className="mt-1 text-sm text-[hsl(var(--destructive))]"
-                >
-                  {fieldError.message}
-                </p>
+                  testId="recipe-form-description-error"
+                  message={fieldError.message}
+                />
               )}
             </Field>
           </FormCard>
@@ -1593,14 +1588,12 @@ function RecipeFormInner({
                   onCoverChange={setCoverStagedPhotoId}
                 />
                 {fieldError?.fieldName === 'coverStagedPhotoId' && (
-                  <p
+                  <InlineFieldError
                     id="recipe-form-coverStagedPhotoId-error"
-                    data-testid="recipe-form-coverStagedPhotoId-error"
-                    role="alert"
-                    className="mt-3 rounded-md bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
-                  >
-                    {fieldError.message}
-                  </p>
+                    testId="recipe-form-coverStagedPhotoId-error"
+                    message={fieldError.message}
+                    className="mt-3 rounded-md bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm ring-1 ring-[hsl(var(--destructive)/0.25)]"
+                  />
                 )}
               </FormCard>
             </div>
@@ -1699,14 +1692,11 @@ function RecipeFormInner({
                   }
                 />
                 {fieldError?.fieldName === 'defaultServings' && (
-                  <p
+                  <InlineFieldError
                     id="recipe-form-defaultServings-error"
-                    data-testid="recipe-form-defaultServings-error"
-                    role="alert"
-                    className="mt-1 text-sm text-[hsl(var(--destructive))]"
-                  >
-                    {fieldError.message}
-                  </p>
+                    testId="recipe-form-defaultServings-error"
+                    message={fieldError.message}
+                  />
                 )}
               </Field>
               <Field
@@ -1738,14 +1728,11 @@ function RecipeFormInner({
                   }
                 />
                 {fieldError?.fieldName === 'prepTimeMinutes' && (
-                  <p
+                  <InlineFieldError
                     id="recipe-form-prepTimeMinutes-error"
-                    data-testid="recipe-form-prepTimeMinutes-error"
-                    role="alert"
-                    className="mt-1 text-sm text-[hsl(var(--destructive))]"
-                  >
-                    {fieldError.message}
-                  </p>
+                    testId="recipe-form-prepTimeMinutes-error"
+                    message={fieldError.message}
+                  />
                 )}
               </Field>
             </div>
@@ -1777,14 +1764,11 @@ function RecipeFormInner({
               >
                 <DifficultyPills value={difficulty} onChange={setDifficulty} />
                 {fieldError?.fieldName === 'difficulty' && (
-                  <p
+                  <InlineFieldError
                     id="recipe-form-difficulty-error"
-                    data-testid="recipe-form-difficulty-error"
-                    role="alert"
-                    className="mt-1 text-sm text-[hsl(var(--destructive))]"
-                  >
-                    {fieldError.message}
-                  </p>
+                    testId="recipe-form-difficulty-error"
+                    message={fieldError.message}
+                  />
                 )}
               </Field>
             </div>
@@ -1818,14 +1802,11 @@ function RecipeFormInner({
                 }
               />
               {fieldError?.fieldName === 'sourceUrl' && (
-                <p
+                <InlineFieldError
                   id="recipe-form-sourceUrl-error"
-                  data-testid="recipe-form-sourceUrl-error"
-                  role="alert"
-                  className="mt-1 text-sm text-[hsl(var(--destructive))]"
-                >
-                  {fieldError.message}
-                </p>
+                  testId="recipe-form-sourceUrl-error"
+                  message={fieldError.message}
+                />
               )}
             </Field>
           </FormCard>
@@ -2109,14 +2090,12 @@ function RecipeFormInner({
                     </div>
                   )}
                   {fieldError?.fieldName === 'tagIds' && (
-                    <p
+                    <InlineFieldError
                       id="recipe-form-tagIds-error"
-                      data-testid="recipe-form-tagIds-error"
-                      role="alert"
-                      className="mt-2 rounded-md bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
-                    >
-                      {fieldError.message}
-                    </p>
+                      testId="recipe-form-tagIds-error"
+                      message={fieldError.message}
+                      className="mt-2 rounded-md bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm ring-1 ring-[hsl(var(--destructive)/0.25)]"
+                    />
                   )}
                 </div>
               )}
@@ -2839,14 +2818,12 @@ function SortableIngredientRow({
           />
         </div>
         {errorProp && errorMessage && (
-          <p
+          <InlineFieldError
             id={`recipe-form-ingredients-${index}-${errorProp}-error`}
-            data-testid={`recipe-form-ingredients-${index}-${errorProp}-error`}
-            role="alert"
-            className="mt-1 text-sm text-[hsl(var(--destructive))] md:order-6 md:col-span-3"
-          >
-            {errorMessage}
-          </p>
+            testId={`recipe-form-ingredients-${index}-${errorProp}-error`}
+            message={errorMessage}
+            className="md:order-6 md:col-span-3"
+          />
         )}
       </div>
 
@@ -3076,14 +3053,11 @@ function SortableStepRow({
           />
         )}
         {errorProp && errorMessage && (
-          <p
+          <InlineFieldError
             id={`recipe-form-steps-${index}-${errorProp}-error`}
-            data-testid={`recipe-form-steps-${index}-${errorProp}-error`}
-            role="alert"
-            className="mt-1 text-sm text-[hsl(var(--destructive))]"
-          >
-            {errorMessage}
-          </p>
+            testId={`recipe-form-steps-${index}-${errorProp}-error`}
+            message={errorMessage}
+          />
         )}
       </div>
 
