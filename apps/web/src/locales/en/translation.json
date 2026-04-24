@@ -157,6 +157,9 @@
     "empty": "No recipes yet. Create your first one."
   },
   "recipes": {
+    "card": {
+      "minutesTemplate": "{{minutes}} min"
+    },
     "list": {
       "empty": "No recipes in this group yet.",
       "createCta": "New recipe",
@@ -166,7 +169,12 @@
       "sortOldest": "Oldest first",
       "sortBestRated": "Highest rated",
       "filterTag": "Filter by tag",
-      "clearFilters": "Reset filters"
+      "clearFilters": "Reset filters",
+      "loading": "Loading recipes…",
+      "loadError": "Could not load recipes.",
+      "emptyFiltered": "No recipes match the current filters.",
+      "noPhoto": "No photo",
+      "authorTemplate": "by {{name}}"
     },
     "detail": {
       "servingsLabel": "Servings",
@@ -185,7 +193,34 @@
       "addToMealPlan": "Add to meal plan",
       "copyIngredients": "Copy ingredients",
       "rate": "Rate",
-      "share": "Share"
+      "share": "Share",
+      "loadingAria": "Loading recipe",
+      "loadError": "Could not load recipe.",
+      "backToGroup": "← Back to group",
+      "group": "Group",
+      "reimportSuccess": "Recipe updated successfully.",
+      "coverChangeCta": "Change cover",
+      "coverExpired": "Import candidates are no longer available.",
+      "ingredientsHeading": "Ingredients",
+      "ingredientsHint": "Check off what you already have",
+      "stepsHeading": "Instructions",
+      "sourceLink": "Open original source ↗",
+      "ratingsHeading": "Ratings",
+      "componentFallback": "Main course",
+      "deleteDialog": {
+        "title": "Really delete this recipe?",
+        "description": "This cannot be undone. The recipe disappears for all group members.",
+        "confirmCta": "Delete",
+        "errorFailed": "Recipe could not be deleted."
+      },
+      "reimportDialog": {
+        "title": "Re-import recipe?",
+        "body": "The original import runs again and overwrites title, ingredients and steps with fresh data. Photos, ratings and \"last cooked\" history stay. Manual edits to the recipe will be lost.",
+        "linkDriftHint": "If the link changed in the meantime, a completely different recipe may result.",
+        "confirmCta": "Start re-import",
+        "errorVersionMismatch": "The recipe was changed concurrently. Please try again.",
+        "errorFailed": "Re-import could not be started."
+      }
     },
     "form": {
       "titleLabel": "Title",
@@ -214,6 +249,19 @@
       "easy": "Easy",
       "medium": "Medium",
       "hard": "Hard"
+    },
+    "header": {
+      "backAria": "Back",
+      "shareAria": "Share",
+      "bookmarkAria": "Save",
+      "moreAria": "More",
+      "moreMenu": "More actions",
+      "menuFork": "Copy to another group",
+      "menuEdit": "Edit",
+      "menuReimport": "Re-import",
+      "menuDelete": "Delete",
+      "photoCountTemplate": "Photo 1 / {{total}}",
+      "minutesTemplate": "{{minutes}} min"
     }
   },
   "mealplan": {

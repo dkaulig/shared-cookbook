@@ -157,6 +157,9 @@
     "empty": "Noch keine Rezepte. Lege dein erstes Rezept an."
   },
   "recipes": {
+    "card": {
+      "minutesTemplate": "{{minutes}} Min"
+    },
     "list": {
       "empty": "Noch keine Rezepte in dieser Gruppe.",
       "createCta": "Neues Rezept",
@@ -166,7 +169,12 @@
       "sortOldest": "Älteste zuerst",
       "sortBestRated": "Beste Bewertung",
       "filterTag": "Nach Tag filtern",
-      "clearFilters": "Filter zurücksetzen"
+      "clearFilters": "Filter zurücksetzen",
+      "loading": "Lade Rezepte …",
+      "loadError": "Rezepte konnten nicht geladen werden.",
+      "emptyFiltered": "Keine Rezepte passen zu den aktuellen Filtern.",
+      "noPhoto": "Kein Foto",
+      "authorTemplate": "von {{name}}"
     },
     "detail": {
       "servingsLabel": "Portionen",
@@ -185,7 +193,34 @@
       "addToMealPlan": "Zum Wochenplan hinzufügen",
       "copyIngredients": "Zutaten kopieren",
       "rate": "Bewerten",
-      "share": "Teilen"
+      "share": "Teilen",
+      "loadingAria": "Rezept wird geladen",
+      "loadError": "Rezept konnte nicht geladen werden.",
+      "backToGroup": "← Zur Gruppe",
+      "group": "Gruppe",
+      "reimportSuccess": "Rezept erfolgreich aktualisiert.",
+      "coverChangeCta": "Cover ändern",
+      "coverExpired": "Import-Kandidaten sind nicht mehr verfügbar.",
+      "ingredientsHeading": "Zutaten",
+      "ingredientsHint": "Abhaken was du schon hast",
+      "stepsHeading": "Zubereitung",
+      "sourceLink": "Zur Original-Quelle ↗",
+      "ratingsHeading": "Bewertungen",
+      "componentFallback": "Hauptgericht",
+      "deleteDialog": {
+        "title": "Rezept wirklich löschen?",
+        "description": "Diese Aktion kann nicht rückgängig gemacht werden. Das Rezept verschwindet für alle Gruppenmitglieder.",
+        "confirmCta": "Löschen",
+        "errorFailed": "Rezept konnte nicht gelöscht werden."
+      },
+      "reimportDialog": {
+        "title": "Rezept neu importieren?",
+        "body": "Der ursprüngliche Import wird erneut ausgeführt und überschreibt Titel, Zutaten und Schritte mit den frischen Daten. Fotos, Bewertungen und „Zuletzt gekocht\"-Historie bleiben erhalten. Manuelle Änderungen am Rezept gehen verloren.",
+        "linkDriftHint": "Falls der Link zwischenzeitlich geändert wurde, kann ein komplett anderes Rezept entstehen.",
+        "confirmCta": "Reimport starten",
+        "errorVersionMismatch": "Das Rezept wurde parallel geändert. Bitte erneut versuchen.",
+        "errorFailed": "Reimport konnte nicht gestartet werden."
+      }
     },
     "form": {
       "titleLabel": "Titel",
@@ -214,6 +249,19 @@
       "easy": "Einfach",
       "medium": "Mittel",
       "hard": "Aufwendig"
+    },
+    "header": {
+      "backAria": "Zurück",
+      "shareAria": "Teilen",
+      "bookmarkAria": "Merken",
+      "moreAria": "Mehr",
+      "moreMenu": "Weitere Aktionen",
+      "menuFork": "In andere Gruppe kopieren",
+      "menuEdit": "Bearbeiten",
+      "menuReimport": "Neu importieren",
+      "menuDelete": "Löschen",
+      "photoCountTemplate": "Foto 1 / {{total}}",
+      "minutesTemplate": "{{minutes}} Min"
     }
   },
   "mealplan": {

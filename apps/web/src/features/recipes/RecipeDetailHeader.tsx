@@ -10,6 +10,7 @@ import {
   Star,
   User,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { RecipeDetailDto } from '@familien-kochbuch/shared'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -17,7 +18,12 @@ import { isPhotoImportSource } from '@/features/imports/importPrefill'
 import { RecipeForkBanner } from './RecipeForkBanner'
 import { recipePhotoGradient } from './recipePhotoGradient'
 
-const DIFFICULTY_LABEL: Record<number, string> = {
+const DIFFICULTY_KEY: Record<number, 'easy' | 'medium' | 'hard'> = {
+  1: 'easy',
+  2: 'medium',
+  3: 'hard',
+}
+const DIFFICULTY_FALLBACK: Record<number, string> = {
   1: 'Einfach',
   2: 'Mittel',
   3: 'Aufwendig',
@@ -85,6 +91,7 @@ export function RecipeDetailHeader({
   onDelete,
   onReimport,
 }: RecipeDetailHeaderProps) {
+  const { t } = useTranslation()
   const heroRef = useRef<HTMLDivElement>(null)
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -144,7 +151,11 @@ export function RecipeDetailHeader({
         )}
         style={{ paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))' }}
       >
-        <IconOverlayButton ariaLabel="Zurück" onClick={onBack} scrolled={scrolled}>
+        <IconOverlayButton
+          ariaLabel={t('recipes.header.backAria', { defaultValue: 'Zurück' })}
+          onClick={onBack}
+          scrolled={scrolled}
+        >
           <ArrowLeft className="h-[18px] w-[18px]" aria-hidden="true" />
         </IconOverlayButton>
         {scrolled && (
@@ -153,15 +164,23 @@ export function RecipeDetailHeader({
           </span>
         )}
         <div className="flex gap-2">
-          <IconOverlayButton ariaLabel="Teilen" scrolled={scrolled}>
+          <IconOverlayButton
+            ariaLabel={t('recipes.header.shareAria', { defaultValue: 'Teilen' })}
+            scrolled={scrolled}
+          >
             <Share2 className="h-[18px] w-[18px]" aria-hidden="true" />
           </IconOverlayButton>
-          <IconOverlayButton ariaLabel="Merken" scrolled={scrolled}>
+          <IconOverlayButton
+            ariaLabel={t('recipes.header.bookmarkAria', {
+              defaultValue: 'Merken',
+            })}
+            scrolled={scrolled}
+          >
             <Bookmark className="h-[18px] w-[18px]" aria-hidden="true" />
           </IconOverlayButton>
           <div className="relative">
             <IconOverlayButton
-              ariaLabel="Mehr"
+              ariaLabel={t('recipes.header.moreAria', { defaultValue: 'Mehr' })}
               scrolled={scrolled}
               onClick={() => setMenuOpen((v) => !v)}
               aria-expanded={menuOpen}
@@ -172,7 +191,9 @@ export function RecipeDetailHeader({
             {menuOpen && (
               <ul
                 role="menu"
-                aria-label="Weitere Aktionen"
+                aria-label={t('recipes.header.moreMenu', {
+                  defaultValue: 'Weitere Aktionen',
+                })}
                 className="absolute right-0 top-[calc(100%+6px)] z-50 w-56 overflow-hidden rounded-[12px] border border-border bg-card py-1 shadow-lg"
               >
                 <MenuItem
@@ -181,7 +202,9 @@ export function RecipeDetailHeader({
                     onFork()
                   }}
                 >
-                  In andere Gruppe kopieren
+                  {t('recipes.header.menuFork', {
+                    defaultValue: 'In andere Gruppe kopieren',
+                  })}
                 </MenuItem>
                 <MenuItem
                   onClick={() => {
@@ -189,7 +212,7 @@ export function RecipeDetailHeader({
                     onEdit()
                   }}
                 >
-                  Bearbeiten
+                  {t('recipes.header.menuEdit', { defaultValue: 'Bearbeiten' })}
                 </MenuItem>
                 {showReimportEntry && (
                   <MenuItem
@@ -198,7 +221,9 @@ export function RecipeDetailHeader({
                       onReimport()
                     }}
                   >
-                    Neu importieren
+                    {t('recipes.header.menuReimport', {
+                      defaultValue: 'Neu importieren',
+                    })}
                   </MenuItem>
                 )}
                 <MenuItem
@@ -208,7 +233,7 @@ export function RecipeDetailHeader({
                     onDelete()
                   }}
                 >
-                  Löschen
+                  {t('recipes.header.menuDelete', { defaultValue: 'Löschen' })}
                 </MenuItem>
               </ul>
             )}
@@ -233,7 +258,10 @@ export function RecipeDetailHeader({
         {totalPhotos > 0 && (
           <span className="absolute bottom-4 right-4 inline-flex items-center gap-1.5 rounded-full bg-[rgba(28,25,23,0.6)] px-2.5 py-1 text-[12px] font-medium text-white backdrop-blur">
             <Camera className="h-3 w-3" aria-hidden="true" />
-            Foto 1 / {totalPhotos}
+            {t('recipes.header.photoCountTemplate', {
+              total: totalPhotos,
+              defaultValue: `Foto 1 / ${totalPhotos}`,
+            })}
           </span>
         )}
       </div>
@@ -278,13 +306,22 @@ export function RecipeDetailHeader({
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="h-[15px] w-[15px]" aria-hidden="true" />
                 <strong className="font-semibold text-foreground">
-                  {recipe.prepTimeMinutes} Min
+                  {t('recipes.header.minutesTemplate', {
+                    minutes: recipe.prepTimeMinutes,
+                    defaultValue: `${recipe.prepTimeMinutes} Min`,
+                  })}
                 </strong>
               </span>
             )}
             <span className="inline-flex items-center gap-1.5">
               <BarChart3 className="h-[15px] w-[15px]" aria-hidden="true" />
-              {DIFFICULTY_LABEL[recipe.difficulty] ?? 'Mittel'}
+              {t(
+                `recipes.difficulty.${DIFFICULTY_KEY[recipe.difficulty] ?? 'medium'}`,
+                {
+                  defaultValue:
+                    DIFFICULTY_FALLBACK[recipe.difficulty] ?? 'Mittel',
+                },
+              )}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <User className="h-[15px] w-[15px]" aria-hidden="true" />
