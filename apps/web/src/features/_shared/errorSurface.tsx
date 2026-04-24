@@ -220,6 +220,12 @@ export function ErrorBanner({
 
 export type ErrorSurface = 'inline' | 'banner' | 'toast'
 
+/**
+ * REL-4 emits `status` + optional `fieldName` in every ApiError body;
+ * the classifier exposes `fieldName` so forms that want inline
+ * placement can look up the matching input by name. See
+ * `apps/api/src/FamilienKochbuch.Api/Services/ErrorCodes.cs`.
+ */
 export interface ClassifiedError {
   surface: ErrorSurface
   message: string
@@ -229,6 +235,14 @@ export interface ClassifiedError {
    * form field). Null for native Error instances (network layer).
    */
   code: string | null
+  /**
+   * REL-4 — backend-tagged field name on 400 validation errors. Set
+   * only when `surface === 'inline'` and the server attributed the
+   * failure to a single request field. Forms may use this to place
+   * the inline error next to the affected input; must NOT be rendered
+   * as visible text (it's a machine identifier, not copy).
+   */
+  fieldName?: string
 }
 
 /**
@@ -270,18 +284,18 @@ export function classifyMutationError(err: unknown): ClassifiedError {
       code: null,
     }
   }
-  const apiErr = err as Partial<ApiError> & { status?: number }
+  const apiErr = err as Partial<ApiError>
   const code = apiErr.code ?? null
   const rawMessage = apiErr.message ?? ''
-  // Some feature-api request helpers populate only `code` (not
-  // `status`) — recover the HTTP status from the `http_<n>` fallback
-  // that `throwApiError` mints when the server didn't return an
-  // ApiError body. Keeps the classifier working for every existing
-  // call-site without forcing a helper-refactor in this slice.
-  const status =
-    typeof apiErr.status === 'number'
-      ? apiErr.status
-      : parseHttpStatusFromCode(code)
+  // REL-4: `status` is authoritative and mandatory in every ApiError
+  // body. If it's missing, treat as unknown — do NOT reverse-engineer
+  // a number from the `code` string. Network errors + bodyless failures
+  // fall through to the generic "actionFailed" inline copy below.
+  const status = typeof apiErr.status === 'number' ? apiErr.status : undefined
+  const fieldName =
+    typeof apiErr.fieldName === 'string' && apiErr.fieldName.length > 0
+      ? apiErr.fieldName
+      : undefined
 
   // 409 — version conflict. Always banner; copy is generic.
   if (status === 409 || code === 'version_mismatch') {
@@ -323,12 +337,12 @@ export function classifyMutationError(err: unknown): ClassifiedError {
     }
   }
 
-  // Everything else (400, 404, 422, …) — inline surface. Prefer a
-  // localised translation keyed by the backend error-code; fall back
-  // to the raw message (which is German today, English post-REL-4)
-  // and finally to a generic "action failed" copy. Empty rawMessage
-  // is NOT passed to `t()` as defaultValue because i18next would then
-  // return the key itself ("action.failed" etc.).
+  // Everything else (400, 404, 422, …, or a status-less body) — inline
+  // surface. Prefer a localised translation keyed by the backend
+  // error-code; fall back to the raw message (English post-REL-4) and
+  // finally to a generic "action failed" copy. Empty rawMessage is NOT
+  // passed to `t()` as defaultValue because i18next would then return
+  // the key itself ("action.failed" etc.).
   const codeLocalised = code
     ? t(code, { ns: 'errors', defaultValue: '' })
     : ''
@@ -340,6 +354,7 @@ export function classifyMutationError(err: unknown): ClassifiedError {
     surface: 'inline',
     message,
     code,
+    ...(fieldName ? { fieldName } : {}),
   }
 }
 
@@ -365,14 +380,3 @@ export function toastMutationError(err: unknown): void {
   showErrorToast(classifyMutationError(err).message)
 }
 
-function parseHttpStatusFromCode(code: string | null): number | undefined {
-  if (!code) return undefined
-  const match = /^http_(\d{3})$/.exec(code)
-  if (match) return Number(match[1])
-  // Fallback heuristic for structured 5xx bodies. If the backend ever
-  // adds `{ code: "server_error", ... }` without a status the classifier
-  // still routes to the toast surface. Cheap defensive string match;
-  // REL-4 stabilises an enum and replaces this.
-  if (code === 'server_error' || code === 'internal_error') return 500
-  return undefined
-}

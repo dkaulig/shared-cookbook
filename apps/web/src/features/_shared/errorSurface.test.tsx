@@ -171,4 +171,83 @@ describe('classifyMutationError', () => {
     expect(result.surface).toBe('toast')
     expect(result.message).not.toMatch(/SqlException|DROP TABLE|users/)
   })
+
+  it('surfaces the REL-4 fieldName on 400 validation errors (inline path)', () => {
+    // REL-4: BadRequest() now serialises `{ code, message, status: 400,
+    // fieldName: "servings" }`. The classifier must expose the field
+    // name so form call-sites can place the inline error directly under
+    // the affected input instead of as a page-level banner.
+    const result = classifyMutationError({
+      code: 'invalid_value',
+      message: 'Portionen müssen > 0 sein.',
+      status: 400,
+      fieldName: 'servings',
+    })
+    expect(result.surface).toBe('inline')
+    expect(result.fieldName).toBe('servings')
+  })
+
+  it('omits fieldName when the backend did not tag a specific field', () => {
+    const result = classifyMutationError({
+      code: 'invalid_value',
+      message: 'Irgendwas ist ungültig.',
+      status: 400,
+    })
+    expect(result.surface).toBe('inline')
+    expect(result.fieldName).toBeUndefined()
+  })
+
+  it('reads HTTP status directly from the body status field (no code heuristic)', () => {
+    // REL-4 always emits `status` in the body. The classifier must
+    // route based on that number, not reverse-engineer it from a
+    // code string like "server_error" / "internal_error". Here we
+    // pass a non-matching code WITH status=500 and expect the 500
+    // path (toast).
+    const result = classifyMutationError({
+      code: 'some_future_code_we_cannot_predict',
+      message: 'Backend explodiert.',
+      status: 500,
+    })
+    expect(result.surface).toBe('toast')
+    expect(result.message).toMatch(/unbekannt/i)
+  })
+
+  it('does NOT classify a bare "server_error" / "internal_error" code string as 500', () => {
+    // REL-5's defensive heuristic assumed a missing status but the
+    // code string "server_error" still meant 5xx. REL-4 makes `status`
+    // authoritative — a 400 body with a weird code must stay a 400
+    // (inline), not bump up to a 500 toast via the string match.
+    const result = classifyMutationError({
+      code: 'server_error',
+      message: 'Irgendwas ist ungültig.',
+      status: 400,
+    })
+    expect(result.surface).toBe('inline')
+  })
+
+  it('treats a missing status as unknown — no reverse-engineering from code', () => {
+    // REL-4 guarantees `status` in every ApiError body. If we see an
+    // error without it, something's wrong at a lower layer and we
+    // must NOT guess a status from the `code` string (the removed
+    // parseHttpStatusFromCode heuristic). A missing status with a
+    // code that looks 5xx-ish still falls through to the generic
+    // unknown-error toast.
+    const result = classifyMutationError({
+      code: 'server_error',
+      message: 'No status field.',
+    })
+    // Surface stays toast (the inline path needs status<500 + a
+    // non-409 non-auth body; unknown status falls through to the
+    // generic "actionFailed / unknown" copy). Key assertion: the
+    // message is NOT the "unknown, please retry" 500-bucket copy.
+    expect(result.message).not.toMatch(/bitte erneut versuchen/i)
+  })
+
+  it('still routes a native Error (no body, no status) to the toast surface', () => {
+    // Networks errors never carry a status. They must stay in the
+    // "unknown / network" bucket, not be heuristically bumped to 500.
+    const result = classifyMutationError(new Error('Failed to fetch'))
+    expect(result.surface).toBe('toast')
+    expect(result.fieldName).toBeUndefined()
+  })
 })

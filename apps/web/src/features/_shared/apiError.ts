@@ -17,11 +17,19 @@ import type {
 export abstract class ApiErrorBase extends Error implements ApiError {
   readonly code: string
   readonly status: number
+  /**
+   * REL-4 — optional backend-tagged field identifier on 400 bodies.
+   * Populated from `ApiError.fieldName` so downstream classifiers /
+   * form call-sites can attribute the failure to a specific input
+   * without sniffing the `code` string.
+   */
+  readonly fieldName?: string
 
-  constructor(code: string, message: string, status: number) {
+  constructor(code: string, message: string, status: number, fieldName?: string) {
     super(`${code}: ${message}`)
     this.code = code
     this.status = status
+    if (fieldName !== undefined) this.fieldName = fieldName
     // Pin the message explicitly — the `Error` constructor silently
     // drops it on some engines when subclassed.
     this.message = message
