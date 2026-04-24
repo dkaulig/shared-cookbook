@@ -163,7 +163,14 @@ def test_classify_blog_urls(url: str) -> None:
 
 @respx.mock
 async def test_extract_from_blog_url_with_jsonld(tmp_path: Path, _fake_public_dns: None) -> None:
-    """Happy path: blog URL with JSON-LD flows through the LLM and post-process."""
+    """REL-8 happy path: blog URL with JSON-LD hits the pre-LLM branch.
+
+    The JSON-LD-Spaghetti fixture ships a full schema.org/Recipe
+    (title + 4 ingredients + 3 steps), so the pre-LLM branch maps it
+    directly and the LLM is never called. Title comes verbatim from
+    ``name`` in the JSON-LD blob; ``source_url`` is pinned by
+    :func:`post_process`.
+    """
     fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
         encoding="utf-8"
     )
@@ -175,12 +182,6 @@ async def test_extract_from_blog_url_with_jsonld(tmp_path: Path, _fake_public_dn
         )
     )
 
-    # The blog path uses extract_jsonld + extract_bs4_fallback.
-    # For this test, we don't care which layer won — we feed the LLM
-    # mock the composed blog_text + thumbnail and check the response.
-    # Rather than deduce the exact text, we use a provider that accepts
-    # any call by using a wrapper.
-
     mock = _AnyCallMock(_canonical_llm_response())
 
     result: ExtractionResult = await extract_from_url(
@@ -188,8 +189,15 @@ async def test_extract_from_blog_url_with_jsonld(tmp_path: Path, _fake_public_dn
         provider=mock,
     )
     assert result["recipe"]["source_url"] == "https://example.com/spaghetti"
-    assert result["recipe"]["title"] == "Testrezept"
-    assert mock.calls == 1
+    # Title came from JSON-LD's ``name`` field -- the mock would have
+    # returned "Testrezept" had the LLM been called.
+    assert result["recipe"]["title"] == "Spaghetti Carbonara"
+    # REL-8: pre-LLM branch preempts the Azure call entirely.
+    assert mock.calls == 0
+    # JSON-LD direct-map skips the structuring phase, so no usage +
+    # no config snapshot are produced.
+    assert "usage" not in result
+    assert "config_snapshot" not in result
 
 
 @respx.mock
@@ -944,8 +952,13 @@ async def test_untrusted_blog_text_wrapped_in_delimiter_tags(
 @respx.mock
 async def test_direct_blog_path_not_wrapped(tmp_path: Path, _fake_public_dns: None) -> None:
     """User-typed blog URLs (direct path, trusted) must NOT be wrapped in
-    <untrusted_blog> — only caption-linked (attacker-controlled) blogs are."""
-    fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+    <untrusted_blog> — only caption-linked (attacker-controlled) blogs are.
+
+    The fixture is deliberately the no-JSON-LD ``fallback_bare.html`` so
+    the REL-8 pre-LLM branch doesn't short-circuit the LLM call -- this
+    test verifies the LLM-path wrapping, not the JSON-LD direct map.
+    """
+    fixture = (Path(__file__).parent / "fixtures" / "blog" / "fallback_bare.html").read_text(
         encoding="utf-8"
     )
     respx.get("https://trusted.example/recipe").mock(
@@ -1184,8 +1197,14 @@ async def test_url_pipeline_blog_path_reports_structuring(
     tmp_path: Path,
     _fake_public_dns: None,
 ) -> None:
-    """Blog path skips downloading/transcribing and starts at structuring."""
-    fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+    """Blog path (LLM route) skips downloading/transcribing and starts at structuring.
+
+    Uses the no-JSON-LD fallback fixture so the REL-8 pre-LLM branch
+    doesn't preempt the structuring phase. The JSON-LD-direct path's
+    phase progression is covered by
+    :func:`test_url_pipeline_blog_jsonld_path_skips_structuring`.
+    """
+    fixture = (Path(__file__).parent / "fixtures" / "blog" / "fallback_bare.html").read_text(
         encoding="utf-8"
     )
     respx.get("https://example.com/spaghetti").mock(
@@ -1210,6 +1229,40 @@ async def test_url_pipeline_blog_path_reports_structuring(
     assert "downloading" not in phases
     assert "transcribing" not in phases
     assert phases == ["structuring", "post_processing"]
+
+
+@respx.mock
+async def test_url_pipeline_blog_jsonld_path_skips_structuring(
+    tmp_path: Path,
+    _fake_public_dns: None,
+) -> None:
+    """REL-8: when JSON-LD hits, the pipeline jumps straight to post_processing."""
+    fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+        encoding="utf-8"
+    )
+    respx.get("https://example.com/spaghetti").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text=fixture,
+        )
+    )
+    mock = _AnyCallMock(_canonical_llm_response())
+    reporter = _CapturingReporter()
+
+    await extract_from_url(
+        "https://example.com/spaghetti",
+        provider=mock,
+        reporter=reporter,
+    )
+    await _drain_scheduled_tasks()
+
+    phases = [e.phase for e in reporter.events]
+    assert "downloading" not in phases
+    assert "transcribing" not in phases
+    assert "structuring" not in phases  # REL-8: LLM call bypassed.
+    assert phases == ["post_processing"]
+    assert mock.calls == 0
 
 
 async def test_url_pipeline_null_reporter_reproduces_legacy_behavior(
