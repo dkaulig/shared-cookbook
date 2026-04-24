@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
 import { UploadCloud, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { cn } from '@/lib/utils'
 import { recipePhotoGradient } from './recipePhotoGradient'
@@ -72,8 +73,6 @@ interface StagedProps {
 }
 
 const MAX_PHOTOS = 3
-const LIMIT_ERROR = `Maximal ${MAX_PHOTOS} Fotos pro Rezept — entferne zuerst ein vorhandenes Bild.`
-const UNSUPPORTED_TYPE_ERROR = 'Nur JPG, PNG oder WebP unterstützt.'
 const ACCEPT = ['image/jpeg', 'image/png', 'image/webp'] as const
 
 function isStaged(props: PhotoUploadGridProps): props is StagedProps {
@@ -115,6 +114,7 @@ export function PhotoUploadGrid(props: PhotoUploadGridProps) {
 }
 
 function LiveGrid({ recipeId, photos, className }: LiveProps) {
+  const { t } = useTranslation()
   const upload = useUploadRecipePhoto(recipeId)
   const remove = useRemoveRecipePhoto(recipeId)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -128,7 +128,12 @@ function LiveGrid({ recipeId, photos, className }: LiveProps) {
     const list = Array.from(files)
     if (list.length === 0) return
     if (atLimit) {
-      setError(LIMIT_ERROR)
+      setError(
+        t('recipes.photos.errors.limitTemplate', {
+          max: MAX_PHOTOS,
+          defaultValue: `Maximal ${MAX_PHOTOS} Fotos pro Rezept — entferne zuerst ein vorhandenes Bild.`,
+        }),
+      )
       return
     }
     const [first, ...rest] = list
@@ -137,18 +142,32 @@ function LiveGrid({ recipeId, photos, className }: LiveProps) {
     // friendly message instead of an opaque 400.
     if (!first) return
     if (!(ACCEPT as readonly string[]).includes(first.type)) {
-      setError(UNSUPPORTED_TYPE_ERROR)
+      setError(
+        t('recipes.photos.errors.unsupportedType', {
+          defaultValue: 'Nur JPG, PNG oder WebP unterstützt.',
+        }),
+      )
       return
     }
     if (rest.length > 0) {
-      setError('Bitte wähle immer nur ein Bild — mehrere Dateien sind nicht unterstützt.')
+      setError(
+        t('recipes.photos.errors.singleFileOnly', {
+          defaultValue:
+            'Bitte wähle immer nur ein Bild — mehrere Dateien sind nicht unterstützt.',
+        }),
+      )
       return
     }
     try {
       await upload.mutateAsync(first)
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message ?? 'Upload fehlgeschlagen.')
+      setError(
+        apiErr.message ??
+          t('recipes.photos.errors.uploadFailed', {
+            defaultValue: 'Upload fehlgeschlagen.',
+          }),
+      )
     }
   }
 
@@ -158,7 +177,12 @@ function LiveGrid({ recipeId, photos, className }: LiveProps) {
       await remove.mutateAsync(url)
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message ?? 'Entfernen fehlgeschlagen.')
+      setError(
+        apiErr.message ??
+          t('recipes.photos.errors.removeFailed', {
+            defaultValue: 'Entfernen fehlgeschlagen.',
+          }),
+      )
     }
   }
 
@@ -187,6 +211,7 @@ function StagedGrid({
   onRemovePreAttached,
   className,
 }: StagedProps) {
+  const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
@@ -242,17 +267,31 @@ function StagedGrid({
     const list = Array.from(dropped)
     if (list.length === 0) return
     if (atLimit) {
-      setError(LIMIT_ERROR)
+      setError(
+        t('recipes.photos.errors.limitTemplate', {
+          max: MAX_PHOTOS,
+          defaultValue: `Maximal ${MAX_PHOTOS} Fotos pro Rezept — entferne zuerst ein vorhandenes Bild.`,
+        }),
+      )
       return
     }
     const [first, ...rest] = list
     if (!first) return
     if (!(ACCEPT as readonly string[]).includes(first.type)) {
-      setError(UNSUPPORTED_TYPE_ERROR)
+      setError(
+        t('recipes.photos.errors.unsupportedType', {
+          defaultValue: 'Nur JPG, PNG oder WebP unterstützt.',
+        }),
+      )
       return
     }
     if (rest.length > 0) {
-      setError('Bitte wähle immer nur ein Bild — mehrere Dateien sind nicht unterstützt.')
+      setError(
+        t('recipes.photos.errors.singleFileOnly', {
+          defaultValue:
+            'Bitte wähle immer nur ein Bild — mehrere Dateien sind nicht unterstützt.',
+        }),
+      )
       return
     }
     onFilesChange([...files, first])
@@ -499,6 +538,7 @@ interface FilledSlotProps {
 }
 
 function FilledSlot({ url, index, onRemove, pending }: FilledSlotProps) {
+  const { t } = useTranslation()
   return (
     <div
       className="relative aspect-square overflow-hidden rounded-[12px] bg-[hsl(var(--muted))]"
@@ -506,13 +546,15 @@ function FilledSlot({ url, index, onRemove, pending }: FilledSlotProps) {
     >
       <img
         src={url}
-        alt="Rezept-Foto"
+        alt={t('recipes.photos.alt', { defaultValue: 'Rezept-Foto' })}
         className="h-full w-full object-cover"
         loading="lazy"
       />
       <button
         type="button"
-        aria-label="Foto entfernen"
+        aria-label={t('recipes.photos.removeAria', {
+          defaultValue: 'Foto entfernen',
+        })}
         onClick={onRemove}
         disabled={pending}
         className={cn(
@@ -554,6 +596,7 @@ function PreAttachedSlot({
   index,
   onRemove,
 }: PreAttachedSlotProps) {
+  const { t } = useTranslation()
   return (
     <div
       data-testid={`preattached-slot-${stagedPhotoId}`}
@@ -562,7 +605,7 @@ function PreAttachedSlot({
     >
       <img
         src={url}
-        alt="Rezept-Foto"
+        alt={t('recipes.photos.alt', { defaultValue: 'Rezept-Foto' })}
         className="h-full w-full object-cover"
         loading="lazy"
       />
@@ -572,12 +615,14 @@ function PreAttachedSlot({
         data-testid="preattached-import-badge"
         className="absolute left-1.5 top-1.5 rounded-full bg-[rgba(28,25,23,0.75)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.04em] text-white backdrop-blur-sm"
       >
-        Import
+        {t('recipes.photos.importBadge', { defaultValue: 'Import' })}
       </span>
       {onRemove && (
         <button
           type="button"
-          aria-label="Importiertes Foto entfernen"
+          aria-label={t('recipes.photos.importedRemoveAria', {
+            defaultValue: 'Importiertes Foto entfernen',
+          })}
           onClick={onRemove}
           className={cn(
             'absolute right-1.5 top-1.5 grid h-[26px] w-[26px] place-items-center rounded-full',
@@ -604,10 +649,13 @@ interface DropSlotProps {
 }
 
 function DropSlot({ onClick, pending }: DropSlotProps) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
-      aria-label="Foto hochladen"
+      aria-label={t('recipes.photos.uploadAria', {
+        defaultValue: 'Foto hochladen',
+      })}
       onClick={onClick}
       disabled={pending}
       className={cn(
@@ -619,11 +667,13 @@ function DropSlot({ onClick, pending }: DropSlotProps) {
     >
       <UploadCloud className="h-[22px] w-[22px]" aria-hidden="true" />
       <span className="text-center leading-tight">
-        {pending ? 'Lade …' : (
+        {pending ? (
+          t('recipes.photos.loading', { defaultValue: 'Lade …' })
+        ) : (
           <>
-            Tippen zum Auswählen
+            {t('recipes.photos.dropHint', { defaultValue: 'Tippen zum Auswählen' })}
             <br />
-            oder hierhin ziehen
+            {t('recipes.photos.dropHintLine2', { defaultValue: 'oder hierhin ziehen' })}
           </>
         )}
       </span>
