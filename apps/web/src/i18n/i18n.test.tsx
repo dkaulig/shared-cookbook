@@ -123,3 +123,73 @@ describe('i18n foundation', () => {
     expect(window.localStorage.getItem('i18nextLng')).toBe('en')
   })
 })
+
+// REL-3h — browser-language detection tests.
+//
+// These run against fresh instances (no `initialLng` override) so the
+// LanguageDetector chain actually fires: localStorage → navigator →
+// fallback. `navigator.language` is patched per-case; each spec re-
+// creates an isolated instance so the detector's state doesn't leak.
+describe('i18n browser-language detection (REL-3h)', () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(
+    window,
+    'navigator',
+  )
+
+  function setNavigatorLanguage(lang: string) {
+    // i18next-browser-languagedetector reads both `navigator.languages`
+    // (array) and `navigator.language` (string). Patch both so the
+    // detector can't fall back to whatever jsdom seeded.
+    Object.defineProperty(window.navigator, 'language', {
+      configurable: true,
+      get: () => lang,
+    })
+    Object.defineProperty(window.navigator, 'languages', {
+      configurable: true,
+      get: () => [lang],
+    })
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+
+  afterEach(() => {
+    window.localStorage.clear()
+    // Restore whatever jsdom had before the spec tampered with it.
+    if (originalNavigator) {
+      Object.defineProperty(window, 'navigator', originalNavigator)
+    }
+  })
+
+  it('resolves to en when navigator.language is a non-supported locale (fr-FR)', async () => {
+    setNavigatorLanguage('fr-FR')
+    const instance = await createI18n({ detached: true })
+    expect(instance.resolvedLanguage).toBe('en')
+  })
+
+  it('resolves to en when navigator.language is zh-CN', async () => {
+    setNavigatorLanguage('zh-CN')
+    const instance = await createI18n({ detached: true })
+    expect(instance.resolvedLanguage).toBe('en')
+  })
+
+  it('resolves to de when navigator.language is de-AT', async () => {
+    setNavigatorLanguage('de-AT')
+    const instance = await createI18n({ detached: true })
+    expect(instance.resolvedLanguage).toBe('de')
+  })
+
+  it('resolves to en when navigator.language is en-GB', async () => {
+    setNavigatorLanguage('en-GB')
+    const instance = await createI18n({ detached: true })
+    expect(instance.resolvedLanguage).toBe('en')
+  })
+
+  it('prefers the localStorage override over navigator.language', async () => {
+    setNavigatorLanguage('fr-FR')
+    window.localStorage.setItem('i18nextLng', 'de')
+    const instance = await createI18n({ detached: true })
+    expect(instance.resolvedLanguage).toBe('de')
+  })
+})

@@ -14,29 +14,21 @@ import enErrors from '@/locales/en/errors.json'
  *   - `translation` (default) — all UI copy.
  *   - `errors`                — keyed by backend error-code.
  *
- * Language priority on boot:
- *   1. localStorage (`i18nextLng`) — user override.
+ * Language priority on boot (REL-3h):
+ *   1. localStorage (`i18nextLng`) — user override via settings.
  *   2. navigator.language          — browser preference.
- *   3. fallback (`de` in dev, `en` in prod).
+ *   3. fallback `en`               — for unsupported browser locales.
  *
- * Missing EN keys fall through to DE so the product stays usable even
- * while the EN catalog is ~60-80% complete. Community PRs will fill
- * the gaps over time.
+ * `supportedLngs` restricts the navigator-detector to de/en — a
+ * browser reporting `fr-FR` / `zh-CN` therefore lands on `en`. The
+ * fallback chain `['en', 'de']` keeps BOTH the unsupported-locale
+ * fallback (fr-FR → en) AND the key-level fallback (missing EN key →
+ * DE copy) so the product stays usable while the EN catalog is still
+ * ~60-80% complete.
  */
 
 export const SUPPORTED_LANGUAGES = ['de', 'en'] as const
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number]
-
-// Dev default is DE (maintainer daily-driver). Prod default is EN
-// (external OSS audience is English-first). Vite replaces `import.meta
-// .env.DEV` at build time; in tests both branches are reachable and
-// the `initialLng` override lets specs pin the starting language.
-const PROD_DEFAULT: SupportedLanguage = 'en'
-const DEV_DEFAULT: SupportedLanguage = 'de'
-
-function getDefaultLanguage(): SupportedLanguage {
-  return import.meta.env.DEV ? DEV_DEFAULT : PROD_DEFAULT
-}
 
 const resources = {
   de: {
@@ -50,24 +42,32 @@ const resources = {
 } as const
 
 export interface CreateI18nOptions {
-  /** Force a specific starting language — used by tests. */
+  /** Force a specific starting language — used by tests that pin DE. */
   initialLng?: SupportedLanguage
+  /**
+   * Spawn a detached i18n instance instead of mutating the shared
+   * singleton. Used by tests that want to exercise the detector chain
+   * without leaking state across cases.
+   */
+  detached?: boolean
 }
 
 /**
- * Initialise a dedicated i18n instance. The default export uses the
- * singleton from `i18next`; tests call `createI18n()` to get an
- * isolated instance so they don't leak state between cases.
+ * Initialise the default i18n singleton (or a detached instance for
+ * tests). Bootstrap calls `createI18n()` once from `main.tsx`; tests
+ * pass `initialLng` or `detached: true` for isolation.
  */
 export async function createI18n(
   options: CreateI18nOptions = {},
 ): Promise<I18nInstance> {
   const lng = options.initialLng
 
-  // Fresh instance per call so tests stay isolated. Production shares
-  // the default singleton via `i18n` (see bottom of this file).
+  // Detached whenever the caller pins a language OR opts into test
+  // isolation — otherwise we mutate the shared default singleton so
+  // `import i18n from 'i18next'` elsewhere in the app sees the same
+  // resources + detection wiring.
   const instance =
-    typeof options.initialLng !== 'undefined'
+    typeof lng !== 'undefined' || options.detached
       ? i18n.createInstance()
       : i18n
 
@@ -77,7 +77,14 @@ export async function createI18n(
     .init({
       resources,
       supportedLngs: [...SUPPORTED_LANGUAGES],
-      fallbackLng: 'de',
+      // `de-AT` / `en-GB` / `de-CH` → strip the region tag so regional
+      // variants match our supportedLngs instead of falling all the
+      // way through to `fallbackLng`.
+      load: 'languageOnly',
+      // Fallback chain: EN is the primary fallback (REL-3h — unknown
+      // browser locales land here), DE is the secondary so missing-EN
+      // keys resolve via the German catalog until EN coverage is full.
+      fallbackLng: ['en', 'de'],
       ns: ['translation', 'errors'],
       defaultNS: 'translation',
       lng,
@@ -93,29 +100,9 @@ export async function createI18n(
         escapeValue: true,
       },
       returnNull: false,
-      // If no language was forced and no cached pick exists, steer to
-      // the env-appropriate default (dev: de, prod: en). The detector
-      // runs first, so this is only the last-resort fallback.
-      ...(lng
-        ? {}
-        : { load: 'currentOnly' as const, lng: deriveInitialLng() }),
     })
 
   return instance
-}
-
-function deriveInitialLng(): SupportedLanguage {
-  try {
-    const stored = window.localStorage.getItem('i18nextLng')
-    if (stored === 'de' || stored === 'en') return stored
-  } catch {
-    /* noop — SSR / private-mode / quota */
-  }
-  if (typeof navigator !== 'undefined') {
-    const lang = navigator.language?.slice(0, 2).toLowerCase()
-    if (lang === 'de' || lang === 'en') return lang
-  }
-  return getDefaultLanguage()
 }
 
 export default i18n
