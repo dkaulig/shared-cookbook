@@ -561,9 +561,11 @@ function useInitialSharedFiles(location: ReturnType<typeof useLocation>) {
     // Non-hook fallback: the lazy initializer runs outside the React
     // render tree, so useTranslation() isn't available. Use the i18n
     // singleton (initialised at app bootstrap) when it's ready; fall
-    // through to the DE defaultValue otherwise — tests mount this page
-    // without an i18n provider and the singleton isn't bootstrapped in
-    // the vitest setup.
+    // through to the DE defaultValue otherwise. The REL-3 `bootstrap.ts`
+    // init is async, so in very rare cases the Share-Target handoff
+    // fires before `isInitialized` flips — the DE fallback keeps the
+    // toast readable. REL-3e globalised the test-setup i18n bootstrap,
+    // so vitest runs always see `isInitialized === true`.
     const germanFallback = `Format nicht unterstützt — ${droppedCount} Bild${
       droppedCount === 1 ? '' : 'er'
     } übersprungen.`

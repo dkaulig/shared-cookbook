@@ -406,12 +406,44 @@ describe('<ChatPage /> — abort + retry', () => {
     await user.type(screen.getByLabelText(/Nachricht/i), 'Hi')
     await user.click(screen.getByRole('button', { name: /^Senden$/ }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/offline/i)
+    // REL-3e — classifier maps `azure_unavailable` to its errors.json
+    // copy, so we assert the localised text (not the raw backend
+    // message).
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /KI-Dienst nicht erreichbar\./,
+    )
     // Both the inline bubble retry button and the global banner retry button.
     const retryBtns = await screen.findAllByRole('button', {
       name: /Erneut versuchen/i,
     })
     expect(retryBtns.length).toBeGreaterThanOrEqual(1)
+  })
+
+  // REL-3e — when the SSE stream yields `event: error` with a known
+  // code (e.g. `turn_failed`), the inline banner must surface the
+  // translated `errors.json` copy instead of the raw English
+  // dev-message.
+  it('REL-3e: renders the localised errors:turn_failed copy when the stream emits a turn_failed error event', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('/api/chat/sessions/:sessionId/turn', () =>
+        sseResponse([
+          sseBlock('message-started', { messageId: 'e', role: 'assistant' }),
+          sseBlock('token', { text: 'Teil' }),
+          sseBlock('error', {
+            code: 'turn_failed',
+            message: 'LLM provider returned 500: internal error.',
+          }),
+        ]),
+      ),
+    )
+    renderPage()
+    await user.type(screen.getByLabelText(/Nachricht/i), 'Hallo')
+    await user.click(screen.getByRole('button', { name: /^Senden$/ }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Chat-Antwort fehlgeschlagen\./)
+    expect(alert).not.toHaveTextContent(/LLM provider/i)
   })
 
   it('Erneut versuchen drops the errored bubble and re-submits the same content', async () => {
@@ -536,6 +568,59 @@ describe('<ChatPage /> — In Rezept umwandeln', () => {
     expect(recalled).not.toBeNull()
     expect(recalled!.groupId).toBe('only-group')
     expect(recalled!.result.recipe.title).toBe('Kartoffel-Lauch-Auflauf')
+  })
+
+  // REL-3e — the convert-to-recipe error path must route through
+  // `classifyMutationError` so a 5xx from the server surfaces the
+  // generic localised toast copy instead of leaking the raw English
+  // Dev-Message the backend emits post REL-4. The raw message is
+  // DROPPED for 5xx responses (security: no stack-trace leaks).
+  it('REL-3e: renders the localised generic copy when the convert POST 5xx errors', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/groups', () =>
+        HttpResponse.json<GroupSummary[]>([
+          groupSummary({ id: 'only-group', isPrivateCollection: true }),
+        ]),
+      ),
+      http.get('/api/chat/sessions/:sessionId/messages', () =>
+        HttpResponse.json<ChatMessageDto[]>([
+          {
+            id: 'a1',
+            role: 'assistant',
+            content: 'Reply 1',
+            createdAt: '2026-04-20T10:01:00Z',
+          },
+          {
+            id: 'a2',
+            role: 'assistant',
+            content: 'Reply 2',
+            createdAt: '2026-04-20T10:02:00Z',
+          },
+        ]),
+      ),
+      http.post('/api/chat/sessions/:sessionId/to-recipe', () =>
+        HttpResponse.json(
+          {
+            code: 'internal_error',
+            message: 'Stack trace leak: NullReferenceException at line 42.',
+            status: 500,
+          },
+          { status: 500 },
+        ),
+      ),
+    )
+    renderPage()
+    await user.click(
+      await screen.findByRole('button', { name: /In Rezept umwandeln/i }),
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Unbekannter Fehler/i)
+    // The raw English dev-message must never reach the user — REL-5
+    // security invariant.
+    expect(alert).not.toHaveTextContent(/Stack trace leak/i)
+    expect(alert).not.toHaveTextContent(/NullReferenceException/i)
   })
 })
 
