@@ -17,8 +17,8 @@ Monorepo (pnpm workspace) with three deployables + one shared package:
 
 Local stack runs via `docker compose up -d` (Postgres + Redis +
 SeaweedFS + all three services + Caddy on `:80`). Bot account seeded at
-`orchestrator@kochbuch.kaulig.dev` when `ORCHESTRATOR_PASSWORD` is set
-in `.env` (dev password is already there).
+`orchestrator@example.com` when `ORCHESTRATOR_PASSWORD` is set in
+`.env` (dev password is already there).
 
 ## How we work
 
@@ -88,7 +88,7 @@ path to the actual problem.
 ### Local E2E for UI-heavy slices
 
 Playwright E2E lives in `apps/web/e2e/`. Run with
-`PLAYWRIGHT_TEST_EMAIL=orchestrator@kochbuch.kaulig.dev
+`PLAYWRIGHT_TEST_EMAIL=orchestrator@example.com
 PLAYWRIGHT_TEST_PASSWORD=<value-from-.env> pnpm --filter web exec
 playwright test --config=playwright.docker.config.ts <spec-file>`.
 
