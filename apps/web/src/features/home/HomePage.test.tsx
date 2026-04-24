@@ -58,7 +58,7 @@ describe('<HomePage />', () => {
   beforeEach(() => {
     useAuthStore.getState().setSession('tok', {
       id: 'u1',
-      email: 'maintainer@example.com',
+      email: 'test@example.com',
       displayName: 'David',
       role: 'User',
     })
@@ -285,7 +285,7 @@ describe('<HomePage />', () => {
     // The picker should show both groups as choices and not auto-navigate.
     const dialog = await screen.findByRole('dialog', { name: /in welcher gruppe suchen/i })
     expect(dialog).toBeInTheDocument()
-    expect(within(dialog).getByRole('button', { name: /familie kaulig/i })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /example family/i })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /wg-donnerstage/i })).toBeInTheDocument()
     expect(screen.queryByTestId('group-detail')).toBeNull()
 
@@ -345,7 +345,7 @@ describe('<HomePage />', () => {
     )
     renderHome()
 
-    const card = await screen.findByRole('link', { name: /familie kaulig/i })
+    const card = await screen.findByRole('link', { name: /example family/i })
     const user = userEvent.setup()
     await user.click(card)
 

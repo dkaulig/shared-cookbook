@@ -210,7 +210,7 @@ describe('<SearchPage />', () => {
     expect(recipeLink).toHaveAttribute('href', '/groups/g1/recipes/r1')
 
     // Group-chip is visible.
-    const chip = screen.getByRole('link', { name: /familie kaulig/i })
+    const chip = screen.getByRole('link', { name: /example family/i })
     expect(chip).toHaveAttribute('href', '/groups/g1')
   })
 

@@ -32,7 +32,7 @@ describe('<GroupPickerDialog />', () => {
       />,
     )
     const dialog = screen.getByRole('dialog', { name: /in welcher gruppe suchen/i })
-    expect(within(dialog).getByRole('button', { name: /familie kaulig/i })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /example family/i })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /wg-donnerstage/i })).toBeInTheDocument()
   })
 
@@ -107,7 +107,7 @@ describe('<GroupPickerDialog />', () => {
         onClose={() => {}}
       />,
     )
-    const first = screen.getByRole('button', { name: /familie kaulig/i })
+    const first = screen.getByRole('button', { name: /example family/i })
     expect(document.activeElement).toBe(first)
   })
 })

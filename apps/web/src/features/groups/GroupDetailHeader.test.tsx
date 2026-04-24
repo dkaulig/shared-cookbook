@@ -90,7 +90,7 @@ describe('<GroupDetailHeader />', () => {
   it('renders the overlapping group-avatar initial (first letter of name)', () => {
     render(withRouter(<GroupDetailHeader group={baseGroup} recipeCount={47} />))
     const avatar = screen.getByTestId('group-avatar-big')
-    expect(avatar).toHaveTextContent('F')
+    expect(avatar).toHaveTextContent('E')
   })
 
   it('renders a cover banner element with the DS4 sage gradient placeholder', () => {
