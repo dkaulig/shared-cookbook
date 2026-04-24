@@ -667,13 +667,17 @@ public static class RecipeEndpoints
             db.Recipes.Add(recipe);
             await db.SaveChangesAsync(ct);
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
-            // Domain exception text may leak entity detail. Surface a
-            // stable English developer-message; the frontend keys off
-            // the code for user-facing copy.
+            // REL-4c — map the domain guard's ParamName into a stable
+            // (ErrorCode, fieldName) pair so RecipeFormPage can route the
+            // 400 to the matching inline field. Unknown ParamNames
+            // collapse to the legacy `invalid_input` (no fieldName) so
+            // nested / novel guards stay covered. Raw exception text is
+            // never forwarded — the frontend keys off the code.
+            var (code, fieldName) = MapRecipeValidationError(ex);
             return FamilienResults.BadRequest(
-                ErrorCodes.InvalidInput, "Invalid recipe payload.");
+                code, "Invalid recipe payload.", fieldName: fieldName);
         }
 
         // S6: record the initial Created revision so the history panel
@@ -891,6 +895,46 @@ public static class RecipeEndpoints
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// REL-4c — map a domain-guard <see cref="ArgumentException"/> raised
+    /// inside <see cref="CreateRecipeAsync"/> / <see cref="UpdateRecipeAsync"/>
+    /// onto a stable (ErrorCode, fieldName) pair. The ParamName on the
+    /// exception names the domain parameter (e.g. <c>title</c>,
+    /// <c>defaultServings</c>); this helper projects that onto the REL-4
+    /// catalogue + the camelCase <c>fieldName</c> the frontend's inline
+    /// field-focus routing (<c>RecipeFormPage</c>, REL-5e) keys off.
+    ///
+    /// <para>Unknown / missing ParamNames collapse to the legacy
+    /// <see cref="ErrorCodes.InvalidInput"/> with <c>fieldName = null</c>
+    /// so the banner fallback keeps working for novel guards. Nested
+    /// ingredient / step violations surface with the section-level
+    /// <c>ingredients</c> / <c>steps</c> fieldName — path-style indices
+    /// like <c>ingredients[3].amount</c> would need a frontend parser
+    /// that doesn't exist yet and would obscure the intent of this
+    /// mapping; section-level focus is the pragmatic REL-4c scope.</para>
+    /// </summary>
+    internal static (string Code, string? FieldName) MapRecipeValidationError(
+        ArgumentException ex)
+    {
+        return ex.ParamName switch
+        {
+            "title" => (ErrorCodes.InvalidTitle, "title"),
+            "description" => (ErrorCodes.InvalidValue, "description"),
+            "defaultServings" => (ErrorCodes.InvalidValue, "defaultServings"),
+            "prepTimeMinutes" => (ErrorCodes.InvalidValue, "prepTimeMinutes"),
+            "difficulty" => (ErrorCodes.InvalidValue, "difficulty"),
+            "sourceUrl" => (ErrorCodes.InvalidSourceUrl, "sourceUrl"),
+            // Nested-components surface as section-level hints. The FE's
+            // Ref-map can target the Zutaten / Schritte / Komponenten
+            // container even without a path parser.
+            "ingredients" => (ErrorCodes.InvalidValue, "ingredients"),
+            "steps" => (ErrorCodes.InvalidValue, "steps"),
+            "components" or "componentRequests"
+                => (ErrorCodes.InvalidValue, "components"),
+            _ => (ErrorCodes.InvalidInput, null),
+        };
     }
 
     /// <summary>
@@ -1478,13 +1522,15 @@ public static class RecipeEndpoints
                 db.RecipeTags.Add(new RecipeTag(recipe.Id, tagId));
             await db.SaveChangesAsync(ct);
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
-            // Domain exception text may leak entity detail. Surface a
-            // stable English developer-message; the frontend keys off
-            // the code for user-facing copy.
+            // REL-4c — see CreateRecipeAsync for rationale: map the
+            // domain guard's ParamName onto the REL-4 error catalogue +
+            // a camelCase fieldName hint so RecipeFormPage can route the
+            // 400 to the matching inline input.
+            var (code, fieldName) = MapRecipeValidationError(ex);
             return FamilienResults.BadRequest(
-                ErrorCodes.InvalidInput, "Invalid recipe payload.");
+                code, "Invalid recipe payload.", fieldName: fieldName);
         }
         catch (DbUpdateConcurrencyException)
         {
