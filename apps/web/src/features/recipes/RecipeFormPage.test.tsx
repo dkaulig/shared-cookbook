@@ -3943,3 +3943,146 @@ describe('RecipeFormPage REL-4c inline field-focus', () => {
     expect(await screen.findByText(/Ungültiger Wert/i)).toBeInTheDocument()
   })
 })
+
+// ── REL-4d nested row-level inline field-focus ────────────────────────
+//
+// REL-4c / REL-5e cover the top-level form fields (title, defaultServings,
+// …). REL-4d extends inline focus + inline error into the ingredient/
+// step rows so a 400 with fieldName="ingredients[0].amount" lands in the
+// exact row input instead of the bottom-of-form banner.
+//
+// The backend emits these paths ONLY for the single-default-component
+// layout; multi-component payloads fall back to the REL-4c section-level
+// ``ingredients`` / ``steps`` hint (not tested here — the form default
+// mode already is single-component).
+describe('RecipeFormPage REL-4d nested row-level field-focus', () => {
+  beforeAll(async () => {
+    window.localStorage.setItem('i18nextLng', 'de')
+    const { createI18n } = await import('@/i18n')
+    await createI18n()
+  })
+
+  async function fillHappyPath(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+  }
+
+  it('focuses the first ingredient row amount input for fieldName=ingredients[0].amount', async () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      const user = userEvent.setup()
+      server.use(
+        http.post('/api/groups/g1/recipes', () =>
+          HttpResponse.json(
+            {
+              code: 'invalid_value',
+              message: 'Scalable ingredients must have a quantity greater than zero.',
+              status: 400,
+              fieldName: 'ingredients[0].amount',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+
+      render(withProviders('/groups/g1/recipes/new'))
+      await fillHappyPath(user)
+      await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+      // REL-4d inline alert lives under the first ingredient row keyed by
+      // its array index (0), with a pathed testid so multiple errors can
+      // coexist if the form ever batches validations.
+      const alert = await screen.findByTestId(
+        'recipe-form-ingredients-0-amount-error',
+      )
+      expect(alert).toHaveTextContent(/Ungültiger Wert/i)
+      // The focus target is the quantity input on row 0 (aria-label
+      // "Zutat 1 Menge" — 1-indexed for UX).
+      const amountInput = screen.getByLabelText(/Zutat 1 Menge/i)
+      expect(amountInput.getAttribute('aria-invalid')).toBe('true')
+      expect(amountInput.getAttribute('aria-describedby')).toBe(alert.id)
+      // Raw English server text must never leak.
+      expect(
+        screen.queryByText(/must have a quantity greater than zero/i),
+      ).toBeNull()
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  it('focuses the second step textarea for fieldName=steps[1].text', async () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      const user = userEvent.setup()
+      server.use(
+        http.post('/api/groups/g1/recipes', () =>
+          HttpResponse.json(
+            {
+              code: 'missing_field',
+              message: 'Step content must not be blank.',
+              status: 400,
+              fieldName: 'steps[1].text',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+
+      render(withProviders('/groups/g1/recipes/new'))
+      await fillHappyPath(user)
+      // Add a second step row so index 1 exists in the DOM.
+      await user.click(screen.getByRole('button', { name: /Schritt hinzufügen/i }))
+      await user.type(screen.getByLabelText(/Schritt 2/i), 'Zweiter Schritt.')
+      await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+      const alert = await screen.findByTestId(
+        'recipe-form-steps-1-text-error',
+      )
+      expect(alert).toHaveTextContent(/Pflichtfeld|fehlt|leer|ausfüllen/i)
+      const stepInput = screen.getByLabelText(/^Schritt 2$/i)
+      expect(stepInput.getAttribute('aria-invalid')).toBe('true')
+      expect(stepInput.getAttribute('aria-describedby')).toBe(alert.id)
+      expect(screen.queryByText(/must not be blank/i)).toBeNull()
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  it('falls back to the banner when the path index is out-of-range (no row to focus)', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('/api/groups/g1/recipes', () =>
+        HttpResponse.json(
+          {
+            code: 'invalid_value',
+            message: 'No such row on this client.',
+            status: 400,
+            fieldName: 'ingredients[999].amount',
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await fillHappyPath(user)
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    // No row to focus → no inline pathed alert, and the translated
+    // errors:invalid_value banner surfaces at the bottom of the form.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('recipe-form-ingredients-999-amount-error'),
+      ).not.toBeInTheDocument()
+    })
+    expect(await screen.findByText(/Ungültiger Wert/i)).toBeInTheDocument()
+    // And NO row 0 inline alert either — the FE must not silently retarget
+    // to a different row than the server addressed.
+    expect(
+      screen.queryByTestId('recipe-form-ingredients-0-amount-error'),
+    ).not.toBeInTheDocument()
+  })
+})
