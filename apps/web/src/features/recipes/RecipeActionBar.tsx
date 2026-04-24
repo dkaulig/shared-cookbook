@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Calendar, ChefHat, Check } from 'lucide-react'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { toMondayIso } from '@/features/mealplanning/weekGrid'
@@ -60,6 +61,7 @@ export function RecipeActionBar({
   onMarkCooked,
   markCookedPending,
 }: RecipeActionBarProps) {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
@@ -69,10 +71,19 @@ export function RecipeActionBar({
     setStatus(null)
     try {
       await onMarkCooked()
-      setStatus('Rezept wurde als gekocht markiert.')
+      setStatus(
+        t('recipes.actionBar.cookedSuccess', {
+          defaultValue: 'Rezept wurde als gekocht markiert.',
+        }),
+      )
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message ?? 'Speichern fehlgeschlagen.')
+      setError(
+        apiErr.message ??
+          t('recipes.actionBar.cookedError', {
+            defaultValue: 'Speichern fehlgeschlagen.',
+          }),
+      )
     }
   }
 
@@ -102,11 +113,13 @@ export function RecipeActionBar({
         )}
       >
         <Calendar className="h-[18px] w-[18px]" aria-hidden="true" />
-        In Wochenplan
+        {t('recipes.actionBar.addToPlan', { defaultValue: 'In Wochenplan' })}
       </button>
       <button
         type="button"
-        aria-label="Jetzt gekocht"
+        aria-label={t('recipes.actionBar.cookedAria', {
+          defaultValue: 'Jetzt gekocht',
+        })}
         onClick={handleCookedClick}
         disabled={markCookedPending}
         className={cn(
@@ -116,11 +129,15 @@ export function RecipeActionBar({
         )}
       >
         <Check className="h-[18px] w-[18px]" strokeWidth={2.4} aria-hidden="true" />
-        {markCookedPending ? 'Speichere…' : 'Jetzt gekocht'}
+        {markCookedPending
+          ? t('recipes.actionBar.cookedPending', { defaultValue: 'Speichere…' })
+          : t('recipes.actionBar.cookedCta', { defaultValue: 'Jetzt gekocht' })}
       </button>
       <button
         type="button"
-        aria-label="Jetzt kochen"
+        aria-label={t('recipes.actionBar.cookNowAria', {
+          defaultValue: 'Jetzt kochen',
+        })}
         onClick={handleCookNowClick}
         className={cn(
           'inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--primary))] bg-[hsl(var(--primary))] px-4 py-[11px] text-[15px] font-semibold text-[hsl(var(--primary-foreground))]',
@@ -129,7 +146,7 @@ export function RecipeActionBar({
         )}
       >
         <ChefHat className="h-[18px] w-[18px]" strokeWidth={2.2} aria-hidden="true" />
-        Jetzt kochen
+        {t('recipes.actionBar.cookNowCta', { defaultValue: 'Jetzt kochen' })}
       </button>
 
       {/* Lightweight inline notifier — avoids pulling in a toast library.

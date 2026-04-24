@@ -250,6 +250,32 @@
       "medium": "Medium",
       "hard": "Hard"
     },
+    "forkDialog": {
+      "title": "Copy to another group",
+      "targetLabel": "Target group",
+      "selectPlaceholder": "Pick a group…",
+      "noOtherGroups": "You're not a member of any other group.",
+      "submitCta": "Copy",
+      "errorFailed": "Copy failed."
+    },
+    "actionBar": {
+      "addToPlan": "To meal plan",
+      "cookedPending": "Saving…",
+      "cookedCta": "Just cooked",
+      "cookedAria": "Just cooked",
+      "cookedSuccess": "Marked as cooked.",
+      "cookedError": "Save failed.",
+      "cookNowCta": "Cook now",
+      "cookNowAria": "Cook now"
+    },
+    "portions": {
+      "title": "Servings",
+      "decrement": "Decrease serving",
+      "increment": "Increase serving",
+      "groupDefaultTemplate": "Scale for {{name}} ({{count}} servings)",
+      "stepperAria": "Serving stepper",
+      "personsLabel": "People"
+    },
     "header": {
       "backAria": "Back",
       "shareAria": "Share",
