@@ -24,7 +24,7 @@ import { expect, test } from '@playwright/test'
  *
  * Manual run (requires `docker compose up -d`):
  *
- *   PLAYWRIGHT_TEST_EMAIL=orchestrator@EXAMPLE_HOST \
+ *   PLAYWRIGHT_TEST_EMAIL=orchestrator@example.com \
  *   PLAYWRIGHT_TEST_PASSWORD=<value-from-.env> \
  *   pnpm --filter web exec playwright test \
  *     --config=playwright.docker.config.ts e2e/cover-picker.spec.ts

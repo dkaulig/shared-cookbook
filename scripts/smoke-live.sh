@@ -28,8 +28,8 @@
 # clean up whatever we managed to create before bailing.
 #
 # Env vars:
-#   SMOKE_BASE_URL       default https://EXAMPLE_HOST
-#   SMOKE_BOT_EMAIL      default orchestrator@EXAMPLE_HOST
+#   SMOKE_BASE_URL       default https://cookbook.example.com
+#   SMOKE_BOT_EMAIL      default orchestrator@example.com
 #   SMOKE_BOT_PASSWORD   REQUIRED — no default; never hardcoded.
 #
 # Flags:
@@ -42,8 +42,8 @@ set -euo pipefail
 command -v jq >/dev/null || { echo "jq required" >&2; exit 2; }
 command -v curl >/dev/null || { echo "curl required" >&2; exit 2; }
 
-BASE_URL="${SMOKE_BASE_URL:-https://EXAMPLE_HOST}"
-BOT_EMAIL="${SMOKE_BOT_EMAIL:-orchestrator@EXAMPLE_HOST}"
+BASE_URL="${SMOKE_BASE_URL:-https://cookbook.example.com}"
+BOT_EMAIL="${SMOKE_BOT_EMAIL:-orchestrator@example.com}"
 BOT_PASSWORD="${SMOKE_BOT_PASSWORD:-}"
 
 # ── Argument parsing ─────────────────────────────────────────────────────
@@ -58,8 +58,8 @@ Usage:
   scripts/smoke-live.sh --import-url=<url>        # PV4 URL-import smoke
 
 Env (both modes):
-  SMOKE_BASE_URL       default https://EXAMPLE_HOST
-  SMOKE_BOT_EMAIL      default orchestrator@EXAMPLE_HOST
+  SMOKE_BASE_URL       default https://cookbook.example.com
+  SMOKE_BOT_EMAIL      default orchestrator@example.com
   SMOKE_BOT_PASSWORD   REQUIRED
 EOF
 }
