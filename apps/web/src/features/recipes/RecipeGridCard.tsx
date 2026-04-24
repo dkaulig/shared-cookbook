@@ -1,5 +1,6 @@
 import { Star } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { RecipeSummaryDto, TagDto } from '@familien-kochbuch/shared'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -46,6 +47,7 @@ export function RecipeGridCard({
   prepTimeMinutes,
   groupChip,
 }: RecipeGridCardProps) {
+  const { t } = useTranslation()
   const rating =
     recipe.avgRating != null
       ? recipe.avgRating.toFixed(1).replace('.', ',')
@@ -98,7 +100,14 @@ export function RecipeGridCard({
           {recipe.title}
         </div>
         <div className="flex flex-wrap gap-1.5 text-[12px] text-[hsl(var(--muted-foreground))]">
-          {prepTimeMinutes != null && <span>{prepTimeMinutes} Min</span>}
+          {prepTimeMinutes != null && (
+            <span>
+              {t('recipes.card.minutesTemplate', {
+                minutes: prepTimeMinutes,
+                defaultValue: `${prepTimeMinutes} Min`,
+              })}
+            </span>
+          )}
           {prepTimeMinutes != null && recipe.createdByDisplayName && (
             <span aria-hidden="true" className="text-[hsl(var(--input))]">·</span>
           )}

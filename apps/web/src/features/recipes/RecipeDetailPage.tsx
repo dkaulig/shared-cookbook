@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Images } from 'lucide-react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import type {
   ApiError,
@@ -59,6 +60,7 @@ export function RecipeDetailPage() {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useTranslation()
   const recipeId = params.recipeId ?? ''
   const groupId = params.groupId ?? ''
 
@@ -152,7 +154,9 @@ export function RecipeDetailPage() {
 
   if (detail.isLoading) {
     return (
-      <div aria-label="Rezept wird geladen">
+      <div aria-label={t('recipes.detail.loadingAria', {
+        defaultValue: 'Rezept wird geladen',
+      })}>
         <Skeleton className="h-[260px] w-full" />
         <main className="mx-auto max-w-3xl px-5 py-6 md:max-w-[920px] md:px-8">
           <Skeleton className="mb-4 h-10 w-2/3" />
@@ -176,14 +180,16 @@ export function RecipeDetailPage() {
           role="alert"
           className="rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
         >
-          Rezept konnte nicht geladen werden.
+          {t('recipes.detail.loadError', {
+            defaultValue: 'Rezept konnte nicht geladen werden.',
+          })}
         </p>
         <button
           type="button"
           className="mt-4 inline-block text-sm text-[hsl(var(--primary))] underline"
           onClick={() => navigate(`/groups/${groupId}`)}
         >
-          ← Zur Gruppe
+          {t('recipes.detail.backToGroup', { defaultValue: '← Zur Gruppe' })}
         </button>
       </main>
     )
@@ -191,7 +197,8 @@ export function RecipeDetailPage() {
 
   const recipe = detail.data
   const groupDefaultServings = group.data?.defaultServings ?? recipe.defaultServings
-  const groupName = group.data?.name ?? 'Gruppe'
+  const groupName =
+    group.data?.name ?? t('recipes.detail.group', { defaultValue: 'Gruppe' })
   const currentServings = servings ?? recipe.defaultServings
   const aggregate = ratings.data?.aggregate
 
@@ -214,7 +221,12 @@ export function RecipeDetailPage() {
       navigate(`/groups/${groupId}`)
     } catch (err) {
       const apiErr = err as ApiError
-      setDeleteError(apiErr.message || 'Rezept konnte nicht gelöscht werden.')
+      setDeleteError(
+        apiErr.message ||
+          t('recipes.detail.deleteDialog.errorFailed', {
+            defaultValue: 'Rezept konnte nicht gelöscht werden.',
+          }),
+      )
       setDeleteOpen(false)
     }
   }
@@ -257,12 +269,18 @@ export function RecipeDetailPage() {
           queryKey: recipeQueryKeys.detail(recipeId),
         })
         setReimportError(
-          'Das Rezept wurde parallel geändert. Bitte erneut versuchen.',
+          t('recipes.detail.reimportDialog.errorVersionMismatch', {
+            defaultValue:
+              'Das Rezept wurde parallel geändert. Bitte erneut versuchen.',
+          }),
         )
       } else {
         const apiErr = err as ApiError
         setReimportError(
-          apiErr.message || 'Reimport konnte nicht gestartet werden.',
+          apiErr.message ||
+            t('recipes.detail.reimportDialog.errorFailed', {
+              defaultValue: 'Reimport konnte nicht gestartet werden.',
+            }),
         )
       }
       setReimportOpen(false)
@@ -332,7 +350,9 @@ export function RecipeDetailPage() {
             role="status"
             className="mt-4 rounded-[12px] bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-sm text-foreground ring-1 ring-[hsl(var(--primary)/0.25)]"
           >
-            Rezept erfolgreich aktualisiert.
+            {t('recipes.detail.reimportSuccess', {
+              defaultValue: 'Rezept erfolgreich aktualisiert.',
+            })}
           </p>
         )}
 
@@ -345,7 +365,9 @@ export function RecipeDetailPage() {
               onClick={() => setChangeCoverOpen(true)}
             >
               <Images className="h-4 w-4" aria-hidden="true" />
-              Cover ändern
+              {t('recipes.detail.coverChangeCta', {
+                defaultValue: 'Cover ändern',
+              })}
             </Button>
           </div>
         )}
@@ -355,7 +377,9 @@ export function RecipeDetailPage() {
             role="status"
             className="mt-4 rounded-[12px] bg-[hsl(var(--muted)/0.4)] px-3 py-2 text-sm text-muted-foreground ring-1 ring-border"
           >
-            Import-Kandidaten sind nicht mehr verfügbar.
+            {t('recipes.detail.coverExpired', {
+              defaultValue: 'Import-Kandidaten sind nicht mehr verfügbar.',
+            })}
           </p>
         )}
 
@@ -376,9 +400,13 @@ export function RecipeDetailPage() {
 
             <section className="mt-7">
               <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
-                Zutaten{' '}
+                {t('recipes.detail.ingredientsHeading', {
+                  defaultValue: 'Zutaten',
+                })}{' '}
                 <span className="ml-2 text-[12px] font-normal text-[hsl(var(--muted-foreground))]">
-                  Abhaken was du schon hast
+                  {t('recipes.detail.ingredientsHint', {
+                    defaultValue: 'Abhaken was du schon hast',
+                  })}
                 </span>
               </h2>
               {isSingleDefault ? (
@@ -427,7 +455,9 @@ export function RecipeDetailPage() {
           >
             <section>
               <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
-                Zubereitung
+                {t('recipes.detail.stepsHeading', {
+                  defaultValue: 'Zubereitung',
+                })}
               </h2>
               {isSingleDefault ? (
                 <StepList steps={orderedComponents[0]!.steps} />
@@ -456,14 +486,18 @@ export function RecipeDetailPage() {
                   rel="noopener noreferrer"
                   className="text-[hsl(var(--primary))] underline"
                 >
-                  Zur Original-Quelle ↗
+                  {t('recipes.detail.sourceLink', {
+                    defaultValue: 'Zur Original-Quelle ↗',
+                  })}
                 </a>
               </p>
             )}
 
             <section className="mt-7">
               <h2 className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground">
-                Bewertungen
+                {t('recipes.detail.ratingsHeading', {
+                  defaultValue: 'Bewertungen',
+                })}
               </h2>
               <RatingWidget recipeId={recipe.id} />
             </section>
@@ -498,9 +532,16 @@ export function RecipeDetailPage() {
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-        title="Rezept wirklich löschen?"
-        description="Diese Aktion kann nicht rückgängig gemacht werden. Das Rezept verschwindet für alle Gruppenmitglieder."
-        confirmLabel="Löschen"
+        title={t('recipes.detail.deleteDialog.title', {
+          defaultValue: 'Rezept wirklich löschen?',
+        })}
+        description={t('recipes.detail.deleteDialog.description', {
+          defaultValue:
+            'Diese Aktion kann nicht rückgängig gemacht werden. Das Rezept verschwindet für alle Gruppenmitglieder.',
+        })}
+        confirmLabel={t('recipes.detail.deleteDialog.confirmCta', {
+          defaultValue: 'Löschen',
+        })}
         onConfirm={handleConfirmDelete}
         isLoading={deleteMutation.isPending}
       />
@@ -511,22 +552,28 @@ export function RecipeDetailPage() {
       <ConfirmDialog
         open={reimportOpen}
         onOpenChange={setReimportOpen}
-        title="Rezept neu importieren?"
+        title={t('recipes.detail.reimportDialog.title', {
+          defaultValue: 'Rezept neu importieren?',
+        })}
         description={
           <>
             <p className="mb-3">
-              Der ursprüngliche Import wird erneut ausgeführt und überschreibt
-              Titel, Zutaten und Schritte mit den frischen Daten. Fotos,
-              Bewertungen und &bdquo;Zuletzt gekocht&ldquo;-Historie bleiben
-              erhalten. Manuelle Änderungen am Rezept gehen verloren.
+              {t('recipes.detail.reimportDialog.body', {
+                defaultValue:
+                  'Der ursprüngliche Import wird erneut ausgeführt und überschreibt Titel, Zutaten und Schritte mit den frischen Daten. Fotos, Bewertungen und „Zuletzt gekocht"-Historie bleiben erhalten. Manuelle Änderungen am Rezept gehen verloren.',
+              })}
             </p>
             <p className="rounded-[10px] bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-[13px] leading-[1.45] text-foreground ring-1 ring-[hsl(var(--primary)/0.2)]">
-              Falls der Link zwischenzeitlich geändert wurde, kann ein
-              komplett anderes Rezept entstehen.
+              {t('recipes.detail.reimportDialog.linkDriftHint', {
+                defaultValue:
+                  'Falls der Link zwischenzeitlich geändert wurde, kann ein komplett anderes Rezept entstehen.',
+              })}
             </p>
           </>
         }
-        confirmLabel="Reimport starten"
+        confirmLabel={t('recipes.detail.reimportDialog.confirmCta', {
+          defaultValue: 'Reimport starten',
+        })}
         onConfirm={handleConfirmReimport}
         isLoading={reimportMutation.isPending}
       />

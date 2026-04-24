@@ -1,4 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useRecipeSearch } from '@/features/search/hooks'
 import { readFiltersFromSearchParams } from '@/features/search/urlState'
 
@@ -10,24 +11,37 @@ import { readFiltersFromSearchParams } from '@/features/search/urlState'
  */
 export function RecipeList({ groupId }: { groupId: string }) {
   const [params] = useSearchParams()
+  const { t } = useTranslation()
   const filters = readFiltersFromSearchParams(params)
   const result = useRecipeSearch(groupId, filters)
 
   if (result.isLoading) {
-    return <p className="text-sm text-stone-500">Lade Rezepte …</p>
+    return (
+      <p className="text-sm text-stone-500">
+        {t('recipes.list.loading', { defaultValue: 'Lade Rezepte …' })}
+      </p>
+    )
   }
 
   if (result.isError) {
     return (
       <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
-        Rezepte konnten nicht geladen werden.
+        {t('recipes.list.loadError', {
+          defaultValue: 'Rezepte konnten nicht geladen werden.',
+        })}
       </p>
     )
   }
 
   const items = result.data?.items ?? []
   if (items.length === 0) {
-    return <p className="text-sm text-stone-500">Keine Rezepte passen zu den aktuellen Filtern.</p>
+    return (
+      <p className="text-sm text-stone-500">
+        {t('recipes.list.emptyFiltered', {
+          defaultValue: 'Keine Rezepte passen zu den aktuellen Filtern.',
+        })}
+      </p>
+    )
   }
 
   return (
@@ -42,7 +56,7 @@ export function RecipeList({ groupId }: { groupId: string }) {
               <img src={recipe.photo} alt={recipe.title} className="h-36 w-full object-cover" />
             ) : (
               <div className="flex h-36 items-center justify-center bg-stone-100 text-xs text-stone-400">
-                Kein Foto
+                {t('recipes.list.noPhoto', { defaultValue: 'Kein Foto' })}
               </div>
             )}
             <div className="p-3">
@@ -60,7 +74,10 @@ export function RecipeList({ groupId }: { groupId: string }) {
                 <p className="mt-1 line-clamp-2 text-sm text-stone-600">{recipe.description}</p>
               )}
               <p className="mt-2 text-xs text-stone-400">
-                von {recipe.createdByDisplayName}
+                {t('recipes.list.authorTemplate', {
+                  name: recipe.createdByDisplayName,
+                  defaultValue: `von ${recipe.createdByDisplayName}`,
+                })}
               </p>
             </div>
           </Link>
