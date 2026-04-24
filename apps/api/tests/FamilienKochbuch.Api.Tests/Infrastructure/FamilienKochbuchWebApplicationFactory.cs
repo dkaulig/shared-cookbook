@@ -45,6 +45,13 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
     private int? _smtpPort;
     private bool? _smtpUseStartTls;
 
+    /// <summary>REL-7 — overrides for the <c>Ai:</c> config section so
+    /// <see cref="MetaEndpointsTests"/> can exercise the three
+    /// provider states (off / azure / ollama) without spinning up an
+    /// actual AI backend.</summary>
+    private bool? _aiEnabled;
+    private string? _aiProvider;
+
     /// <summary>PV1 — if set, the default <see cref="FamilienKochbuch.Api.Hubs.ILiveSyncPublisher"/>
     /// registration is replaced with this instance so tests can observe
     /// publisher fan-out without spinning up a full SignalR client.</summary>
@@ -95,6 +102,13 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
             builder.UseSetting("Smtp:Port", port.ToString(System.Globalization.CultureInfo.InvariantCulture));
         if (_smtpUseStartTls is bool startTls)
             builder.UseSetting("Smtp:UseStartTls", startTls ? "true" : "false");
+
+        // REL-7 — per-test Ai:Enabled + Ai:Provider overrides feed the
+        // MetaEndpoints feature-flags response.
+        if (_aiEnabled is bool aiEnabled)
+            builder.UseSetting("Ai:Enabled", aiEnabled ? "true" : "false");
+        if (_aiProvider is not null)
+            builder.UseSetting("Ai:Provider", _aiProvider);
 
         builder.ConfigureServices(services =>
         {
@@ -229,6 +243,17 @@ public class FamilienKochbuchWebApplicationFactory : WebApplicationFactory<Progr
         FamilienKochbuch.Api.Hubs.ILiveSyncPublisher publisher)
     {
         _publisherOverride = publisher;
+        return this;
+    }
+
+    /// <summary>REL-7 — override the <c>Ai:Enabled</c> + <c>Ai:Provider</c>
+    /// config values driving the <c>/api/meta/features</c> response.
+    /// Use per-test (not a shared fixture) so one test's config doesn't
+    /// bleed into another via <see cref="IClassFixture{TFixture}"/>.</summary>
+    public FamilienKochbuchWebApplicationFactory WithAiConfig(bool enabled, string provider)
+    {
+        _aiEnabled = enabled;
+        _aiProvider = provider;
         return this;
     }
 }
