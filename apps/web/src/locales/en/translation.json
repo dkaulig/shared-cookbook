@@ -242,6 +242,90 @@
       "openShoppingList": "Open shopping list",
       "deleteSlot": "Remove entry",
       "empty": "No plan for this week yet. Tap a slot to add one."
+    },
+    "addDialog": {
+      "title": "Add meal",
+      "dateLabel": "Date",
+      "mealLabel": "Meal",
+      "searchLabel": "Search recipe",
+      "searchPlaceholder": "Enter title…",
+      "matchesLabel": "Recipe matches",
+      "selectedHint": "Selected — clear the search to type a free title instead.",
+      "noteLabel": "Note (optional)",
+      "freeTitleLabel": "Free title",
+      "notePlaceholder": "e.g. double portion",
+      "freeTitlePlaceholder": "e.g. leftovers, restaurant",
+      "servingsLabel": "Servings",
+      "parentLabel": "Leftover from",
+      "noParent": "— no parent —",
+      "saving": "Saving…",
+      "submitCta": "Add",
+      "errors": {
+        "recipeOrTitle": "Please pick a recipe or enter a title.",
+        "servingsRange": "Servings must be between 1 and 20.",
+        "failed": "Slot could not be created."
+      }
+    },
+    "editDialog": {
+      "title": "Edit meal",
+      "moveHint": "To move: delete this slot and add a new one.",
+      "recipeLinkedHint": "Recipe linked.",
+      "removeRecipe": "Remove recipe",
+      "cookedLabel": "Cooked",
+      "submitCta": "Save",
+      "errors": {
+        "failed": "Slot could not be saved."
+      }
+    },
+    "deleteDialog": {
+      "title": "Really delete this meal?",
+      "description": "This cannot be undone. Linked meal-prep children keep their own rows but lose the parent link.",
+      "parentWarning_one": "This slot is a meal-prep parent for {{count}} other slot. The children become free slots afterwards (not deleted).",
+      "parentWarning_other": "This slot is a meal-prep parent for {{count}} other slots. The children become free slots afterwards (not deleted).",
+      "deleting": "Deleting…",
+      "confirmCta": "Delete",
+      "errors": {
+        "failed": "Slot could not be deleted."
+      }
+    },
+    "page": {
+      "subNav": "Meal plan navigation",
+      "backToGroup": "Back to group",
+      "weekLabelTemplate": "Wk {{week}}",
+      "weekRangeTemplate": "from {{range}}",
+      "copyLastWeek": "Copy last week",
+      "copying": "Copying…",
+      "copyAria": "Copy last week's plan",
+      "shoppingList": "Shopping list",
+      "loadError": "Meal plan could not be loaded.",
+      "reorderError": "Reordering could not be fully saved — reloading.",
+      "dismissError": "Dismiss error",
+      "dismissMessage": "Dismiss",
+      "dismiss": "Close",
+      "createError": "Plan could not be created.",
+      "selectSlotHint": "Pick a slot on the left to see details.",
+      "dayColumnLabel": "{{weekday}} {{date}}",
+      "addMealAria": "Add meal: {{meal}} on {{date}}",
+      "noDishesForDay": "No meals for this day yet",
+      "copySuccessTemplate": "Plan copied: {{count}} slots carried over from week {{week}}.",
+      "copyOverrideTitle": "Plan already contains slots",
+      "copyOverrideDescription": "Do you want to append slots from last week anyway? Existing entries stay.",
+      "copyOverrideConfirm": "Copy anyway",
+      "conflictTitle": "Meal plan conflict",
+      "conflictSubtitle": "Your changes conflict with a server change. Choose which version to keep.",
+      "splitLeftLabel": "Meal plan overview",
+      "splitRightLabel": "Slot detail",
+      "emptyHeading": "No plan for this week",
+      "emptyDescription": "Create an empty plan now — you can drag meals in straight after.",
+      "emptyCreating": "Creating…",
+      "emptyCreateCta": "Create plan",
+      "copyErrors": {
+        "sourceNotFound": "No plan found in week {{week}}.",
+        "targetNotEmpty": "Target plan already contains slots — can only copy into an empty plan.",
+        "forbidden": "Not authorised.",
+        "rateLimited": "Too many requests — please wait a moment.",
+        "failed": "Copy failed."
+      }
     }
   },
   "shoppingList": {

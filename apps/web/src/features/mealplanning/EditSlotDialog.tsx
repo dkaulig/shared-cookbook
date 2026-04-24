@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   MealPlanSlotDto,
   PatchSlotRequest,
@@ -60,6 +61,7 @@ export function EditSlotDialog({
   existingSlots: readonly MealPlanSlotDto[]
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [recipeId, setRecipeId] = useState<string | null>(slot.recipeId)
   const [label, setLabel] = useState<string>(slot.label ?? '')
@@ -92,11 +94,19 @@ export function EditSlotDialog({
     const hasRecipe = recipeId !== null
     const hasLabel = trimmedLabel.length > 0
     if (!hasRecipe && !hasLabel) {
-      setError('Bitte wähle ein Rezept oder gib einen Titel ein.')
+      setError(
+        t('mealplan.addDialog.errors.recipeOrTitle', {
+          defaultValue: 'Bitte wähle ein Rezept oder gib einen Titel ein.',
+        }),
+      )
       return
     }
     if (!Number.isFinite(servings) || servings < 1 || servings > 20) {
-      setError('Portionen müssen zwischen 1 und 20 liegen.')
+      setError(
+        t('mealplan.addDialog.errors.servingsRange', {
+          defaultValue: 'Portionen müssen zwischen 1 und 20 liegen.',
+        }),
+      )
       return
     }
 
@@ -144,10 +154,13 @@ export function EditSlotDialog({
       await patch.mutateAsync({ slotId: slot.id, patch: body })
       onClose()
     } catch (err) {
+      const fallback = t('mealplan.editDialog.errors.failed', {
+        defaultValue: 'Slot konnte nicht gespeichert werden.',
+      })
       if (err instanceof MealPlanApiError) {
-        setError(err.message || 'Slot konnte nicht gespeichert werden.')
+        setError(err.message || fallback)
       } else {
-        setError('Slot konnte nicht gespeichert werden.')
+        setError(fallback)
       }
     }
   }
@@ -178,22 +191,30 @@ export function EditSlotDialog({
           id="edit-slot-dialog-title"
           className="mb-1 font-serif text-xl font-semibold"
         >
-          Gericht bearbeiten
+          {t('mealplan.editDialog.title', { defaultValue: 'Gericht bearbeiten' })}
         </h2>
         <p className="text-sm text-muted-foreground">
           {formatGermanDate(slot.date)} · {MEAL_SLOT_LABELS[slot.meal]}
         </p>
         <p className="mb-4 text-xs text-muted-foreground">
-          Zum Verschieben: Slot löschen und neu anlegen.
+          {t('mealplan.editDialog.moveHint', {
+            defaultValue: 'Zum Verschieben: Slot löschen und neu anlegen.',
+          })}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-1.5">
-            <Label htmlFor="edit-slot-search">Rezept suchen</Label>
+            <Label htmlFor="edit-slot-search">
+              {t('mealplan.addDialog.searchLabel', {
+                defaultValue: 'Rezept suchen',
+              })}
+            </Label>
             <Input
               id="edit-slot-search"
               type="search"
-              placeholder="Titel eingeben …"
+              placeholder={t('mealplan.addDialog.searchPlaceholder', {
+                defaultValue: 'Titel eingeben …',
+              })}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value)
@@ -204,7 +225,9 @@ export function EditSlotDialog({
             />
             {recipes.length > 0 && (
               <ul
-                aria-label="Rezepttreffer"
+                aria-label={t('mealplan.addDialog.matchesLabel', {
+                  defaultValue: 'Rezepttreffer',
+                })}
                 className="max-h-40 divide-y divide-border overflow-y-auto rounded-md border border-input bg-background"
               >
                 {recipes.map((r) => {
@@ -235,7 +258,11 @@ export function EditSlotDialog({
             )}
             {recipeId && (
               <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span>Rezept verknüpft.</span>
+                <span>
+                  {t('mealplan.editDialog.recipeLinkedHint', {
+                    defaultValue: 'Rezept verknüpft.',
+                  })}
+                </span>
                 <button
                   type="button"
                   onClick={() => {
@@ -244,7 +271,9 @@ export function EditSlotDialog({
                   }}
                   className="text-xs text-[hsl(var(--destructive))] underline-offset-2 hover:underline"
                 >
-                  Rezept entfernen
+                  {t('mealplan.editDialog.removeRecipe', {
+                    defaultValue: 'Rezept entfernen',
+                  })}
                 </button>
               </div>
             )}
@@ -252,12 +281,26 @@ export function EditSlotDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="edit-slot-label">
-              {recipeId ? 'Notiz (optional)' : 'Freier Titel'}
+              {recipeId
+                ? t('mealplan.addDialog.noteLabel', {
+                    defaultValue: 'Notiz (optional)',
+                  })
+                : t('mealplan.addDialog.freeTitleLabel', {
+                    defaultValue: 'Freier Titel',
+                  })}
             </Label>
             <Input
               id="edit-slot-label"
               type="text"
-              placeholder={recipeId ? 'z.B. doppelte Portion' : 'z.B. Reste, Restaurant'}
+              placeholder={
+                recipeId
+                  ? t('mealplan.addDialog.notePlaceholder', {
+                      defaultValue: 'z.B. doppelte Portion',
+                    })
+                  : t('mealplan.addDialog.freeTitlePlaceholder', {
+                      defaultValue: 'z.B. Reste, Restaurant',
+                    })
+              }
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               maxLength={40}
@@ -265,7 +308,11 @@ export function EditSlotDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="edit-slot-servings">Portionen</Label>
+            <Label htmlFor="edit-slot-servings">
+              {t('mealplan.addDialog.servingsLabel', {
+                defaultValue: 'Portionen',
+              })}
+            </Label>
             <Input
               id="edit-slot-servings"
               type="number"
@@ -285,13 +332,17 @@ export function EditSlotDialog({
               className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring/40"
             />
             <Label htmlFor="edit-slot-cooked" className="!m-0 cursor-pointer">
-              Gekocht
+              {t('mealplan.editDialog.cookedLabel', { defaultValue: 'Gekocht' })}
             </Label>
           </div>
 
           {parentCandidates.length > 0 && (
             <div className="space-y-1.5">
-              <Label htmlFor="edit-slot-parent">Ist Rest von</Label>
+              <Label htmlFor="edit-slot-parent">
+                {t('mealplan.addDialog.parentLabel', {
+                  defaultValue: 'Ist Rest von',
+                })}
+              </Label>
               <Select
                 id="edit-slot-parent"
                 value={parentSlotId ?? ''}
@@ -299,7 +350,11 @@ export function EditSlotDialog({
                   setParentSlotId(e.target.value === '' ? null : e.target.value)
                 }
               >
-                <option value="">— kein Parent —</option>
+                <option value="">
+                  {t('mealplan.addDialog.noParent', {
+                    defaultValue: '— kein Parent —',
+                  })}
+                </option>
                 {parentCandidates.map((p) => (
                   <option key={p.id} value={p.id}>
                     {buildParentLabel(p)}
@@ -320,10 +375,16 @@ export function EditSlotDialog({
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
-              Abbrechen
+              {t('common.cancel', { defaultValue: 'Abbrechen' })}
             </Button>
             <Button type="submit" disabled={patch.isPending}>
-              {patch.isPending ? 'Speichert …' : 'Speichern'}
+              {patch.isPending
+                ? t('mealplan.addDialog.saving', {
+                    defaultValue: 'Speichert …',
+                  })
+                : t('mealplan.editDialog.submitCta', {
+                    defaultValue: 'Speichern',
+                  })}
             </Button>
           </div>
         </form>

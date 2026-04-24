@@ -242,6 +242,90 @@
       "openShoppingList": "Einkaufsliste öffnen",
       "deleteSlot": "Eintrag entfernen",
       "empty": "Noch kein Plan für diese Woche. Tippe auf einen Slot, um einen Eintrag hinzuzufügen."
+    },
+    "addDialog": {
+      "title": "Gericht hinzufügen",
+      "dateLabel": "Datum",
+      "mealLabel": "Mahlzeit",
+      "searchLabel": "Rezept suchen",
+      "searchPlaceholder": "Titel eingeben …",
+      "matchesLabel": "Rezepttreffer",
+      "selectedHint": "Ausgewählt — alternativ Suche leeren und frei eingeben.",
+      "noteLabel": "Notiz (optional)",
+      "freeTitleLabel": "Freier Titel",
+      "notePlaceholder": "z.B. doppelte Portion",
+      "freeTitlePlaceholder": "z.B. Reste, Restaurant",
+      "servingsLabel": "Portionen",
+      "parentLabel": "Ist Rest von",
+      "noParent": "— kein Parent —",
+      "saving": "Speichert …",
+      "submitCta": "Hinzufügen",
+      "errors": {
+        "recipeOrTitle": "Bitte wähle ein Rezept oder gib einen Titel ein.",
+        "servingsRange": "Portionen müssen zwischen 1 und 20 liegen.",
+        "failed": "Slot konnte nicht angelegt werden."
+      }
+    },
+    "editDialog": {
+      "title": "Gericht bearbeiten",
+      "moveHint": "Zum Verschieben: Slot löschen und neu anlegen.",
+      "recipeLinkedHint": "Rezept verknüpft.",
+      "removeRecipe": "Rezept entfernen",
+      "cookedLabel": "Gekocht",
+      "submitCta": "Speichern",
+      "errors": {
+        "failed": "Slot konnte nicht gespeichert werden."
+      }
+    },
+    "deleteDialog": {
+      "title": "Gericht wirklich löschen?",
+      "description": "Diese Aktion kann nicht rückgängig gemacht werden. Untergeordnete Meal-Prep-Slots bleiben erhalten und werden freigestellt.",
+      "parentWarning_one": "Dieser Slot ist Meal-Prep-Parent für {{count}} weiteren Slot. Die Kinder-Slots werden danach freie Slots (nicht automatisch gelöscht).",
+      "parentWarning_other": "Dieser Slot ist Meal-Prep-Parent für {{count}} weitere Slots. Die Kinder-Slots werden danach freie Slots (nicht automatisch gelöscht).",
+      "deleting": "Löscht …",
+      "confirmCta": "Löschen",
+      "errors": {
+        "failed": "Slot konnte nicht gelöscht werden."
+      }
+    },
+    "page": {
+      "subNav": "Wochenplan-Navigation",
+      "backToGroup": "Zurück zur Gruppe",
+      "weekLabelTemplate": "KW {{week}}",
+      "weekRangeTemplate": "vom {{range}}",
+      "copyLastWeek": "Letzte Woche kopieren",
+      "copying": "Wird kopiert …",
+      "copyAria": "Plan der letzten Woche kopieren",
+      "shoppingList": "Einkaufsliste",
+      "loadError": "Der Wochenplan konnte nicht geladen werden.",
+      "reorderError": "Neu-Reihenfolge konnte nicht vollständig gespeichert werden — wird neu geladen.",
+      "dismissError": "Fehlermeldung schließen",
+      "dismissMessage": "Meldung schließen",
+      "dismiss": "Schließen",
+      "createError": "Plan konnte nicht angelegt werden.",
+      "selectSlotHint": "Wähle einen Slot links, um Details zu sehen.",
+      "dayColumnLabel": "{{weekday}} {{date}}",
+      "addMealAria": "Gericht hinzufügen: {{meal}} am {{date}}",
+      "noDishesForDay": "Noch keine Gerichte für diesen Tag",
+      "copySuccessTemplate": "Plan kopiert: {{count}} Slots aus KW {{week}} übernommen.",
+      "copyOverrideTitle": "Plan enthält bereits Slots",
+      "copyOverrideDescription": "Möchtest du trotzdem Slots aus der Vorwoche hinzufügen? Bestehende Einträge bleiben erhalten.",
+      "copyOverrideConfirm": "Trotzdem kopieren",
+      "conflictTitle": "Konflikt im Wochenplan",
+      "conflictSubtitle": "Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll.",
+      "splitLeftLabel": "Wochenplan-Übersicht",
+      "splitRightLabel": "Slot-Detail",
+      "emptyHeading": "Kein Plan für diese Woche",
+      "emptyDescription": "Lege jetzt einen leeren Wochenplan an — Gerichte kannst du direkt im Anschluss ziehen.",
+      "emptyCreating": "Wird angelegt …",
+      "emptyCreateCta": "Wochenplan anlegen",
+      "copyErrors": {
+        "sourceNotFound": "Kein Plan in KW {{week}} gefunden.",
+        "targetNotEmpty": "Zielplan enthält bereits Slots — Kopieren nur in leeren Plan möglich.",
+        "forbidden": "Keine Berechtigung.",
+        "rateLimited": "Zu viele Anfragen — bitte kurz warten.",
+        "failed": "Kopieren fehlgeschlagen."
+      }
     }
   },
   "shoppingList": {

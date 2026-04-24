@@ -7,6 +7,7 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -81,6 +82,7 @@ import {
  * current week so direct links stay forgiving.
  */
 export function MealPlanPage() {
+  const { t } = useTranslation()
   const params = useParams<{ groupId: string; weekStart: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -254,7 +256,10 @@ export function MealPlanPage() {
           // in a consistent state regardless of partial progress.
           queryClient.setQueryData(queryKey, previous)
           setReorderError(
-            'Neu-Reihenfolge konnte nicht vollständig gespeichert werden — wird neu geladen.',
+            t('mealplan.page.reorderError', {
+              defaultValue:
+                'Neu-Reihenfolge konnte nicht vollständig gespeichert werden — wird neu geladen.',
+            }),
           )
           void queryClient.invalidateQueries({ queryKey })
         } else {
@@ -264,7 +269,7 @@ export function MealPlanPage() {
         }
       })
     },
-    [plan, planId, weekStart, groupId, queryClient],
+    [plan, planId, weekStart, groupId, queryClient, t],
   )
 
   // BUG-007 hand-off: once the plan resolves, open AddSlotDialog with
@@ -342,18 +347,22 @@ export function MealPlanPage() {
         onSuccess: (copied) => {
           setCopyBanner({
             kind: 'success',
-            message: `Plan kopiert: ${copied.slots.length} Slots aus KW ${prevWeekNumber} übernommen.`,
+            message: t('mealplan.page.copySuccessTemplate', {
+              count: copied.slots.length,
+              week: prevWeekNumber,
+              defaultValue: `Plan kopiert: ${copied.slots.length} Slots aus KW ${prevWeekNumber} übernommen.`,
+            }),
           })
         },
         onError: (caught) => {
           setCopyBanner({
             kind: 'error',
-            message: copyErrorMessage(caught, prevWeekNumber),
+            message: copyErrorMessage(caught, prevWeekNumber, t),
           })
         },
       },
     )
-  }, [plan, weekStart, copyMutation])
+  }, [plan, weekStart, copyMutation, t])
 
   const handleCopyLastWeek = useCallback(() => {
     if (!plan || !weekStart) return
@@ -419,11 +428,15 @@ export function MealPlanPage() {
           'sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
-        aria-label="Wochenplan-Navigation"
+        aria-label={t('mealplan.page.subNav', {
+          defaultValue: 'Wochenplan-Navigation',
+        })}
       >
         <Link
           to={`/groups/${groupId}`}
-          aria-label="Zurück zur Gruppe"
+          aria-label={t('mealplan.page.backToGroup', {
+            defaultValue: 'Zurück zur Gruppe',
+          })}
           className="grid h-10 w-10 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground"
         >
           <ArrowLeft className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -434,7 +447,7 @@ export function MealPlanPage() {
             aria-hidden="true"
           />
           <span className="truncate font-serif text-[18px] font-semibold tracking-[-0.005em]">
-            Wochenplan
+            {t('mealplan.pageTitle', { defaultValue: 'Wochenplan' })}
           </span>
         </div>
       </nav>
@@ -442,10 +455,16 @@ export function MealPlanPage() {
       <header className="flex flex-wrap items-center justify-between gap-3 px-5 pt-6 md:px-8">
         <div>
           <h1 className="font-serif text-[clamp(24px,4vw,32px)] font-semibold leading-tight">
-            KW {weekNumber}
+            {t('mealplan.page.weekLabelTemplate', {
+              week: weekNumber,
+              defaultValue: `KW ${weekNumber}`,
+            })}
           </h1>
           <p className="text-sm text-muted-foreground">
-            vom {formatWeekRange(weekStart)}
+            {t('mealplan.page.weekRangeTemplate', {
+              range: formatWeekRange(weekStart),
+              defaultValue: `vom ${formatWeekRange(weekStart)}`,
+            })}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -454,7 +473,7 @@ export function MealPlanPage() {
             variant="outline"
             size="sm"
             onClick={() => goTo(prevMonday(weekStart))}
-            aria-label="Vorherige Woche"
+            aria-label={t('mealplan.prevWeek', { defaultValue: 'Vorherige Woche' })}
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </Button>
@@ -463,7 +482,7 @@ export function MealPlanPage() {
             variant="outline"
             size="sm"
             onClick={() => goTo(nextMonday(weekStart))}
-            aria-label="Nächste Woche"
+            aria-label={t('mealplan.nextWeek', { defaultValue: 'Nächste Woche' })}
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Button>
@@ -473,18 +492,26 @@ export function MealPlanPage() {
             size="sm"
             onClick={handleCopyLastWeek}
             disabled={!plan || plan.slots.length > 0 || copyMutation.isPending}
-            aria-label="Plan der letzten Woche kopieren"
+            aria-label={t('mealplan.page.copyAria', {
+              defaultValue: 'Plan der letzten Woche kopieren',
+            })}
           >
             <CopyPlus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            {copyMutation.isPending ? 'Wird kopiert …' : 'Letzte Woche kopieren'}
+            {copyMutation.isPending
+              ? t('mealplan.page.copying', { defaultValue: 'Wird kopiert …' })
+              : t('mealplan.page.copyLastWeek', {
+                  defaultValue: 'Letzte Woche kopieren',
+                })}
           </Button>
           <Button asChild type="button" variant="outline" size="sm">
             <Link
               to={`/groups/${groupId}/mealplan/${weekStart}/shopping-list`}
-              aria-label="Einkaufsliste öffnen"
+              aria-label={t('mealplan.actions.openShoppingList', {
+                defaultValue: 'Einkaufsliste öffnen',
+              })}
             >
               <ShoppingBasket className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              Einkaufsliste
+              {t('mealplan.page.shoppingList', { defaultValue: 'Einkaufsliste' })}
             </Link>
           </Button>
         </div>
@@ -504,7 +531,9 @@ export function MealPlanPage() {
             role="alert"
             className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
           >
-            Der Wochenplan konnte nicht geladen werden.
+            {t('mealplan.page.loadError', {
+              defaultValue: 'Der Wochenplan konnte nicht geladen werden.',
+            })}
           </p>
         )}
 
@@ -518,10 +547,12 @@ export function MealPlanPage() {
             <button
               type="button"
               onClick={() => setReorderError(null)}
-              aria-label="Fehlermeldung schließen"
+              aria-label={t('mealplan.page.dismissError', {
+                defaultValue: 'Fehlermeldung schließen',
+              })}
               className="text-red-800/70 underline-offset-2 hover:text-red-900 hover:underline"
             >
-              Schließen
+              {t('mealplan.page.dismiss', { defaultValue: 'Schließen' })}
             </button>
           </div>
         )}
@@ -542,7 +573,9 @@ export function MealPlanPage() {
             <button
               type="button"
               onClick={() => setCopyBanner(null)}
-              aria-label="Meldung schließen"
+              aria-label={t('mealplan.page.dismissMessage', {
+                defaultValue: 'Meldung schließen',
+              })}
               className={cn(
                 'underline-offset-2 hover:underline',
                 copyBanner.kind === 'success'
@@ -550,7 +583,7 @@ export function MealPlanPage() {
                   : 'text-red-800/70 hover:text-red-900',
               )}
             >
-              Schließen
+              {t('mealplan.page.dismiss', { defaultValue: 'Schließen' })}
             </button>
           </div>
         )}
@@ -559,7 +592,13 @@ export function MealPlanPage() {
           <EmptyPlanState
             onCreate={handleCreatePlan}
             isPending={create.isPending}
-            errorMessage={create.isError ? 'Plan konnte nicht angelegt werden.' : null}
+            errorMessage={
+              create.isError
+                ? t('mealplan.page.createError', {
+                    defaultValue: 'Plan konnte nicht angelegt werden.',
+                  })
+                : null
+            }
           />
         )}
 
@@ -621,7 +660,9 @@ export function MealPlanPage() {
       role="status"
     >
       <p className="max-w-sm text-[15px] leading-[1.5]">
-        Wähle einen Slot links, um Details zu sehen.
+        {t('mealplan.page.selectSlotHint', {
+          defaultValue: 'Wähle einen Slot links, um Details zu sehen.',
+        })}
       </p>
     </div>
   )
@@ -630,8 +671,12 @@ export function MealPlanPage() {
     weekContent
   ) : (
     <SplitPane
-      leftLabel="Wochenplan-Übersicht"
-      rightLabel="Slot-Detail"
+      leftLabel={t('mealplan.page.splitLeftLabel', {
+        defaultValue: 'Wochenplan-Übersicht',
+      })}
+      rightLabel={t('mealplan.page.splitRightLabel', {
+        defaultValue: 'Slot-Detail',
+      })}
       left={weekContent}
       right={slotDetailPane}
       className="h-full"
@@ -683,9 +728,16 @@ export function MealPlanPage() {
       <ConfirmDialog
         open={copyOverrideOpen}
         onOpenChange={setCopyOverrideOpen}
-        title="Plan enthält bereits Slots"
-        description="Möchtest du trotzdem Slots aus der Vorwoche hinzufügen? Bestehende Einträge bleiben erhalten."
-        confirmLabel="Trotzdem kopieren"
+        title={t('mealplan.page.copyOverrideTitle', {
+          defaultValue: 'Plan enthält bereits Slots',
+        })}
+        description={t('mealplan.page.copyOverrideDescription', {
+          defaultValue:
+            'Möchtest du trotzdem Slots aus der Vorwoche hinzufügen? Bestehende Einträge bleiben erhalten.',
+        })}
+        confirmLabel={t('mealplan.page.copyOverrideConfirm', {
+          defaultValue: 'Trotzdem kopieren',
+        })}
         confirmVariant="default"
         onConfirm={() => {
           setCopyOverrideOpen(false)
@@ -698,8 +750,13 @@ export function MealPlanPage() {
         <ConflictDialog<MealPlanSlotDto & { version: number }>
           open={conflict.state.open}
           onClose={conflict.close}
-          title="Konflikt im Wochenplan"
-          subtitle="Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll."
+          title={t('mealplan.page.conflictTitle', {
+            defaultValue: 'Konflikt im Wochenplan',
+          })}
+          subtitle={t('mealplan.page.conflictSubtitle', {
+            defaultValue:
+              'Deine Änderungen konkurrieren mit einer Änderung vom Server. Wähle, welche Version gelten soll.',
+          })}
           currentServer={conflict.state.serverCurrent}
           localPending={conflict.state.localPending}
           renderDiff={({ current, local }) => (
@@ -735,9 +792,14 @@ function DayColumn({
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
   getParentLabel: (slot: MealPlanSlotDto) => string | null
 }) {
+  const { t } = useTranslation()
   return (
     <section
-      aria-label={`${weekdayLabel} ${formatGermanDate(date)}`}
+      aria-label={t('mealplan.page.dayColumnLabel', {
+        weekday: weekdayLabel,
+        date: formatGermanDate(date),
+        defaultValue: `${weekdayLabel} ${formatGermanDate(date)}`,
+      })}
       className="rounded-[18px] border border-border bg-card/60 p-3"
     >
       <header className="mb-2 flex items-baseline justify-between">
@@ -789,6 +851,7 @@ function MealCell({
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
   getParentLabel: (slot: MealPlanSlotDto) => string | null
 }) {
+  const { t } = useTranslation()
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
@@ -798,7 +861,11 @@ function MealCell({
         <button
           type="button"
           onClick={onAdd}
-          aria-label={`Gericht hinzufügen: ${MEAL_SLOT_LABELS[meal]} am ${formatGermanDate(date)}`}
+          aria-label={t('mealplan.page.addMealAria', {
+            meal: MEAL_SLOT_LABELS[meal],
+            date: formatGermanDate(date),
+            defaultValue: `Gericht hinzufügen: ${MEAL_SLOT_LABELS[meal]} am ${formatGermanDate(date)}`,
+          })}
           className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />
@@ -810,7 +877,9 @@ function MealCell({
           onClick={onAdd}
           className="block w-full rounded-md border border-dashed border-input bg-background/60 px-2 py-3 text-left text-[12px] italic text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
         >
-          Noch keine Gerichte für diesen Tag
+          {t('mealplan.page.noDishesForDay', {
+            defaultValue: 'Noch keine Gerichte für diesen Tag',
+          })}
         </button>
       ) : (
         <SortableMealRow
@@ -835,6 +904,7 @@ function EmptyPlanState({
   isPending: boolean
   errorMessage: string | null
 }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 px-6 py-10 text-center">
       <CalendarDays
@@ -842,15 +912,25 @@ function EmptyPlanState({
         aria-hidden="true"
       />
       <h2 className="font-serif text-[22px] font-semibold text-foreground">
-        Kein Plan für diese Woche
+        {t('mealplan.page.emptyHeading', {
+          defaultValue: 'Kein Plan für diese Woche',
+        })}
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Lege jetzt einen leeren Wochenplan an — Gerichte kannst du direkt im
-        Anschluss ziehen.
+        {t('mealplan.page.emptyDescription', {
+          defaultValue:
+            'Lege jetzt einen leeren Wochenplan an — Gerichte kannst du direkt im Anschluss ziehen.',
+        })}
       </p>
       <div className="mt-4">
         <Button type="button" onClick={onCreate} disabled={isPending}>
-          {isPending ? 'Wird angelegt …' : 'Wochenplan anlegen'}
+          {isPending
+            ? t('mealplan.page.emptyCreating', {
+                defaultValue: 'Wird angelegt …',
+              })
+            : t('mealplan.page.emptyCreateCta', {
+                defaultValue: 'Wochenplan anlegen',
+              })}
         </Button>
       </div>
       {errorMessage && (
@@ -874,16 +954,34 @@ function EmptyPlanState({
  * references the *source week number*, which no sibling page cares
  * about). Promote to a shared helper once a second caller needs it.
  */
-function copyErrorMessage(err: unknown, prevWeekNumber: number): string {
+function copyErrorMessage(
+  err: unknown,
+  prevWeekNumber: number,
+  t: ReturnType<typeof useTranslation>['t'],
+): string {
   if (err instanceof MealPlanApiError) {
     if (err.status === 404 || err.code === 'source.not_found') {
-      return `Kein Plan in KW ${prevWeekNumber} gefunden.`
+      return t('mealplan.page.copyErrors.sourceNotFound', {
+        week: prevWeekNumber,
+        defaultValue: `Kein Plan in KW ${prevWeekNumber} gefunden.`,
+      })
     }
     if (err.status === 409 && err.code === 'copy.target_not_empty') {
-      return 'Zielplan enthält bereits Slots — Kopieren nur in leeren Plan möglich.'
+      return t('mealplan.page.copyErrors.targetNotEmpty', {
+        defaultValue:
+          'Zielplan enthält bereits Slots — Kopieren nur in leeren Plan möglich.',
+      })
     }
-    if (err.status === 403) return 'Keine Berechtigung.'
-    if (err.status === 429) return 'Zu viele Anfragen — bitte kurz warten.'
+    if (err.status === 403)
+      return t('mealplan.page.copyErrors.forbidden', {
+        defaultValue: 'Keine Berechtigung.',
+      })
+    if (err.status === 429)
+      return t('mealplan.page.copyErrors.rateLimited', {
+        defaultValue: 'Zu viele Anfragen — bitte kurz warten.',
+      })
   }
-  return 'Kopieren fehlgeschlagen.'
+  return t('mealplan.page.copyErrors.failed', {
+    defaultValue: 'Kopieren fehlgeschlagen.',
+  })
 }
