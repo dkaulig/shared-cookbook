@@ -176,14 +176,20 @@ describe('<EditSlotDialog />', () => {
     expect(calledPatch).toBe(false)
   })
 
-  it('shows the server error message when the PATCH fails with 400', async () => {
+  // REL-3f — backend error-codes now route through `classifyMutationError`
+  // → localised `errors.json` copy instead of the raw English Dev-Message.
+  it('shows the localised errors:<code> copy when the PATCH fails with 400', async () => {
     server.use(
       http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, () =>
         HttpResponse.json(
-          { code: 'invalid_input', message: 'Servings müssen 1..50 sein.' },
+          {
+            code: 'invalid_input',
+            message: 'Servings must be 1..50.',
+            status: 400,
+          },
           { status: 400 },
         ),
       ),
@@ -197,9 +203,9 @@ describe('<EditSlotDialog />', () => {
     await user.type(servings, '5')
     await user.click(screen.getByRole('button', { name: /Speichern/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /Servings müssen 1\.\.50 sein/,
-    )
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Eingabe ist ungültig\./)
+    expect(alert).not.toHaveTextContent(/Servings must be 1/)
   })
 
   it('calls onClose when the user clicks "Abbrechen"', async () => {

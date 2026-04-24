@@ -9,8 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useRecipes } from '@/features/recipes/hooks'
-import { MealPlanApiError } from './mealPlanApi'
 import { buildParentLabel, eligibleParents } from './parentSlotHelpers'
 import { usePatchSlot } from './useMealPlan'
 import { MEAL_SLOT_LABELS, formatGermanDate } from './weekGrid'
@@ -154,14 +154,10 @@ export function EditSlotDialog({
       await patch.mutateAsync({ slotId: slot.id, patch: body })
       onClose()
     } catch (err) {
-      const fallback = t('mealplan.editDialog.errors.failed', {
-        defaultValue: 'Slot konnte nicht gespeichert werden.',
-      })
-      if (err instanceof MealPlanApiError) {
-        setError(err.message || fallback)
-      } else {
-        setError(fallback)
-      }
+      // REL-3f — classifyMutationError reads `code` off `MealPlanApiError`
+      // (ApiErrorBase subclass) and routes 5xx / network / native Errors
+      // through the generic-fallback path automatically.
+      setError(classifyMutationError(err).message)
     }
   }
 

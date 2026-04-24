@@ -12,9 +12,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { ALL_CATEGORIES, CATEGORY_LABELS } from './categoryLabels'
 import { useAddShoppingListItem } from './useShoppingList'
-import { ShoppingListApiError } from './shoppingListApi'
 
 /**
  * Modal for manually adding a line to the shopping list. Matches the
@@ -75,14 +75,11 @@ export function AddItemDialog({
       await addMutation.mutateAsync(body)
       onClose()
     } catch (err) {
-      const fallback = t('shoppingList.errors.addFailed', {
-        defaultValue: 'Eintrag konnte nicht angelegt werden.',
-      })
-      if (err instanceof ShoppingListApiError) {
-        setError(err.message || fallback)
-      } else {
-        setError(fallback)
-      }
+      // REL-3f — classifyMutationError reads `code` off
+      // `ShoppingListApiError` (ApiErrorBase subclass) and maps it to the
+      // localised `errors.json` entry; 5xx / network / native Errors fall
+      // back to the generic toast copy automatically.
+      setError(classifyMutationError(err).message)
     }
   }
 

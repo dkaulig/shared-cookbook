@@ -110,11 +110,13 @@ describe('<AddItemDialog />', () => {
     expect(captured).toEqual({ name: 'Salz', category: 'Sonstiges' })
   })
 
-  it('shows the backend error message on server failure', async () => {
+  // REL-3f — backend error-codes route through `classifyMutationError`
+  // → localised `errors.json` copy instead of the raw Dev-Message.
+  it('shows the localised errors:<code> copy on server failure', async () => {
     server.use(
       http.post(`/api/shopping-lists/${LIST_ID}/items`, () =>
         HttpResponse.json(
-          { code: 'invalid_input', message: 'Name zu lang.' },
+          { code: 'invalid_input', message: 'Name too long.', status: 400 },
           { status: 400 },
         ),
       ),
@@ -125,7 +127,9 @@ describe('<AddItemDialog />', () => {
     await user.type(screen.getByLabelText(/^Name$/), 'Salz')
     await user.click(screen.getByRole('button', { name: /Hinzufügen/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Name zu lang/i)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Eingabe ist ungültig\./)
+    expect(alert).not.toHaveTextContent(/Name too long/)
   })
 
   it('calls onClose when "Abbrechen" is clicked', async () => {
