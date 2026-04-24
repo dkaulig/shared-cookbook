@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useMyGroups } from '@/features/groups/useMyGroups'
 import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { useConvertChatToRecipe } from './hooks'
@@ -254,11 +255,10 @@ export function ChatPage() {
         await renameMutation.mutateAsync({ sessionId, title })
         setRenameOpen(false)
       } catch (err) {
-        const apiErr = err as Error
-        setRenameError(
-          apiErr.message ||
-            'Umbenennen fehlgeschlagen. Bitte erneut versuchen.',
-        )
+        // REL-3d — translate backend error-codes via classifyMutation
+        // Error so the user sees the German `errors.json` copy instead
+        // of the English Dev-Message the backend emits post REL-4.
+        setRenameError(classifyMutationError(err).message)
       }
     },
     [renameMutation, sessionId],
