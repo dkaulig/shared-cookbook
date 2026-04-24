@@ -85,6 +85,14 @@ internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<Recip
 
         e.Property(r => r.SourceUrl).HasMaxLength(RecipeImport.SourceUrlMaxLength);
 
+        // LANG-1 — BCP-47 language code (`de` / `en`). Nullable so
+        // pre-LANG-1 rows stay valid without backfill; the runner
+        // falls back to "en" when the value is missing. The 2-char
+        // cap is enforced both on the column and at domain
+        // construction so a malformed value crashes fast.
+        e.Property(r => r.RequestedLanguage)
+            .HasMaxLength(RecipeImport.RequestedLanguageMaxLength);
+
         // ResultJson is arbitrary length (could be ~50KB for a big
         // recipe); no cap. PostgreSQL stores as text; SQLite as TEXT.
         e.Property(r => r.ResultJson);

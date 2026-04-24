@@ -536,6 +536,14 @@ public static class ImportEndpoints
         // <see cref="SweepAbandonedStagedPhotosJob"/> — we do not want
         // to pull the SQLite NuGet into the production assembly just
         // for a test-path check.
+        // LANG-1 — capture the caller's UI language for the eventual
+        // Python call. The Hangfire job runs hours later, after a
+        // possible retry across a deploy / restart, so we persist the
+        // header value on the row rather than reading the request
+        // again from the (now-gone) HttpContext.
+        var requestedLanguage = LanguageNormalizer.Normalise(
+            ctx.Request.Headers.AcceptLanguage.ToString());
+
         if (!body.Force)
         {
             var cutoff = clock.GetUtcNow() - UrlImportCacheTtl;
@@ -582,7 +590,8 @@ public static class ImportEndpoints
             groupId: body.GroupId,
             source: ImportSource.Url,
             sourceUrl: canonicalUrl,
-            createdAt: clock.GetUtcNow());
+            createdAt: clock.GetUtcNow(),
+            requestedLanguage: requestedLanguage);
         db.RecipeImports.Add(import);
         await db.SaveChangesAsync(ct);
 
@@ -673,12 +682,18 @@ public static class ImportEndpoints
                     fieldName: "photoUrls");
         }
 
+        // LANG-1 — capture caller's UI language for the eventual
+        // Python call. See the URL endpoint for rationale.
+        var requestedLanguage = LanguageNormalizer.Normalise(
+            ctx.Request.Headers.AcceptLanguage.ToString());
+
         var import = new RecipeImport(
             userId: callerId,
             groupId: body.GroupId,
             source: ImportSource.Photos,
             sourceUrl: null,
-            createdAt: clock.GetUtcNow());
+            createdAt: clock.GetUtcNow(),
+            requestedLanguage: requestedLanguage);
 
         // Stash the ordered URL list in ResultJson for the job to read.
         // MarkRunning clears nothing, and the job itself overwrites

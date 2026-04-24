@@ -118,6 +118,20 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         return import;
     }
 
+    private async Task<RecipeImport> SeedImportWithLanguageAsync(string requestedLanguage)
+    {
+        var import = new RecipeImport(
+            _userId,
+            _groupId,
+            ImportSource.Url,
+            "https://example.com/rezept",
+            _clock.GetUtcNow(),
+            requestedLanguage: requestedLanguage);
+        _db.RecipeImports.Add(import);
+        await _db.SaveChangesAsync();
+        return import;
+    }
+
     [Fact]
     public async Task Happy_Path_Marks_Done_With_Result_Json()
     {
@@ -1390,5 +1404,41 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             .SingleAsync(i => i.Id == import.Id);
         Assert.Empty(reloaded.CandidateStagedPhotoIds);
         Assert.Empty(_thumbnailHandler.Requests);
+    }
+
+    // ── LANG-1: outbound Accept-Language propagation ─────────────────
+
+    [Theory]
+    [InlineData("de")]
+    [InlineData("en")]
+    public async Task Job_Forwards_RequestedLanguage_As_Accept_Language(string lang)
+    {
+        var import = await SeedImportWithLanguageAsync(lang);
+        _handler.QueueResponse(HttpStatusCode.OK, "{\"title\":\"x\"}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.True(
+            req.Headers.TryGetValue("Accept-Language", out var headerValue),
+            "Outbound Python POST must carry the Accept-Language header.");
+        Assert.Equal(lang, headerValue);
+    }
+
+    [Fact]
+    public async Task Job_Falls_Back_To_English_When_RequestedLanguage_Is_Null()
+    {
+        // Pre-LANG-1 row scenario: imports created before the migration
+        // have no language stored. The runner must default to "en"
+        // (matches REL-3h on the web side) so the LLM emits English
+        // values rather than crashing on a null header.
+        var import = await SeedImportAsync();  // no requested language
+        _handler.QueueResponse(HttpStatusCode.OK, "{\"title\":\"x\"}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.True(req.Headers.TryGetValue("Accept-Language", out var headerValue));
+        Assert.Equal("en", headerValue);
     }
 }

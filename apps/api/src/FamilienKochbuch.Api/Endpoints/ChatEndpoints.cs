@@ -648,6 +648,13 @@ public static class ChatEndpoints
             "chat_to_recipe userId={UserId} sessionId={SessionId} turnCount={TurnCount}",
             callerId, sessionIdPath, snake.Length);
 
+        // LANG-1 — propagate the caller's UI language to Python so the
+        // verdichtete recipe-JSON's structured-field values land in the
+        // user's language. Sync proxy path: read directly from the
+        // request, no persistence step (this isn't a Hangfire job).
+        var requestedLanguage = Services.LanguageNormalizer.Normalise(
+            ctx.Request.Headers.AcceptLanguage.ToString());
+
         return await ForwardToPythonAsync(
             httpFactory,
             signer,
@@ -655,6 +662,7 @@ public static class ChatEndpoints
             relativeUrl: $"/chat/{sessionIdPath}/to-recipe",
             pythonBody,
             usageContext: new UsageLogContext(db, clock, sessionIdPath, ChatUsageKind.ChatToRecipe),
+            requestedLanguage: requestedLanguage,
             ct);
     }
 
@@ -673,6 +681,7 @@ public static class ChatEndpoints
         string relativeUrl,
         TBody body,
         UsageLogContext usageContext,
+        string requestedLanguage,
         CancellationToken ct)
     {
         var client = httpFactory.CreateClient(ExtractRecipeFromUrlJob.HttpClientName);
@@ -684,6 +693,10 @@ public static class ChatEndpoints
         request.Content.Headers.ContentType =
             new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
         await signer.ApplyAsync(request, callerId, ct);
+
+        // LANG-1 — outbound Accept-Language so the FastAPI dependency
+        // on the Python side picks up the user's UI language.
+        request.Headers.TryAddWithoutValidation("Accept-Language", requestedLanguage);
 
         HttpResponseMessage response;
         string bodyText;

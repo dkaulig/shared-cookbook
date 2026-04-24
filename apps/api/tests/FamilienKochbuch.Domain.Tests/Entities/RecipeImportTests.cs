@@ -370,4 +370,66 @@ public class RecipeImportTests
         Assert.Equal(0, import.PromptTokens);
         Assert.Equal("mock", import.ModelDeployment);
     }
+
+    // ── LANG-1: requestedLanguage ───────────────────────────────────
+
+    [Fact]
+    public void Constructor_Defaults_RequestedLanguage_To_Null()
+    {
+        // Pre-LANG-1 callers (older endpoints, tests, scripts) don't
+        // pass the parameter; the value stays null and the runner
+        // falls back to "en" at outbound-call time.
+        var import = NewImport();
+        Assert.Null(import.RequestedLanguage);
+    }
+
+    [Theory]
+    [InlineData("de", "de")]
+    [InlineData("en", "en")]
+    [InlineData("DE", "de")]
+    [InlineData("  EN  ", "en")]
+    public void Constructor_Persists_Lowercased_RequestedLanguage(string input, string expected)
+    {
+        var import = new RecipeImport(
+            userId: Guid.NewGuid(),
+            groupId: Guid.NewGuid(),
+            source: ImportSource.Url,
+            sourceUrl: "https://example.com/r",
+            createdAt: DateTimeOffset.UtcNow,
+            requestedLanguage: input);
+        Assert.Equal(expected, import.RequestedLanguage);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void Constructor_Treats_Blank_RequestedLanguage_As_Null(string? blank)
+    {
+        var import = new RecipeImport(
+            userId: Guid.NewGuid(),
+            groupId: Guid.NewGuid(),
+            source: ImportSource.Url,
+            sourceUrl: "https://example.com/r",
+            createdAt: DateTimeOffset.UtcNow,
+            requestedLanguage: blank);
+        Assert.Null(import.RequestedLanguage);
+    }
+
+    [Fact]
+    public void Constructor_Rejects_RequestedLanguage_Above_MaxLength()
+    {
+        // The endpoint always feeds a normalised 2-char code, but the
+        // domain still hard-rejects longer values as defence-in-depth
+        // against a future caller that bypasses normalisation.
+        var tooLong = new string('a', RecipeImport.RequestedLanguageMaxLength + 1);
+        var ex = Assert.Throws<ArgumentException>(() => new RecipeImport(
+            userId: Guid.NewGuid(),
+            groupId: Guid.NewGuid(),
+            source: ImportSource.Url,
+            sourceUrl: "https://example.com/r",
+            createdAt: DateTimeOffset.UtcNow,
+            requestedLanguage: tooLong));
+        Assert.Contains("requestedLanguage", ex.ParamName ?? string.Empty);
+    }
 }

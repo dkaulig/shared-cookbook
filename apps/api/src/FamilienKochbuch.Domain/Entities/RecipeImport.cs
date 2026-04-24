@@ -43,6 +43,14 @@ public sealed class RecipeImport
     public const int ErrorMessageMaxLength = 2000;
     public const int SourceUrlMaxLength = 2000;
 
+    /// <summary>LANG-1 — fixed length of the BCP-47 language code we
+    /// persist. The whitelist is currently <c>de | en</c>, both 2-char
+    /// ISO 639-1 codes; LANG-4 will widen the supported list but keep
+    /// the 2-char shape. Strings longer than this are rejected — the
+    /// caller should run <see cref="Api.Services.LanguageNormalizer"/>
+    /// first.</summary>
+    public const int RequestedLanguageMaxLength = 2;
+
     /// <summary>Maximum length of the stored Azure deployment name.
     /// Azure's public names (e.g. <c>gpt-5.1-codex-mini</c>) sit well
     /// under 100; the 200-char cap protects against a malicious /
@@ -72,7 +80,8 @@ public sealed class RecipeImport
         ImportSource source,
         string? sourceUrl,
         DateTimeOffset createdAt,
-        Guid? targetRecipeId = null)
+        Guid? targetRecipeId = null,
+        string? requestedLanguage = null)
     {
         if (userId == Guid.Empty)
             throw new ArgumentException("UserId must not be empty.", nameof(userId));
@@ -90,6 +99,7 @@ public sealed class RecipeImport
         Progress = 0;
         CreatedAt = createdAt;
         TargetRecipeId = targetRecipeId;
+        RequestedLanguage = NormalizeRequestedLanguage(requestedLanguage);
 
         // PV1 — phase-aware progress fields. Start in Queued at 0% within-phase;
         // AttemptNumber = 1 on creation, LastProgressAt tracks heartbeat for the
@@ -177,6 +187,26 @@ public sealed class RecipeImport
     /// at the target recipe.
     /// </summary>
     public Guid? TargetRecipeId { get; private set; }
+
+    /// <summary>
+    /// LANG-1 — BCP-47 language code (<c>"de"</c> / <c>"en"</c>) the
+    /// caller's UI was set to when this import was enqueued. Forwarded
+    /// to the Python extractor as <c>Accept-Language</c> so the LLM
+    /// emits structured-field values in the user's language. Nullable
+    /// for two reasons:
+    /// <list type="number">
+    /// <item>Pre-LANG-1 rows (existing imports in production at rollout
+    /// time) have no value; the runner falls back to
+    /// <see cref="Api.Services.LanguageNormalizer.DefaultLanguage"/>.</item>
+    /// <item>Direct-domain construction in tests / scripts that don't
+    /// care about language doesn't have to thread the parameter.</item>
+    /// </list>
+    /// Persisted via the validating
+    /// <see cref="NormalizeRequestedLanguage"/> helper so a malformed
+    /// value (longer than <see cref="RequestedLanguageMaxLength"/>)
+    /// fails fast at construction rather than at SQL-write time.
+    /// </summary>
+    public string? RequestedLanguage { get; private set; }
 
     // ── State transitions ───────────────────────────────────────────
 
@@ -508,6 +538,17 @@ public sealed class RecipeImport
     // for EF proxy friendliness; call sites use the DateTimeOffset overload.
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
+
+    private static string? NormalizeRequestedLanguage(string? requestedLanguage)
+    {
+        if (string.IsNullOrWhiteSpace(requestedLanguage)) return null;
+        var trimmed = requestedLanguage.Trim();
+        if (trimmed.Length > RequestedLanguageMaxLength)
+            throw new ArgumentException(
+                $"Requested language must be at most {RequestedLanguageMaxLength} characters.",
+                nameof(requestedLanguage));
+        return trimmed.ToLowerInvariant();
+    }
 
     private static string? NormalizeSourceUrl(string? sourceUrl)
     {

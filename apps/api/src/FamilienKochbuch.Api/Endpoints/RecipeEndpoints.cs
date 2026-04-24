@@ -2613,13 +2613,21 @@ public static class RecipeEndpoints
         // above — NEVER trust a caller-supplied URL here. The reimport
         // endpoint body is empty by design so there's no request-side
         // URL field to worry about.
+        // LANG-1 — capture the caller's UI language so the eventual
+        // Python re-extraction emits structured fields in their UI
+        // language, even on a retry that lands long after the
+        // browser has moved on.
+        var requestedLanguage = Services.LanguageNormalizer.Normalise(
+            httpRequest.Headers.AcceptLanguage.ToString());
+
         var import = new RecipeImport(
             userId: userId,
             groupId: recipe.GroupId,
             source: ImportSource.Url,
             sourceUrl: recipe.SourceUrl,
             createdAt: clock.GetUtcNow(),
-            targetRecipeId: recipe.Id);
+            targetRecipeId: recipe.Id,
+            requestedLanguage: requestedLanguage);
         db.RecipeImports.Add(import);
         await db.SaveChangesAsync(ct);
 
