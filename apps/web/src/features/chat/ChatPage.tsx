@@ -2,10 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import type {
-  ApiError,
-  GroupSummary,
-} from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@familien-kochbuch/shared'
 import {
   AlertTriangle,
   ArrowDown,
@@ -42,10 +39,7 @@ import {
   safeRemoveItem,
   safeSetItem,
 } from '@/features/_shared/safeStorage'
-import {
-  streamChatTurn,
-  type SseChatStreamError,
-} from './sseChatStream'
+import { streamChatTurn } from './sseChatStream'
 import { TypingIndicator } from './TypingIndicator'
 
 /**
@@ -437,11 +431,12 @@ export function ChatPage() {
           })
           setError(null)
         } else {
-          const apiErr = err as ApiError | SseChatStreamError
-          setError(
-            apiErr?.message ||
-              'Antwort unterbrochen. Bitte erneut versuchen.',
-          )
+          // REL-3e — translate backend / SSE error-codes through
+          // `classifyMutationError`. `SseChatStreamError` carries the
+          // code but no `status`, so the classifier takes the
+          // `errors.json`-lookup branch and surfaces the German copy
+          // (e.g. `turn_failed` → "Chat-Antwort fehlgeschlagen.").
+          setError(classifyMutationError(err).message)
         }
       } finally {
         abortRef.current = null
@@ -501,11 +496,10 @@ export function ChatPage() {
           )}`,
         )
       } catch (err) {
-        const apiErr = err as ApiError
-        setConvertError(
-          apiErr.message ||
-            'Der Chat konnte nicht in ein Rezept umgewandelt werden.',
-        )
+        // REL-3e — route through `classifyMutationError` so the user
+        // sees the translated `errors.json` copy (or the generic 5xx
+        // toast-style fallback) instead of the English backend message.
+        setConvertError(classifyMutationError(err).message)
       }
     },
     [convertMutation, navigate],
