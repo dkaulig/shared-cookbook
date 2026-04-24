@@ -78,6 +78,10 @@ import {
   useConflictResolver,
 } from '@/features/_shared/ConflictDialog'
 import { VersionMismatchError } from '@/features/_shared/apiError'
+import {
+  classifyMutationError,
+  showErrorToast,
+} from '@/features/_shared/errorSurface'
 import { useQueryClient } from '@tanstack/react-query'
 import { recipeQueryKeys } from './queryKeys'
 
@@ -1146,8 +1150,19 @@ function RecipeFormInner({
         }
         return
       }
-      const apiErr = err as ApiError
-      setError(apiErr.message || 'Rezept konnte nicht gespeichert werden.')
+      // REL-5 — route through `classifyMutationError` so 5xx / network
+      // / unknown errors collapse to a generic German toast instead of
+      // leaking the raw backend text (e.g. "Internal Server Error" or
+      // stack-trace fragments) into the inline banner. 4xx validation
+      // codes keep the backend message since it's already user-
+      // actionable German today.
+      const classified = classifyMutationError(err)
+      if (classified.surface === 'toast') {
+        showErrorToast(classified.message)
+        setError('Rezept konnte nicht gespeichert werden.')
+      } else {
+        setError(classified.message)
+      }
     }
   }
 
