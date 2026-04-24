@@ -13,46 +13,40 @@ import { classifyMutationError } from './errorSurface'
  *   3. aria-invalid / aria-describedby / `<p role="alert">` wiring;
  *   4. `classifyMutationError → focus + scrollIntoView + setState`.
  *
- * Split into:
+ * Two pieces:
  *
- *   - `<InlineFieldError>` — a view component. The caller owns the
+ *   - `<InlineFieldError>` — view component. The caller owns the
  *     message and the id; we guarantee the aria + testid shape stays
  *     consistent across every form. Renders nothing when `message` is
- *     null so callers can mount it unconditionally.
+ *     null so callers can mount it unconditionally. RecipeFormPage +
+ *     its Sortable rows consume this directly because their surrounding
+ *     dual-slice state machinery (SUPPORTED_INLINE_FIELDS allowlist +
+ *     REL-4d nested-path parser) doesn't fit the hook's single-slice
+ *     shape — they keep their own state, re-use our aria contract.
  *
- *   - `useFieldErrorFocus<T>()` — a hook for forms that want the full
- *     focus-routing pipeline. Exposes:
- *       · `registerRef(fieldName)` — returns a RefCallback that stashes
- *         the element under the given key.
- *       · `registerNestedRef(section, index, prop)` — variant for the
- *         REL-4d nested-path pattern (`ingredients[i].amount`).
- *       · `fieldError` + `rowError` — state slices for top-level vs
- *         nested matches. Either may be non-null; the caller renders
- *         the matching `<InlineFieldError>` next to the right input.
- *       · `applyError(err)` — classify + route. Returns `true` when a
- *         field-level match was found (focus + state set) so the caller
- *         can short-circuit its fallback banner. When no match exists,
- *         the classified message still lands in `fieldError.fieldName
- *         === null` so single-slice forms (PasswordCard / Signup) keep
- *         one state shape for both surfaces.
- *       · `clear()` — reset both slices. Call on submit-start / input-
- *         change.
+ *   - `useFieldErrorFocus<T>()` — hook for forms with one flat
+ *     fieldname → input mapping (ProfilStub's two sections + Signup):
+ *       · `registerRef(fieldName)` — RefCallback that stashes the
+ *         element under the given key.
+ *       · `fieldError` — `{fieldName, message}` or null.
+ *       · `applyError(err)` — classifies + focuses + scrolls. Returns
+ *         `true` when a field-level match was found. When no match
+ *         exists, the classified message still lands in
+ *         `fieldError.fieldName === null` so single-slice forms
+ *         render one `<InlineFieldError>` at the banner slot without
+ *         branching on two state variables.
+ *       · `setBanner(message)` — stuff a ready-localised message into
+ *         the banner slot without the classifier round-trip. For
+ *         client-side validation copy.
+ *       · `clear()` — reset state. Call on submit-start / input-change.
  *
  * The hook is generic over the element type so a form can mix input,
- * textarea, select, and `<div tabIndex=-1>` refs under one map without
- * losing the type narrow at the call-sites. T defaults to HTMLElement —
- * which covers every focusable surface — but individual rows can pin T
- * tighter (HTMLInputElement) for autocomplete.
- *
- * Design trade-offs:
- *   - We call `classifyMutationError` inside `applyError` rather than
- *     asking the caller to pre-classify. This keeps the hook a drop-in
- *     replacement for the hand-rolled `onError` path and means we don't
- *     leak the classifier's imports into components that don't use it.
- *   - `scrollIntoView` + `focus()` live in the hook, not the component.
- *     Motion prefers-reduced-motion is not checked — every existing
- *     call-site already scrolled. If we ever honour `prefers-reduced-
- *     motion`, the change lands here in one place.
+ * textarea, select, and `<div tabIndex=-1>` refs under one map. T
+ * defaults to HTMLElement — covers every focusable surface — but
+ * individual call-sites can pin T tighter (HTMLInputElement) for
+ * autocomplete. `scrollIntoView` + `focus()` live in the hook, not
+ * the component, so a future `prefers-reduced-motion` gate only
+ * needs to land in one place.
  */
 
 // ── InlineFieldError ──────────────────────────────────────────────────
@@ -103,12 +97,6 @@ export function InlineFieldError({
 
 // ── useFieldErrorFocus ────────────────────────────────────────────────
 
-export interface NestedFieldPath {
-  section: string
-  index: number
-  prop: string
-}
-
 export interface FieldErrorState {
   /**
    * Backend-emitted `fieldName` key. `null` when the classifier did not
@@ -120,31 +108,9 @@ export interface FieldErrorState {
   message: string
 }
 
-export interface RowErrorState extends NestedFieldPath {
-  message: string
-}
-
-export interface UseFieldErrorFocusOptions {
-  /**
-   * REL-4d — optional parser for nested `fieldName` strings like
-   * `ingredients[2].amount`. When provided, `applyError` first tries
-   * the nested path; if the parser returns non-null AND a ref was
-   * registered via `registerNestedRef`, we route there. If the parser
-   * returns null (bare top-level name) we fall back to the flat
-   * ref-map. Passing nothing means nested names never match.
-   */
-  parsePath?: (fieldName: string) => NestedFieldPath | null
-}
-
 export interface UseFieldErrorFocusReturn<T extends HTMLElement> {
   registerRef: (fieldName: string) => RefCallback<T>
-  registerNestedRef: (
-    section: string,
-    index: number,
-    prop: string,
-  ) => RefCallback<T>
   fieldError: FieldErrorState | null
-  rowError: RowErrorState | null
   applyError: (err: unknown) => boolean
   /**
    * Set a bare banner message without routing through the classifier.
@@ -160,20 +126,9 @@ export interface UseFieldErrorFocusReturn<T extends HTMLElement> {
 // eslint-disable-next-line react-refresh/only-export-components
 export function useFieldErrorFocus<
   T extends HTMLElement = HTMLElement,
->(
-  options: UseFieldErrorFocusOptions = {},
-): UseFieldErrorFocusReturn<T> {
-  const { parsePath } = options
+>(): UseFieldErrorFocusReturn<T> {
   const fieldRefs = useRef<Record<string, T | null>>({})
-  // Nested refs: keyed first by section ("ingredients"/"steps"), then
-  // by row index, then by prop name. Three levels mirror the REL-4d
-  // nested-path parser so lookup + path-parse stay symmetric.
-  const nestedRefs = useRef<
-    Record<string, Record<number, Record<string, T | null | undefined>>>
-  >({})
-
   const [fieldError, setFieldError] = useState<FieldErrorState | null>(null)
-  const [rowError, setRowError] = useState<RowErrorState | null>(null)
 
   const registerRef = useCallback(
     (fieldName: string): RefCallback<T> =>
@@ -183,76 +138,38 @@ export function useFieldErrorFocus<
     [],
   )
 
-  const registerNestedRef = useCallback(
-    (section: string, index: number, prop: string): RefCallback<T> =>
-      (el) => {
-        const bySection = (nestedRefs.current[section] ??= {})
-        const byIndex = (bySection[index] ??= {})
-        byIndex[prop] = el
-      },
-    [],
-  )
-
   const clear = useCallback(() => {
     setFieldError(null)
-    setRowError(null)
   }, [])
 
   const setBanner = useCallback((message: string) => {
     setFieldError({ fieldName: null, message })
-    setRowError(null)
   }, [])
 
-  const applyError = useCallback(
-    (err: unknown): boolean => {
-      const classified = classifyMutationError(err)
-      const name = classified.fieldName
+  const applyError = useCallback((err: unknown): boolean => {
+    const classified = classifyMutationError(err)
+    const name = classified.fieldName
 
-      // Nested path first — the backend addresses the exact row, and an
-      // out-of-range row silently falls through to the flat map / banner.
-      if (name && parsePath) {
-        const parsed = parsePath(name)
-        if (parsed) {
-          const target =
-            nestedRefs.current[parsed.section]?.[parsed.index]?.[parsed.prop]
-          if (target) {
-            setRowError({ ...parsed, message: classified.message })
-            setFieldError(null)
-            target.focus()
-            target.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
-            return true
-          }
-        }
+    if (name) {
+      const target = fieldRefs.current[name]
+      if (target) {
+        setFieldError({ fieldName: name, message: classified.message })
+        target.focus()
+        target.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+        return true
       }
+    }
 
-      // Flat top-level match.
-      if (name) {
-        const target = fieldRefs.current[name]
-        if (target) {
-          setFieldError({ fieldName: name, message: classified.message })
-          setRowError(null)
-          target.focus()
-          target.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
-          return true
-        }
-      }
-
-      // No field match — expose the classified copy as a banner slice so
-      // single-state forms can render one `<InlineFieldError>` without
-      // branching on two state variables. The caller can still check
-      // `fieldError.fieldName === null` to render a full-width banner.
-      setFieldError({ fieldName: null, message: classified.message })
-      setRowError(null)
-      return false
-    },
-    [parsePath],
-  )
+    // No field match — expose the classified copy as a banner slice so
+    // single-state forms can render one `<InlineFieldError>` at the
+    // bottom-of-form banner without branching on two state variables.
+    setFieldError({ fieldName: null, message: classified.message })
+    return false
+  }, [])
 
   return {
     registerRef,
-    registerNestedRef,
     fieldError,
-    rowError,
     applyError,
     setBanner,
     clear,

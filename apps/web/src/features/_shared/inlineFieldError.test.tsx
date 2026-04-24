@@ -112,46 +112,6 @@ describe('useFieldErrorFocus', () => {
     })
   })
 
-  it('applyError with a pathParser routes a nested fieldName to the registered sub-ref', () => {
-    const input = document.createElement('input')
-    input.scrollIntoView = vi.fn()
-    document.body.appendChild(input)
-
-    const parsePath = (name: string) => {
-      const m = name.match(/^(\w+)\[(\d+)\]\.(\w+)$/)
-      if (!m) return null
-      return { section: m[1]!, index: Number(m[2]), prop: m[3]! }
-    }
-
-    const { result } = renderHook(() =>
-      useFieldErrorFocus<HTMLInputElement>({ parsePath }),
-    )
-
-    act(() => {
-      result.current.registerNestedRef('ingredients', 2, 'amount')(input)
-    })
-
-    let matched = false
-    act(() => {
-      matched = result.current.applyError({
-        code: 'invalid_value',
-        message: 'Menge ungültig.',
-        status: 400,
-        fieldName: 'ingredients[2].amount',
-      })
-    })
-
-    expect(matched).toBe(true)
-    expect(result.current.rowError).toEqual({
-      section: 'ingredients',
-      index: 2,
-      prop: 'amount',
-      message: expect.any(String),
-    })
-    expect(document.activeElement).toBe(input)
-    document.body.removeChild(input)
-  })
-
   it('setBanner() stores a banner message with fieldName=null bypassing the classifier', () => {
     const { result } = renderHook(() => useFieldErrorFocus<HTMLInputElement>())
 
@@ -163,10 +123,9 @@ describe('useFieldErrorFocus', () => {
       fieldName: null,
       message: 'Bitte E-Mail eingeben.',
     })
-    expect(result.current.rowError).toBeNull()
   })
 
-  it('clear() resets fieldError and rowError', () => {
+  it('clear() resets fieldError', () => {
     const { result } = renderHook(() => useFieldErrorFocus<HTMLInputElement>())
 
     act(() => {
@@ -182,6 +141,5 @@ describe('useFieldErrorFocus', () => {
       result.current.clear()
     })
     expect(result.current.fieldError).toBeNull()
-    expect(result.current.rowError).toBeNull()
   })
 })
