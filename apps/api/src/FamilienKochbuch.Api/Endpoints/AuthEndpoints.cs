@@ -116,8 +116,29 @@ public static class AuthEndpoints
             return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
 
         var user = await users.FindByEmailAsync(body.Email.Trim().ToLowerInvariant());
-        if (user is null || !await users.CheckPasswordAsync(user, body.Password))
+        if (user is null)
             return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
+
+        // REL-0b — reject locked-out accounts BEFORE we verify the
+        // password. AccessFailedAsync + Lockout options configured in
+        // Program.cs lock after five wrong attempts for 15 minutes.
+        // We keep the response identical to "wrong password" so the
+        // endpoint doesn't leak lockout state to an attacker.
+        if (await users.IsLockedOutAsync(user))
+            return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
+
+        if (!await users.CheckPasswordAsync(user, body.Password))
+        {
+            // Bumps AccessFailedCount + sets LockoutEnd once the
+            // MaxFailedAccessAttempts threshold is crossed.
+            await users.AccessFailedAsync(user);
+            return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
+        }
+
+        // Correct password — reset the failure counter so transient
+        // typos don't accumulate across successful logins.
+        if (user.AccessFailedCount > 0)
+            await users.ResetAccessFailedCountAsync(user);
 
         var now = clock.GetUtcNow();
         var access = tokens.CreateAccessToken(user);
