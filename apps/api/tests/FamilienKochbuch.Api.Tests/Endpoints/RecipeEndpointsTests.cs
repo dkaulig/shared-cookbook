@@ -682,6 +682,260 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal("sourceUrl", root.GetProperty("fieldName").GetString());
     }
 
+    // ── REL-4d — nested per-row fieldName on ingredients / steps ────
+    //
+    // Extends REL-4c from section-level (``ingredients`` / ``steps``) to
+    // index-based paths (``ingredients[3].amount`` / ``steps[1].text``) so
+    // the frontend's inline field-focus routing (RecipeFormPage, REL-4d)
+    // can land focus + the inline error on the exact offending row input
+    // instead of the generic section container. The path mirrors the
+    // caller's array order (position-within-component for single-default-
+    // component recipes, which is the 99% path). Multi-component
+    // payloads still surface at section-level until REL-4e lands the
+    // 2-deep nested shape (``components[i].ingredients[j].amount``).
+    //
+    // Wire properties per row:
+    //   - ``ingredients[i].name``    — blank / too long
+    //   - ``ingredients[i].amount``  — scalable + missing / non-positive
+    //   - ``ingredients[i].unit``    — too long
+    //   - ``steps[i].text``          — blank / too long
+
+    [Fact]
+    public async Task CreateRecipe_400_BlankIngredientName_Emits_FieldName_IngredientsNameAtIndex()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4d-ing-name@ex.com", "IN");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // Row 1 (array index 1) has a blank name → Ingredient ctor throws
+        // with ParamName="name"; REL-4d wraps the index in the emitted
+        // fieldName so RecipeFormPage focuses that specific row input.
+        var ingredients = new[]
+        {
+            new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
+            new RecipeEndpoints.IngredientRequest(1, 3m, "g", "   ", null, true),
+        };
+        var steps = new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") };
+        var component = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0, Label: null, Ingredients: ingredients, Steps: steps);
+        var invalid = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "OK",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: new[] { component },
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("missing_field", root.GetProperty("code").GetString());
+        Assert.Equal("ingredients[1].name", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_ScalableZeroQuantity_Emits_FieldName_IngredientsAmountAtIndex()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4d-ing-amt@ex.com", "IA");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // Row 0 is scalable + quantity=0 → Ingredient ctor throws with
+        // ParamName="quantity"; REL-4d maps that to the camelCase wire
+        // property ``amount`` (the FE's IngredientRow input name).
+        var ingredients = new[]
+        {
+            new RecipeEndpoints.IngredientRequest(0, 0m, "g", "Mehl", null, true),
+        };
+        var steps = new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") };
+        var component = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0, Label: null, Ingredients: ingredients, Steps: steps);
+        var invalid = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "OK",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: new[] { component },
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_value", root.GetProperty("code").GetString());
+        Assert.Equal("ingredients[0].amount", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_IngredientUnitTooLong_Emits_FieldName_IngredientsUnitAtIndex()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4d-ing-unit@ex.com", "IU");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // Unit max is 40 chars; a 50-char unit trips the ctor with
+        // ParamName="unit" on row 0.
+        var ingredients = new[]
+        {
+            new RecipeEndpoints.IngredientRequest(0, 1m, new string('x', 50), "Mehl", null, false),
+        };
+        var steps = new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") };
+        var component = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0, Label: null, Ingredients: ingredients, Steps: steps);
+        var invalid = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "OK",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: new[] { component },
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_value", root.GetProperty("code").GetString());
+        Assert.Equal("ingredients[0].unit", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_BlankStepContent_Emits_FieldName_StepsTextAtIndex()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4d-step@ex.com", "ST");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // Step at array index 1 has blank content → RecipeStep ctor throws
+        // with ParamName="content"; REL-4d maps the path onto the wire
+        // property ``text`` + the row index.
+        var ingredients = new[]
+        {
+            new RecipeEndpoints.IngredientRequest(0, 500m, "g", "Mehl", null, true),
+        };
+        var steps = new[]
+        {
+            new RecipeEndpoints.StepRequest(0, "Mehl in Schüssel."),
+            new RecipeEndpoints.StepRequest(1, "   "),
+        };
+        var component = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0, Label: null, Ingredients: ingredients, Steps: steps);
+        var invalid = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "OK",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: new[] { component },
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("missing_field", root.GetProperty("code").GetString());
+        Assert.Equal("steps[1].text", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateRecipe_400_ScalableZeroQuantity_Emits_FieldName_IngredientsAmountAtIndex()
+    {
+        // REL-4d — PUT path mirror of the Create scalable-zero test so
+        // both mutation surfaces carry identical attribution.
+        var (_, token) = await SignupAndLoginAsync("rel4d-up-amt@ex.com", "UA");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Orig"));
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var update = BuildSingleComponentUpdate(
+            title: "OK",
+            description: null,
+            defaultServings: 2,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: null,
+            ingredients: new[]
+            {
+                new RecipeEndpoints.IngredientRequest(0, 2m, "g", "Salz", null, true),
+                new RecipeEndpoints.IngredientRequest(1, 0m, "g", "Pfeffer", null, true),
+            },
+            steps: new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") },
+            tagIds: Array.Empty<Guid>());
+        var response = await _client.PutAsJsonAsync($"/api/recipes/{created.Id}", update);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_value", root.GetProperty("code").GetString());
+        Assert.Equal("ingredients[1].amount", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_MultiComponent_Ingredient_Falls_Back_To_Section_Level()
+    {
+        // REL-4d — multi-component payloads are ambiguous for 1-deep
+        // paths (``ingredients[j]`` could live in any component). Until
+        // REL-4e introduces the 2-deep ``components[i].ingredients[j]``
+        // shape we fall back to the REL-4c section-level hint so the FE
+        // still scrolls to the correct card, just not to the exact row.
+        var (_, token) = await SignupAndLoginAsync("rel4d-multi@ex.com", "MC");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var comp1 = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 0,
+            Label: "Sauce",
+            Ingredients: new[]
+            {
+                new RecipeEndpoints.IngredientRequest(0, 50m, "g", "Chipotle", null, true),
+            },
+            Steps: new[] { new RecipeEndpoints.StepRequest(0, "Pürieren.") });
+        var comp2 = new RecipeEndpoints.RecipeComponentRequest(
+            Position: 1,
+            Label: "Hauptgericht",
+            // Blank name in the second component.
+            Ingredients: new[]
+            {
+                new RecipeEndpoints.IngredientRequest(0, 1m, "g", "   ", null, true),
+            },
+            Steps: new[] { new RecipeEndpoints.StepRequest(0, "Braten.") });
+        var invalid = new RecipeEndpoints.CreateRecipeRequest(
+            Title: "OK",
+            Description: null,
+            DefaultServings: 2,
+            PrepTimeMinutes: null,
+            Difficulty: 1,
+            SourceUrl: null,
+            Components: new[] { comp1, comp2 },
+            TagIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("missing_field", root.GetProperty("code").GetString());
+        Assert.Equal("ingredients", root.GetProperty("fieldName").GetString());
+    }
+
     // ── P2-10 — Nutrition on create ─────────────────────────────────
 
     [Fact]
