@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -3661,5 +3661,134 @@ describe('RecipeFormPage (create)', () => {
       expect(captured!.components[0]!.ingredients[0]!.name).toBe('Mehl')
       expect(captured!.components[0]!.steps[0]!.content).toBe('Umrühren.')
     })
+  })
+})
+
+// ── REL-5e inline field-focus for recipe-form ─────────────────────────
+//
+// The create/update recipe endpoints only attach `fieldName` to two
+// emissions that pass through the form's submit mutation today:
+//   - invalid_tag → fieldName=tagIds (POST + PUT recipe)
+//   - cover_not_in_staged_set → fieldName=coverStagedPhotoId (POST)
+//
+// Any other 400 validation response from those endpoints carries no
+// `fieldName` and must keep the REL-3c banner at the bottom of the form
+// so we do not regress errors the user can already act on. Errors
+// outside that list (nested ingredient / step validation, servings
+// bounds, sourceUrl format) are filed for a follow-up backend slice —
+// the API currently returns `invalid_input` without attribution.
+describe('RecipeFormPage REL-5e inline field-focus', () => {
+  beforeAll(async () => {
+    window.localStorage.setItem('i18nextLng', 'de')
+    const { createI18n } = await import('@/i18n')
+    await createI18n()
+  })
+
+  it('focuses the tag-section container and shows an inline error when the backend tags fieldName=tagIds', async () => {
+    // jsdom does not implement scrollIntoView; stub so the REL-5e focus
+    // helper does not crash when the error lands.
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      const user = userEvent.setup()
+      server.use(
+        http.post('/api/groups/g1/recipes', () =>
+          HttpResponse.json(
+            {
+              code: 'invalid_tag',
+              message: 'One or more tags are unknown or do not belong to the group.',
+              status: 400,
+              fieldName: 'tagIds',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+
+      render(withProviders('/groups/g1/recipes/new'))
+      await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+      await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+      await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+      await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+      // REL-3 i18n path: the rendered copy comes from `errors:invalid_tag`
+      // (German translation), not the raw English server message.
+      const alert = await screen.findByTestId('recipe-form-tagIds-error')
+      expect(alert).toHaveTextContent(/Ungültiger Tag/i)
+      // The server-supplied English text must NEVER leak through.
+      expect(screen.queryByText(/do not belong to the group/i)).toBeNull()
+
+      // The error sits next to the tag-picker container, aria-linked via
+      // aria-describedby so screen-readers announce it when focus lands.
+      const tagContainer = screen.getByTestId('recipe-form-tagIds')
+      expect(tagContainer.getAttribute('aria-invalid')).toBe('true')
+      const describedBy = tagContainer.getAttribute('aria-describedby')
+      expect(describedBy).toBe(alert.id)
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  it('falls back to the banner when the server emits no fieldName (5xx / generic 400)', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('/api/groups/g1/recipes', () =>
+        HttpResponse.json(
+          {
+            code: 'invalid_input',
+            message: 'Invalid recipe payload.',
+            status: 400,
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    // No fieldName → no scoped inline alert, but the bottom-of-form banner
+    // still fires with the translated "invalid_input" copy.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('recipe-form-tagIds-error'),
+      ).not.toBeInTheDocument()
+    })
+    expect(await screen.findByText(/Eingabe ist ungültig/i)).toBeInTheDocument()
+  })
+
+  it('translates the inline error via the errors:<code> namespace, not the raw server message', async () => {
+    // Separate from the first test to isolate the i18n assertion from
+    // the focus/aria plumbing — the classifier must always prefer the
+    // `errors:<code>` key over the server-supplied English text.
+    Element.prototype.scrollIntoView = vi.fn()
+    const user = userEvent.setup()
+    server.use(
+      http.post('/api/groups/g1/recipes', () =>
+        HttpResponse.json(
+          {
+            code: 'invalid_tag',
+            message: 'SHOULD_NEVER_RENDER_ENGLISH_DEV_TEXT',
+            status: 400,
+            fieldName: 'tagIds',
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    const alert = await screen.findByTestId('recipe-form-tagIds-error')
+    expect(alert).toHaveTextContent(/Ungültiger Tag/i)
+    expect(
+      screen.queryByText(/SHOULD_NEVER_RENDER_ENGLISH_DEV_TEXT/),
+    ).toBeNull()
   })
 })
