@@ -183,6 +183,28 @@ function isSupportedInlineField(name: string): name is SupportedFieldName {
   return (SUPPORTED_INLINE_FIELDS as readonly string[]).includes(name)
 }
 
+// REL-4d — parse a backend-emitted nested fieldName into its section /
+// row-index / prop triple. Covers:
+//   - "ingredients[3].amount"  → { section, index: 3, prop: "amount" }
+//   - "steps[1].text"          → { section, index: 1, prop: "text" }
+// Bare top-level names ("title", "ingredients") deliberately return null
+// here — the caller routes those through the REL-4c SUPPORTED_INLINE_FIELDS
+// allowlist instead. Out-of-range indices stay in the return value (the
+// caller checks the ref-map for presence and falls back to the banner
+// when the row doesn't exist, so an out-of-bounds server address never
+// silently retargets another row).
+function parseFieldPath(
+  fieldName: string,
+): { section: string; index: number; prop: string } | null {
+  const match = fieldName.match(/^(\w+)\[(\d+)\]\.(\w+)$/)
+  if (!match) return null
+  return {
+    section: match[1]!,
+    index: Number(match[2]),
+    prop: match[3]!,
+  }
+}
+
 type ComponentRow = {
   key: string
   label: string | null
@@ -699,6 +721,36 @@ function RecipeFormInner({
   // HTMLElement because the tag-picker + candidate-grid targets are
   // <div>s, not <input>s.
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
+  // REL-4d — row-level error state for nested paths
+  // (`ingredients[i].amount`, `steps[i].text`). Separate from
+  // `fieldError` above so the type system keeps top-level field names
+  // in a closed union; nested paths live on a different surface shape
+  // (section + index + prop) and an out-of-range index silently falls
+  // through to the banner.
+  const [rowError, setRowError] = useState<{
+    section: 'ingredients' | 'steps'
+    index: number
+    prop: string
+    message: string
+  } | null>(null)
+  // REL-4d — ref-maps keyed by the ingredient / step array index so the
+  // onError handler can focus the exact row input the backend addressed
+  // via `fieldName`. Per-prop sub-refs mirror the wire property names
+  // (`amount` / `name` / `unit` / `note` / `text`).
+  const ingredientRowRefs = useRef<
+    Record<
+      number,
+      {
+        amount?: HTMLInputElement | null
+        name?: HTMLInputElement | null
+        unit?: HTMLSelectElement | null
+        note?: HTMLInputElement | null
+      }
+    >
+  >({})
+  const stepRowRefs = useRef<
+    Record<number, { text?: HTMLTextAreaElement | null }>
+  >({})
   /**
    * P2-7 — the AI banner surfaces the extraction provenance and is
    * independent of the prefilled data. Dismissing hides the banner;
@@ -978,6 +1030,8 @@ function RecipeFormInner({
     // failed submit so the user sees the clean state before the
     // re-attempt lands.
     setFieldError(null)
+    // REL-4d — drop residual row-level error as well.
+    setRowError(null)
 
     if (title.trim().length === 0) {
       setError(
@@ -1251,6 +1305,45 @@ function RecipeFormInner({
       // codes keep the backend message since it's already user-
       // actionable German today.
       const classified = classifyMutationError(err)
+      // REL-4d — nested row-level paths (``ingredients[i].amount``,
+      // ``steps[i].text``) take precedence over the top-level allowlist
+      // so the user lands on the exact row the backend flagged. An
+      // out-of-range index (no row ref registered) silently falls
+      // through to the generic banner path — we never silently retarget
+      // a different row than the server addressed.
+      if (
+        classified.surface === 'inline' &&
+        classified.fieldName !== undefined
+      ) {
+        const parsed = parseFieldPath(classified.fieldName)
+        if (parsed) {
+          const refMap =
+            parsed.section === 'ingredients'
+              ? ingredientRowRefs.current[parsed.index]
+              : parsed.section === 'steps'
+                ? stepRowRefs.current[parsed.index]
+                : undefined
+          const target = refMap
+            ? (refMap as Record<string, HTMLElement | null | undefined>)[
+                parsed.prop
+              ]
+            : undefined
+          if (
+            target &&
+            (parsed.section === 'ingredients' || parsed.section === 'steps')
+          ) {
+            setRowError({
+              section: parsed.section,
+              index: parsed.index,
+              prop: parsed.prop,
+              message: classified.message,
+            })
+            target.focus()
+            target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            return
+          }
+        }
+      }
       // REL-5e / REL-4c — when the backend attributed the 400 to a
       // specific form field, render the inline error next to that field
       // (and move focus) instead of dumping it into the bottom banner.
@@ -1783,6 +1876,30 @@ function RecipeFormInner({
                             updateIngredient(0, rowIndex, updater)
                           }
                           onRemove={() => removeIngredientRow(0, index)}
+                          registerInputRef={(prop, el) => {
+                            // REL-4d — build up a per-index bucket of
+                            // per-prop element refs so the onError handler
+                            // can route `ingredients[i].<prop>` to the
+                            // exact control. Single-component only — the
+                            // multi-component branch keeps the section-
+                            // level error for REL-4e.
+                            const bucket =
+                              ingredientRowRefs.current[index] ?? {}
+                            ;(bucket as Record<string, unknown>)[prop] = el
+                            ingredientRowRefs.current[index] = bucket
+                          }}
+                          errorProp={
+                            rowError?.section === 'ingredients' &&
+                            rowError.index === index
+                              ? rowError.prop
+                              : undefined
+                          }
+                          errorMessage={
+                            rowError?.section === 'ingredients' &&
+                            rowError.index === index
+                              ? rowError.message
+                              : undefined
+                          }
                         />
                       ))}
                     </ul>
@@ -1822,6 +1939,21 @@ function RecipeFormInner({
                           canRemove={components[0]!.steps.length > 1}
                           onChange={(content) => updateStep(0, index, content)}
                           onRemove={() => removeStepRow(0, index)}
+                          registerTextareaRef={(el) => {
+                            stepRowRefs.current[index] = { text: el }
+                          }}
+                          errorProp={
+                            rowError?.section === 'steps' &&
+                            rowError.index === index
+                              ? rowError.prop
+                              : undefined
+                          }
+                          errorMessage={
+                            rowError?.section === 'steps' &&
+                            rowError.index === index
+                              ? rowError.message
+                              : undefined
+                          }
                         />
                       ))}
                     </ol>
@@ -2248,10 +2380,16 @@ function FormTextarea({
   )
 }
 
-function FormSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+function FormSelect({
+  ref,
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement> & {
+  ref?: React.Ref<HTMLSelectElement>
+}) {
   return (
     <select
       {...props}
+      ref={ref}
       className={cn(
         'w-full appearance-none rounded-[12px] border border-[hsl(var(--input))] bg-card px-[13px] py-[11px] pr-9 text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
         'bg-[url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%2714%27%20height%3D%2714%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2357534e%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpolyline%20points%3D%276%209%2012%2015%2018%209%27/%3E%3C/svg%3E")] bg-[right_12px_center] bg-no-repeat',
@@ -2522,12 +2660,30 @@ function SortableIngredientRow({
   canRemove,
   onUpdate,
   onRemove,
+  registerInputRef,
+  errorProp,
+  errorMessage,
 }: {
   row: IngredientRow
   index: number
   canRemove: boolean
   onUpdate: (index: number, updater: (row: IngredientRow) => IngredientRow) => void
   onRemove: () => void
+  // REL-4d — parent-supplied ref-registrar. The row publishes its per-
+  // prop input/select elements back so the form's onError handler can
+  // focus + scroll to the exact control when the backend flags
+  // ``ingredients[i].<prop>``. Undefined = caller opted out (multi-
+  // component mode keeps section-level errors for REL-4e).
+  registerInputRef?: (
+    prop: 'amount' | 'name' | 'unit' | 'note',
+    el: HTMLInputElement | HTMLSelectElement | null,
+  ) => void
+  // REL-4d — when set, this row is the target of a nested 400 and
+  // renders an inline `<p role="alert">` next to the flagged control.
+  // errorMessage is pre-translated (errors:<code>); raw server text
+  // never reaches here.
+  errorProp?: string
+  errorMessage?: string
 }) {
   const { t } = useTranslation()
   const {
@@ -2581,6 +2737,9 @@ function SortableIngredientRow({
       */}
       <div className="flex flex-col gap-1.5 md:grid md:grid-cols-[92px_96px_1fr] md:items-start md:gap-1.5">
         <FormInput
+          ref={(el) => {
+            registerInputRef?.('name', el)
+          }}
           type="text"
           value={row.name}
           onChange={(e) => onUpdate(index, (r) => ({ ...r, name: e.target.value }))}
@@ -2591,10 +2750,19 @@ function SortableIngredientRow({
             index: index + 1,
             defaultValue: `Zutat ${index + 1} Name`,
           })}
+          aria-invalid={errorProp === 'name' || undefined}
+          aria-describedby={
+            errorProp === 'name'
+              ? `recipe-form-ingredients-${index}-name-error`
+              : undefined
+          }
           className="py-2 text-base md:order-3"
         />
         <div className="flex gap-1.5 md:contents">
           <FormInput
+            ref={(el) => {
+              registerInputRef?.('amount', el)
+            }}
             type="text"
             inputMode="decimal"
             value={row.quantity}
@@ -2606,15 +2774,30 @@ function SortableIngredientRow({
               index: index + 1,
               defaultValue: `Zutat ${index + 1} Menge`,
             })}
+            aria-invalid={errorProp === 'amount' || undefined}
+            aria-describedby={
+              errorProp === 'amount'
+                ? `recipe-form-ingredients-${index}-amount-error`
+                : undefined
+            }
             className="w-[96px] py-2 text-right text-base md:order-1 md:w-auto"
           />
           <FormSelect
+            ref={(el) => {
+              registerInputRef?.('unit', el)
+            }}
             value={row.unit}
             onChange={(e) => onUpdate(index, (r) => ({ ...r, unit: e.target.value }))}
             aria-label={t('recipes.form.ingredientRow.unitAria', {
               index: index + 1,
               defaultValue: `Zutat ${index + 1} Einheit`,
             })}
+            aria-invalid={errorProp === 'unit' || undefined}
+            aria-describedby={
+              errorProp === 'unit'
+                ? `recipe-form-ingredients-${index}-unit-error`
+                : undefined
+            }
             className="flex-1 py-2 text-base md:order-2 md:flex-none"
           >
             {UNITS.map((u) => (
@@ -2633,6 +2816,9 @@ function SortableIngredientRow({
           )}
         <div className="md:order-5 md:col-span-3 md:mt-1">
           <FormInput
+            ref={(el) => {
+              registerInputRef?.('note', el)
+            }}
             type="text"
             value={row.note}
             onChange={(e) => onUpdate(index, (r) => ({ ...r, note: e.target.value }))}
@@ -2643,9 +2829,25 @@ function SortableIngredientRow({
               index: index + 1,
               defaultValue: `Zutat ${index + 1} Notiz`,
             })}
+            aria-invalid={errorProp === 'note' || undefined}
+            aria-describedby={
+              errorProp === 'note'
+                ? `recipe-form-ingredients-${index}-note-error`
+                : undefined
+            }
             className="py-1.5 text-base"
           />
         </div>
+        {errorProp && errorMessage && (
+          <p
+            id={`recipe-form-ingredients-${index}-${errorProp}-error`}
+            data-testid={`recipe-form-ingredients-${index}-${errorProp}-error`}
+            role="alert"
+            className="mt-1 text-sm text-[hsl(var(--destructive))] md:order-6 md:col-span-3"
+          >
+            {errorMessage}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col items-center gap-1.5 pt-1">
@@ -2712,12 +2914,21 @@ function SortableStepRow({
   canRemove,
   onChange,
   onRemove,
+  registerTextareaRef,
+  errorProp,
+  errorMessage,
 }: {
   row: StepRow
   index: number
   canRemove: boolean
   onChange: (content: string) => void
   onRemove: () => void
+  // REL-4d — parent ref-registrar; symmetric with SortableIngredientRow.
+  // The textarea is the single focus target for step rows (steps only
+  // carry a `text` prop on the wire).
+  registerTextareaRef?: (el: HTMLTextAreaElement | null) => void
+  errorProp?: string
+  errorMessage?: string
 }) {
   const { t } = useTranslation()
   const {
@@ -2837,7 +3048,13 @@ function SortableStepRow({
           </div>
         ) : (
           <FormTextarea
-            ref={textareaRef}
+            // Dual ref: the row keeps its local mutable ref for the
+            // toolbar shortcuts (Cmd+B etc) AND publishes the same
+            // element up to the parent for REL-4d inline field-focus.
+            ref={(el) => {
+              textareaRef.current = el
+              registerTextareaRef?.(el)
+            }}
             value={row.content}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleTextareaKeyDown}
@@ -2848,9 +3065,25 @@ function SortableStepRow({
               index: index + 1,
               defaultValue: `Schritt ${index + 1}`,
             })}
+            aria-invalid={errorProp === 'text' || undefined}
+            aria-describedby={
+              errorProp === 'text'
+                ? `recipe-form-steps-${index}-text-error`
+                : undefined
+            }
             maxLength={5000}
             className="min-h-[52px] text-base"
           />
+        )}
+        {errorProp && errorMessage && (
+          <p
+            id={`recipe-form-steps-${index}-${errorProp}-error`}
+            data-testid={`recipe-form-steps-${index}-${errorProp}-error`}
+            role="alert"
+            className="mt-1 text-sm text-[hsl(var(--destructive))]"
+          >
+            {errorMessage}
+          </p>
         )}
       </div>
 
