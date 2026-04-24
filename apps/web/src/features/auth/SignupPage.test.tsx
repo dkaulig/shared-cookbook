@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -7,6 +7,7 @@ import { AuthLayout } from './AuthLayout'
 import { SignupPage } from './SignupPage'
 import { useAuthStore } from './authStore'
 import { server } from '@/test/msw/server'
+import { createI18n } from '@/i18n'
 
 function renderSignup(search: string = '?token=the-token') {
   return render(
@@ -23,6 +24,15 @@ function renderSignup(search: string = '?token=the-token') {
 }
 
 describe('<SignupPage />', () => {
+  // REL-5f — init the shared i18n singleton so `classifyMutationError`
+  // resolves `errors:<code>` keys to German copy. The inline field-focus
+  // tests below assert the translated string, not the server-supplied
+  // English dev-message.
+  beforeAll(async () => {
+    window.localStorage.setItem('i18nextLng', 'de')
+    await createI18n()
+  })
+
   beforeEach(() => {
     useAuthStore.getState().clear()
   })
@@ -163,5 +173,133 @@ describe('<SignupPage />', () => {
       expect(screen.getByTestId('home')).toBeInTheDocument()
     })
     expect(useAuthStore.getState().user?.email).toBe('new@example.com')
+  })
+
+  // ── REL-5f inline field-focus ───────────────────────────────────
+  describe('REL-5f inline field-focus', () => {
+    function validPreviewHandler() {
+      return http.get('/api/invites/app/:token', () =>
+        HttpResponse.json({
+          valid: true,
+          expiresAt: '2030-01-01T00:00:00Z',
+          inviterDisplayName: 'Oma',
+        }),
+      )
+    }
+
+    async function fillAndSubmit() {
+      const user = userEvent.setup()
+      await screen.findAllByText(/oma/i)
+
+      await user.type(screen.getByLabelText(/anzeigename/i), 'Neuer Nutzer')
+      await user.type(screen.getByLabelText(/e-mail/i), 'new@example.com')
+      await user.type(screen.getByLabelText(/^passwort$/i), 'geheim123')
+      await user.type(screen.getByLabelText(/passwort bestätigen/i), 'geheim123')
+      await user.click(screen.getByRole('button', { name: /^registrieren$/i }))
+      return user
+    }
+
+    it('focuses the email input + renders translated inline error when backend tags fieldName=email', async () => {
+      server.use(
+        validPreviewHandler(),
+        http.post('/api/auth/signup', () =>
+          HttpResponse.json(
+            {
+              code: 'email_taken',
+              message: 'Email is already registered.',
+              status: 400,
+              fieldName: 'email',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderSignup()
+      await fillAndSubmit()
+
+      const email = screen.getByLabelText(/e-mail/i)
+      await waitFor(() => expect(email).toHaveFocus())
+      // Translated copy from errors:email_taken, not raw English.
+      expect(
+        await screen.findByText(/bereits vergeben/i),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/already registered/i)).toBeNull()
+    })
+
+    it('focuses the password input when backend tags fieldName=newPassword', async () => {
+      server.use(
+        validPreviewHandler(),
+        http.post('/api/auth/signup', () =>
+          HttpResponse.json(
+            {
+              code: 'password_rejected',
+              message: 'Password does not meet the policy.',
+              status: 400,
+              fieldName: 'newPassword',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderSignup()
+      await fillAndSubmit()
+
+      const password = screen.getByLabelText(/^passwort$/i)
+      await waitFor(() => expect(password).toHaveFocus())
+      expect(
+        await screen.findByText(/dieses passwort wurde abgelehnt/i),
+      ).toBeInTheDocument()
+    })
+
+    it('fieldName=inviteToken stays as a banner without moving focus (token lives in URL)', async () => {
+      server.use(
+        validPreviewHandler(),
+        http.post('/api/auth/signup', () =>
+          HttpResponse.json(
+            {
+              code: 'invite_not_found',
+              message: 'Invite not found.',
+              status: 400,
+              fieldName: 'inviteToken',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderSignup()
+      await fillAndSubmit()
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(/einladung wurde nicht gefunden/i)
+      // No input lost/gained focus — the URL token has no form input to
+      // attribute to, so the surface stays the banner pattern.
+      expect(screen.getByLabelText(/e-mail/i)).not.toHaveFocus()
+      expect(screen.getByLabelText(/^passwort$/i)).not.toHaveFocus()
+      expect(screen.getByLabelText(/passwort bestätigen/i)).not.toHaveFocus()
+    })
+
+    it('falls back to banner copy when backend emits no fieldName', async () => {
+      server.use(
+        validPreviewHandler(),
+        http.post('/api/auth/signup', () =>
+          HttpResponse.json(
+            {
+              code: 'invalid_input',
+              message: 'Invalid signup payload.',
+              status: 400,
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderSignup()
+      await fillAndSubmit()
+
+      // A generic 400 without fieldName still renders *some* error to
+      // the user via the fallback banner.
+      const alert = await screen.findByRole('alert')
+      expect(alert).toBeInTheDocument()
+      expect(screen.queryByTestId('home')).toBeNull()
+    })
   })
 })
