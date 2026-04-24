@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import type { AiUsageGroupBy, AiUsageSummary } from '@familien-kochbuch/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -30,6 +31,7 @@ interface PeriodRange {
 }
 
 export function AiUsagePage() {
+  const { t } = useTranslation()
   const [period, setPeriod] = useState<PeriodKey>('30d')
   const [groupBy, setGroupBy] = useState<AiUsageGroupBy>('model')
   const [customFrom, setCustomFrom] = useState<string>('')
@@ -60,10 +62,10 @@ export function AiUsagePage() {
           id="ai-usage-heading"
           className="font-serif text-[clamp(30px,7vw,40px)] font-semibold leading-[1.05] tracking-[-0.015em]"
         >
-          KI-Verbrauch
+          {t('admin.aiUsage.heading')}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Übersicht über Token-Verbrauch und geschätzte Kosten der KI-Calls.
+          {t('admin.aiUsage.description')}
         </p>
       </header>
 
@@ -84,7 +86,7 @@ export function AiUsagePage() {
           aria-live="polite"
           className="mt-6 text-sm text-muted-foreground"
         >
-          Lade Verbrauchsdaten …
+          {t('admin.aiUsage.loading')}
         </p>
       )}
 
@@ -93,7 +95,7 @@ export function AiUsagePage() {
           role="alert"
           className="mt-6 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
         >
-          Verbrauchsdaten konnten nicht geladen werden.
+          {t('admin.aiUsage.loadError')}
         </p>
       )}
 
@@ -122,10 +124,11 @@ function PeriodPicker({
   onCustomFromChange,
   onCustomToChange,
 }: PeriodPickerProps) {
+  const { t } = useTranslation()
   return (
     <div
       role="group"
-      aria-label="Zeitraum auswählen"
+      aria-label={t('admin.aiUsage.periodGroupAria')}
       className="mb-4 flex flex-wrap items-center gap-2"
     >
       {(['7d', '30d', '90d', 'custom'] as const).map((p) => (
@@ -141,13 +144,13 @@ function PeriodPicker({
               : 'border-input bg-background hover:bg-accent',
           ].join(' ')}
         >
-          {periodLabel(p)}
+          {periodLabel(t, p)}
         </button>
       ))}
       {period === 'custom' && (
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <label className="flex items-center gap-2 text-sm">
-            Von
+            {t('admin.aiUsage.periodFrom')}
             <input
               type="date"
               value={customFrom}
@@ -156,7 +159,7 @@ function PeriodPicker({
             />
           </label>
           <label className="flex items-center gap-2 text-sm">
-            Bis
+            {t('admin.aiUsage.periodTo')}
             <input
               type="date"
               value={customTo}
@@ -170,16 +173,18 @@ function PeriodPicker({
   )
 }
 
-function periodLabel(p: PeriodKey): string {
+type TFn = ReturnType<typeof useTranslation>['t']
+
+function periodLabel(t: TFn, p: PeriodKey): string {
   switch (p) {
     case '7d':
-      return 'Letzte 7 Tage'
+      return t('admin.aiUsage.period7d')
     case '30d':
-      return 'Letzte 30 Tage'
+      return t('admin.aiUsage.period30d')
     case '90d':
-      return 'Letzte 90 Tage'
+      return t('admin.aiUsage.period90d')
     case 'custom':
-      return 'Benutzerdefiniert'
+      return t('admin.aiUsage.periodCustom')
   }
 }
 
@@ -192,13 +197,16 @@ function GroupByPicker({
   value: AiUsageGroupBy
   onChange: (g: AiUsageGroupBy) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div
       role="group"
-      aria-label="Gruppierung auswählen"
+      aria-label={t('admin.aiUsage.groupByAria')}
       className="mb-6 flex items-center gap-2"
     >
-      <span className="text-sm text-muted-foreground">Gruppieren nach:</span>
+      <span className="text-sm text-muted-foreground">
+        {t('admin.aiUsage.groupByLabel')}
+      </span>
       {(['model', 'user', 'day'] as const).map((g) => (
         <button
           key={g}
@@ -212,45 +220,49 @@ function GroupByPicker({
               : 'border-input bg-background hover:bg-accent',
           ].join(' ')}
         >
-          {groupByLabel(g)}
+          {groupByLabel(t, g)}
         </button>
       ))}
     </div>
   )
 }
 
-function groupByLabel(g: AiUsageGroupBy): string {
+function groupByLabel(t: TFn, g: AiUsageGroupBy): string {
   switch (g) {
     case 'model':
-      return 'Modell'
+      return t('admin.aiUsage.groupByModel')
     case 'user':
-      return 'Nutzer:in'
+      return t('admin.aiUsage.groupByUser')
     case 'day':
-      return 'Tag'
+      return t('admin.aiUsage.groupByDay')
   }
 }
 
 // ── Totals card ─────────────────────────────────────────────────────
 
 function TotalsCard({ summary }: { summary: AiUsageSummary }) {
+  const { t } = useTranslation()
   return (
     <Card className="mb-6">
       <CardHeader>
-        <CardTitle>Gesamt</CardTitle>
+        <CardTitle>{t('admin.aiUsage.totalsTitle')}</CardTitle>
       </CardHeader>
       <CardContent>
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-          <Stat label="Prompt-Tokens" value={formatInt(summary.totalPromptTokens)} />
           <Stat
-            label="Completion-Tokens"
+            label={t('admin.aiUsage.promptTokens')}
+            value={formatInt(summary.totalPromptTokens)}
+          />
+          <Stat
+            label={t('admin.aiUsage.completionTokens')}
             value={formatInt(summary.totalCompletionTokens)}
           />
           <Stat
-            label="Cached-Tokens"
+            label={t('admin.aiUsage.cachedTokens')}
             value={formatInt(summary.totalCachedTokens)}
           />
           <Stat
-            label="Kosten (EUR)"
+            label={t('admin.aiUsage.costEur')}
             value={formatCurrencyEur(summary.totalEur)}
           />
         </dl>
@@ -271,39 +283,45 @@ function Stat({ label, value }: { label: string; value: string }) {
 // ── Breakdown card ──────────────────────────────────────────────────
 
 function BreakdownCard({ summary }: { summary: AiUsageSummary }) {
+  const { t } = useTranslation()
   const maxEur = summary.groups.reduce((m, row) => Math.max(m, row.eur), 0)
+  const byLabel = groupByLabel(t, summary.groupBy)
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Aufschlüsselung nach {groupByLabel(summary.groupBy)}</CardTitle>
+        <CardTitle>
+          {t('admin.aiUsage.breakdownTitleTemplate', { by: byLabel })}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {summary.groups.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Keine Verbrauchsdaten im gewählten Zeitraum.
+            {t('admin.aiUsage.breakdownEmpty')}
           </p>
         ) : (
           <table
             className="w-full text-sm"
-            aria-label={`Verbrauch gruppiert nach ${groupByLabel(summary.groupBy)}`}
+            aria-label={t('admin.aiUsage.breakdownAriaTemplate', {
+              by: byLabel,
+            })}
           >
             <thead>
               <tr className="border-b text-left text-xs uppercase text-muted-foreground">
                 <th scope="col" className="py-2 pr-3 font-medium">
-                  {groupByLabel(summary.groupBy)}
+                  {byLabel}
                 </th>
                 <th scope="col" className="py-2 pr-3 font-medium text-right">
-                  Prompt
+                  {t('admin.aiUsage.colPrompt')}
                 </th>
                 <th scope="col" className="py-2 pr-3 font-medium text-right">
-                  Completion
+                  {t('admin.aiUsage.colCompletion')}
                 </th>
                 <th scope="col" className="py-2 pr-3 font-medium text-right">
-                  EUR
+                  {t('admin.aiUsage.colEur')}
                 </th>
                 <th scope="col" className="py-2 font-medium text-right">
-                  Anteil
+                  {t('admin.aiUsage.colShare')}
                 </th>
               </tr>
             </thead>
