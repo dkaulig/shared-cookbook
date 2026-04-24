@@ -191,6 +191,61 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    // REL-0b — Identity's AccessFailedCount + Lockout must activate on
+    // repeated wrong-password attempts. After five failed attempts the
+    // account is locked and subsequent calls (even with the correct
+    // password) must return 401. Guards the per-user brute-force
+    // counterpart to the IP-based login rate-limit.
+    [Fact]
+    public async Task Login_After_Repeated_Wrong_Password_Locks_Account()
+    {
+        await SeedUserAsync("lockout@example.com", "Correct123!");
+
+        for (var i = 0; i < 5; i++)
+        {
+            var wrong = await _client.PostAsJsonAsync(
+                "/api/auth/login",
+                new AuthEndpoints.LoginRequest("lockout@example.com", "Wrong123!"));
+            Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
+        }
+
+        // Now the CORRECT password must still return 401 because the
+        // account is locked. Pre-fix this call would succeed because
+        // CheckPasswordAsync doesn't inspect the lockout state.
+        var locked = await _client.PostAsJsonAsync(
+            "/api/auth/login",
+            new AuthEndpoints.LoginRequest("lockout@example.com", "Correct123!"));
+        Assert.Equal(HttpStatusCode.Unauthorized, locked.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var user = await db.Users.SingleAsync(u => u.Email == "lockout@example.com");
+        Assert.True(user.LockoutEnd.HasValue, "Lockout end must be populated after five failed attempts.");
+    }
+
+    [Fact]
+    public async Task Login_With_Correct_Password_Resets_Access_Failed_Count()
+    {
+        await SeedUserAsync("reset-fail@example.com", "Correct123!");
+
+        // One wrong attempt bumps AccessFailedCount to 1.
+        await _client.PostAsJsonAsync(
+            "/api/auth/login",
+            new AuthEndpoints.LoginRequest("reset-fail@example.com", "Wrong123!"));
+
+        // Then a correct attempt succeeds AND must reset the counter
+        // so prior failures don't accumulate across successful logins.
+        var ok = await _client.PostAsJsonAsync(
+            "/api/auth/login",
+            new AuthEndpoints.LoginRequest("reset-fail@example.com", "Correct123!"));
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var user = await db.Users.SingleAsync(u => u.Email == "reset-fail@example.com");
+        Assert.Equal(0, user.AccessFailedCount);
+    }
+
     // ── REFRESH ─────────────────────────────────────────────────────
 
     [Fact]

@@ -110,6 +110,15 @@ builder.Services.AddIdentityCore<User>(opts =>
         opts.Password.RequireUppercase = false;
         opts.Password.RequireNonAlphanumeric = false;
         opts.Password.RequiredLength = 8;
+        // REL-0b — per-user brute-force defence. Five wrong-password
+        // attempts lock the account for 15 minutes; the counter only
+        // decays via successful login (see LoginAsync). Sits alongside
+        // the per-IP /api/auth/login SlidingWindowLimiter at the edge:
+        // the rate-limit slows a single attacker, the lockout caps the
+        // per-account blast radius regardless of source IP.
+        opts.Lockout.AllowedForNewUsers = true;
+        opts.Lockout.MaxFailedAccessAttempts = 5;
+        opts.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
     })
     .AddRoles<IdentityRole<Guid>>()
     .AddEntityFrameworkStores<AppDbContext>()
