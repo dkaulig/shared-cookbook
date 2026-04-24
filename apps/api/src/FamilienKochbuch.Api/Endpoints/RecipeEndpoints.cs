@@ -618,7 +618,10 @@ public static class RecipeEndpoints
 
         // Validate tag ids — must be global or scoped to this group.
         if (!await AreTagIdsValidForGroupAsync(db, body.TagIds, groupId, ct))
-            return FamilienResults.BadRequest("invalid_tag", "Ein oder mehrere Tags sind unbekannt oder gehören nicht zur Gruppe.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidTag,
+                "One or more tags are unknown or do not belong to the group.",
+                fieldName: "tagIds");
 
         Recipe recipe;
         try
@@ -664,9 +667,13 @@ public static class RecipeEndpoints
             db.Recipes.Add(recipe);
             await db.SaveChangesAsync(ct);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            // Domain exception text may leak entity detail. Surface a
+            // stable English developer-message; the frontend keys off
+            // the code for user-facing copy.
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid recipe payload.");
         }
 
         // S6: record the initial Created revision so the history panel
@@ -685,8 +692,9 @@ public static class RecipeEndpoints
         {
             if (promoteIds is null || !promoteIds.Contains(coverId))
                 return FamilienResults.BadRequest(
-                    "cover_not_in_staged_set",
-                    "Das Cover-Foto muss Teil der hochgeladenen Fotos sein.");
+                    ErrorCodes.CoverNotInStagedSet,
+                    "Cover photo must be part of the uploaded set.",
+                    fieldName: "coverStagedPhotoId");
             promoteIds = new[] { coverId }
                 .Concat(promoteIds.Where(id => id != coverId))
                 .ToArray();
@@ -705,19 +713,21 @@ public static class RecipeEndpoints
         return Results.Created($"/api/recipes/{recipe.Id}", detail);
     }
 
-    /// <summary>German error strings surfaced per-photo by
-    /// <see cref="PromoteStagedPhotosAsync"/>. The frontend banner
-    /// displays these verbatim.</summary>
+    /// <summary>English developer-facing error strings surfaced
+    /// per-photo by <see cref="PromoteStagedPhotosAsync"/>. The
+    /// frontend's partial-failure banner renders these for debugging
+    /// / ops visibility; user-facing copy is owned by the frontend
+    /// i18n layer (REL-3).</summary>
     private static class PromoteErrors
     {
-        public const string NotFound = "Foto wurde nicht gefunden.";
-        public const string NotOwner = "Foto gehört nicht dir.";
-        public const string AlreadyPromoted = "Foto wurde bereits einem Rezept zugeordnet.";
-        public const string CopyFailed = "Foto konnte nicht kopiert werden.";
-        public const string SaveFailed = "Foto konnte nicht gespeichert werden.";
+        public const string NotFound = "Photo not found.";
+        public const string NotOwner = "Photo does not belong to the caller.";
+        public const string AlreadyPromoted = "Photo is already attached to a recipe.";
+        public const string CopyFailed = "Failed to copy the photo blob.";
+        public const string SaveFailed = "Failed to persist the photo.";
 
         public static string LimitReached(int max) =>
-            $"Maximal {max} Fotos pro Rezept – Limit erreicht.";
+            $"Recipe already has the maximum of {max} photos.";
     }
 
     /// <summary>
@@ -978,21 +988,27 @@ public static class RecipeEndpoints
         var effectivePage = page ?? 1;
         if (effectivePage < 1)
         {
-            return FamilienResults.BadRequest("invalid_page",
-                $"Die Seitenzahl muss mindestens 1 sein (erhalten: {effectivePage}).");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidPage,
+                "Page must be a positive integer.",
+                fieldName: "page");
         }
 
         var effectivePageSize = pageSize ?? ListDefaultPageSize;
         if (effectivePageSize < 1 || effectivePageSize > MaxPageSize)
         {
-            return FamilienResults.BadRequest("invalid_page_size",
-                $"Die Seitengröße muss zwischen 1 und {MaxPageSize} liegen (erhalten: {effectivePageSize}).");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidPageSize,
+                $"Page size must be between 1 and {MaxPageSize}.",
+                fieldName: "pageSize");
         }
 
         if (!TryParseRecipeSort(sort, out var sortOrder))
         {
-            return FamilienResults.BadRequest("invalid_sort",
-                $"Unbekannte Sortierung '{sort}'. Erlaubt: updated_desc, cooked_desc, title_asc, rating_desc.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidSort,
+                "Unknown sort value. Allowed: updated_desc, cooked_desc, title_asc, rating_desc.",
+                fieldName: "sort");
         }
 
         var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId && g.DeletedAt == null, ct);
@@ -1150,28 +1166,36 @@ public static class RecipeEndpoints
         var trimmedQ = q?.Trim() ?? string.Empty;
         if (trimmedQ.Length < 1 || trimmedQ.Length > SearchQueryMaxLength)
         {
-            return FamilienResults.BadRequest("invalid_query",
-                $"Der Suchbegriff muss zwischen 1 und {SearchQueryMaxLength} Zeichen lang sein.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidQuery,
+                $"Query must be between 1 and {SearchQueryMaxLength} characters.",
+                fieldName: "q");
         }
 
         var effectivePage = page ?? 1;
         if (effectivePage < 1)
         {
-            return FamilienResults.BadRequest("invalid_page",
-                $"Die Seitenzahl muss mindestens 1 sein (erhalten: {effectivePage}).");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidPage,
+                "Page must be a positive integer.",
+                fieldName: "page");
         }
 
         var effectivePageSize = pageSize ?? ListDefaultPageSize;
         if (effectivePageSize < 1 || effectivePageSize > MaxPageSize)
         {
-            return FamilienResults.BadRequest("invalid_page_size",
-                $"Die Seitengröße muss zwischen 1 und {MaxPageSize} liegen (erhalten: {effectivePageSize}).");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidPageSize,
+                $"Page size must be between 1 and {MaxPageSize}.",
+                fieldName: "pageSize");
         }
 
         if (!TryParseRecipeSearchSort(sort, out var sortOrder))
         {
-            return FamilienResults.BadRequest("invalid_sort",
-                $"Unbekannte Sortierung '{sort}'. Erlaubt: relevance_desc, updated_desc, cooked_desc, title_asc, rating_desc.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidSort,
+                "Unknown sort value. Allowed: relevance_desc, updated_desc, cooked_desc, title_asc, rating_desc.",
+                fieldName: "sort");
         }
 
         // Authz — the single boundary. A recipe survives this filter
@@ -1385,7 +1409,10 @@ public static class RecipeEndpoints
         if (conflict is not null) return conflict;
 
         if (!await AreTagIdsValidForGroupAsync(db, body.TagIds, recipe.GroupId, ct))
-            return FamilienResults.BadRequest("invalid_tag", "Ein oder mehrere Tags sind unbekannt oder gehören nicht zur Gruppe.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidTag,
+                "One or more tags are unknown or do not belong to the group.",
+                fieldName: "tagIds");
 
         try
         {
@@ -1451,9 +1478,13 @@ public static class RecipeEndpoints
                 db.RecipeTags.Add(new RecipeTag(recipe.Id, tagId));
             await db.SaveChangesAsync(ct);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            // Domain exception text may leak entity detail. Surface a
+            // stable English developer-message; the frontend keys off
+            // the code for user-facing copy.
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid recipe payload.");
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -1464,8 +1495,8 @@ public static class RecipeEndpoints
             var current = (await LoadRecipeWithChildrenAsync(db, id, ct))!;
             var currentDto = await ProjectDetailAsync(db, current, photoStorage, ct);
             return FamilienResults.Conflict(
-                "version_mismatch",
-                "Der Eintrag wurde zwischenzeitlich geändert.",
+                ErrorCodes.VersionMismatch,
+                "Version mismatch; reload and retry.",
                 (object?)currentDto);
         }
 
@@ -1520,22 +1551,27 @@ public static class RecipeEndpoints
         if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
 
         if (file is null || file.Length == 0)
-            return FamilienResults.BadRequest("file_missing", "Es wurde keine Datei übermittelt.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.FileMissing,
+                "No file was uploaded.",
+                fieldName: "file");
 
         if (file.Length > MaxPhotoBytes)
             return FamilienResults.BadRequest(
-                "file_too_large",
-                $"Das Foto überschreitet das Limit von {MaxPhotoBytes / (1024 * 1024)} MB.");
+                ErrorCodes.FileTooLarge,
+                $"File exceeds the {MaxPhotoBytes / (1024 * 1024)} MB limit.",
+                fieldName: "file");
 
         if (!AllowedPhotoContentTypes.Contains(file.ContentType ?? string.Empty))
             return FamilienResults.BadRequest(
-                "unsupported_media_type",
-                "Nur JPEG-, PNG- und WebP-Bilder sind zulässig.");
+                ErrorCodes.UnsupportedMediaType,
+                "Only JPEG, PNG, and WebP images are accepted.",
+                fieldName: "file");
 
         if (recipe.Photos.Count >= Recipe.MaxPhotos)
             return FamilienResults.BadRequest(
-                "photo_limit_reached",
-                $"Ein Rezept darf höchstens {Recipe.MaxPhotos} Fotos haben.");
+                ErrorCodes.PhotoLimitReached,
+                $"A recipe may have at most {Recipe.MaxPhotos} photos.");
 
         string path;
         await using (var stream = file.OpenReadStream())
@@ -1603,17 +1639,22 @@ public static class RecipeEndpoints
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
         if (file is null || file.Length == 0)
-            return FamilienResults.BadRequest("file_missing", "Es wurde keine Datei übermittelt.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.FileMissing,
+                "No file was uploaded.",
+                fieldName: "file");
 
         if (file.Length > MaxPhotoBytes)
             return FamilienResults.BadRequest(
-                "file_too_large",
-                $"Das Foto überschreitet das Limit von {MaxPhotoBytes / (1024 * 1024)} MB.");
+                ErrorCodes.FileTooLarge,
+                $"File exceeds the {MaxPhotoBytes / (1024 * 1024)} MB limit.",
+                fieldName: "file");
 
         if (!AllowedPhotoContentTypes.Contains(file.ContentType ?? string.Empty))
             return FamilienResults.BadRequest(
-                "unsupported_media_type",
-                "Nur JPEG-, PNG- und WebP-Bilder sind zulässig. Bitte als JPG/PNG speichern.");
+                ErrorCodes.UnsupportedMediaType,
+                "Only JPEG, PNG, and WebP images are accepted. Save as JPG or PNG.",
+                fieldName: "file");
 
         string path;
         await using (var stream = file.OpenReadStream())
@@ -1675,14 +1716,12 @@ public static class RecipeEndpoints
         if (row is null || row.PromotedAt != null)
         {
             return FamilienResults.NotFound(
-                "not_found",
-                "Das Foto ist nicht mehr vorhanden.");
+                ErrorCodes.NotFound, "Photo no longer exists.");
         }
         if (row.UserId != userId)
         {
             return FamilienResults.Forbidden(
-                "not_owner",
-                "Nur der Uploader darf dieses Foto entfernen.");
+                ErrorCodes.NotOwner, "Only the uploader may remove this photo.");
         }
 
         db.StagedPhotos.Remove(row);
@@ -1717,13 +1756,19 @@ public static class RecipeEndpoints
         if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct)) return Results.Forbid();
 
         if (string.IsNullOrWhiteSpace(body.Url))
-            return FamilienResults.BadRequest("invalid_input", "url ist erforderlich.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.MissingField,
+                "url is required.",
+                fieldName: "url");
 
         // Clients may echo back either the signed URL they received or the
         // bare path; normalize before removing so both shapes work.
         var targetPath = SeaweedFsPhotoStorage.NormalizeToPath(body.Url);
         if (string.IsNullOrWhiteSpace(targetPath))
-            return FamilienResults.BadRequest("invalid_input", "url ist erforderlich.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.MissingField,
+                "url is required.",
+                fieldName: "url");
 
         var removed = recipe.RemovePhoto(targetPath);
         if (!removed)
@@ -1764,7 +1809,10 @@ public static class RecipeEndpoints
         var logger = loggerFactory.CreateLogger("FamilienKochbuch.Api.RecipeFork");
 
         if (body.TargetGroupId == Guid.Empty)
-            return FamilienResults.BadRequest("invalid_input", "targetGroupId ist erforderlich.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.MissingField,
+                "targetGroupId is required.",
+                fieldName: "targetGroupId");
 
         var source = await LoadRecipeWithChildrenAsync(db, id, ct);
         if (source is null) return Results.NotFound();
@@ -1903,9 +1951,13 @@ public static class RecipeEndpoints
             db.Recipes.Add(fork);
             await db.SaveChangesAsync(ct);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            // Domain exception text may leak entity detail. Surface a
+            // stable English developer-message; the frontend keys off
+            // the code for user-facing copy.
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid recipe payload.");
         }
 
         // S6 follow-up from S5: emit a Created revision on the fork itself
@@ -1970,9 +2022,13 @@ public static class RecipeEndpoints
             recipe.SetNutritionEstimate(estimate, clock.GetUtcNow());
             await db.SaveChangesAsync(ct);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            // Domain exception text may leak entity detail. Surface a
+            // stable English developer-message; the frontend keys off
+            // the code for user-facing copy.
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid recipe payload.");
         }
 
         var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
@@ -2049,8 +2105,9 @@ public static class RecipeEndpoints
 
         if (body is null || body.StagedPhotoId == Guid.Empty)
             return FamilienResults.BadRequest(
-                "invalid_staged_photo_id",
-                "Eine gültige StagedPhoto-ID ist erforderlich.");
+                ErrorCodes.InvalidStagedPhotoId,
+                "A valid stagedPhotoId is required.",
+                fieldName: "stagedPhotoId");
 
         var recipe = await LoadRecipeWithChildrenAsync(db, id, ct);
         if (recipe is null) return Results.NotFound();
@@ -2058,14 +2115,13 @@ public static class RecipeEndpoints
         // Owner-only — admin doesn't automatically bypass here.
         if (recipe.CreatedByUserId != userId)
             return FamilienResults.Forbidden(
-                "forbidden", "Du bist nicht der Besitzer dieses Rezepts.");
+                ErrorCodes.Forbidden, "You are not the owner of this recipe.");
 
         var staged = await db.StagedPhotos
             .FirstOrDefaultAsync(s => s.Id == body.StagedPhotoId, ct);
         if (staged is null)
             return FamilienResults.BadRequest(
-                "staged_photo_not_found",
-                "Foto wurde nicht gefunden.");
+                ErrorCodes.StagedPhotoNotFound, "Staged photo not found.");
 
         // Path A: already promoted onto THIS recipe → just reorder.
         if (staged.PromotedAt is not null
@@ -2073,8 +2129,8 @@ public static class RecipeEndpoints
         {
             if (!ReorderCover(recipe, staged.PhotoId))
                 return FamilienResults.BadRequest(
-                    "cover_not_on_recipe",
-                    "Dieses Foto ist nicht auf dem Rezept vorhanden.");
+                    ErrorCodes.CoverNotOnRecipe,
+                    "This photo is not attached to the recipe.");
             await db.SaveChangesAsync(ct);
             var detail = await ProjectDetailAsync(db, recipe, photoStorage, ct);
             return Results.Ok(detail);
@@ -2092,8 +2148,7 @@ public static class RecipeEndpoints
             // that import (via TargetRecipeId).
             if (staged.UserId != userId)
                 return FamilienResults.BadRequest(
-                    "cover_wrong_owner",
-                    "Foto gehört nicht dir.");
+                    ErrorCodes.CoverWrongOwner, "Photo does not belong to you.");
 
             var importMatches = await db.StagedPhotos.AsNoTracking()
                 .AnyAsync(s => s.PromotedToRecipeId == recipe.Id
@@ -2109,13 +2164,13 @@ public static class RecipeEndpoints
             }
             if (!importMatches)
                 return FamilienResults.BadRequest(
-                    "cover_not_from_recipe_import",
-                    "Foto gehört nicht zu diesem Rezept.");
+                    ErrorCodes.CoverNotFromRecipeImport,
+                    "Photo does not belong to this recipe's import.");
 
             if (recipe.Photos.Count >= Recipe.MaxPhotos)
                 return FamilienResults.BadRequest(
-                    "photo_limit_reached",
-                    $"Maximal {Recipe.MaxPhotos} Fotos pro Rezept – Limit erreicht.");
+                    ErrorCodes.PhotoLimitReached,
+                    $"A recipe may have at most {Recipe.MaxPhotos} photos.");
 
             string destinationPath;
             try
@@ -2126,8 +2181,7 @@ public static class RecipeEndpoints
             catch (Exception)
             {
                 return FamilienResults.BadRequest(
-                    "cover_copy_failed",
-                    "Foto konnte nicht kopiert werden.");
+                    ErrorCodes.CoverCopyFailed, "Failed to copy the photo.");
             }
 
             recipe.AddPhoto(destinationPath);
@@ -2148,8 +2202,8 @@ public static class RecipeEndpoints
         }
 
         return FamilienResults.BadRequest(
-            "cover_not_from_recipe_import",
-            "Foto gehört nicht zu diesem Rezept.");
+            ErrorCodes.CoverNotFromRecipeImport,
+            "Photo does not belong to this recipe's import.");
     }
 
     // ── GET /api/recipes/{id}/origin-import (COVER-0 Slice E) ──────
@@ -2207,7 +2261,7 @@ public static class RecipeEndpoints
         // can query /api/imports directly.
         if (recipe.CreatedByUserId != userId)
             return FamilienResults.Forbidden(
-                "forbidden", "Du bist nicht der Besitzer dieses Rezepts.");
+                ErrorCodes.Forbidden, "You are not the owner of this recipe.");
 
         // Primary lookup: a promoted staged photo on the recipe tells us
         // which import it was captured for.
@@ -2322,15 +2376,15 @@ public static class RecipeEndpoints
         if (string.IsNullOrWhiteSpace(recipe.SourceUrl))
         {
             return FamilienResults.BadRequest(
-                "source_url_missing",
-                "Dieses Rezept hat keine Quell-URL — Reimport ist nur für URL-Imports möglich.");
+                ErrorCodes.SourceUrlMissing,
+                "Recipe has no source URL; reimport is only available for URL imports.");
         }
 
         if (recipe.SourceUrl.StartsWith(PhotoSourceSentinel, StringComparison.Ordinal))
         {
             return FamilienResults.BadRequest(
-                "photo_import_reimport_not_supported",
-                "Reimport ist für Foto-Imports nicht möglich — es gibt keine URL zum erneuten Abrufen.");
+                ErrorCodes.PhotoImportReimportNotSupported,
+                "Reimport is not supported for photo imports.");
         }
 
         // REIMPORT-0 hardening — defence-in-depth scheme guard. The
@@ -2348,8 +2402,8 @@ public static class RecipeEndpoints
                 && storedUri.Scheme != Uri.UriSchemeHttps))
         {
             return FamilienResults.BadRequest(
-                "invalid_source_url",
-                "Die gespeicherte Quell-URL ist ungültig — Reimport ist nur für http(s)-URLs möglich.");
+                ErrorCodes.InvalidSourceUrl,
+                "Stored source URL is invalid; reimport is only available for http(s) URLs.");
         }
 
         // OFF3 If-Match guard. The existing helper short-circuits when
@@ -2437,8 +2491,10 @@ public static class RecipeEndpoints
         if (!await IsGroupMemberAsync(db, groupId, userId, ct)) return Results.Forbid();
 
         if (!Enum.TryParse<TagCategory>(body.Category, ignoreCase: false, out var category))
-            return FamilienResults.BadRequest("invalid_category",
-                "Kategorie ist unbekannt.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidCategory,
+                "Unknown tag category.",
+                fieldName: "category");
 
         // Per PRD §4.2 "Custom" is the intended free-form bucket. Custom tags
         // always land in that bucket regardless of what the client sends so
@@ -2451,9 +2507,13 @@ public static class RecipeEndpoints
         {
             newTag = Domain.Entities.Tag.CreateGroupScoped(userId, groupId, body.Name);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            // Domain exception text may leak entity detail. Surface a
+            // stable English developer-message; the frontend keys off
+            // the code for user-facing copy.
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid recipe payload.");
         }
 
         // Duplicate-before-save check so the response is a clean 400 rather
@@ -2461,8 +2521,9 @@ public static class RecipeEndpoints
         var duplicate = await db.Tags.AnyAsync(t =>
             t.GroupId == groupId && t.Category == newTag.Category && t.Name == newTag.Name, ct);
         if (duplicate)
-            return FamilienResults.BadRequest("tag_exists",
-                "Ein Tag mit diesem Namen existiert bereits in dieser Gruppe.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.TagExists,
+                "A tag with this name already exists in this group.");
 
         db.Tags.Add(newTag);
         await db.SaveChangesAsync(ct);
@@ -2497,8 +2558,9 @@ public static class RecipeEndpoints
         // Global tags are managed via the seed migration — endpoint can't
         // touch them. Protect that boundary explicitly.
         if (tag.GroupId is null)
-            return FamilienResults.BadRequest("global_tag_protected",
-                "Globale Tags können nicht gelöscht werden.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.GlobalTagProtected,
+                "Global tags cannot be deleted.");
 
         if (tag.GroupId != groupId)
             return Results.NotFound();

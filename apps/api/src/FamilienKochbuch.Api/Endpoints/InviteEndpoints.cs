@@ -92,7 +92,8 @@ public static class InviteEndpoints
     {
         var invite = await db.AppInvites.SingleOrDefaultAsync(i => i.Token == token, ct);
         if (invite is null)
-            return FamilienResults.NotFound("invite_not_found", "Einladung wurde nicht gefunden.");
+            return FamilienResults.NotFound(
+                ErrorCodes.InviteNotFound, "Invite not found.");
 
         var creator = await db.Users
             .Where(u => u.Id == invite.CreatedByUserId)

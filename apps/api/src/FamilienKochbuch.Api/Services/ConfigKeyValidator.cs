@@ -9,10 +9,10 @@ namespace FamilienKochbuch.Api.Services;
 /// config/{key}</c> endpoint. Given a config key and the incoming JSON
 /// value (raw <see cref="JsonElement"/> off the request body), returns
 /// either the normalised JSON payload to persist or a validation error
-/// with a German message safe to show to the admin.
+/// with an English developer-facing message.
 ///
 /// <para>
-/// Rules are declared once in <see cref="ValidationRulesByKey"/>; neither
+/// Rules are declared once in the <see cref="Validate"/> dispatch; neither
 /// the endpoint nor the reset path re-implements any of the bounds
 /// checks. This keeps the per-key contract in one auditable place
 /// (/simplify review: the endpoint only orchestrates, the validator owns
@@ -55,7 +55,7 @@ public sealed class ConfigKeyValidator
 
     /// <summary>Per-item length cap on <c>string_list</c> values
     /// (blacklists + shortener hosts). 100 chars is enough for any
-    /// real hostname or German label; the cap prevents a rogue entry
+    /// real hostname or label; the cap prevents a rogue entry
     /// turning the jsonb cell into a storage exploit.</summary>
     public const int StringListItemMaxLength = 100;
 
@@ -84,7 +84,7 @@ public sealed class ConfigKeyValidator
     public ValidationResult Validate(string key, JsonElement value)
     {
         if (!ExtractorConfigDefaults.ByKey.TryGetValue(key, out var entry))
-            return ValidationResult.Fail($"Unbekannter Konfigurationsschlüssel '{key}'.");
+            return ValidationResult.Fail($"Unknown configuration key '{key}'.");
 
         return entry.ValueType switch
         {
@@ -94,7 +94,7 @@ public sealed class ConfigKeyValidator
             ExtractorConfigValueType.Bool => ValidateBool(key, value),
             ExtractorConfigValueType.StringList => ValidateStringList(key, value),
             _ => ValidationResult.Fail(
-                $"Unbekannter Werttyp '{entry.ValueType}' für Schlüssel '{key}'."),
+                $"Unknown value type '{entry.ValueType}' for key '{key}'."),
         };
     }
 
@@ -102,24 +102,24 @@ public sealed class ConfigKeyValidator
     {
         if (value.ValueKind != JsonValueKind.String)
             return ValidationResult.Fail(
-                $"Wert für '{key}' muss eine Zeichenkette sein.");
+                $"Value for '{key}' must be a string.");
         var raw = value.GetString() ?? string.Empty;
 
         if (key.EndsWith(".system_prompt", StringComparison.Ordinal))
         {
             if (raw.Length < MinPromptChars)
                 return ValidationResult.Fail(
-                    $"System-Prompt muss mindestens {MinPromptChars} Zeichen umfassen.");
+                    $"System prompt must be at least {MinPromptChars} characters.");
             if (raw.Length > MaxPromptChars)
                 return ValidationResult.Fail(
-                    $"System-Prompt darf höchstens {MaxPromptChars} Zeichen umfassen.");
+                    $"System prompt must be at most {MaxPromptChars} characters.");
         }
         else if (key.EndsWith(".deployment", StringComparison.Ordinal))
         {
             if (!DeploymentNameRegex.IsMatch(raw))
                 return ValidationResult.Fail(
-                    $"Deployment-Name '{raw}' ist ungültig. "
-                    + "Erlaubt: Kleinbuchstaben, Ziffern, '-', '_', '.', 2-64 Zeichen.");
+                    $"Deployment name '{raw}' is invalid. "
+                    + "Allowed: lowercase letters, digits, '-', '_', '.', 2-64 characters.");
         }
         else
         {
@@ -129,7 +129,7 @@ public sealed class ConfigKeyValidator
             // key suffix the switch above doesn't recognise.
             if (raw.Length > MaxPromptChars)
                 return ValidationResult.Fail(
-                    $"Wert für '{key}' darf höchstens {MaxPromptChars} Zeichen umfassen.");
+                    $"Value for '{key}' must be at most {MaxPromptChars} characters.");
         }
 
         return ValidationResult.Ok(JsonSerializer.Serialize(raw));
@@ -139,12 +139,12 @@ public sealed class ConfigKeyValidator
     {
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var n))
             return ValidationResult.Fail(
-                $"Wert für '{key}' muss eine ganze Zahl sein.");
+                $"Value for '{key}' must be an integer.");
 
         var (min, max) = IntBounds(key);
         if (n < min || n > max)
             return ValidationResult.Fail(
-                $"Wert für '{key}' muss zwischen {min} und {max} liegen.");
+                $"Value for '{key}' must be between {min} and {max}.");
 
         return ValidationResult.Ok(JsonSerializer.Serialize(n));
     }
@@ -153,15 +153,15 @@ public sealed class ConfigKeyValidator
     {
         if (value.ValueKind != JsonValueKind.Number)
             return ValidationResult.Fail(
-                $"Wert für '{key}' muss eine Zahl sein.");
+                $"Value for '{key}' must be a number.");
         if (!value.TryGetDouble(out var d) || double.IsNaN(d) || double.IsInfinity(d))
             return ValidationResult.Fail(
-                $"Wert für '{key}' muss eine endliche Zahl sein.");
+                $"Value for '{key}' must be a finite number.");
 
         var (min, max) = FloatBounds(key);
         if (d < min || d > max)
             return ValidationResult.Fail(
-                $"Wert für '{key}' muss zwischen {min} und {max} liegen.");
+                $"Value for '{key}' must be between {min} and {max}.");
 
         // Round-trip through JSON so "0" → 0.0 → "0" stays stable
         // (System.Text.Json emits "0" for integer-valued doubles, which
@@ -173,7 +173,7 @@ public sealed class ConfigKeyValidator
     {
         if (value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             return ValidationResult.Fail(
-                $"Wert für '{key}' muss true oder false sein.");
+                $"Value for '{key}' must be true or false.");
         return ValidationResult.Ok(value.GetBoolean() ? "true" : "false");
     }
 
@@ -181,27 +181,27 @@ public sealed class ConfigKeyValidator
     {
         if (value.ValueKind != JsonValueKind.Array)
             return ValidationResult.Fail(
-                $"Wert für '{key}' muss eine Liste von Zeichenketten sein.");
+                $"Value for '{key}' must be a list of strings.");
 
         var items = new List<string>();
         foreach (var el in value.EnumerateArray())
         {
             if (el.ValueKind != JsonValueKind.String)
                 return ValidationResult.Fail(
-                    $"Einträge in '{key}' müssen Zeichenketten sein.");
+                    $"Entries in '{key}' must be strings.");
             var s = el.GetString() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(s))
                 return ValidationResult.Fail(
-                    $"Einträge in '{key}' dürfen nicht leer sein.");
+                    $"Entries in '{key}' must not be empty.");
             if (s.Length > StringListItemMaxLength)
                 return ValidationResult.Fail(
-                    $"Einträge in '{key}' dürfen höchstens {StringListItemMaxLength} Zeichen lang sein.");
+                    $"Entries in '{key}' must be at most {StringListItemMaxLength} characters.");
             items.Add(s);
         }
 
         if (items.Count > StringListMaxItems)
             return ValidationResult.Fail(
-                $"Liste '{key}' darf höchstens {StringListMaxItems} Einträge enthalten.");
+                $"List '{key}' must contain at most {StringListMaxItems} entries.");
 
         return ValidationResult.Ok(JsonSerializer.Serialize(items));
     }

@@ -56,17 +56,21 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(token))
-            return FamilienResults.BadRequest("invite_token_missing", "Ein Einladungstoken wird benötigt.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InviteTokenMissing, "An invite token is required.");
 
         var now = clock.GetUtcNow();
         var invite = await db.AppInvites.SingleOrDefaultAsync(i => i.Token == token, ct);
         if (invite is null)
-            return FamilienResults.BadRequest("invite_not_found", "Einladung existiert nicht.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InviteNotFound, "Invite not found.");
         if (!invite.IsValid(now))
-            return FamilienResults.BadRequest("invite_invalid", "Einladung ist abgelaufen oder bereits verwendet.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InviteInvalid, "Invite expired or already used.");
 
         if (string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.Password) || string.IsNullOrWhiteSpace(body.DisplayName))
-            return FamilienResults.BadRequest("missing_fields", "E-Mail, Passwort und Anzeigename sind erforderlich.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.MissingFields, "Email, password, and display name are required.");
 
         User user;
         try
@@ -75,21 +79,32 @@ public static class AuthEndpoints
             user.SetEmail(body.Email);
             user.SetDisplayName(body.DisplayName);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            // Do NOT echo the domain exception text — its message may
+            // reference internal entity state. Keep the response generic
+            // and rely on the code for branch logic.
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid signup payload.");
         }
         user.EmailConfirmed = true; // invite flow pre-confirms
 
         if (await users.FindByEmailAsync(user.Email!) is not null)
-            return FamilienResults.BadRequest("email_taken", "Diese E-Mail-Adresse ist bereits registriert.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.EmailTaken, "Email is already registered.");
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var createResult = await users.CreateAsync(user, body.Password);
         if (!createResult.Succeeded)
+        {
+            // Identity error descriptions are culture-localised at the
+            // framework level; don't forward them verbatim — use a
+            // fixed English message and let the frontend render a
+            // user-facing hint from the code.
             return FamilienResults.BadRequest(
-                "password_rejected",
-                string.Join("; ", createResult.Errors.Select(e => e.Description)));
+                ErrorCodes.PasswordRejected,
+                "Password does not meet the policy.");
+        }
 
         invite.MarkUsed(user.Id, now);
         await db.SaveChangesAsync(ct);
@@ -113,11 +128,13 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.Password))
-            return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
+            return FamilienResults.Unauthorized(
+                ErrorCodes.InvalidCredentials, "Invalid email or password.");
 
         var user = await users.FindByEmailAsync(body.Email.Trim().ToLowerInvariant());
         if (user is null)
-            return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
+            return FamilienResults.Unauthorized(
+                ErrorCodes.InvalidCredentials, "Invalid email or password.");
 
         // REL-0b — reject locked-out accounts BEFORE we verify the
         // password. AccessFailedAsync + Lockout options configured in
@@ -125,14 +142,16 @@ public static class AuthEndpoints
         // We keep the response identical to "wrong password" so the
         // endpoint doesn't leak lockout state to an attacker.
         if (await users.IsLockedOutAsync(user))
-            return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
+            return FamilienResults.Unauthorized(
+                ErrorCodes.InvalidCredentials, "Invalid email or password.");
 
         if (!await users.CheckPasswordAsync(user, body.Password))
         {
             // Bumps AccessFailedCount + sets LockoutEnd once the
             // MaxFailedAccessAttempts threshold is crossed.
             await users.AccessFailedAsync(user);
-            return FamilienResults.Unauthorized("invalid_credentials", "E-Mail oder Passwort ungültig.");
+            return FamilienResults.Unauthorized(
+                ErrorCodes.InvalidCredentials, "Invalid email or password.");
         }
 
         // Correct password — reset the failure counter so transient
@@ -227,21 +246,29 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(body.Token) || string.IsNullOrWhiteSpace(body.NewPassword))
-            return FamilienResults.BadRequest("invalid_input", "Token und neues Passwort sind erforderlich.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Token and new password are required.");
 
         var parts = body.Token.Split('|', 2);
         if (parts.Length != 2 || !Guid.TryParse(parts[0], out var userId))
-            return FamilienResults.BadRequest("invalid_token", "Ungültiger Reset-Link.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidToken, "Invalid reset link.");
 
         var user = await users.FindByIdAsync(userId.ToString());
         if (user is null)
-            return FamilienResults.BadRequest("invalid_token", "Ungültiger Reset-Link.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidToken, "Invalid reset link.");
 
         var result = await users.ResetPasswordAsync(user, parts[1], body.NewPassword);
         if (!result.Succeeded)
+        {
+            // Same rationale as SignupAsync: don't forward Identity's
+            // localized error descriptions — pin a stable English
+            // message + rely on the code for branching.
             return FamilienResults.BadRequest(
-                "reset_failed",
-                string.Join("; ", result.Errors.Select(e => e.Description)));
+                ErrorCodes.ResetFailed,
+                "Password reset failed. The link may be expired or the password rejected.");
+        }
 
         await tokens.RevokeAllForUserAsync(user.Id, ct);
         return Results.NoContent();

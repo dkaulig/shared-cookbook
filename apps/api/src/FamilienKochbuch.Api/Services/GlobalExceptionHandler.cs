@@ -14,8 +14,7 @@ namespace FamilienKochbuch.Api.Services;
 /// </summary>
 public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
 {
-    private const string Code = "internal_error";
-    private const string Message = "Es ist ein unerwarteter Fehler aufgetreten. Bitte versuche es später erneut.";
+    private const string Message = "An unexpected error occurred. Please retry later.";
 
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
@@ -27,7 +26,10 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
         httpContext.Response.ContentType = "application/json; charset=utf-8";
 
-        var body = new ErrorResponse(Code, Message);
+        var body = new ErrorResponse(
+            ErrorCodes.InternalError,
+            Message,
+            StatusCodes.Status500InternalServerError);
         await JsonSerializer.SerializeAsync(httpContext.Response.Body, body,
             FamilienResults.JsonOptions, cancellationToken);
         return true;

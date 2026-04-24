@@ -682,7 +682,7 @@ public class ShoppingListEndpointsTests : IClassFixture<FamilienKochbuchWebAppli
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         var body = await res.Content.ReadAsStringAsync();
-        Assert.Contains("category.invalid", body);
+        Assert.Contains("invalid_category", body);
     }
 
     // ── DELETE /shopping-lists/{id}/items/{itemId} ─────────────────

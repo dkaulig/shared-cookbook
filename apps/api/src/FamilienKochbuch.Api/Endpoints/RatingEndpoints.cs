@@ -114,9 +114,10 @@ public static class RatingEndpoints
             }
             await db.SaveChangesAsync(ct);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid rating payload.");
         }
 
         var displayName = await db.Users.Where(u => u.Id == userId)

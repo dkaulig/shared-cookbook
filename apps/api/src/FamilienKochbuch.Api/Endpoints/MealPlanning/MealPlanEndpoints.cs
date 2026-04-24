@@ -202,7 +202,8 @@ public static class MealPlanEndpoints
     {
         var plan = await db.MealPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
         if (plan is null)
-            return (null, FamilienResults.NotFound("mealplan.not_found", "MealPlan wurde nicht gefunden."));
+            return (null, FamilienResults.NotFound(
+                ErrorCodes.MealplanNotFound, "Meal plan not found."));
         if (!await IsGroupMemberAsync(db, plan.GroupId, userId, ct))
             return (null, Results.Forbid());
         return (plan, null);
@@ -233,8 +234,8 @@ public static class MealPlanEndpoints
             .Where(s => s.MealPlanId == plan.Id)
             .ToListAsync(ct);
         return FamilienResults.Conflict(
-            "version_mismatch",
-            "Der Eintrag wurde zwischenzeitlich geändert.",
+            ErrorCodes.VersionMismatch,
+            "Version mismatch; reload and retry.",
             (object?)ToDto(plan, slots));
     }
 
@@ -298,26 +299,35 @@ public static class MealPlanEndpoints
         var parent = await db.MealPlanSlots
             .FirstOrDefaultAsync(s => s.Id == parentId.Value, ct);
         if (parent is null)
-            return FamilienResults.BadRequest("parent.not_found",
-                "Der Parent-Slot wurde nicht gefunden.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.ParentNotFound,
+                "Parent slot not found.",
+                fieldName: "parentSlotId");
         if (parent.MealPlanId != plan.Id)
-            return FamilienResults.BadRequest("parent.cross_plan",
-                "Der Parent-Slot gehört zu einem anderen Wochenplan.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.ParentCrossPlan,
+                "Parent slot belongs to a different meal plan.",
+                fieldName: "parentSlotId");
 
         // Endpoint-layer cycle check that survives detached-entity
         // reads — see LoadAncestorIdsAsync for the rationale.
         var ancestors = await LoadAncestorIdsAsync(db, parent.Id, plan.Id, ct);
         if (ancestors.Contains(slot.Id))
-            return FamilienResults.BadRequest("parent.cycle",
-                "Parent-Zuweisung würde einen Zyklus erzeugen.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.ParentCycle,
+                "Parent assignment would create a cycle.",
+                fieldName: "parentSlotId");
 
         try
         {
             slot.SetParent(parent, now);
         }
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException)
         {
-            return FamilienResults.BadRequest("parent.cross_plan", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.ParentCrossPlan,
+                "Parent assignment rejected by the domain aggregate.",
+                fieldName: "parentSlotId");
         }
         return null;
     }
@@ -334,11 +344,15 @@ public static class MealPlanEndpoints
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
         if (!TryParseIsoDate(weekStart, out var week))
-            return FamilienResults.BadRequest("weekstart.invalid_format",
-                "weekStart muss das Format YYYY-MM-DD haben.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.WeekstartInvalidFormat,
+                "weekStart must be in YYYY-MM-DD format.",
+                fieldName: "weekStart");
         if (!IsMonday(week))
-            return FamilienResults.BadRequest("weekstart.not_monday",
-                "weekStart muss ein Montag sein.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.WeekstartNotMonday,
+                "weekStart must be a Monday.",
+                fieldName: "weekStart");
 
         var groupExists = await db.Groups.AnyAsync(g => g.Id == groupId && g.DeletedAt == null, ct);
         if (!groupExists) return Results.NotFound();
@@ -347,8 +361,9 @@ public static class MealPlanEndpoints
         var plan = await db.MealPlans
             .FirstOrDefaultAsync(p => p.GroupId == groupId && p.WeekStart == week, ct);
         if (plan is null)
-            return FamilienResults.NotFound("mealplan.not_found",
-                "Für diese Woche existiert noch kein Wochenplan.");
+            return FamilienResults.NotFound(
+                ErrorCodes.MealplanNotFound,
+                "No meal plan exists for this week yet.");
 
         var slots = await db.MealPlanSlots
             .Where(s => s.MealPlanId == plan.Id)
@@ -370,8 +385,10 @@ public static class MealPlanEndpoints
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
         if (!IsMonday(body.WeekStart))
-            return FamilienResults.BadRequest("weekstart.not_monday",
-                "weekStart muss ein Montag sein.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.WeekstartNotMonday,
+                "weekStart must be a Monday.",
+                fieldName: "weekStart");
 
         var groupExists = await db.Groups.AnyAsync(g => g.Id == groupId && g.DeletedAt == null, ct);
         if (!groupExists) return Results.NotFound();
@@ -396,9 +413,10 @@ public static class MealPlanEndpoints
         {
             plan = new MealPlan(groupId, body.WeekStart, now);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid meal plan payload.");
         }
         db.MealPlans.Add(plan);
         await db.SaveChangesAsync(ct);
@@ -449,8 +467,10 @@ public static class MealPlanEndpoints
             var recipeOk = await db.Recipes
                 .AnyAsync(r => r.Id == recipeId && r.GroupId == plan!.GroupId && r.DeletedAt == null, ct);
             if (!recipeOk)
-                return FamilienResults.BadRequest("recipe.not_in_group",
-                    "Das Rezept gehört nicht zur Gruppe dieses Wochenplans.");
+                return FamilienResults.BadRequest(
+                    ErrorCodes.RecipeNotInGroup,
+                    "Recipe does not belong to this plan's group.",
+                    fieldName: "recipeId");
         }
 
         MealPlanSlot slot;
@@ -469,13 +489,15 @@ public static class MealPlanEndpoints
                 sortOrder: sortOrder,
                 createdAt: now);
         }
-        catch (ArgumentOutOfRangeException ex)
+        catch (ArgumentOutOfRangeException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid slot payload.");
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid slot payload.");
         }
 
         if (body.ParentSlotId is { } parentId)
@@ -568,17 +590,18 @@ public static class MealPlanEndpoints
         var slot = await db.MealPlanSlots
             .FirstOrDefaultAsync(s => s.Id == slotId, ct);
         if (slot is null || slot.MealPlanId != plan!.Id)
-            return FamilienResults.NotFound("slot.not_found",
-                "Slot wurde nicht gefunden.");
+            return FamilienResults.NotFound(
+                ErrorCodes.SlotNotFound, "Slot not found.");
 
         SlotPatchRequest patch;
         try
         {
             patch = await SlotPatchRequest.ReadAsync(request, ct);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid slot payload.");
         }
 
         var now = clock.GetUtcNow();
@@ -595,8 +618,10 @@ public static class MealPlanEndpoints
                     var recipeOk = await db.Recipes
                         .AnyAsync(x => x.Id == r && x.GroupId == plan!.GroupId && x.DeletedAt == null, ct);
                     if (!recipeOk)
-                        return FamilienResults.BadRequest("recipe.not_in_group",
-                            "Das Rezept gehört nicht zur Gruppe dieses Wochenplans.");
+                        return FamilienResults.BadRequest(
+                            ErrorCodes.RecipeNotInGroup,
+                            "Recipe does not belong to this plan's group.",
+                            fieldName: "recipeId");
                 }
                 slot.SetRecipe(rid, now);
             }
@@ -620,22 +645,28 @@ public static class MealPlanEndpoints
                 if (parentErr is not null) return parentErr;
             }
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid slot payload.");
         }
-        catch (ArgumentOutOfRangeException ex)
+        catch (ArgumentOutOfRangeException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid slot payload.");
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("invalid_input", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid meal plan payload.");
         }
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException)
         {
             // Domain rejects cross-plan / cycle.
-            return FamilienResults.BadRequest("parent.cross_plan", ex.Message);
+            return FamilienResults.BadRequest(
+                ErrorCodes.ParentCrossPlan,
+                "Parent assignment rejected by the domain aggregate.",
+                fieldName: "parentSlotId");
         }
 
         plan!.BumpVersion(now);
@@ -679,8 +710,8 @@ public static class MealPlanEndpoints
         var slot = await db.MealPlanSlots
             .FirstOrDefaultAsync(s => s.Id == slotId, ct);
         if (slot is null || slot.MealPlanId != plan!.Id)
-            return FamilienResults.NotFound("slot.not_found",
-                "Slot wurde nicht gefunden.");
+            return FamilienResults.NotFound(
+                ErrorCodes.SlotNotFound, "Slot not found.");
 
         // Per plan §P3-1: preserve user work by nulling out children's
         // ParentSlotId BEFORE deleting this slot rather than letting the
@@ -728,11 +759,15 @@ public static class MealPlanEndpoints
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
         if (!TryParseIsoDate(sourceWeekStart, out var sourceWeek))
-            return FamilienResults.BadRequest("weekstart.invalid_format",
-                "sourceWeekStart muss das Format YYYY-MM-DD haben.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.WeekstartInvalidFormat,
+                "sourceWeekStart must be in YYYY-MM-DD format.",
+                fieldName: "sourceWeekStart");
         if (!IsMonday(sourceWeek))
-            return FamilienResults.BadRequest("weekstart.not_monday",
-                "sourceWeekStart muss ein Montag sein.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.WeekstartNotMonday,
+                "sourceWeekStart must be a Monday.",
+                fieldName: "sourceWeekStart");
 
         var (targetPlan, err) = await LoadPlanWithMembershipAsync(db, planId, userId, ct);
         if (err is not null) return err;
@@ -751,18 +786,21 @@ public static class MealPlanEndpoints
         var existingSlotCount = await db.MealPlanSlots
             .CountAsync(s => s.MealPlanId == planId, ct);
         if (existingSlotCount > 0)
-            return FamilienResults.Conflict("copy.target_not_empty",
-                "Zielplan enthält bereits Slots — Kopieren nur in leeren Plan möglich.");
+            return FamilienResults.Conflict(
+                ErrorCodes.CopyTargetNotEmpty,
+                "Target plan is not empty; copy is only allowed into an empty plan.");
 
         var sourcePlan = await db.MealPlans
             .FirstOrDefaultAsync(p => p.GroupId == targetPlan!.GroupId && p.WeekStart == sourceWeek, ct);
         if (sourcePlan is null)
-            return FamilienResults.NotFound("source.not_found",
-                "Quell-Wochenplan wurde nicht gefunden.");
+            return FamilienResults.NotFound(
+                ErrorCodes.SourceNotFound,
+                "Source meal plan not found.");
 
         if (sourcePlan.Id == targetPlan!.Id)
-            return FamilienResults.BadRequest("copy.same_plan",
-                "Quell- und Ziel-Wochenplan sind identisch.");
+            return FamilienResults.BadRequest(
+                ErrorCodes.CopySamePlan,
+                "Source and target meal plans are identical.");
 
         var sourceSlots = await db.MealPlanSlots
             .Where(s => s.MealPlanId == sourcePlan.Id)
@@ -867,8 +905,8 @@ public static class MealPlanEndpoints
             currentDto = ToDto(fresh, slots);
         }
         return FamilienResults.Conflict(
-            "version_mismatch",
-            "Der Eintrag wurde zwischenzeitlich geändert.",
+            ErrorCodes.VersionMismatch,
+            "Version mismatch; reload and retry.",
             (object?)currentDto);
     }
 

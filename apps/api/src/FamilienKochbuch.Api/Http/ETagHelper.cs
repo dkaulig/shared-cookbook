@@ -105,8 +105,8 @@ public static class ETagHelper
             return null;
 
         return FamilienResults.Conflict(
-            "version_mismatch",
-            "Der Eintrag wurde zwischenzeitlich geändert.",
+            ErrorCodes.VersionMismatch,
+            "Version mismatch; reload and retry.",
             current);
     }
 

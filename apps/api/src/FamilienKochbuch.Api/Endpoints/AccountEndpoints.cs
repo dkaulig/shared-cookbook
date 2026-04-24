@@ -47,30 +47,34 @@ public static class AccountEndpoints
             || string.IsNullOrEmpty(body.NewPasswordConfirm))
         {
             return FamilienResults.BadRequest(
-                "missing_fields",
-                "Aktuelles Passwort, neues Passwort und Bestätigung sind erforderlich.");
+                ErrorCodes.MissingFields,
+                "Current password, new password, and confirmation are required.");
         }
 
         if (!string.Equals(body.NewPassword, body.NewPasswordConfirm, StringComparison.Ordinal))
         {
             return FamilienResults.BadRequest(
-                "password_mismatch",
-                "Neues Passwort und Bestätigung stimmen nicht überein.");
+                ErrorCodes.PasswordMismatch,
+                "New password and confirmation do not match.",
+                fieldName: "newPasswordConfirm");
         }
 
         if (string.Equals(body.NewPassword, body.CurrentPassword, StringComparison.Ordinal))
         {
             return FamilienResults.BadRequest(
-                "password_unchanged",
-                "Das neue Passwort muss sich vom aktuellen unterscheiden.");
+                ErrorCodes.PasswordUnchanged,
+                "New password must differ from the current password.",
+                fieldName: "newPassword");
         }
 
         var user = await users.FindByIdAsync(userId.ToString());
         if (user is null)
-            return FamilienResults.Unauthorized("invalid_credentials", "Aktuelles Passwort ist falsch.");
+            return FamilienResults.Unauthorized(
+                ErrorCodes.InvalidCredentials, "Current password is incorrect.");
 
         if (!await users.CheckPasswordAsync(user, body.CurrentPassword))
-            return FamilienResults.Unauthorized("invalid_credentials", "Aktuelles Passwort ist falsch.");
+            return FamilienResults.Unauthorized(
+                ErrorCodes.InvalidCredentials, "Current password is incorrect.");
 
         var result = await users.ChangePasswordAsync(user, body.CurrentPassword, body.NewPassword);
         if (!result.Succeeded)
@@ -80,9 +84,14 @@ public static class AccountEndpoints
                 user.Id,
                 string.Join("; ", result.Errors.Select(e => $"{e.Code}: {e.Description}")));
 
-            var firstError = result.Errors.FirstOrDefault();
-            var message = TranslateIdentityError(firstError);
-            return FamilienResults.BadRequest("password_rejected", message);
+            // Identity's Description strings are culture-localised and
+            // sometimes include specifics the frontend renders better
+            // on its own. Pin a fixed English developer message; the
+            // frontend keys off the code for user-facing copy.
+            return FamilienResults.BadRequest(
+                ErrorCodes.PasswordRejected,
+                "Password does not meet the policy.",
+                fieldName: "newPassword");
         }
 
         // Side-effect policy (per plan): do NOT revoke the refresh token or
@@ -104,8 +113,9 @@ public static class AccountEndpoints
         if (trimmed.Length < DisplayNameMinLength || trimmed.Length > DisplayNameMaxLength)
         {
             return FamilienResults.BadRequest(
-                "displayname_invalid",
-                $"Anzeigename muss zwischen {DisplayNameMinLength} und {DisplayNameMaxLength} Zeichen lang sein.");
+                ErrorCodes.DisplayNameInvalid,
+                $"Display name must be between {DisplayNameMinLength} and {DisplayNameMaxLength} characters.",
+                fieldName: "displayName");
         }
 
         var user = await db.Users.SingleOrDefaultAsync(u => u.Id == userId, ct);
@@ -116,9 +126,14 @@ public static class AccountEndpoints
         {
             user.SetDisplayName(trimmed);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return FamilienResults.BadRequest("displayname_invalid", ex.Message);
+            // Domain exception text may leak implementation detail —
+            // emit a stable English message instead.
+            return FamilienResults.BadRequest(
+                ErrorCodes.DisplayNameInvalid,
+                "Display name is invalid.",
+                fieldName: "displayName");
         }
 
         await db.SaveChangesAsync(ct);
@@ -138,24 +153,6 @@ public static class AccountEndpoints
         var sub = principal.FindFirstValue("sub")
                   ?? principal.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(sub, out userId);
-    }
-
-    private static string TranslateIdentityError(IdentityError? error)
-    {
-        if (error is null)
-            return "Passwort entspricht nicht den Anforderungen.";
-
-        return error.Code switch
-        {
-            "PasswordTooShort" => "Passwort ist zu kurz (mindestens 8 Zeichen).",
-            "PasswordRequiresDigit" => "Passwort muss eine Ziffer enthalten.",
-            "PasswordRequiresLower" => "Passwort muss einen Kleinbuchstaben enthalten.",
-            "PasswordRequiresUpper" => "Passwort muss einen Großbuchstaben enthalten.",
-            "PasswordRequiresNonAlphanumeric" => "Passwort muss ein Sonderzeichen enthalten.",
-            "PasswordRequiresUniqueChars" => "Passwort muss mehr unterschiedliche Zeichen enthalten.",
-            "PasswordMismatch" => "Aktuelles Passwort ist falsch.",
-            _ => "Passwort entspricht nicht den Anforderungen.",
-        };
     }
 
     /// <summary>Logger category marker — keeps <c>ILogger&lt;…&gt;</c> injection typed.</summary>

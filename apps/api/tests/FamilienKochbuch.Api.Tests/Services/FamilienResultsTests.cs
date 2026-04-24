@@ -16,13 +16,13 @@ public class FamilienResultsTests
     [Fact]
     public async Task BadRequest_Returns_400_With_Code_And_Message()
     {
-        var result = FamilienResults.BadRequest("invalid_input", "Title ist erforderlich.");
+        var result = FamilienResults.BadRequest("invalid_input", "Title is required.");
 
         var body = await CaptureBodyAsync(result);
 
         Assert.Equal(400, body.statusCode);
         Assert.Equal("invalid_input", body.element.GetProperty("code").GetString());
-        Assert.Equal("Title ist erforderlich.", body.element.GetProperty("message").GetString());
+        Assert.Equal("Title is required.", body.element.GetProperty("message").GetString());
         Assert.False(body.element.TryGetProperty("details", out _));
     }
 
@@ -31,8 +31,8 @@ public class FamilienResultsTests
     {
         var result = FamilienResults.BadRequest(
             "invalid_input",
-            "Ungültige Eingabe.",
-            new Dictionary<string, object>
+            "Invalid request payload.",
+            details: new Dictionary<string, object>
             {
                 ["field"] = "title",
                 ["maxLength"] = 200,
@@ -49,19 +49,19 @@ public class FamilienResultsTests
     [Fact]
     public async Task NotFound_Returns_404_With_Structured_Body()
     {
-        var result = FamilienResults.NotFound("recipe_not_found", "Rezept existiert nicht.");
+        var result = FamilienResults.NotFound("recipe_not_found", "Recipe not found.");
 
         var body = await CaptureBodyAsync(result);
 
         Assert.Equal(404, body.statusCode);
         Assert.Equal("recipe_not_found", body.element.GetProperty("code").GetString());
-        Assert.Equal("Rezept existiert nicht.", body.element.GetProperty("message").GetString());
+        Assert.Equal("Recipe not found.", body.element.GetProperty("message").GetString());
     }
 
     [Fact]
     public async Task Forbidden_Returns_403_With_Structured_Body()
     {
-        var result = FamilienResults.Forbidden("not_a_member", "Zugriff verweigert.");
+        var result = FamilienResults.Forbidden("not_a_member", "Access denied.");
 
         var body = await CaptureBodyAsync(result);
 
@@ -72,7 +72,7 @@ public class FamilienResultsTests
     [Fact]
     public async Task Conflict_Returns_409_With_Structured_Body()
     {
-        var result = FamilienResults.Conflict("tag_exists", "Tag existiert bereits.");
+        var result = FamilienResults.Conflict("tag_exists", "Tag already exists.");
 
         var body = await CaptureBodyAsync(result);
 

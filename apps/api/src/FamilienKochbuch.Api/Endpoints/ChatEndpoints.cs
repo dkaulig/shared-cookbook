@@ -232,14 +232,16 @@ public static class ChatEndpoints
         if (body is null || string.IsNullOrWhiteSpace(body.Title))
         {
             return FamilienResults.BadRequest(
-                "invalid_title",
-                "Der Titel darf nicht leer sein.");
+                ErrorCodes.InvalidTitle,
+                "Title must not be empty.",
+                fieldName: "title");
         }
         if (body.Title.Length > ChatSession.TitleMaxLength)
         {
             return FamilienResults.BadRequest(
-                "invalid_title",
-                $"Der Titel darf höchstens {ChatSession.TitleMaxLength} Zeichen lang sein.");
+                ErrorCodes.InvalidTitle,
+                $"Title must be at most {ChatSession.TitleMaxLength} characters.",
+                fieldName: "title");
         }
 
         var session = await LoadOwnedSessionAsync(db, id, callerId, ct);
@@ -252,8 +254,9 @@ public static class ChatEndpoints
         catch (ArgumentException)
         {
             return FamilienResults.BadRequest(
-                "invalid_title",
-                "Der Titel ist ungültig.");
+                ErrorCodes.InvalidTitle,
+                "Title is invalid.",
+                fieldName: "title");
         }
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
@@ -358,7 +361,7 @@ public static class ChatEndpoints
                 FeatureFlagKey, defaultValue: true, ct))
         {
             await WriteJsonErrorAsync(ctx, StatusCodes.Status503ServiceUnavailable,
-                "feature_disabled", "Chat ist aktuell deaktiviert.", ct);
+                ErrorCodes.FeatureDisabled, "Chat is currently disabled.", ct);
             return;
         }
 
@@ -380,21 +383,21 @@ public static class ChatEndpoints
         catch (JsonException)
         {
             await WriteJsonErrorAsync(ctx, StatusCodes.Status400BadRequest,
-                "invalid_body", "Der Anfrage-Body ist kein gültiges JSON.", ct);
+                ErrorCodes.InvalidBody, "Request body is not valid JSON.", ct);
             return;
         }
 
         if (body is null || string.IsNullOrWhiteSpace(body.Content))
         {
             await WriteJsonErrorAsync(ctx, StatusCodes.Status400BadRequest,
-                "invalid_content", "Die Nachricht darf nicht leer sein.", ct);
+                ErrorCodes.InvalidContent, "Message content must not be empty.", ct);
             return;
         }
         if (body.Content.Length > TurnContentMaxLength)
         {
             await WriteJsonErrorAsync(ctx, StatusCodes.Status400BadRequest,
-                "content_too_long",
-                $"Die Nachricht darf höchstens {TurnContentMaxLength} Zeichen lang sein.", ct);
+                ErrorCodes.ContentTooLong,
+                $"Message content must be at most {TurnContentMaxLength} characters.", ct);
             return;
         }
 
@@ -621,8 +624,8 @@ public static class ChatEndpoints
         if (messages.Count == 0)
         {
             return FamilienResults.BadRequest(
-                "messages_required",
-                "In dieser Unterhaltung gibt es noch keine Nachrichten.");
+                ErrorCodes.MessagesRequired,
+                "The conversation has no messages yet.");
         }
 
         // Safety net: cap message content before forwarding to Python;
@@ -777,8 +780,13 @@ public static class ChatEndpoints
     {
         ctx.Response.StatusCode = status;
         ctx.Response.ContentType = "application/json; charset=utf-8";
+        // REL-4 — wire shape must match the rest of the API (code,
+        // message, status) even on the SSE-adjacent path that can't
+        // return an IResult. Construct the same ErrorResponse the
+        // FamilienResults helpers emit and serialise it here.
         var payload = JsonSerializer.SerializeToUtf8Bytes(
-            new { code, message }, FamilienResults.JsonOptions);
+            new ErrorResponse(code, message, status),
+            FamilienResults.JsonOptions);
         await ctx.Response.Body.WriteAsync(payload, ct);
     }
 

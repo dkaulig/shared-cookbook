@@ -247,7 +247,8 @@ public static class ImportEndpoints
             return Results.NotFound();
 
         if (!isAdmin && import.UserId != callerGuid)
-            return FamilienResults.Forbidden("forbidden", "Dieser Import gehört dir nicht.");
+            return FamilienResults.Forbidden(
+                ErrorCodes.Forbidden, "This import does not belong to you.");
 
         return Results.Ok(new ImportStatusResponse(
             Id: import.Id,
@@ -326,15 +327,14 @@ public static class ImportEndpoints
             .SingleOrDefaultAsync(ct);
         if (import is null)
             return FamilienResults.NotFound(
-                "import_not_found",
-                "Der angegebene Import wurde nicht gefunden.");
+                ErrorCodes.ImportNotFound, "Import not found.");
 
         // Ownership check — NO admin bypass. The candidate list is the
         // user's own import material; admins who need it can read the
         // StagedPhotos table directly.
         if (import.UserId != callerId)
             return FamilienResults.Forbidden(
-                "forbidden", "Dieser Import gehört dir nicht.");
+                ErrorCodes.Forbidden, "This import does not belong to you.");
 
         var rows = await db.StagedPhotos.AsNoTracking()
             .Where(s => s.LinkedImportId == importId && s.PromotedAt == null)
@@ -342,8 +342,8 @@ public static class ImportEndpoints
 
         if (rows.Count == 0)
             return FamilienResults.Gone(
-                "candidates_expired",
-                "Import-Kandidaten sind nicht mehr verfügbar.");
+                ErrorCodes.CandidatesExpired,
+                "Import candidates are no longer available.");
 
         // Order in memory (SQLite can't compare nullable ints at SQL
         // level on every provider version; the row set is tiny so the
@@ -401,8 +401,9 @@ public static class ImportEndpoints
         // into "list everyone".
         if (!mine)
             return FamilienResults.BadRequest(
-                "mine_required",
-                "Nur eigene Imports können über diesen Endpoint abgerufen werden.");
+                ErrorCodes.MineRequired,
+                "Only the caller's own imports may be listed via this endpoint.",
+                fieldName: "mine");
 
         if (limit <= 0) limit = DefaultMineImportsLimit;
         if (limit > MaxMineImportsLimit) limit = MaxMineImportsLimit;
@@ -492,27 +493,27 @@ public static class ImportEndpoints
 
         if (!TryNormalizeHttpUrl(body?.Url, out var normalizedUrl))
             return FamilienResults.BadRequest(
-                "invalid_url",
-                "Die URL muss absolut sein und mit http:// oder https:// beginnen.");
+                ErrorCodes.InvalidUrl,
+                "URL must be absolute and use http:// or https://.",
+                fieldName: "url");
 
         if (body!.GroupId == Guid.Empty)
             return FamilienResults.BadRequest(
-                "invalid_group",
-                "Die Gruppen-ID fehlt oder ist ungültig.");
+                ErrorCodes.InvalidGroup,
+                "groupId is missing or invalid.",
+                fieldName: "groupId");
 
         var group = await db.Groups
             .SingleOrDefaultAsync(g => g.Id == body.GroupId && g.DeletedAt == null, ct);
         if (group is null)
             return FamilienResults.NotFound(
-                "group_not_found",
-                "Die angegebene Gruppe wurde nicht gefunden.");
+                ErrorCodes.GroupNotFound, "Group not found.");
 
         var isMember = await db.GroupMemberships
             .AnyAsync(m => m.GroupId == body.GroupId && m.UserId == callerId, ct);
         if (!isMember)
             return FamilienResults.Forbidden(
-                "not_a_member",
-                "Du bist in dieser Gruppe nicht Mitglied.");
+                ErrorCodes.NotAMember, "You are not a member of this group.");
 
         // BUG-013 — canonicalise the URL before both the cache lookup
         // and the eventual insert so future re-imports from a different
@@ -632,31 +633,32 @@ public static class ImportEndpoints
         var photoUrls = body?.PhotoUrls ?? Array.Empty<string>();
         if (photoUrls.Length == 0)
             return FamilienResults.BadRequest(
-                "photos_required",
-                "Es muss mindestens ein Foto übermittelt werden.");
+                ErrorCodes.PhotosRequired,
+                "At least one photo is required.",
+                fieldName: "photoUrls");
         if (photoUrls.Length > MaxPhotosPerImport)
             return FamilienResults.BadRequest(
-                "too_many_photos",
-                $"Maximal {MaxPhotosPerImport} Fotos pro Import.");
+                ErrorCodes.TooManyPhotos,
+                $"At most {MaxPhotosPerImport} photos per import.",
+                fieldName: "photoUrls");
 
         if (body!.GroupId == Guid.Empty)
             return FamilienResults.BadRequest(
-                "invalid_group",
-                "Die Gruppen-ID fehlt oder ist ungültig.");
+                ErrorCodes.InvalidGroup,
+                "groupId is missing or invalid.",
+                fieldName: "groupId");
 
         var group = await db.Groups
             .SingleOrDefaultAsync(g => g.Id == body.GroupId && g.DeletedAt == null, ct);
         if (group is null)
             return FamilienResults.NotFound(
-                "group_not_found",
-                "Die angegebene Gruppe wurde nicht gefunden.");
+                ErrorCodes.GroupNotFound, "Group not found.");
 
         var isMember = await db.GroupMemberships
             .AnyAsync(m => m.GroupId == body.GroupId && m.UserId == callerId, ct);
         if (!isMember)
             return FamilienResults.Forbidden(
-                "not_a_member",
-                "Du bist in dieser Gruppe nicht Mitglied.");
+                ErrorCodes.NotAMember, "You are not a member of this group.");
 
         // Each URL must round-trip through the signed-URL verifier.
         // Reject the whole batch on the first bad one — a frontend bug
@@ -666,8 +668,9 @@ public static class ImportEndpoints
         {
             if (!IsSignedPhotoUrl(url, signing))
                 return FamilienResults.BadRequest(
-                    "invalid_photo_url",
-                    "Mindestens ein Foto wurde nicht über die offizielle Upload-Route bereitgestellt.");
+                    ErrorCodes.InvalidPhotoUrl,
+                    "At least one photo URL was not signed via the upload route.",
+                    fieldName: "photoUrls");
         }
 
         var import = new RecipeImport(
