@@ -52,9 +52,14 @@
     "signUp": "Registrieren",
     "signOut": "Abmelden",
     "email": "E-Mail",
+    "emailLabel": "E-Mail-Adresse",
     "password": "Passwort",
     "passwordConfirm": "Passwort bestätigen",
+    "passwordConfirmPlaceholder": "Nochmal zur Sicherheit",
+    "passwordMinPlaceholder": "Mindestens 8 Zeichen",
     "displayName": "Anzeigename",
+    "displayNamePlaceholder": "z.B. Oma Erna",
+    "emailPlaceholder": "du@familie.de",
     "forgotPassword": "Passwort vergessen?",
     "resetPassword": "Passwort zurücksetzen",
     "newPassword": "Neues Passwort",
@@ -64,7 +69,83 @@
     "noAccountYet": "Noch kein Konto?",
     "alreadyHaveAccount": "Schon registriert?",
     "sendResetLink": "Link zum Zurücksetzen senden",
-    "resetDone": "Passwort aktualisiert. Du kannst dich jetzt anmelden."
+    "resetDone": "Passwort aktualisiert. Du kannst dich jetzt anmelden.",
+    "or": "oder",
+    "login": {
+      "kicker": "Willkommen zurück",
+      "heroHeadline": "Was kochen wir heute?",
+      "heroTagline": "Rezepte aus der Familie. Videos vom Handy. Omas Schnitzel.",
+      "heroTaglineSecond": "Alles an einem Ort.",
+      "cardTitle": "Anmelden",
+      "cardDescription": "Schön, dass du wieder da bist. Mit deiner E-Mail und deinem Passwort geht's los.",
+      "passwordPlaceholder": "••••••••",
+      "rememberMe": "30 Tage angemeldet bleiben",
+      "submitCta": "Anmelden",
+      "inviteQuestion": "Du hast einen Einladungs-Link bekommen?",
+      "inviteCta": "Jetzt registrieren →",
+      "errors": {
+        "emailRequired": "Bitte gib deine E-Mail-Adresse ein.",
+        "emailInvalid": "Bitte gib eine gültige E-Mail-Adresse ein.",
+        "passwordRequired": "Bitte gib dein Passwort ein.",
+        "failed": "Anmeldung fehlgeschlagen."
+      }
+    },
+    "signup": {
+      "kickerDefault": "Einladung prüfen",
+      "kickerInviterTemplate": "{{name}} lädt dich ein",
+      "heroHeadline": "Willkommen in der Familie",
+      "heroTaglineInviter": "{{name}} lädt dich zum Familien-Kochbuch ein.",
+      "heroTaglineDefault": "Mit deinem Einladungs-Link bist du gleich dabei.",
+      "heroTaglineSecond": "Leg ein Konto an und koch mit.",
+      "cardTitle": "Registrieren",
+      "cardDescription": "Dein Anzeigename erscheint bei deinen Rezepten und Bewertungen in der Gruppe.",
+      "previewLoading": "Einladung wird geprüft …",
+      "submitCta": "Registrieren",
+      "alreadyAccount": "Du hast bereits ein Konto?",
+      "loginCta": "Anmelden →",
+      "errors": {
+        "inviteMissing": "Einladungslink ist ungültig oder fehlt.",
+        "inviteNotFound": "Einladung wurde nicht gefunden.",
+        "inviteExpired": "Einladung ist abgelaufen oder bereits verwendet.",
+        "invitePreviewFailed": "Einladung konnte nicht geladen werden.",
+        "displayNameRequired": "Bitte gib einen Anzeigenamen ein.",
+        "emailInvalid": "Bitte gib eine gültige E-Mail-Adresse ein.",
+        "passwordTooShort": "Passwort muss mindestens 8 Zeichen lang sein.",
+        "passwordsMismatch": "Passwörter stimmen nicht überein.",
+        "failed": "Registrierung fehlgeschlagen.",
+        "failedRetry": "Registrierung fehlgeschlagen. Bitte später erneut versuchen."
+      }
+    },
+    "forgot": {
+      "kicker": "Alles halb so wild",
+      "heroHeadline": "Passwort zurücksetzen",
+      "heroTagline": "Passiert den Besten. Gib deine E-Mail ein und du bekommst gleich einen Link.",
+      "cardTitle": "Passwort zurücksetzen",
+      "cardDescription": "Wir senden dir eine E-Mail mit Link.",
+      "submitCta": "Link anfordern",
+      "successNotice": "Wenn diese E-Mail existiert, haben wir einen Link geschickt. Schau in dein Postfach.",
+      "backToLoginCta": "← Zurück zur Anmeldung",
+      "errors": {
+        "emailInvalid": "Bitte gib eine gültige E-Mail-Adresse ein."
+      }
+    },
+    "reset": {
+      "kicker": "Fast fertig",
+      "heroHeadline": "Neues Passwort wählen",
+      "heroTagline": "Mindestens acht Zeichen — damit Omas Schnitzel-Rezept nur in Familien-Hände fällt.",
+      "cardTitle": "Neues Passwort wählen",
+      "cardDescription": "Setz ein frisches Passwort und speichere — danach geht's zurück zur Anmeldung.",
+      "submitCta": "Speichern",
+      "successNotice": "Passwort geändert. Du wirst gleich zur Anmeldung weitergeleitet …",
+      "backToLoginCta": "← Zurück zur Anmeldung",
+      "errors": {
+        "tokenMissing": "Kein gültiger Reset-Link.",
+        "passwordTooShort": "Passwort muss mindestens 8 Zeichen lang sein.",
+        "passwordsMismatch": "Passwörter stimmen nicht überein.",
+        "failed": "Reset fehlgeschlagen.",
+        "failedRetry": "Reset fehlgeschlagen. Bitte später erneut versuchen."
+      }
+    }
   },
   "home": {
     "greeting": "Willkommen zurück",

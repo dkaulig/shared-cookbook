@@ -52,9 +52,14 @@
     "signUp": "Sign up",
     "signOut": "Sign out",
     "email": "Email",
+    "emailLabel": "Email address",
     "password": "Password",
     "passwordConfirm": "Confirm password",
+    "passwordConfirmPlaceholder": "Once more, just to be sure",
+    "passwordMinPlaceholder": "At least 8 characters",
     "displayName": "Display name",
+    "displayNamePlaceholder": "e.g. Grandma Erna",
+    "emailPlaceholder": "you@family.com",
     "forgotPassword": "Forgot your password?",
     "resetPassword": "Reset password",
     "newPassword": "New password",
@@ -64,7 +69,83 @@
     "noAccountYet": "No account yet?",
     "alreadyHaveAccount": "Already registered?",
     "sendResetLink": "Send reset link",
-    "resetDone": "Password updated. You can sign in now."
+    "resetDone": "Password updated. You can sign in now.",
+    "or": "or",
+    "login": {
+      "kicker": "Welcome back",
+      "heroHeadline": "What are we cooking today?",
+      "heroTagline": "Recipes from the family. Videos from your phone. Grandma's schnitzel.",
+      "heroTaglineSecond": "All in one place.",
+      "cardTitle": "Sign in",
+      "cardDescription": "Glad you're back. Sign in with your email and password.",
+      "passwordPlaceholder": "••••••••",
+      "rememberMe": "Stay signed in for 30 days",
+      "submitCta": "Sign in",
+      "inviteQuestion": "Got an invite link?",
+      "inviteCta": "Sign up now →",
+      "errors": {
+        "emailRequired": "Please enter your email address.",
+        "emailInvalid": "Please enter a valid email address.",
+        "passwordRequired": "Please enter your password.",
+        "failed": "Sign-in failed."
+      }
+    },
+    "signup": {
+      "kickerDefault": "Checking invite",
+      "kickerInviterTemplate": "{{name}} invites you",
+      "heroHeadline": "Welcome to the family",
+      "heroTaglineInviter": "{{name}} invites you to the Family Cookbook.",
+      "heroTaglineDefault": "Your invite link gets you started right away.",
+      "heroTaglineSecond": "Create an account and cook along.",
+      "cardTitle": "Sign up",
+      "cardDescription": "Your display name shows up on your recipes and ratings in the group.",
+      "previewLoading": "Checking invite…",
+      "submitCta": "Sign up",
+      "alreadyAccount": "Already have an account?",
+      "loginCta": "Sign in →",
+      "errors": {
+        "inviteMissing": "Invite link is invalid or missing.",
+        "inviteNotFound": "Invite not found.",
+        "inviteExpired": "Invite has expired or already been used.",
+        "invitePreviewFailed": "Could not load the invite.",
+        "displayNameRequired": "Please enter a display name.",
+        "emailInvalid": "Please enter a valid email address.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordsMismatch": "Passwords do not match.",
+        "failed": "Sign-up failed.",
+        "failedRetry": "Sign-up failed. Please try again later."
+      }
+    },
+    "forgot": {
+      "kicker": "No worries",
+      "heroHeadline": "Reset your password",
+      "heroTagline": "Happens to the best of us. Enter your email and you'll get a link right away.",
+      "cardTitle": "Reset password",
+      "cardDescription": "We'll send you an email with a link.",
+      "submitCta": "Request link",
+      "successNotice": "If that email exists, we sent a link. Check your inbox.",
+      "backToLoginCta": "← Back to sign-in",
+      "errors": {
+        "emailInvalid": "Please enter a valid email address."
+      }
+    },
+    "reset": {
+      "kicker": "Almost there",
+      "heroHeadline": "Choose a new password",
+      "heroTagline": "At least eight characters — so Grandma's schnitzel stays in the family.",
+      "cardTitle": "Choose a new password",
+      "cardDescription": "Set a fresh password and save — then back to sign-in.",
+      "submitCta": "Save",
+      "successNotice": "Password changed. Redirecting you to sign-in…",
+      "backToLoginCta": "← Back to sign-in",
+      "errors": {
+        "tokenMissing": "Reset link is invalid.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordsMismatch": "Passwords do not match.",
+        "failed": "Reset failed.",
+        "failedRetry": "Reset failed. Please try again later."
+      }
+    }
   },
   "home": {
     "greeting": "Welcome back",
