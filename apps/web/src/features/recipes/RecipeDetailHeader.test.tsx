@@ -104,7 +104,7 @@ describe('RecipeDetailHeader — fork banner', () => {
           groupId="g1"
           avgRating={null}
           ratingCount={0}
-          sourceGroupName="Familie Müller"
+          sourceGroupName="Example Family"
           canReimport={false}
           onBack={() => {}}
           onFork={() => {}}

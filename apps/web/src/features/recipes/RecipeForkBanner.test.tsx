@@ -10,7 +10,7 @@ describe('RecipeForkBanner', () => {
         <RecipeForkBanner
           originalRecipeId="orig-123"
           originalRecipeTitle="Omas Schnitzel"
-          sourceGroupName="Familie Müller"
+          sourceGroupName="Example Family"
         />
       </MemoryRouter>,
     )
@@ -20,7 +20,7 @@ describe('RecipeForkBanner', () => {
     expect(screen.getByText(/Geforkt aus/i)).toBeInTheDocument()
     const link = screen.getByRole('link', { name: /Omas Schnitzel/i })
     expect(link).toHaveAttribute('href', '/recipes/orig-123')
-    expect(screen.getByText(/Familie Müller/)).toBeInTheDocument()
+    expect(screen.getByText(/Example Family/)).toBeInTheDocument()
   })
 
   it('still renders without a source-group name (unknown source)', () => {

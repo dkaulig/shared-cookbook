@@ -8,7 +8,7 @@ import { changeDisplayName, changePassword } from './accountClient'
 function seedSession() {
   useAuthStore.getState().setSession('memory-access-token', {
     id: 'u1',
-    email: 'david@kaulig.de',
+    email: 'test@example.com',
     displayName: 'David',
     role: 'User',
   })
@@ -103,7 +103,7 @@ describe('accountClient', () => {
           capturedBody = await request.json()
           return HttpResponse.json({
             id: 'u1',
-            email: 'david@kaulig.de',
+            email: 'test@example.com',
             displayName: 'Neuer Name',
             role: 'User',
           })

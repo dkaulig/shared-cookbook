@@ -7,7 +7,7 @@ import { GroupPickerDialog } from './GroupPickerDialog'
 function group(over: Partial<GroupSummary>): GroupSummary {
   return {
     id: 'g1',
-    name: 'Familie Kaulig',
+    name: 'Example Family',
     description: null,
     coverImageUrl: null,
     defaultServings: 3,
@@ -24,7 +24,7 @@ describe('<GroupPickerDialog />', () => {
     render(
       <GroupPickerDialog
         groups={[
-          group({ id: 'gA', name: 'Familie Kaulig', memberCount: 4 }),
+          group({ id: 'gA', name: 'Example Family', memberCount: 4 }),
           group({ id: 'gB', name: 'WG-Donnerstage', memberCount: 3 }),
         ]}
         onPick={() => {}}
@@ -32,7 +32,7 @@ describe('<GroupPickerDialog />', () => {
       />,
     )
     const dialog = screen.getByRole('dialog', { name: /in welcher gruppe suchen/i })
-    expect(within(dialog).getByRole('button', { name: /familie kaulig/i })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /example family/i })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /wg-donnerstage/i })).toBeInTheDocument()
   })
 
@@ -56,7 +56,7 @@ describe('<GroupPickerDialog />', () => {
     render(
       <GroupPickerDialog
         groups={[
-          group({ id: 'gA', name: 'Familie Kaulig' }),
+          group({ id: 'gA', name: 'Example Family' }),
           group({ id: 'gB', name: 'WG-Donnerstage' }),
         ]}
         onPick={onPick}
@@ -100,14 +100,14 @@ describe('<GroupPickerDialog />', () => {
     render(
       <GroupPickerDialog
         groups={[
-          group({ id: 'gA', name: 'Familie Kaulig' }),
+          group({ id: 'gA', name: 'Example Family' }),
           group({ id: 'gB', name: 'WG' }),
         ]}
         onPick={() => {}}
         onClose={() => {}}
       />,
     )
-    const first = screen.getByRole('button', { name: /familie kaulig/i })
+    const first = screen.getByRole('button', { name: /example family/i })
     expect(document.activeElement).toBe(first)
   })
 })

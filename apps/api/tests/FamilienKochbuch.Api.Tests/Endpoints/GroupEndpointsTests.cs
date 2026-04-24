@@ -109,12 +109,12 @@ public class GroupEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationF
 
         var response = await _client.PostAsJsonAsync(
             "/api/groups",
-            new GroupEndpoints.CreateGroupRequest("Familie Müller", "Unsere Sammlung", 4m));
+            new GroupEndpoints.CreateGroupRequest("Example Family", "Unsere Sammlung", 4m));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>();
         Assert.NotNull(body);
-        Assert.Equal("Familie Müller", body!.Name);
+        Assert.Equal("Example Family", body!.Name);
         Assert.Equal("Unsere Sammlung", body.Description);
         Assert.Equal(4m, body.DefaultServings);
         Assert.False(body.IsPrivateCollection);

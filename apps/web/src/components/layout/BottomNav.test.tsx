@@ -49,7 +49,7 @@ function LocationProbe({ children }: { children: ReactNode }) {
 function groupSummary(over: Partial<GroupSummary>): GroupSummary {
   return {
     id: 'g1',
-    name: 'Familie Kaulig',
+    name: 'Example Family',
     description: null,
     coverImageUrl: null,
     defaultServings: 3,

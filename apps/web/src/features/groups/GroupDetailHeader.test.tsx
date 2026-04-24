@@ -25,7 +25,7 @@ const member = (userId: string, displayName: string): GroupMember => ({
 
 const baseGroup: GroupDetail = {
   id: 'g1',
-  name: 'Familie Kaulig',
+  name: 'Example Family',
   description: 'Sonntags kocht Oma, unter der Woche wir.',
   coverImageUrl: null,
   defaultServings: 3,
@@ -44,7 +44,7 @@ const baseGroup: GroupDetail = {
 describe('<GroupDetailHeader />', () => {
   it('renders the group name as an h1 and the description below it', () => {
     render(withRouter(<GroupDetailHeader group={baseGroup} recipeCount={47} />))
-    const heading = screen.getByRole('heading', { level: 1, name: 'Familie Kaulig' })
+    const heading = screen.getByRole('heading', { level: 1, name: 'Example Family' })
     expect(heading).toBeInTheDocument()
     expect(
       screen.getByText('Sonntags kocht Oma, unter der Woche wir.'),
@@ -90,7 +90,7 @@ describe('<GroupDetailHeader />', () => {
   it('renders the overlapping group-avatar initial (first letter of name)', () => {
     render(withRouter(<GroupDetailHeader group={baseGroup} recipeCount={47} />))
     const avatar = screen.getByTestId('group-avatar-big')
-    expect(avatar).toHaveTextContent('F')
+    expect(avatar).toHaveTextContent('E')
   })
 
   it('renders a cover banner element with the DS4 sage gradient placeholder', () => {

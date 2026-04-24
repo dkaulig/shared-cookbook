@@ -4,19 +4,19 @@ import { FormIntro } from './FormIntro'
 
 describe('<FormIntro />', () => {
   it('renders the serif h1 "Neues Rezept" in create mode', () => {
-    render(<FormIntro mode="create" groupName="Familie Kaulig" />)
+    render(<FormIntro mode="create" groupName="Example Family" />)
     const h1 = screen.getByRole('heading', { level: 1 })
     expect(h1).toHaveTextContent('Neues Rezept')
   })
 
   it('renders the serif h1 "Rezept bearbeiten" in edit mode', () => {
-    render(<FormIntro mode="edit" groupName="Familie Kaulig" />)
+    render(<FormIntro mode="edit" groupName="Example Family" />)
     const h1 = screen.getByRole('heading', { level: 1 })
     expect(h1).toHaveTextContent('Rezept bearbeiten')
   })
 
   it('renders the italic tagline with the serif-body utility (Inter under DS8)', () => {
-    const { container } = render(<FormIntro mode="create" groupName="Familie Kaulig" />)
+    const { container } = render(<FormIntro mode="create" groupName="Example Family" />)
     // The tagline is a <p> that uses the font-serif-body family and is
     // wrapped in <em> (or similar) for the italic styling. DS8 Sage
     // Modern routes `--font-serif-body` to Inter.
@@ -27,8 +27,8 @@ describe('<FormIntro />', () => {
   })
 
   it('renders the target-group pill with the group name', () => {
-    render(<FormIntro mode="create" groupName="Familie Kaulig" />)
-    expect(screen.getByText(/Gruppe: Familie Kaulig/i)).toBeInTheDocument()
+    render(<FormIntro mode="create" groupName="Example Family" />)
+    expect(screen.getByText(/Gruppe: Example Family/i)).toBeInTheDocument()
   })
 
   it('falls back to a placeholder dash when groupName is undefined', () => {

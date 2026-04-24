@@ -58,7 +58,7 @@ describe('<CreateGroupDialog />', () => {
         return HttpResponse.json(
           {
             id: 'g1',
-            name: 'Familie Müller',
+            name: 'Example Family',
             description: 'Unsere Sammlung',
             coverImageUrl: null,
             defaultServings: 2,
@@ -76,14 +76,14 @@ describe('<CreateGroupDialog />', () => {
     const onClose = vi.fn()
     renderDialog(onClose)
 
-    await user.type(screen.getByLabelText(/name/i), 'Familie Müller')
+    await user.type(screen.getByLabelText(/name/i), 'Example Family')
     await user.type(screen.getByLabelText(/beschreibung/i), 'Unsere Sammlung')
     await user.click(screen.getByRole('button', { name: /erstellen/i }))
 
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled()
     })
-    expect(captured).toEqual({ name: 'Familie Müller', description: 'Unsere Sammlung' })
+    expect(captured).toEqual({ name: 'Example Family', description: 'Unsere Sammlung' })
   })
 
   it('surfaces the server error message on 4xx in German', async () => {

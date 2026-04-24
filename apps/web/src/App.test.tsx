@@ -87,7 +87,7 @@ describe('<App />', () => {
       http.get('/api/groups/g1', () =>
         HttpResponse.json({
           id: 'g1',
-          name: 'Familie Müller',
+          name: 'Example Family',
           description: null,
           coverImageUrl: null,
           defaultServings: 4,
@@ -144,7 +144,7 @@ describe('<App />', () => {
       http.get('/api/groups/g1', () =>
         HttpResponse.json({
           id: 'g1',
-          name: 'Familie Müller',
+          name: 'Example Family',
           description: null,
           coverImageUrl: null,
           defaultServings: 4,
@@ -223,7 +223,7 @@ describe('<App />', () => {
       http.get('/api/groups/g1', () =>
         HttpResponse.json({
           id: 'g1',
-          name: 'Familie Müller',
+          name: 'Example Family',
           description: null,
           coverImageUrl: null,
           defaultServings: 4,

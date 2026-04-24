@@ -15,9 +15,9 @@ public class GroupTests
     public void Constructor_Sets_Defaults_For_Minimal_Input()
     {
         var now = DateTimeOffset.UtcNow;
-        var group = new Group("Familie Müller", null, now);
+        var group = new Group("Example Family", null, now);
 
-        Assert.Equal("Familie Müller", group.Name);
+        Assert.Equal("Example Family", group.Name);
         Assert.Null(group.Description);
         Assert.Null(group.CoverImageUrl);
         Assert.Equal(2m, group.DefaultServings);
@@ -30,9 +30,9 @@ public class GroupTests
     [Fact]
     public void Constructor_Trims_Name()
     {
-        var group = new Group("  Familie Müller  ", null, DateTimeOffset.UtcNow);
+        var group = new Group("  Example Family  ", null, DateTimeOffset.UtcNow);
 
-        Assert.Equal("Familie Müller", group.Name);
+        Assert.Equal("Example Family", group.Name);
     }
 
     [Theory]

@@ -32,7 +32,7 @@ describe('<ProfilStub />', () => {
   beforeEach(() => {
     useAuthStore.getState().setSession('tok', {
       id: 'u1',
-      email: 'david@kaulig.de',
+      email: 'test@example.com',
       displayName: 'David',
       role: 'User',
     })
@@ -51,10 +51,10 @@ describe('<ProfilStub />', () => {
 
   it('shows the signed-in display name and email', () => {
     renderPage()
-    // The displayName "David" + the email "david@kaulig.de" both match
+    // The displayName "David" + the email "test@example.com" both match
     // /david/i, so pin each with a distinct matcher.
     expect(screen.getByText('David')).toBeInTheDocument()
-    expect(screen.getByText('david@kaulig.de')).toBeInTheDocument()
+    expect(screen.getByText('test@example.com')).toBeInTheDocument()
   })
 
   it('no longer shows the Phase-3 teaser copy', () => {
@@ -153,7 +153,7 @@ describe('<ProfilStub />', () => {
           capturedBody = await request.json()
           return HttpResponse.json({
             id: 'u1',
-            email: 'david@kaulig.de',
+            email: 'test@example.com',
             displayName: 'Dave',
             role: 'User',
           })
@@ -203,7 +203,7 @@ describe('<ProfilStub />', () => {
           patchCalls += 1
           return HttpResponse.json({
             id: 'u1',
-            email: 'david@kaulig.de',
+            email: 'test@example.com',
             displayName: 'Other',
             role: 'User',
           })

@@ -86,7 +86,7 @@ describe('useRecipeGlobalSearch', () => {
             {
               id: 'r1',
               groupId: 'g1',
-              groupName: 'Familie Kaulig',
+              groupName: 'Example Family',
               title: 'Gochujang-Nudeln',
               description: null,
               photo: null,
@@ -113,7 +113,7 @@ describe('useRecipeGlobalSearch', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.items).toHaveLength(1)
-    expect(result.current.data?.items[0]?.groupName).toBe('Familie Kaulig')
+    expect(result.current.data?.items[0]?.groupName).toBe('Example Family')
   })
 
   it('still gates on q.length >= 1 when only whitespace is supplied', () => {

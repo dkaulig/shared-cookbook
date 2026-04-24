@@ -14,7 +14,7 @@ import { BottomNav } from '@/components/layout/BottomNav'
 
 const detail: GroupDetail = {
   id: 'g1',
-  name: 'Familie Müller',
+  name: 'Example Family',
   description: 'Unsere Lieblinge',
   coverImageUrl: null,
   defaultServings: 4,
@@ -134,7 +134,7 @@ describe('<GroupDetailPage />', () => {
 
   it('renders the group header with name, description, and stats', async () => {
     render(withProviders('/groups/g1'))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Familie Müller' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Example Family' })).toBeInTheDocument()
     expect(screen.getByText('Unsere Lieblinge')).toBeInTheDocument()
     // Default portions stat comes from defaultServings: 4
     expect(screen.getByText(/4 Portionen/)).toBeInTheDocument()
@@ -157,8 +157,8 @@ describe('<GroupDetailPage />', () => {
     render(withProviders('/groups/g1'))
     expect(await screen.findByRole('link', { name: /Omas Schnitzel/ })).toBeInTheDocument()
     // Results header prints "<count> Rezepte in [Gruppe]" — we match the
-    // "in Familie Müller" piece which is unique to that header.
-    expect(screen.getByText(/in Familie Müller/)).toBeInTheDocument()
+    // "in Example Family" piece which is unique to that header.
+    expect(screen.getByText(/in Example Family/)).toBeInTheDocument()
   })
 
   it('renders an empty state CTA when the group has zero recipes and no filters', async () => {
@@ -442,7 +442,7 @@ describe('<GroupDetailPage />', () => {
     render(withProviders('/groups/g1'))
     // Wait until the header has finished mounting (the pill is admin-only
     // and only shows after `useGroup` resolves).
-    await screen.findByRole('heading', { level: 1, name: 'Familie Müller' })
+    await screen.findByRole('heading', { level: 1, name: 'Example Family' })
     const matches = screen.getAllByRole('link', { name: /einstellungen/i })
     expect(matches).toHaveLength(1)
     // The remaining link is the GroupDetailHeader pill, which routes to
@@ -471,7 +471,7 @@ describe('<GroupDetailPage />', () => {
    */
   it('renders the SplitPane landmark regions (Rezept-Liste + Rezept-Detail)', async () => {
     render(withProviders('/groups/g1'))
-    await screen.findByRole('heading', { level: 1, name: 'Familie Müller' })
+    await screen.findByRole('heading', { level: 1, name: 'Example Family' })
     // Right pane is `hidden md:block` so jsdom keeps it in the DOM but
     // hidden from the a11y tree; pass `hidden: true` to find it anyway.
     expect(screen.getByRole('region', { name: /rezept-liste/i })).toBeInTheDocument()
@@ -482,7 +482,7 @@ describe('<GroupDetailPage />', () => {
 
   it('shows an empty-state prompt in the detail slot when no recipe is selected', async () => {
     render(withProviders('/groups/g1'))
-    await screen.findByRole('heading', { level: 1, name: 'Familie Müller' })
+    await screen.findByRole('heading', { level: 1, name: 'Example Family' })
     const detailSlot = screen.getByRole('region', { name: /rezept-detail/i, hidden: true })
     // German copy — verified per feedback_tdd_default.md + project
     // language convention.

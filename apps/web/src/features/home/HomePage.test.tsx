@@ -33,7 +33,7 @@ function renderHome() {
 function groupSummary(over: Partial<GroupSummary>): GroupSummary {
   return {
     id: 'g1',
-    name: 'Familie Kaulig',
+    name: 'Example Family',
     description: null,
     coverImageUrl: null,
     defaultServings: 3,
@@ -58,7 +58,7 @@ describe('<HomePage />', () => {
   beforeEach(() => {
     useAuthStore.getState().setSession('tok', {
       id: 'u1',
-      email: 'david@kaulig.de',
+      email: 'test@example.com',
       displayName: 'David',
       role: 'User',
     })
@@ -137,7 +137,7 @@ describe('<HomePage />', () => {
     server.use(
       http.get('/api/groups', () =>
         HttpResponse.json<GroupSummary[]>([
-          groupSummary({ id: 'gA', name: 'Familie Kaulig', memberCount: 4, myRole: 'Admin' }),
+          groupSummary({ id: 'gA', name: 'Example Family', memberCount: 4, myRole: 'Admin' }),
           groupSummary({
             id: 'gB',
             name: 'WG-Donnerstage',
@@ -153,7 +153,7 @@ describe('<HomePage />', () => {
     )
     renderHome()
 
-    expect(await screen.findByText('Familie Kaulig')).toBeInTheDocument()
+    expect(await screen.findByText('Example Family')).toBeInTheDocument()
     expect(screen.getByText('WG-Donnerstage')).toBeInTheDocument()
     // Role chips.
     expect(screen.getByText(/^admin$/i)).toBeInTheDocument()
@@ -163,7 +163,7 @@ describe('<HomePage />', () => {
   it('renders the "+ Neue Gruppe anlegen" card and opens the create dialog when clicked', async () => {
     server.use(
       http.get('/api/groups', () =>
-        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'gA', name: 'Familie Kaulig' })]),
+        HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'gA', name: 'Example Family' })]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
       http.get('/api/groups/:groupId/recipes', () => HttpResponse.json(emptySearch)),
@@ -182,7 +182,7 @@ describe('<HomePage />', () => {
     server.use(
       http.get('/api/groups', () =>
         HttpResponse.json<GroupSummary[]>([
-          groupSummary({ id: 'gA', name: 'Familie Kaulig', memberCount: 4 }),
+          groupSummary({ id: 'gA', name: 'Example Family', memberCount: 4 }),
           groupSummary({ id: 'gB', name: 'WG', memberCount: 2 }),
         ]),
       ),
@@ -224,7 +224,7 @@ describe('<HomePage />', () => {
     server.use(
       http.get('/api/groups', () =>
         HttpResponse.json<GroupSummary[]>([
-          groupSummary({ id: 'gA', name: 'Familie Kaulig' }),
+          groupSummary({ id: 'gA', name: 'Example Family' }),
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
@@ -245,7 +245,7 @@ describe('<HomePage />', () => {
     server.use(
       http.get('/api/groups', () =>
         HttpResponse.json<GroupSummary[]>([
-          groupSummary({ id: 'gA', name: 'Familie Kaulig' }),
+          groupSummary({ id: 'gA', name: 'Example Family' }),
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
@@ -269,7 +269,7 @@ describe('<HomePage />', () => {
     server.use(
       http.get('/api/groups', () =>
         HttpResponse.json<GroupSummary[]>([
-          groupSummary({ id: 'gA', name: 'Familie Kaulig', memberCount: 4 }),
+          groupSummary({ id: 'gA', name: 'Example Family', memberCount: 4 }),
           groupSummary({ id: 'gB', name: 'WG-Donnerstage', memberCount: 3 }),
         ]),
       ),
@@ -285,7 +285,7 @@ describe('<HomePage />', () => {
     // The picker should show both groups as choices and not auto-navigate.
     const dialog = await screen.findByRole('dialog', { name: /in welcher gruppe suchen/i })
     expect(dialog).toBeInTheDocument()
-    expect(within(dialog).getByRole('button', { name: /familie kaulig/i })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /example family/i })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /wg-donnerstage/i })).toBeInTheDocument()
     expect(screen.queryByTestId('group-detail')).toBeNull()
 
@@ -337,7 +337,7 @@ describe('<HomePage />', () => {
     server.use(
       http.get('/api/groups', () =>
         HttpResponse.json<GroupSummary[]>([
-          groupSummary({ id: 'gA', name: 'Familie Kaulig' }),
+          groupSummary({ id: 'gA', name: 'Example Family' }),
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),
@@ -345,7 +345,7 @@ describe('<HomePage />', () => {
     )
     renderHome()
 
-    const card = await screen.findByRole('link', { name: /familie kaulig/i })
+    const card = await screen.findByRole('link', { name: /example family/i })
     const user = userEvent.setup()
     await user.click(card)
 
@@ -387,7 +387,7 @@ describe('<HomePage />', () => {
     server.use(
       http.get('/api/groups', () =>
         HttpResponse.json<GroupSummary[]>([
-          groupSummary({ id: 'gA', name: 'Familie Kaulig' }),
+          groupSummary({ id: 'gA', name: 'Example Family' }),
         ]),
       ),
       http.get('/api/groups/invites', () => HttpResponse.json([])),

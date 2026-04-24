@@ -47,7 +47,7 @@ describe('<ReceivedInvitesBanner />', () => {
           {
             id: 'i1',
             groupId: 'g1',
-            groupName: 'Familie Müller',
+            groupName: 'Example Family',
             inviterDisplayName: 'Alice',
             createdAt: new Date().toISOString(),
           },
@@ -55,7 +55,7 @@ describe('<ReceivedInvitesBanner />', () => {
       ),
     )
     renderBanner()
-    expect(await screen.findByText(/Familie Müller/)).toBeInTheDocument()
+    expect(await screen.findByText(/Example Family/)).toBeInTheDocument()
     expect(screen.getByText(/Alice/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /annehmen/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ablehnen/i })).toBeInTheDocument()

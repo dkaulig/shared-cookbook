@@ -107,17 +107,17 @@ describe('<RecipeGridCard />', () => {
           recipe={base}
           tags={tags}
           prepTimeMinutes={null}
-          groupChip={{ id: 'g1', name: 'Familie Kaulig' }}
+          groupChip={{ id: 'g1', name: 'Example Family' }}
         />,
       ),
     )
-    const chip = screen.getByRole('link', { name: /familie kaulig/i })
+    const chip = screen.getByRole('link', { name: /example family/i })
     expect(chip).toHaveAttribute('href', '/groups/g1')
   })
 
   it('does not render the groupChip badge when the prop is omitted (SEARCH-1)', () => {
     render(withRouter(<RecipeGridCard recipe={base} tags={tags} prepTimeMinutes={45} />))
     // The only <a> in this tree is the card body itself.
-    expect(screen.queryByRole('link', { name: /familie kaulig/i })).toBeNull()
+    expect(screen.queryByRole('link', { name: /example family/i })).toBeNull()
   })
 })

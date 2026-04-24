@@ -29,11 +29,11 @@ describe('PortionStepperCard — visual shell', () => {
         servings={4}
         onServingsChange={() => {}}
         groupDefaultServings={3}
-        groupName="Familie Kaulig"
+        groupName="Example Family"
       />,
     )
     expect(
-      screen.getByRole('button', { name: /Für Familie Kaulig umrechnen \(3 Portionen\)/i }),
+      screen.getByRole('button', { name: /Für Example Family umrechnen \(3 Portionen\)/i }),
     ).toBeInTheDocument()
   })
 })

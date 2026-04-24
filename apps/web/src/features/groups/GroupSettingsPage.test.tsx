@@ -21,7 +21,7 @@ import { GroupSettingsPage } from './GroupSettingsPage'
 
 const detail: GroupDetail = {
   id: 'g1',
-  name: 'Familie Kaulig',
+  name: 'Example Family',
   description: 'Sonntags kocht Oma.',
   coverImageUrl: null,
   defaultServings: 3,
@@ -103,7 +103,7 @@ describe('<GroupSettingsPage />', () => {
 
     // Name field seeded from GroupDetail.
     const nameInput = await screen.findByLabelText('Name')
-    expect(nameInput).toHaveValue('Familie Kaulig')
+    expect(nameInput).toHaveValue('Example Family')
 
     // Photo section renders with the upload button.
     expect(screen.getByRole('heading', { name: /gruppen-foto/i })).toBeInTheDocument()
@@ -209,7 +209,7 @@ describe('<GroupSettingsPage />', () => {
         putBody = (await request.json()) as { coverImageUrl?: string }
         return HttpResponse.json({
           id: 'g1',
-          name: 'Familie Kaulig',
+          name: 'Example Family',
           description: 'Sonntags kocht Oma.',
           coverImageUrl: putBody?.coverImageUrl ?? null,
           defaultServings: 3,

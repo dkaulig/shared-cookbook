@@ -29,7 +29,7 @@ describe('<TopNav />', () => {
   beforeEach(() => {
     useAuthStore.getState().setSession('tok', {
       id: 'u1',
-      email: 'david@kaulig.de',
+      email: 'test@example.com',
       displayName: 'David',
       role: 'User',
     })

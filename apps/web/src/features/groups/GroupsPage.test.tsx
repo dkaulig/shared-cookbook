@@ -94,7 +94,7 @@ describe('<GroupsPage />', () => {
           },
           {
             id: 'fam',
-            name: 'Familie Müller',
+            name: 'Example Family',
             description: 'Unsere Lieblinge',
             coverImageUrl: null,
             defaultServings: 4,
@@ -110,7 +110,7 @@ describe('<GroupsPage />', () => {
     renderPage()
 
     expect(await screen.findByText('Private Sammlung')).toBeInTheDocument()
-    expect(screen.getByText('Familie Müller')).toBeInTheDocument()
+    expect(screen.getByText('Example Family')).toBeInTheDocument()
     expect(screen.getByText('Unsere Lieblinge')).toBeInTheDocument()
     // Private-flag badge uses short 'Privat' — assert presence.
     expect(screen.getAllByText(/Privat/i).length).toBeGreaterThan(0)

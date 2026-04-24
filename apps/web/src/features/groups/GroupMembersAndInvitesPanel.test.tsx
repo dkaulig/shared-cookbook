@@ -26,7 +26,7 @@ const member = (userId: string, displayName: string, role: 'Admin' | 'Member'): 
 function groupWith(overrides: Partial<GroupDetail> = {}): GroupDetail {
   const base: GroupDetail = {
     id: 'g1',
-    name: 'Familie Kaulig',
+    name: 'Example Family',
     description: null,
     coverImageUrl: null,
     defaultServings: 3,
