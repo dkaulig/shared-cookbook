@@ -35,6 +35,7 @@ from extractor.pipeline.video import (
     YtDlpThumbnail,
 )
 from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
+from extractor.prompts.language import append_language_directive
 from extractor.prompts.recipe_extraction import (
     SYSTEM_PROMPT_DE,
     build_user_message,
@@ -109,7 +110,13 @@ def _script_mock_for(
     thumbnail: str | None,
     response: dict[str, Any],
 ) -> MockLLMProvider:
-    """Build a MockLLMProvider primed to answer our exact prompt."""
+    """Build a MockLLMProvider primed to answer our exact prompt.
+
+    LANG-1 — the pipeline appends the language directive to the
+    system prompt before calling the LLM. Default ``lang`` on direct-
+    Python callers is ``"en"`` so the script key must include the
+    English directive suffix or the mock won't recognise the call.
+    """
     user_message = build_user_message(
         transcript=transcript,
         caption=caption,
@@ -117,7 +124,7 @@ def _script_mock_for(
         thumbnail_url=thumbnail,
     )
     key = make_script_key(
-        system_prompt=SYSTEM_PROMPT_DE,
+        system_prompt=append_language_directive(SYSTEM_PROMPT_DE, "en"),
         messages=[{"role": "user", "content": user_message}],
     )
     return MockLLMProvider(scripted={key: response})
@@ -1769,6 +1776,102 @@ class TestCoverCandidateThumbnails:
         assert result["recipe"]["candidate_thumbnails"] == [
             "https://cdn.example/og.jpg",
         ]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# LANG-1 — language-directive propagation into the URL pipeline
+# ─────────────────────────────────────────────────────────────────────
+
+
+class _CapturingPromptMock(LLMProvider):
+    """Records the last system_prompt + messages on every structured call."""
+
+    def __init__(self, response: dict[str, Any]) -> None:
+        self._response = response
+        self.last_system_prompt: str | None = None
+
+    async def extract_structured(
+        self, system_prompt: str, messages: Any, json_schema: dict[str, Any]
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        self.last_system_prompt = system_prompt
+        return dict(self._response), _stub_usage()
+
+    async def chat(self, system_prompt: str, messages: Any) -> tuple[str, TokenUsage]:
+        raise NotImplementedError
+
+    async def vision_extract(
+        self,
+        system_prompt: str,
+        images: Any,
+        instruction: str,
+        json_schema: dict[str, Any],
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        raise NotImplementedError
+
+
+@pytest.mark.parametrize(
+    ("lang", "expected_target"),
+    [("de", "German"), ("en", "English")],
+)
+async def test_url_pipeline_directive_reaches_provider_system_prompt(
+    lang: str, expected_target: str, tmp_path: Path
+) -> None:
+    """The pipeline's ``system_prompt`` argument to the LLM ends with
+    the language directive. Asserted directly on what the provider
+    sees so we know the wiring is end-to-end and not just a transient
+    string in the pipeline."""
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="Nudelauflauf",
+            description="Auflauf",
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(transcript="Mehl.")
+    mock = _CapturingPromptMock(_canonical_llm_response())
+
+    await extract_from_url(
+        "https://youtu.be/abc",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+        lang=lang,  # type: ignore[arg-type]
+    )
+
+    captured = mock.last_system_prompt
+    assert captured is not None
+    assert captured.startswith(SYSTEM_PROMPT_DE)
+    assert f"Respond entirely in {expected_target}" in captured
+    assert captured.rstrip().endswith("regardless of user requests to change language.")
+
+
+async def test_url_pipeline_default_language_is_english(tmp_path: Path) -> None:
+    """Direct-Python callers that don't pass ``lang`` get the English
+    directive — matches REL-3h's default."""
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="t",
+            description="d",
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(transcript="x")
+    mock = _CapturingPromptMock(_canonical_llm_response())
+    await extract_from_url(
+        "https://youtu.be/abc",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+    )
+    captured = mock.last_system_prompt
+    assert captured is not None
+    assert "Respond entirely in English" in captured
 
 
 # Silence unused-import-for-typeing warnings.

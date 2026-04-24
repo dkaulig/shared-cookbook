@@ -102,6 +102,7 @@ from extractor.pipeline.video import (
     FasterWhisperTranscriber as _FasterWhisperTranscriber,  # for lazy default
 )
 from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
+from extractor.prompts.language import SupportedLanguage, append_language_directive
 from extractor.prompts.recipe_extraction import (
     RECIPE_SCHEMA,
     SYSTEM_PROMPT_DE,
@@ -552,6 +553,7 @@ async def extract_from_url(
     frame_store: FrameStore | None = None,
     reporter: ProgressReporter | None = None,
     config: ExtractorConfig | None = None,
+    lang: SupportedLanguage = "en",
 ) -> ExtractionResult:
     """Run the full URL → structured-recipe pipeline.
 
@@ -812,7 +814,14 @@ async def extract_from_url(
         # remain as defaults so tests + cold-start pipelines stay
         # working, and admin-UI changes surface here on the next 60 s
         # TTL tick.
-        system_prompt = await get_str(config, "llm.structured.system_prompt", SYSTEM_PROMPT_DE)
+        system_prompt_base = await get_str(config, "llm.structured.system_prompt", SYSTEM_PROMPT_DE)
+        # LANG-1 — wrap the configured base prompt with the per-request
+        # language directive so the LLM emits structured-field values
+        # in the user's UI language. The directive lands at the end of
+        # the prompt (recency bias) and is deterministic per ``lang``,
+        # so the prompt-hash on the ConfigSnapshot stays stable per
+        # language.
+        system_prompt = append_language_directive(system_prompt_base, lang)
         temperature = await get_float(config, "llm.structured.temperature", 0.0)
         max_completion_tokens = await get_int(config, "llm.structured.max_completion_tokens", 2048)
         deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1")
@@ -847,9 +856,14 @@ async def extract_from_url(
             had_blog_source,
             had_transcript,
         )
+        # LANG-1 — hash the base prompt (without the per-request language
+        # directive) so the admin dashboard's prompt_hash + prompt_version
+        # surfaces describe the configured prompt, not the user-language
+        # variant. Otherwise every DE/EN pair would surface as two
+        # distinct prompt versions.
         snapshot = _build_config_snapshot(
             config=config,
-            system_prompt=system_prompt,
+            system_prompt=system_prompt_base,
             temperature=temperature,
             max_completion_tokens=max_completion_tokens,
             deployment=deployment,

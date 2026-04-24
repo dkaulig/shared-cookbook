@@ -35,6 +35,7 @@ from extractor.pipeline.post_process import post_process
 from extractor.pipeline.types import ConfigSnapshot, ExtractionResult
 from extractor.pipeline.video import ExtractionError
 from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
+from extractor.prompts.language import SupportedLanguage, append_language_directive
 from extractor.prompts.photo_recipe import (
     PHOTO_RECIPE_SCHEMA,
     SYSTEM_PROMPT_DE,
@@ -65,6 +66,7 @@ async def extract_from_photos(
     provider: LLMProvider,
     reporter: ProgressReporter | None = None,
     config: ExtractorConfig | None = None,
+    lang: SupportedLanguage = "en",
 ) -> ExtractionResult:
     """Run the full photos → structured-recipe pipeline.
 
@@ -101,7 +103,10 @@ async def extract_from_photos(
     logger.info("extract_from_photos start count=%d", len(photo_urls))
 
     # CFG-1 — resolve hot params once up front.
-    system_prompt = await get_str(config, "llm.vision.system_prompt", SYSTEM_PROMPT_DE)
+    system_prompt_base = await get_str(config, "llm.vision.system_prompt", SYSTEM_PROMPT_DE)
+    # LANG-1 — language directive lives at the end of the prompt; see
+    # ``pipeline.url._run_llm_structuring`` for the rationale.
+    system_prompt = append_language_directive(system_prompt_base, lang)
     temperature = await get_float(config, "llm.vision.temperature", 0.0)
     max_completion_tokens = await get_int(config, "llm.vision.max_completion_tokens", 2048)
     deployment = await get_str(config, "llm.vision.deployment", "gpt-4.1-mini")
@@ -145,8 +150,13 @@ async def extract_from_photos(
     # the .NET side (P2-6) can pick one of the uploaded photos as the
     # recipe thumbnail. We don't second-guess it here.
     await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
+    # LANG-1 — hash the base prompt (without the per-request language
+    # directive) so the admin dashboard sees a single prompt_hash per
+    # configured prompt rather than one per UI language.
     snapshot: ConfigSnapshot = {
-        "prompt_hash": "sha256:" + hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16],
+        "prompt_hash": (
+            "sha256:" + hashlib.sha256(system_prompt_base.encode("utf-8")).hexdigest()[:16]
+        ),
         "temperature": temperature,
         "max_completion_tokens": max_completion_tokens,
         "deployment": deployment,

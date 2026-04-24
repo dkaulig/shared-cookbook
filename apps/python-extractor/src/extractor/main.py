@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Annotated, Final, Literal
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator
@@ -59,6 +59,7 @@ from extractor.pipeline.video import (
     VideoDownloader,
 )
 from extractor.progress import NullProgressReporter, ProgressReporter
+from extractor.prompts.language import SupportedLanguage, normalize_accept_language
 from extractor.security import HmacVerificationMiddleware
 
 _PACKAGE_NAME: Final[str] = "extractor"
@@ -394,6 +395,23 @@ def get_frame_store() -> FrameStore:
     return _frame_store_singleton
 
 
+def get_user_language(
+    accept_language: Annotated[str | None, Header(alias="Accept-Language")] = None,
+) -> SupportedLanguage:
+    """FastAPI dependency that returns the caller's UI language.
+
+    LANG-1 — reads the inbound ``Accept-Language`` header (forwarded
+    verbatim by the .NET API from the browser's axios interceptor) and
+    normalises it to one of the two whitelisted languages
+    (:data:`SupportedLanguage`). Missing / garbage / unsupported headers
+    fall back to ``"en"`` — matches REL-3h on the web side.
+
+    Tests override via ``app.dependency_overrides`` to pin a language
+    without round-tripping through the header parser.
+    """
+    return normalize_accept_language(accept_language)
+
+
 def get_video_stack() -> VideoStack | None:
     """FastAPI dependency for the video-path stack.
 
@@ -700,6 +718,7 @@ def create_app() -> FastAPI:
         video_stack: Annotated[VideoStack | None, Depends(get_video_stack)],
         config: Annotated[ExtractorConfig | None, Depends(get_extractor_config)],
         frame_store: Annotated[FrameStore, Depends(get_frame_store)],
+        lang: Annotated[SupportedLanguage, Depends(get_user_language)],
     ) -> ExtractionResult:
         """Run the URL → structured-recipe pipeline.
 
@@ -739,6 +758,7 @@ def create_app() -> FastAPI:
                     frame_store=frame_store,
                     reporter=reporter,
                     config=config,
+                    lang=lang,
                 )
             except LLMProviderError as exc:
                 raise _http_from_llm_error(exc) from exc
@@ -760,6 +780,7 @@ def create_app() -> FastAPI:
         response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
         config: Annotated[ExtractorConfig | None, Depends(get_extractor_config)],
+        lang: Annotated[SupportedLanguage, Depends(get_user_language)],
     ) -> ExtractionResult:
         """Run the photos → structured-recipe pipeline (P2-3).
 
@@ -800,6 +821,7 @@ def create_app() -> FastAPI:
                     provider=provider,
                     reporter=reporter,
                     config=config,
+                    lang=lang,
                 )
             except ExtractionError as exc:
                 raise _http_from_extraction_error(exc) from exc
@@ -820,6 +842,7 @@ def create_app() -> FastAPI:
         response: Response,
         provider: Annotated[LLMProvider, Depends(get_llm_provider)],
         config: Annotated[ExtractorConfig | None, Depends(get_extractor_config)],
+        lang: Annotated[SupportedLanguage, Depends(get_user_language)],
     ) -> ExtractionResult:
         """Verdichte den Dialog zu einem strukturierten Rezept.
 
@@ -838,7 +861,9 @@ def create_app() -> FastAPI:
         )
         messages = _as_chat_messages(request.messages)
         try:
-            result = await chat_to_recipe(messages, provider, session_id=session_id, config=config)
+            result = await chat_to_recipe(
+                messages, provider, session_id=session_id, config=config, lang=lang
+            )
         except EmptyMessagesError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except MessagesTooLongError as exc:

@@ -39,6 +39,7 @@ from extractor.prompts.chat import (
     RECIPE_SCHEMA,
     TO_RECIPE_SYSTEM_PROMPT_DE,
 )
+from extractor.prompts.language import SupportedLanguage, append_language_directive
 
 logger = logging.getLogger("extractor.pipeline.chat")
 
@@ -76,6 +77,7 @@ async def chat_to_recipe(
     *,
     session_id: str,
     config: ExtractorConfig | None = None,
+    lang: SupportedLanguage = "en",
 ) -> ExtractionResult:
     """Verdichte die Konversation zu einem strukturierten Rezept.
 
@@ -108,9 +110,13 @@ async def chat_to_recipe(
     # knob set (same deployment, same temperature pin). A dedicated
     # ``llm.chat.*`` knob set covers conversational chat turns, but that
     # endpoint lives on the .NET side (out of scope here).
-    system_prompt = await get_str(
+    system_prompt_base = await get_str(
         config, "llm.structured.system_prompt", TO_RECIPE_SYSTEM_PROMPT_DE
     )
+    # LANG-1 — append the language directive so the chat-to-recipe
+    # output (German prose dialog → structured recipe values in the
+    # user's UI language) lines up with the rest of the touchpoints.
+    system_prompt = append_language_directive(system_prompt_base, lang)
     temperature = await get_float(config, "llm.structured.temperature", 0.0)
     max_completion_tokens = await get_int(config, "llm.structured.max_completion_tokens", 2048)
     deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1-mini")
@@ -126,8 +132,13 @@ async def chat_to_recipe(
         max_completion_tokens=max_completion_tokens,
         deployment=deployment,
     )
+    # LANG-1 — hash the base prompt (without per-request language
+    # directive). See ``pipeline.url._build_config_snapshot`` for
+    # rationale.
     snapshot: ConfigSnapshot = {
-        "prompt_hash": "sha256:" + hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16],
+        "prompt_hash": (
+            "sha256:" + hashlib.sha256(system_prompt_base.encode("utf-8")).hexdigest()[:16]
+        ),
         "temperature": temperature,
         "max_completion_tokens": max_completion_tokens,
         "deployment": deployment,

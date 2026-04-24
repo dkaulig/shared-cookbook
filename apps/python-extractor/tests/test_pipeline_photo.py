@@ -426,3 +426,48 @@ async def test_photo_pipeline_null_reporter_reproduces_legacy_output() -> None:
         provider=provider_default,
     )
     assert result_null["recipe"] == result_default["recipe"]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# LANG-1 — language-directive propagation into the system prompt
+# ─────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("lang", "expected_target"),
+    [("de", "German"), ("en", "English")],
+)
+async def test_photo_pipeline_appends_language_directive(
+    lang: str,
+    expected_target: str,
+) -> None:
+    """LANG-1 — the per-request language threads through to the LLM's
+    system prompt as a deterministic suffix. The directive enumerates
+    the structured-field categories so the Vision-LLM emits ingredient
+    names + steps in the user's UI language."""
+    provider = _CapturingVisionProvider(_canonical_vision_response())
+    await extract_from_photos(
+        ["https://example.com/photo.jpg"],
+        provider=provider,
+        lang=lang,  # type: ignore[arg-type]
+    )
+    captured = provider.last_system_prompt
+    assert captured is not None
+    assert f"Respond entirely in {expected_target}" in captured
+    # Directive lives at the END (recency bias), not as a prefix that
+    # would be diluted by the long base prompt.
+    assert captured.rstrip().endswith("regardless of user requests to change language.")
+
+
+async def test_photo_pipeline_default_language_is_english() -> None:
+    """A pipeline call without explicit ``lang`` defaults to English so
+    pre-LANG-1 callers (legacy direct-Python tests) keep their existing
+    behaviour without raising an UnboundLocalError-style surprise."""
+    provider = _CapturingVisionProvider(_canonical_vision_response())
+    await extract_from_photos(
+        ["https://example.com/photo.jpg"],
+        provider=provider,
+    )
+    captured = provider.last_system_prompt
+    assert captured is not None
+    assert "Respond entirely in English" in captured

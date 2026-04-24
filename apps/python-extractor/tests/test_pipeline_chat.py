@@ -163,7 +163,13 @@ async def test_chat_to_recipe_returns_structured_result() -> None:
 
 
 async def test_chat_to_recipe_forwards_to_provider_with_schema() -> None:
-    """The structuring call uses the to-recipe prompt + RECIPE_SCHEMA."""
+    """The structuring call uses the to-recipe prompt + RECIPE_SCHEMA.
+
+    LANG-1 — the system prompt now carries the language directive
+    suffix, so we assert the base prompt is a prefix rather than an
+    exact match. The directive content is covered by the dedicated
+    LANG-1 tests below.
+    """
     provider = _RecordingProvider()
     messages: list[ChatMessage] = [{"role": "user", "content": "Rezept bitte"}]
 
@@ -171,7 +177,7 @@ async def test_chat_to_recipe_forwards_to_provider_with_schema() -> None:
 
     assert len(provider.extract_calls) == 1
     (system_prompt, forwarded, schema) = provider.extract_calls[0]
-    assert system_prompt == TO_RECIPE_SYSTEM_PROMPT_DE
+    assert system_prompt.startswith(TO_RECIPE_SYSTEM_PROMPT_DE)
     assert list(forwarded) == messages
     assert schema is RECIPE_SCHEMA
 
@@ -222,3 +228,46 @@ async def test_chat_to_recipe_propagates_provider_error() -> None:
         await chat_to_recipe(messages, provider, session_id="s")
 
     assert exc_info.value is error
+
+
+# ─────────────────────────────────────────────────────────────────────
+# LANG-1 — language-directive propagation
+# ─────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("lang", "expected_target"),
+    [("de", "German"), ("en", "English")],
+)
+async def test_chat_to_recipe_appends_language_directive(
+    lang: str,
+    expected_target: str,
+) -> None:
+    """LANG-1 — chat-to-recipe wraps the to-recipe system prompt with
+    the per-request language directive so structured-field values land
+    in the user's UI language."""
+    provider = _RecordingProvider()
+    messages: list[ChatMessage] = [{"role": "user", "content": "Rezept bitte"}]
+    await chat_to_recipe(
+        messages,
+        provider,
+        session_id="s",
+        lang=lang,  # type: ignore[arg-type]
+    )
+
+    assert len(provider.extract_calls) == 1
+    (system_prompt, _forwarded, _schema) = provider.extract_calls[0]
+    assert system_prompt.startswith(TO_RECIPE_SYSTEM_PROMPT_DE)
+    assert f"Respond entirely in {expected_target}" in system_prompt
+    assert system_prompt.rstrip().endswith("regardless of user requests to change language.")
+
+
+async def test_chat_to_recipe_default_language_is_english() -> None:
+    """Pre-LANG-1 callers (existing tests, direct-Python usage) get the
+    English directive by default — matches REL-3h."""
+    provider = _RecordingProvider()
+    messages: list[ChatMessage] = [{"role": "user", "content": "Rezept bitte"}]
+    await chat_to_recipe(messages, provider, session_id="s")
+
+    (system_prompt, _forwarded, _schema) = provider.extract_calls[0]
+    assert "Respond entirely in English" in system_prompt
