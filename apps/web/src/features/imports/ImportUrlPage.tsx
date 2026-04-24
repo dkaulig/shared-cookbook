@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useMyGroups } from '@/features/groups/useMyGroups'
 import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
+import { useFeatures } from '@/features/_shared/useFeatures'
 import { useEnqueueUrlImport } from './hooks'
 import { rememberImportGroup } from './importGroupMemo'
 
@@ -43,6 +44,16 @@ export function ImportUrlPage() {
   const groups = useMyGroups()
   const enqueue = useEnqueueUrlImport()
   const [searchParams] = useSearchParams()
+  // REL-7 — the URL-import surface stays reachable even when AI is off
+  // because REL-8's JSON-LD branch runs upstream of the LLM and can
+  // handle most food-blog URLs without any credentials. A banner warns
+  // the user that AI-powered structuring is unavailable, so imports of
+  // FB/IG reels or non-JSON-LD blogs will come back empty. When REL-8
+  // lands the backend will gracefully fall back to raw-text pre-fill;
+  // until then, non-JSON-LD URLs return the existing empty-import
+  // classification.
+  const features = useFeatures()
+  const aiOff = !features.ai.features.urlImport
 
   // PV3 — when the progress page sends the user back via the "Neu starten"
   // CTA it appends `?url=<sourceUrl>` so the input is pre-filled. The
@@ -192,6 +203,19 @@ export function ImportUrlPage() {
         >
           <strong>Diese URL stammt aus einem Link.</strong> Bitte prüfe sie,
           bevor du den Import startest.
+        </div>
+      )}
+
+      {aiOff && (
+        <div
+          role="status"
+          data-testid="import-url-ai-off-banner"
+          className="mt-6 rounded-[12px] border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          <strong>Diese Instanz läuft ohne KI.</strong> URLs mit Schema.org-
+          Rezeptdaten (viele Foodblogs) lassen sich trotzdem importieren;
+          bei Reels und Blogs ohne strukturierte Daten bleibt das Ergebnis
+          leer und du musst das Rezept manuell ergänzen.
         </div>
       )}
 

@@ -17,6 +17,8 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/useAuth'
+import { FeatureGate } from '@/features/_shared/FeatureGate'
+import { useFeatures } from '@/features/_shared/useFeatures'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
 import { GroupPickerDialog } from '@/features/groups/GroupPickerDialog'
 import { ReceivedInvitesBanner } from '@/features/groups/ReceivedInvitesBanner'
@@ -45,6 +47,17 @@ export function HomePage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const groups = useMyGroups()
+  // REL-7 — the three KI-Import links under the hero chips (Video / Foto
+  // / Chat) depend on AI being available. When the operator booted
+  // without AI we hide them; the URL-import link stays visible only
+  // when `urlImport` is true (AI path) or when JSON-LD extraction is
+  // available (REL-8 — currently always-on as a hook for the parallel
+  // lane to fill in).
+  const features = useFeatures()
+  const anyAiLinkVisible =
+    features.ai.features.urlImport ||
+    features.ai.features.photoImport ||
+    features.ai.features.chat
   const [showCreate, setShowCreate] = useState(false)
   // BF1 #6 — when the chip-press fires for a multi-group user we open
   // the group-picker instead of teleporting them into "the biggest
@@ -143,39 +156,53 @@ export function HomePage() {
           weight, since video and photo are two legitimate starting
           points for the AI flow.
         */}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Link
-            to="/rezepte/import/url"
-            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
-          >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <Video className="h-3.5 w-3.5" aria-hidden="true" />
-            Rezept aus Video importieren
-          </Link>
-          <Link
-            to="/rezepte/import/photos"
-            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
-          >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <Camera className="h-3.5 w-3.5" aria-hidden="true" />
-            Rezept aus Foto importieren
-          </Link>
-          {/*
-            P2-9 — third KI-import entry: conversational recipe creation.
-            Rendered as a sibling of the Video + Foto links; MessageSquare
-            icon picks out the conversational medium. "Erfinden" instead
-            of "Importieren" because the chat path creates something new
-            rather than pulling an existing recipe from a source.
-          */}
-          <Link
-            to="/chat"
-            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
-          >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
-            Rezept im Chat erfinden
-          </Link>
-        </div>
+        {/*
+          REL-7 — KI-Import-CTA row. The whole wrapper collapses when AI
+          is off (no wasted vertical space); individual links hide
+          independently so partial-provider configurations still render
+          the surviving CTAs.
+        */}
+        {anyAiLinkVisible && (
+          <div className="mt-3 flex flex-wrap gap-2" data-testid="home-ai-imports">
+            <FeatureGate feature="videoImport">
+              <Link
+                to="/rezepte/import/url"
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                <Video className="h-3.5 w-3.5" aria-hidden="true" />
+                Rezept aus Video importieren
+              </Link>
+            </FeatureGate>
+            <FeatureGate feature="photoImport">
+              <Link
+                to="/rezepte/import/photos"
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+                Rezept aus Foto importieren
+              </Link>
+            </FeatureGate>
+            {/*
+              P2-9 — third KI-import entry: conversational recipe creation.
+              Rendered as a sibling of the Video + Foto links; MessageSquare
+              icon picks out the conversational medium. "Erfinden" instead
+              of "Importieren" because the chat path creates something new
+              rather than pulling an existing recipe from a source.
+            */}
+            <FeatureGate feature="chat">
+              <Link
+                to="/chat"
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--input))] bg-card/60 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)]"
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+                Rezept im Chat erfinden
+              </Link>
+            </FeatureGate>
+          </div>
+        )}
       </section>
 
       {/* ───────── Pending-invite banner ───────── */}
