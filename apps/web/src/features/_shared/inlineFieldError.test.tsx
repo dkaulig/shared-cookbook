@@ -152,6 +152,20 @@ describe('useFieldErrorFocus', () => {
     document.body.removeChild(input)
   })
 
+  it('setBanner() stores a banner message with fieldName=null bypassing the classifier', () => {
+    const { result } = renderHook(() => useFieldErrorFocus<HTMLInputElement>())
+
+    act(() => {
+      result.current.setBanner('Bitte E-Mail eingeben.')
+    })
+
+    expect(result.current.fieldError).toEqual({
+      fieldName: null,
+      message: 'Bitte E-Mail eingeben.',
+    })
+    expect(result.current.rowError).toBeNull()
+  })
+
   it('clear() resets fieldError and rowError', () => {
     const { result } = renderHook(() => useFieldErrorFocus<HTMLInputElement>())
 

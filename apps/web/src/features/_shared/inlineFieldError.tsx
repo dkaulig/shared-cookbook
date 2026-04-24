@@ -146,9 +146,18 @@ export interface UseFieldErrorFocusReturn<T extends HTMLElement> {
   fieldError: FieldErrorState | null
   rowError: RowErrorState | null
   applyError: (err: unknown) => boolean
+  /**
+   * Set a bare banner message without routing through the classifier.
+   * Used for client-side validation copy (already localised by the
+   * caller) that should land in the same state slot as server-side
+   * fallback errors. `fieldName` on the resulting state is always
+   * `null`.
+   */
+  setBanner: (message: string) => void
   clear: () => void
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useFieldErrorFocus<
   T extends HTMLElement = HTMLElement,
 >(
@@ -186,6 +195,11 @@ export function useFieldErrorFocus<
 
   const clear = useCallback(() => {
     setFieldError(null)
+    setRowError(null)
+  }, [])
+
+  const setBanner = useCallback((message: string) => {
+    setFieldError({ fieldName: null, message })
     setRowError(null)
   }, [])
 
@@ -240,6 +254,7 @@ export function useFieldErrorFocus<
     fieldError,
     rowError,
     applyError,
+    setBanner,
     clear,
   }
 }
