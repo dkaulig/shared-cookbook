@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -61,6 +62,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()
   const [searchParams] = useSearchParams()
+  const { t } = useTranslation()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -73,15 +75,27 @@ export function LoginPage() {
     setError(null)
 
     if (!email.trim()) {
-      setError('Bitte gib deine E-Mail-Adresse ein.')
+      setError(
+        t('auth.login.errors.emailRequired', {
+          defaultValue: 'Bitte gib deine E-Mail-Adresse ein.',
+        }),
+      )
       return
     }
     if (!isValidEmail(email.trim())) {
-      setError('Bitte gib eine gültige E-Mail-Adresse ein.')
+      setError(
+        t('auth.login.errors.emailInvalid', {
+          defaultValue: 'Bitte gib eine gültige E-Mail-Adresse ein.',
+        }),
+      )
       return
     }
     if (!password) {
-      setError('Bitte gib dein Passwort ein.')
+      setError(
+        t('auth.login.errors.passwordRequired', {
+          defaultValue: 'Bitte gib dein Passwort ein.',
+        }),
+      )
       return
     }
 
@@ -91,7 +105,12 @@ export function LoginPage() {
       navigate(safeNextPath(searchParams.get('next')), { replace: true })
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Anmeldung fehlgeschlagen.')
+      setError(
+        apiErr.message ||
+          t('auth.login.errors.failed', {
+            defaultValue: 'Anmeldung fehlgeschlagen.',
+          }),
+      )
     } finally {
       setSubmitting(false)
     }
@@ -102,35 +121,50 @@ export function LoginPage() {
       <section className="mb-8 text-center">
         <span className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-primary">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
-          Willkommen zurück
+          {t('auth.login.kicker', { defaultValue: 'Willkommen zurück' })}
         </span>
         <h1 className="font-serif text-[clamp(38px,9vw,52px)] font-semibold leading-none tracking-[-0.015em]">
-          Was kochen wir heute?
+          {t('auth.login.heroHeadline', {
+            defaultValue: 'Was kochen wir heute?',
+          })}
         </h1>
         <p className="mt-4 font-serif-body text-[17px] italic leading-[1.5] text-muted-foreground">
-          Rezepte aus der Familie. Videos vom Handy. Omas Schnitzel.
+          {t('auth.login.heroTagline', {
+            defaultValue:
+              'Rezepte aus der Familie. Videos vom Handy. Omas Schnitzel.',
+          })}
           <br />
-          Alles an einem Ort.
+          {t('auth.login.heroTaglineSecond', {
+            defaultValue: 'Alles an einem Ort.',
+          })}
         </p>
       </section>
 
       <Card className="rounded-[20px] shadow-[0_10px_30px_-12px_rgba(146,64,14,0.18),0_2px_6px_-2px_rgba(28,25,23,0.06)]">
         <CardHeader className="pb-4">
-          <CardTitle className="text-[26px]">Anmelden</CardTitle>
+          <CardTitle className="text-[26px]">
+            {t('auth.login.cardTitle', { defaultValue: 'Anmelden' })}
+          </CardTitle>
           <CardDescription>
-            Schön, dass du wieder da bist. Mit deiner E-Mail und deinem Passwort
-            geht's los.
+            {t('auth.login.cardDescription', {
+              defaultValue:
+                "Schön, dass du wieder da bist. Mit deiner E-Mail und deinem Passwort geht's los.",
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email">E-Mail-Adresse</Label>
+              <Label htmlFor="email">
+                {t('auth.emailLabel', { defaultValue: 'E-Mail-Adresse' })}
+              </Label>
               <Input
                 id="email"
                 type="email"
                 inputMode="email"
-                placeholder="du@familie.de"
+                placeholder={t('auth.emailPlaceholder', {
+                  defaultValue: 'du@familie.de',
+                })}
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -138,11 +172,15 @@ export function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password">Passwort</Label>
+              <Label htmlFor="password">
+                {t('auth.password', { defaultValue: 'Passwort' })}
+              </Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="••••••••"
+                placeholder={t('auth.login.passwordPlaceholder', {
+                  defaultValue: '••••••••',
+                })}
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -157,10 +195,14 @@ export function LoginPage() {
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                 />
-                30 Tage angemeldet bleiben
+                {t('auth.login.rememberMe', {
+                  defaultValue: '30 Tage angemeldet bleiben',
+                })}
               </label>
               <Link to="/forgot-password" className="font-medium text-primary hover:underline">
-                Passwort vergessen?
+                {t('auth.forgotPassword', {
+                  defaultValue: 'Passwort vergessen?',
+                })}
               </Link>
             </div>
 
@@ -174,21 +216,25 @@ export function LoginPage() {
             )}
 
             <Button type="submit" size="lg" className="mt-2 w-full" disabled={submitting}>
-              Anmelden
+              {t('auth.login.submitCta', { defaultValue: 'Anmelden' })}
             </Button>
           </form>
 
           <div className="my-6 flex items-center gap-3 text-[12px] uppercase tracking-[0.06em] text-[hsl(24_5%_47%)]">
             <span className="h-px flex-1 bg-border" aria-hidden="true" />
-            oder
+            {t('auth.or', { defaultValue: 'oder' })}
             <span className="h-px flex-1 bg-border" aria-hidden="true" />
           </div>
 
           <p className="text-center text-sm leading-[1.5] text-muted-foreground">
-            Du hast einen Einladungs-Link bekommen?
+            {t('auth.login.inviteQuestion', {
+              defaultValue: 'Du hast einen Einladungs-Link bekommen?',
+            })}
             <br />
             <Link to="/signup" className="font-semibold text-primary hover:underline">
-              Jetzt registrieren →
+              {t('auth.login.inviteCta', {
+                defaultValue: 'Jetzt registrieren →',
+              })}
             </Link>
           </p>
         </CardContent>

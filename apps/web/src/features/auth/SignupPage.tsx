@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { ApiError, AuthResponse, InvitePreview } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,6 +34,7 @@ export function SignupPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const setSession = useAuthStore((s) => s.setSession)
+  const { t } = useTranslation()
 
   const token = params.get('token') ?? ''
 
@@ -51,49 +53,87 @@ export function SignupPage() {
     let cancelled = false
     void (async () => {
       if (!token) {
-        if (!cancelled) setPreview({ status: 'error', message: 'Einladungslink ist ungültig oder fehlt.' })
+        if (!cancelled)
+          setPreview({
+            status: 'error',
+            message: t('auth.signup.errors.inviteMissing', {
+              defaultValue: 'Einladungslink ist ungültig oder fehlt.',
+            }),
+          })
         return
       }
       try {
         const response = await fetch(`/api/invites/app/${encodeURIComponent(token)}`)
         if (cancelled) return
         if (!response.ok) {
-          setPreview({ status: 'error', message: 'Einladung wurde nicht gefunden.' })
+          setPreview({
+            status: 'error',
+            message: t('auth.signup.errors.inviteNotFound', {
+              defaultValue: 'Einladung wurde nicht gefunden.',
+            }),
+          })
           return
         }
         const body = (await response.json()) as InvitePreview
         if (!body.valid) {
-          setPreview({ status: 'error', message: 'Einladung ist abgelaufen oder bereits verwendet.' })
+          setPreview({
+            status: 'error',
+            message: t('auth.signup.errors.inviteExpired', {
+              defaultValue: 'Einladung ist abgelaufen oder bereits verwendet.',
+            }),
+          })
           return
         }
         setPreview({ status: 'ok', preview: body })
       } catch {
-        if (!cancelled) setPreview({ status: 'error', message: 'Einladung konnte nicht geladen werden.' })
+        if (!cancelled)
+          setPreview({
+            status: 'error',
+            message: t('auth.signup.errors.invitePreviewFailed', {
+              defaultValue: 'Einladung konnte nicht geladen werden.',
+            }),
+          })
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [token])
+  }, [token, t])
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
 
     if (!displayName.trim()) {
-      setError('Bitte gib einen Anzeigenamen ein.')
+      setError(
+        t('auth.signup.errors.displayNameRequired', {
+          defaultValue: 'Bitte gib einen Anzeigenamen ein.',
+        }),
+      )
       return
     }
     if (!isValidEmail(email.trim())) {
-      setError('Bitte gib eine gültige E-Mail-Adresse ein.')
+      setError(
+        t('auth.signup.errors.emailInvalid', {
+          defaultValue: 'Bitte gib eine gültige E-Mail-Adresse ein.',
+        }),
+      )
       return
     }
     if (password.length < 8) {
-      setError('Passwort muss mindestens 8 Zeichen lang sein.')
+      setError(
+        t('auth.signup.errors.passwordTooShort', {
+          defaultValue: 'Passwort muss mindestens 8 Zeichen lang sein.',
+        }),
+      )
       return
     }
     if (password !== confirm) {
-      setError('Passwörter stimmen nicht überein.')
+      setError(
+        t('auth.signup.errors.passwordsMismatch', {
+          defaultValue: 'Passwörter stimmen nicht überein.',
+        }),
+      )
       return
     }
 
@@ -106,7 +146,12 @@ export function SignupPage() {
         body: JSON.stringify({ email: email.trim(), password, displayName: displayName.trim() }),
       })
       if (!response.ok) {
-        const apiErr = (await safeJson<ApiError>(response)) ?? { code: 'unknown', message: 'Registrierung fehlgeschlagen.' }
+        const apiErr = (await safeJson<ApiError>(response)) ?? {
+          code: 'unknown',
+          message: t('auth.signup.errors.failed', {
+            defaultValue: 'Registrierung fehlgeschlagen.',
+          }),
+        }
         setError(apiErr.message)
         return
       }
@@ -114,7 +159,12 @@ export function SignupPage() {
       setSession(body.accessToken, body.user)
       navigate('/', { replace: true })
     } catch {
-      setError('Registrierung fehlgeschlagen. Bitte später erneut versuchen.')
+      setError(
+        t('auth.signup.errors.failedRetry', {
+          defaultValue:
+            'Registrierung fehlgeschlagen. Bitte später erneut versuchen.',
+        }),
+      )
     } finally {
       setSubmitting(false)
     }
@@ -127,31 +177,56 @@ export function SignupPage() {
       <section className="mb-8 text-center">
         <span className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-primary">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
-          {inviterName ? `${inviterName} lädt dich ein` : 'Einladung prüfen'}
+          {inviterName
+            ? t('auth.signup.kickerInviterTemplate', {
+                name: inviterName,
+                defaultValue: `${inviterName} lädt dich ein`,
+              })
+            : t('auth.signup.kickerDefault', {
+                defaultValue: 'Einladung prüfen',
+              })}
         </span>
         <h1 className="font-serif text-[clamp(38px,9vw,52px)] font-semibold leading-none tracking-[-0.015em]">
-          Willkommen in der Familie
+          {t('auth.signup.heroHeadline', {
+            defaultValue: 'Willkommen in der Familie',
+          })}
         </h1>
         <p className="mt-4 font-serif-body text-[17px] italic leading-[1.5] text-muted-foreground">
           {inviterName
-            ? `${inviterName} lädt dich zum Familien-Kochbuch ein.`
-            : 'Mit deinem Einladungs-Link bist du gleich dabei.'}
+            ? t('auth.signup.heroTaglineInviter', {
+                name: inviterName,
+                defaultValue: `${inviterName} lädt dich zum Familien-Kochbuch ein.`,
+              })
+            : t('auth.signup.heroTaglineDefault', {
+                defaultValue:
+                  'Mit deinem Einladungs-Link bist du gleich dabei.',
+              })}
           <br />
-          Leg ein Konto an und koch mit.
+          {t('auth.signup.heroTaglineSecond', {
+            defaultValue: 'Leg ein Konto an und koch mit.',
+          })}
         </p>
       </section>
 
       <Card className="rounded-[20px] shadow-[0_10px_30px_-12px_rgba(146,64,14,0.18),0_2px_6px_-2px_rgba(28,25,23,0.06)]">
         <CardHeader className="pb-4">
-          <CardTitle className="text-[26px]">Registrieren</CardTitle>
+          <CardTitle className="text-[26px]">
+            {t('auth.signup.cardTitle', { defaultValue: 'Registrieren' })}
+          </CardTitle>
           <CardDescription>
-            Dein Anzeigename erscheint bei deinen Rezepten und Bewertungen in
-            der Gruppe.
+            {t('auth.signup.cardDescription', {
+              defaultValue:
+                'Dein Anzeigename erscheint bei deinen Rezepten und Bewertungen in der Gruppe.',
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {preview.status === 'loading' && (
-            <p className="mb-4 text-sm text-muted-foreground">Einladung wird geprüft …</p>
+            <p className="mb-4 text-sm text-muted-foreground">
+              {t('auth.signup.previewLoading', {
+                defaultValue: 'Einladung wird geprüft …',
+              })}
+            </p>
           )}
 
           {preview.status === 'error' && (
@@ -165,11 +240,15 @@ export function SignupPage() {
 
           <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="displayName">Anzeigename</Label>
+              <Label htmlFor="displayName">
+                {t('auth.displayName', { defaultValue: 'Anzeigename' })}
+              </Label>
               <Input
                 id="displayName"
                 autoComplete="nickname"
-                placeholder="z.B. Oma Erna"
+                placeholder={t('auth.displayNamePlaceholder', {
+                  defaultValue: 'z.B. Oma Erna',
+                })}
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 disabled={preview.status !== 'ok'}
@@ -177,12 +256,16 @@ export function SignupPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="email">E-Mail-Adresse</Label>
+              <Label htmlFor="email">
+                {t('auth.emailLabel', { defaultValue: 'E-Mail-Adresse' })}
+              </Label>
               <Input
                 id="email"
                 type="email"
                 inputMode="email"
-                placeholder="du@familie.de"
+                placeholder={t('auth.emailPlaceholder', {
+                  defaultValue: 'du@familie.de',
+                })}
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -191,11 +274,15 @@ export function SignupPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password">Passwort</Label>
+              <Label htmlFor="password">
+                {t('auth.password', { defaultValue: 'Passwort' })}
+              </Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="Mindestens 8 Zeichen"
+                placeholder={t('auth.passwordMinPlaceholder', {
+                  defaultValue: 'Mindestens 8 Zeichen',
+                })}
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -204,11 +291,17 @@ export function SignupPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="confirm">Passwort bestätigen</Label>
+              <Label htmlFor="confirm">
+                {t('auth.passwordConfirm', {
+                  defaultValue: 'Passwort bestätigen',
+                })}
+              </Label>
               <Input
                 id="confirm"
                 type="password"
-                placeholder="Nochmal zur Sicherheit"
+                placeholder={t('auth.passwordConfirmPlaceholder', {
+                  defaultValue: 'Nochmal zur Sicherheit',
+                })}
                 autoComplete="new-password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
@@ -231,21 +324,23 @@ export function SignupPage() {
               className="mt-2 w-full"
               disabled={submitting || preview.status !== 'ok'}
             >
-              Registrieren
+              {t('auth.signup.submitCta', { defaultValue: 'Registrieren' })}
             </Button>
           </form>
 
           <div className="my-6 flex items-center gap-3 text-[12px] uppercase tracking-[0.06em] text-[hsl(24_5%_47%)]">
             <span className="h-px flex-1 bg-border" aria-hidden="true" />
-            oder
+            {t('auth.or', { defaultValue: 'oder' })}
             <span className="h-px flex-1 bg-border" aria-hidden="true" />
           </div>
 
           <p className="text-center text-sm leading-[1.5] text-muted-foreground">
-            Du hast bereits ein Konto?
+            {t('auth.signup.alreadyAccount', {
+              defaultValue: 'Du hast bereits ein Konto?',
+            })}
             <br />
             <Link to="/login" className="font-semibold text-primary hover:underline">
-              Anmelden →
+              {t('auth.signup.loginCta', { defaultValue: 'Anmelden →' })}
             </Link>
           </p>
         </CardContent>

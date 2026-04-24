@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -20,6 +21,7 @@ import { isValidEmail } from './validation'
  * always returns 204.
  */
 export function ForgotPasswordPage() {
+  const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
@@ -30,7 +32,11 @@ export function ForgotPasswordPage() {
     setError(null)
 
     if (!isValidEmail(email.trim())) {
-      setError('Bitte gib eine gültige E-Mail-Adresse ein.')
+      setError(
+        t('auth.forgot.errors.emailInvalid', {
+          defaultValue: 'Bitte gib eine gültige E-Mail-Adresse ein.',
+        }),
+      )
       return
     }
 
@@ -53,37 +59,53 @@ export function ForgotPasswordPage() {
       <section className="mb-8 text-center">
         <span className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-primary">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
-          Alles halb so wild
+          {t('auth.forgot.kicker', { defaultValue: 'Alles halb so wild' })}
         </span>
         <h1 className="font-serif text-[clamp(34px,8vw,46px)] font-semibold leading-none tracking-[-0.015em]">
-          Passwort zurücksetzen
+          {t('auth.forgot.heroHeadline', {
+            defaultValue: 'Passwort zurücksetzen',
+          })}
         </h1>
         <p className="mt-4 font-serif-body text-[17px] italic leading-[1.5] text-muted-foreground">
-          Passiert den Besten. Gib deine E-Mail ein und du bekommst
-          gleich einen Link.
+          {t('auth.forgot.heroTagline', {
+            defaultValue:
+              'Passiert den Besten. Gib deine E-Mail ein und du bekommst gleich einen Link.',
+          })}
         </p>
       </section>
 
       <Card className="rounded-[20px] shadow-[0_10px_30px_-12px_rgba(146,64,14,0.18),0_2px_6px_-2px_rgba(28,25,23,0.06)]">
         <CardHeader className="pb-4">
-          <CardTitle className="text-[26px]">Passwort zurücksetzen</CardTitle>
-          <CardDescription>Wir senden dir eine E-Mail mit Link.</CardDescription>
+          <CardTitle className="text-[26px]">
+            {t('auth.forgot.cardTitle', { defaultValue: 'Passwort zurücksetzen' })}
+          </CardTitle>
+          <CardDescription>
+            {t('auth.forgot.cardDescription', {
+              defaultValue: 'Wir senden dir eine E-Mail mit Link.',
+            })}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {submitted ? (
             <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 ring-1 ring-emerald-200">
-              Wenn diese E-Mail existiert, haben wir einen Link geschickt. Schau
-              in dein Postfach.
+              {t('auth.forgot.successNotice', {
+                defaultValue:
+                  'Wenn diese E-Mail existiert, haben wir einen Link geschickt. Schau in dein Postfach.',
+              })}
             </p>
           ) : (
             <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="email">E-Mail-Adresse</Label>
+                <Label htmlFor="email">
+                  {t('auth.emailLabel', { defaultValue: 'E-Mail-Adresse' })}
+                </Label>
                 <Input
                   id="email"
                   type="email"
                   inputMode="email"
-                  placeholder="du@familie.de"
+                  placeholder={t('auth.emailPlaceholder', {
+                    defaultValue: 'du@familie.de',
+                  })}
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -100,20 +122,22 @@ export function ForgotPasswordPage() {
               )}
 
               <Button type="submit" size="lg" className="mt-2 w-full" disabled={submitting}>
-                Link anfordern
+                {t('auth.forgot.submitCta', { defaultValue: 'Link anfordern' })}
               </Button>
             </form>
           )}
 
           <div className="my-6 flex items-center gap-3 text-[12px] uppercase tracking-[0.06em] text-[hsl(24_5%_47%)]">
             <span className="h-px flex-1 bg-border" aria-hidden="true" />
-            oder
+            {t('auth.or', { defaultValue: 'oder' })}
             <span className="h-px flex-1 bg-border" aria-hidden="true" />
           </div>
 
           <p className="text-center text-sm leading-[1.5] text-muted-foreground">
             <Link to="/login" className="font-semibold text-primary hover:underline">
-              ← Zurück zur Anmeldung
+              {t('auth.forgot.backToLoginCta', {
+                defaultValue: '← Zurück zur Anmeldung',
+              })}
             </Link>
           </p>
         </CardContent>
