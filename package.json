@@ -16,5 +16,11 @@
     "node": ">=22",
     "pnpm": ">=10"
   },
-  "packageManager": "pnpm@10.32.1"
+  "packageManager": "pnpm@10.32.1",
+  "comment_pnpmOverrides_serializeJs": "REL-0b — vite-plugin-pwa → workbox-build → @rollup/plugin-terser pulls in serialize-javascript ≤7.0.2 which has GHSA-5c6j-r48x-rmvq (RCE via RegExp.flags, HIGH) and GHSA-qj8w-gfj5-8c6v (DoS, MODERATE). Force the patched 7.0.5+ across the graph. Drop this override once vite-plugin-pwa publishes a release that bumps workbox-build.",
+  "pnpm": {
+    "overrides": {
+      "serialize-javascript": ">=7.0.5"
+    }
+  }
 }
