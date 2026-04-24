@@ -3,7 +3,6 @@ import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
   AddSlotRequest,
-  ApiError,
   MealPlanSlotDto,
   MealSlot,
 } from '@familien-kochbuch/shared'
@@ -11,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useRecipes } from '@/features/recipes/hooks'
 import { buildParentLabel, eligibleParents } from './parentSlotHelpers'
 import { useAddSlot } from './useMealPlan'
@@ -127,13 +127,8 @@ export function AddSlotDialog({
       await addSlot.mutateAsync(body)
       onClose()
     } catch (err) {
-      const apiErr = err as ApiError
-      setError(
-        apiErr.message ||
-          t('mealplan.addDialog.errors.failed', {
-            defaultValue: 'Slot konnte nicht angelegt werden.',
-          }),
-      )
+      // REL-3f — localise via errors.json + drop 5xx leaks.
+      setError(classifyMutationError(err).message)
     }
   }
 

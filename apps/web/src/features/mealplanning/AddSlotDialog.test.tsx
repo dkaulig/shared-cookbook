@@ -181,14 +181,21 @@ describe('<AddSlotDialog />', () => {
     expect(captured?.label).toBeNull()
   })
 
-  it('surfaces the server error message when the API rejects the slot', async () => {
+  // REL-3f — backend error-codes route through `classifyMutationError`
+  // so the user sees the localised `errors.json` copy; raw-English
+  // Dev-Messages emitted by the backend post REL-4 must NOT leak.
+  it('surfaces the localised errors:<code> copy when the API rejects the slot', async () => {
     server.use(
       http.get('/api/groups/g1/recipes', () =>
         HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
       ),
       http.post(`/api/mealplans/${PLAN_ID}/slots`, () =>
         HttpResponse.json(
-          { code: 'invalid_input', message: 'Slot-Datum liegt außerhalb der Woche.' },
+          {
+            code: 'invalid_input',
+            message: 'Slot date out of week.',
+            status: 400,
+          },
           { status: 400 },
         ),
       ),
@@ -200,9 +207,39 @@ describe('<AddSlotDialog />', () => {
     await user.type(screen.getByLabelText(/Freier Titel/i), 'Reste')
     await user.click(screen.getByRole('button', { name: /Hinzufügen/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /Slot-Datum liegt außerhalb der Woche/i,
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Eingabe ist ungültig\./)
+    expect(alert).not.toHaveTextContent(/Slot date out of week/)
+  })
+
+  // REL-3f — 5xx responses must never leak raw backend text
+  // (stack traces / SQL fragments) into the UI.
+  it('surfaces a generic German fallback on 5xx without leaking raw message', async () => {
+    server.use(
+      http.get('/api/groups/g1/recipes', () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, pageSize: 8 }),
+      ),
+      http.post(`/api/mealplans/${PLAN_ID}/slots`, () =>
+        HttpResponse.json(
+          {
+            code: 'internal_error',
+            message: 'NullReferenceException at MealPlanService.cs:77',
+            status: 500,
+          },
+          { status: 500 },
+        ),
+      ),
     )
+
+    const user = userEvent.setup()
+    renderDialog()
+
+    await user.type(screen.getByLabelText(/Freier Titel/i), 'Reste')
+    await user.click(screen.getByRole('button', { name: /Hinzufügen/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Unbekannter Fehler/)
+    expect(alert).not.toHaveTextContent(/NullReferenceException/)
   })
 
   it('calls onClose when the user clicks "Abbrechen"', async () => {

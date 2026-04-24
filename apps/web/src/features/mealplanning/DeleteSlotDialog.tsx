@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
-import { MealPlanApiError } from './mealPlanApi'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useDeleteSlot } from './useMealPlan'
 
 /**
@@ -46,14 +46,11 @@ export function DeleteSlotDialog({
       await del.mutateAsync({ slotId: slot.id })
       onClose()
     } catch (err) {
-      const fallback = t('mealplan.deleteDialog.errors.failed', {
-        defaultValue: 'Slot konnte nicht gelöscht werden.',
-      })
-      if (err instanceof MealPlanApiError) {
-        setError(err.message || fallback)
-      } else {
-        setError(fallback)
-      }
+      // REL-3f — classifyMutationError reads `code` off `MealPlanApiError`
+      // (ApiErrorBase subclass) and maps it to the localised `errors.json`
+      // entry; 5xx / native Errors fall back to the generic German toast
+      // copy automatically.
+      setError(classifyMutationError(err).message)
     }
   }
 
