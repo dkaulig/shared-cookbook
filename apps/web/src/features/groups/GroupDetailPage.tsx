@@ -94,7 +94,11 @@ export function GroupDetailPage() {
   const detail = useGroup(groupId)
   const tagsQuery = useGroupTags(groupId)
 
-  const sortLabel: Record<SearchSort, string> = {
+  // PAGE-1 — the active `<Select>` only surfaces four of the `SearchSort`
+  // values; the rest live in the shared union for backend/URL compat.
+  // Keyed by the subset we actually render so TS doesn't force labels for
+  // sort values the UI never shows.
+  const sortLabel: Record<(typeof SORT_VALUES)[number], string> = {
     updated_desc: t('groups.detail.sortUpdatedDesc'),
     cooked_desc: t('groups.detail.sortCookedDesc'),
     title_asc: t('groups.detail.sortTitleAsc'),
