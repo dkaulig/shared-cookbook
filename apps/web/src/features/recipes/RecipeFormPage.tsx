@@ -160,6 +160,29 @@ type StepRow = {
  */
 const COMPONENT_LABEL_MAX = 50
 
+// REL-5e / REL-4c — allowlist of backend-emitted fieldName values the
+// form renders as inline errors (aria-invalid on the control + <p
+// role="alert"> next to it + focus + scrollIntoView). Any fieldName the
+// backend starts emitting that isn't on this list falls through to the
+// generic bottom-of-form banner so the user still gets actionable copy.
+//
+// Wire-level source of truth: RecipeEndpoints.MapRecipeValidationError
+// (apps/api/src/FamilienKochbuch.Api/Endpoints/RecipeEndpoints.cs).
+const SUPPORTED_INLINE_FIELDS = [
+  'tagIds',
+  'coverStagedPhotoId',
+  'title',
+  'description',
+  'defaultServings',
+  'prepTimeMinutes',
+  'difficulty',
+  'sourceUrl',
+] as const
+type SupportedFieldName = (typeof SUPPORTED_INLINE_FIELDS)[number]
+function isSupportedInlineField(name: string): name is SupportedFieldName {
+  return (SUPPORTED_INLINE_FIELDS as readonly string[]).includes(name)
+}
+
 type ComponentRow = {
   key: string
   label: string | null
@@ -644,21 +667,30 @@ function RecipeFormInner({
   const [prefillNutrition] = useState(prefill?.nutritionEstimate ?? null)
   const [createTagOpen, setCreateTagOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // REL-5e — inline field-error routing. When the backend attributes a
-  // 400 to a specific field via `fieldName`, we scope the error to that
-  // FormCard (aria-invalid on the container + <p role="alert"> next to
-  // it + scroll into view). `fieldName` is a machine identifier used
-  // only as a Map-key — never rendered verbatim. Null when the error is
-  // not field-attributed; the bottom-of-form banner handles that path.
+  // REL-5e / REL-4c — inline field-error routing. When the backend
+  // attributes a 400 to a specific field via `fieldName`, we scope the
+  // error to that FormCard (aria-invalid on the container + <p
+  // role="alert"> next to it + scroll into view). `fieldName` is a
+  // machine identifier used only as a Map-key — never rendered
+  // verbatim. Null when the error is not field-attributed; the
+  // bottom-of-form banner handles that path.
   //
-  // Only fieldName values that the recipe create/update endpoints
-  // actually emit today:
-  //   - tagIds               (ErrorCodes.InvalidTag)
-  //   - coverStagedPhotoId   (ErrorCodes.CoverNotInStagedSet)
-  // Every other 400 from those endpoints carries no fieldName and
-  // lands in the generic `error` banner below (existing REL-3c path).
+  // fieldName values currently supported on the wire (see
+  // RecipeEndpoints.MapRecipeValidationError on the backend):
+  //   - tagIds               (ErrorCodes.InvalidTag)              — REL-5e
+  //   - coverStagedPhotoId   (ErrorCodes.CoverNotInStagedSet)     — REL-5e
+  //   - title                (ErrorCodes.InvalidTitle)            — REL-4c
+  //   - description          (ErrorCodes.InvalidValue)            — REL-4c
+  //   - defaultServings      (ErrorCodes.InvalidValue)            — REL-4c
+  //   - prepTimeMinutes      (ErrorCodes.InvalidValue)            — REL-4c
+  //   - difficulty           (ErrorCodes.InvalidValue)            — REL-4c
+  //   - sourceUrl            (ErrorCodes.InvalidSourceUrl)        — REL-4c
+  // Every other 400 from those endpoints carries no fieldName (or a
+  // fieldName we don't have a ref for) and lands in the generic `error`
+  // banner below (existing REL-3c path). Allowlist is module-level —
+  // see SUPPORTED_INLINE_FIELDS above.
   const [fieldError, setFieldError] = useState<{
-    fieldName: 'tagIds' | 'coverStagedPhotoId'
+    fieldName: SupportedFieldName
     message: string
   } | null>(null)
   // Ref-map keyed by the backend-emitted fieldName so adding a new
@@ -1219,15 +1251,17 @@ function RecipeFormInner({
       // codes keep the backend message since it's already user-
       // actionable German today.
       const classified = classifyMutationError(err)
-      // REL-5e — when the backend attributed the 400 to a specific
-      // form field, render the inline error next to that field (and
-      // move focus) instead of dumping it into the bottom banner.
-      // Recipe create/update only emits `tagIds` + `coverStagedPhotoId`;
-      // everything else falls through to the banner path.
+      // REL-5e / REL-4c — when the backend attributed the 400 to a
+      // specific form field, render the inline error next to that field
+      // (and move focus) instead of dumping it into the bottom banner.
+      // The allowlist (SUPPORTED_INLINE_FIELDS) gates which fieldName
+      // values get inline treatment — a future backend fieldName we
+      // haven't registered a ref for falls through to the banner path.
       if (
         classified.surface === 'inline' &&
-        (classified.fieldName === 'tagIds' ||
-          classified.fieldName === 'coverStagedPhotoId')
+        classified.fieldName !== undefined &&
+        isSupportedInlineField(classified.fieldName) &&
+        fieldRefs.current[classified.fieldName]
       ) {
         setFieldError({
           fieldName: classified.fieldName,
@@ -1340,6 +1374,9 @@ function RecipeFormInner({
               label={t('recipes.form.titleLabel', { defaultValue: 'Titel' })}
             >
               <FormInput
+                ref={(el) => {
+                  fieldRefs.current.title = el
+                }}
                 id="recipe-title"
                 type="text"
                 value={title}
@@ -1349,8 +1386,24 @@ function RecipeFormInner({
                   defaultValue: 'z.B. Mamas Apfelkuchen',
                 })}
                 required
+                aria-invalid={fieldError?.fieldName === 'title' || undefined}
+                aria-describedby={
+                  fieldError?.fieldName === 'title'
+                    ? 'recipe-form-title-error'
+                    : undefined
+                }
               />
               <CharCounter value={title} max={TITLE_MAX} />
+              {fieldError?.fieldName === 'title' && (
+                <p
+                  id="recipe-form-title-error"
+                  data-testid="recipe-form-title-error"
+                  role="alert"
+                  className="mt-1 text-sm text-[hsl(var(--destructive))]"
+                >
+                  {fieldError.message}
+                </p>
+              )}
             </Field>
 
             <Field
@@ -1362,6 +1415,9 @@ function RecipeFormInner({
               className="mt-[14px]"
             >
               <FormTextarea
+                ref={(el) => {
+                  fieldRefs.current.description = el
+                }}
                 id="recipe-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -1369,8 +1425,26 @@ function RecipeFormInner({
                 placeholder={t('recipes.form.descriptionPlaceholder', {
                   defaultValue: 'Ein Satz oder zwei zur Einordnung …',
                 })}
+                aria-invalid={
+                  fieldError?.fieldName === 'description' || undefined
+                }
+                aria-describedby={
+                  fieldError?.fieldName === 'description'
+                    ? 'recipe-form-description-error'
+                    : undefined
+                }
               />
               <CharCounter value={description} max={DESC_MAX} />
+              {fieldError?.fieldName === 'description' && (
+                <p
+                  id="recipe-form-description-error"
+                  data-testid="recipe-form-description-error"
+                  role="alert"
+                  className="mt-1 text-sm text-[hsl(var(--destructive))]"
+                >
+                  {fieldError.message}
+                </p>
+              )}
             </Field>
           </FormCard>
 
@@ -1511,6 +1585,9 @@ function RecipeFormInner({
                 })}
               >
                 <FormInput
+                  ref={(el) => {
+                    fieldRefs.current.defaultServings = el
+                  }}
                   id="recipe-servings"
                   type="number"
                   min={1}
@@ -1519,7 +1596,25 @@ function RecipeFormInner({
                   onChange={(e) =>
                     setDefaultServings(Math.max(1, Number(e.target.value) || 1))
                   }
+                  aria-invalid={
+                    fieldError?.fieldName === 'defaultServings' || undefined
+                  }
+                  aria-describedby={
+                    fieldError?.fieldName === 'defaultServings'
+                      ? 'recipe-form-defaultServings-error'
+                      : undefined
+                  }
                 />
+                {fieldError?.fieldName === 'defaultServings' && (
+                  <p
+                    id="recipe-form-defaultServings-error"
+                    data-testid="recipe-form-defaultServings-error"
+                    role="alert"
+                    className="mt-1 text-sm text-[hsl(var(--destructive))]"
+                  >
+                    {fieldError.message}
+                  </p>
+                )}
               </Field>
               <Field
                 htmlFor="recipe-prep"
@@ -1528,6 +1623,9 @@ function RecipeFormInner({
                 })}
               >
                 <FormInput
+                  ref={(el) => {
+                    fieldRefs.current.prepTimeMinutes = el
+                  }}
                   id="recipe-prep"
                   type="number"
                   min={1}
@@ -1537,19 +1635,66 @@ function RecipeFormInner({
                   placeholder={t('recipes.form.prepTimePlaceholder', {
                     defaultValue: '45',
                   })}
+                  aria-invalid={
+                    fieldError?.fieldName === 'prepTimeMinutes' || undefined
+                  }
+                  aria-describedby={
+                    fieldError?.fieldName === 'prepTimeMinutes'
+                      ? 'recipe-form-prepTimeMinutes-error'
+                      : undefined
+                  }
                 />
+                {fieldError?.fieldName === 'prepTimeMinutes' && (
+                  <p
+                    id="recipe-form-prepTimeMinutes-error"
+                    data-testid="recipe-form-prepTimeMinutes-error"
+                    role="alert"
+                    className="mt-1 text-sm text-[hsl(var(--destructive))]"
+                  >
+                    {fieldError.message}
+                  </p>
+                )}
               </Field>
             </div>
 
-            <Field
-              htmlFor="recipe-difficulty"
-              label={t('recipes.form.difficultyLabel', {
-                defaultValue: 'Schwierigkeit',
-              })}
-              className="mt-[14px]"
+            {/* REL-4c — difficulty error surfaces as a wrapper-scoped
+                inline alert since DifficultyPills is a button group, not
+                a single focusable input. The wrapper's tabIndex=-1 lets
+                the focus-helper land there. */}
+            <div
+              ref={(el) => {
+                fieldRefs.current.difficulty = el
+              }}
+              tabIndex={-1}
+              data-testid="recipe-form-difficulty"
+              aria-invalid={fieldError?.fieldName === 'difficulty' || undefined}
+              aria-describedby={
+                fieldError?.fieldName === 'difficulty'
+                  ? 'recipe-form-difficulty-error'
+                  : undefined
+              }
+              className="focus:outline-none focus-visible:outline-none"
             >
-              <DifficultyPills value={difficulty} onChange={setDifficulty} />
-            </Field>
+              <Field
+                htmlFor="recipe-difficulty"
+                label={t('recipes.form.difficultyLabel', {
+                  defaultValue: 'Schwierigkeit',
+                })}
+                className="mt-[14px]"
+              >
+                <DifficultyPills value={difficulty} onChange={setDifficulty} />
+                {fieldError?.fieldName === 'difficulty' && (
+                  <p
+                    id="recipe-form-difficulty-error"
+                    data-testid="recipe-form-difficulty-error"
+                    role="alert"
+                    className="mt-1 text-sm text-[hsl(var(--destructive))]"
+                  >
+                    {fieldError.message}
+                  </p>
+                )}
+              </Field>
+            </div>
 
             <Field
               htmlFor="recipe-source"
@@ -1560,6 +1705,9 @@ function RecipeFormInner({
               className="mt-[14px]"
             >
               <FormInput
+                ref={(el) => {
+                  fieldRefs.current.sourceUrl = el
+                }}
                 id="recipe-source"
                 type="url"
                 value={sourceUrl}
@@ -1567,7 +1715,25 @@ function RecipeFormInner({
                 placeholder={t('recipes.form.sourceUrlPlaceholderHint', {
                   defaultValue: 'https://… — z.B. Foodblog oder Reel-Link',
                 })}
+                aria-invalid={
+                  fieldError?.fieldName === 'sourceUrl' || undefined
+                }
+                aria-describedby={
+                  fieldError?.fieldName === 'sourceUrl'
+                    ? 'recipe-form-sourceUrl-error'
+                    : undefined
+                }
               />
+              {fieldError?.fieldName === 'sourceUrl' && (
+                <p
+                  id="recipe-form-sourceUrl-error"
+                  data-testid="recipe-form-sourceUrl-error"
+                  role="alert"
+                  className="mt-1 text-sm text-[hsl(var(--destructive))]"
+                >
+                  {fieldError.message}
+                </p>
+              )}
             </Field>
           </FormCard>
 
@@ -2039,10 +2205,16 @@ function Field({
   )
 }
 
-function FormInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+function FormInput({
+  ref,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  ref?: React.Ref<HTMLInputElement>
+}) {
   return (
     <input
       {...props}
+      ref={ref}
       className={cn(
         'w-full rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150',
         'placeholder:text-[hsl(var(--muted-foreground))]/80',

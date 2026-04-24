@@ -3792,3 +3792,154 @@ describe('RecipeFormPage REL-5e inline field-focus', () => {
     ).toBeNull()
   })
 })
+
+// ── REL-4c inline field-focus for per-field 400s from the recipe
+//    create/update endpoints (title / description / defaultServings /
+//    prepTimeMinutes / difficulty / sourceUrl). Complements the REL-5e
+//    suite above — tagIds + coverStagedPhotoId landed in that slice.
+describe('RecipeFormPage REL-4c inline field-focus', () => {
+  beforeAll(async () => {
+    window.localStorage.setItem('i18nextLng', 'de')
+    const { createI18n } = await import('@/i18n')
+    await createI18n()
+  })
+
+  async function fillHappyPath(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+  }
+
+  it('focuses the title input and shows an inline error for fieldName=title', async () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      const user = userEvent.setup()
+      server.use(
+        http.post('/api/groups/g1/recipes', () =>
+          HttpResponse.json(
+            {
+              code: 'invalid_title',
+              message: 'Recipe title must not be blank.',
+              status: 400,
+              fieldName: 'title',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+
+      render(withProviders('/groups/g1/recipes/new'))
+      await fillHappyPath(user)
+      await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+      const alert = await screen.findByTestId('recipe-form-title-error')
+      expect(alert).toHaveTextContent(/Ungültiger Titel/i)
+      const titleInput = screen.getByLabelText(/Titel/i)
+      expect(titleInput.getAttribute('aria-invalid')).toBe('true')
+      expect(titleInput.getAttribute('aria-describedby')).toBe(alert.id)
+      // Raw English server text must never leak.
+      expect(screen.queryByText(/must not be blank/i)).toBeNull()
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  it('focuses the servings input and shows an inline error for fieldName=defaultServings', async () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      const user = userEvent.setup()
+      server.use(
+        http.post('/api/groups/g1/recipes', () =>
+          HttpResponse.json(
+            {
+              code: 'invalid_value',
+              message: 'Default servings must be greater than zero.',
+              status: 400,
+              fieldName: 'defaultServings',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+
+      render(withProviders('/groups/g1/recipes/new'))
+      await fillHappyPath(user)
+      await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+      const alert = await screen.findByTestId('recipe-form-defaultServings-error')
+      expect(alert).toHaveTextContent(/Ungültiger Wert/i)
+      const servingsInput = screen.getByLabelText(/Portionen/i)
+      expect(servingsInput.getAttribute('aria-invalid')).toBe('true')
+      expect(servingsInput.getAttribute('aria-describedby')).toBe(alert.id)
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  it('focuses the sourceUrl input and shows an inline error for fieldName=sourceUrl', async () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      const user = userEvent.setup()
+      server.use(
+        http.post('/api/groups/g1/recipes', () =>
+          HttpResponse.json(
+            {
+              code: 'invalid_source_url',
+              message: 'Source URL must use the http or https scheme.',
+              status: 400,
+              fieldName: 'sourceUrl',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+
+      render(withProviders('/groups/g1/recipes/new'))
+      await fillHappyPath(user)
+      await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+      const alert = await screen.findByTestId('recipe-form-sourceUrl-error')
+      expect(alert).toHaveTextContent(/Quell-URL ist ungültig/i)
+      const sourceInput = screen.getByLabelText(/Quelle/i)
+      expect(sourceInput.getAttribute('aria-invalid')).toBe('true')
+      expect(sourceInput.getAttribute('aria-describedby')).toBe(alert.id)
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  it('falls back to the banner when fieldName is an unknown/unregistered value', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('/api/groups/g1/recipes', () =>
+        HttpResponse.json(
+          {
+            code: 'invalid_value',
+            message: 'Some novel future field.',
+            status: 400,
+            fieldName: 'someFutureFieldNotRegistered',
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+
+    render(withProviders('/groups/g1/recipes/new'))
+    await user.type(screen.getByLabelText(/Titel/i), 'Ok')
+    await user.type(screen.getByLabelText(/Zutat 1 Name/i), 'Mehl')
+    await user.type(screen.getByLabelText(/Schritt 1/i), 'Umrühren.')
+    await user.click(screen.getByRole('button', { name: /Rezept speichern/i }))
+
+    // No matching inline ref → banner fallback surfaces the translated
+    // `errors:invalid_value` copy. No inline alert must appear.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('recipe-form-title-error'),
+      ).not.toBeInTheDocument()
+    })
+    expect(await screen.findByText(/Ungültiger Wert/i)).toBeInTheDocument()
+  })
+})
