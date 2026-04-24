@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type {
   ApiError,
@@ -116,17 +116,6 @@ const CATEGORY_ORDER: readonly TagCategory[] = [
   'Komponente',
   'Custom',
 ]
-
-const CATEGORY_LABELS: Record<TagCategory, string> = {
-  Mahlzeit: 'Mahlzeit',
-  Saison: 'Saison',
-  Typ: 'Typ',
-  Aufwand: 'Aufwand',
-  Diaet: 'Diät',
-  Kueche: 'Küche',
-  Komponente: 'Komponente',
-  Custom: 'Gruppen-Tags (Custom)',
-}
 
 const TITLE_MAX = 200
 const DESC_MAX = 2000
@@ -1225,6 +1214,29 @@ function RecipeFormInner({
     submitPhase === 'uploading-photos'
   const hasCustomCategory = tagsByCategory.has('Custom')
 
+  // Translated category labels for the Tag-section headings.
+  // Keys mirror `TagCategory` so missing ones collapse to the untranslated
+  // category string — safer than the previous hard-coded record when a new
+  // category lands server-side before the locale files catch up.
+  const categoryLabels: Record<TagCategory, string> = {
+    Mahlzeit: t('recipes.form.categoryLabels.Mahlzeit', {
+      defaultValue: 'Mahlzeit',
+    }),
+    Saison: t('recipes.form.categoryLabels.Saison', { defaultValue: 'Saison' }),
+    Typ: t('recipes.form.categoryLabels.Typ', { defaultValue: 'Typ' }),
+    Aufwand: t('recipes.form.categoryLabels.Aufwand', {
+      defaultValue: 'Aufwand',
+    }),
+    Diaet: t('recipes.form.categoryLabels.Diaet', { defaultValue: 'Diät' }),
+    Kueche: t('recipes.form.categoryLabels.Kueche', { defaultValue: 'Küche' }),
+    Komponente: t('recipes.form.categoryLabels.Komponente', {
+      defaultValue: 'Komponente',
+    }),
+    Custom: t('recipes.form.categoryLabels.Custom', {
+      defaultValue: 'Gruppen-Tags (Custom)',
+    }),
+  }
+
   // BUG-036 — push the 2-button form row into the unified Bottom-Zone
   // slot. Previously `<FormActionBar>` rendered as a fixed overlay at
   // the end of the page; now it lives in the same shared container as
@@ -1667,7 +1679,7 @@ function RecipeFormInner({
                     )}
                   >
                     <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                      {CATEGORY_LABELS[category]}
+                      {categoryLabels[category]}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {(tagsByCategory.get(category) ?? []).map((tag) => (
@@ -1687,7 +1699,7 @@ function RecipeFormInner({
                 {!hasCustomCategory && (
                   <div className="border-t border-dashed border-border pt-3.5">
                     <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                      {CATEGORY_LABELS.Custom}
+                      {categoryLabels.Custom}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <CustomTagButton onClick={() => setCreateTagOpen(true)} />
@@ -2008,6 +2020,7 @@ function TagChip({
 }
 
 function CustomTagButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
@@ -2015,7 +2028,7 @@ function CustomTagButton({ onClick }: { onClick: () => void }) {
       className="inline-flex items-center gap-1 rounded-full border border-dashed border-[hsl(var(--input))] bg-transparent px-2.5 py-[5px] text-[13px] text-[hsl(var(--muted-foreground))] transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.08)] hover:text-primary"
     >
       <Plus className="h-3 w-3" aria-hidden="true" />
-      Neuen Tag erstellen
+      {t('recipes.form.tagsCustomNew', { defaultValue: 'Neuen Tag erstellen' })}
     </button>
   )
 }
@@ -2029,6 +2042,7 @@ function CustomTagButton({ onClick }: { onClick: () => void }) {
  * about its icon + copy.
  */
 function AddComponentButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
@@ -2039,7 +2053,7 @@ function AddComponentButton({ onClick }: { onClick: () => void }) {
       )}
     >
       <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-      Komponente hinzufügen
+      {t('recipes.form.addComponent', { defaultValue: 'Komponente hinzufügen' })}
     </button>
   )
 }
@@ -2085,6 +2099,7 @@ function ComponentCard({
   onStepRemove: (rowIndex: number) => void
   onStepAdd: () => void
 }) {
+  const { t } = useTranslation()
   const labelId = `component-label-${component.key}`
   return (
     <li
@@ -2097,7 +2112,9 @@ function ComponentCard({
             htmlFor={labelId}
             className="mb-1 block text-[11px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]"
           >
-            Komponenten-Name
+            {t('recipes.form.componentLabelHeading', {
+              defaultValue: 'Komponenten-Name',
+            })}
           </label>
           <input
             id={labelId}
@@ -2106,8 +2123,13 @@ function ComponentCard({
             value={component.label ?? ''}
             onChange={(e) => onLabelChange(e.target.value)}
             maxLength={COMPONENT_LABEL_MAX}
-            placeholder="z.B. Chipotle Sauce oder Hauptgericht"
-            aria-label={`Komponente ${componentIndex + 1} Name`}
+            placeholder={t('recipes.form.componentLabelPlaceholder', {
+              defaultValue: 'z.B. Chipotle Sauce oder Hauptgericht',
+            })}
+            aria-label={t('recipes.form.componentLabelAria', {
+              index: componentIndex + 1,
+              defaultValue: `Komponente ${componentIndex + 1} Name`,
+            })}
             className={cn(
               'w-full rounded-[10px] border border-[hsl(var(--input))] bg-background px-3 py-2 text-[15px] font-semibold text-foreground',
               'focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25',
@@ -2119,7 +2141,10 @@ function ComponentCard({
           data-testid={`component-delete-${componentIndex}`}
           onClick={onDelete}
           disabled={!canDelete}
-          aria-label={`Komponente ${componentIndex + 1} entfernen`}
+          aria-label={t('recipes.form.componentDeleteAria', {
+            index: componentIndex + 1,
+            defaultValue: `Komponente ${componentIndex + 1} entfernen`,
+          })}
           className={cn(
             'mt-[22px] grid h-9 w-9 place-items-center rounded-md text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]',
             !canDelete &&
@@ -2132,7 +2157,7 @@ function ComponentCard({
 
       <div className="mb-3">
         <h4 className="mb-2 text-[12px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-          Zutaten
+          {t('recipes.form.ingredientsHeading', { defaultValue: 'Zutaten' })}
         </h4>
         <SortableContext
           items={component.ingredients.map((r) => r.key)}
@@ -2153,12 +2178,17 @@ function ComponentCard({
             ))}
           </ul>
         </SortableContext>
-        <AddRowButton onClick={onIngredientAdd} label="Zutat hinzufügen" />
+        <AddRowButton
+          onClick={onIngredientAdd}
+          label={t('recipes.form.addIngredient', {
+            defaultValue: 'Zutat hinzufügen',
+          })}
+        />
       </div>
 
       <div>
         <h4 className="mb-2 text-[12px] font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-          Zubereitung
+          {t('recipes.form.preparationHeading', { defaultValue: 'Zubereitung' })}
         </h4>
         <SortableContext
           items={component.steps.map((r) => r.key)}
@@ -2177,7 +2207,10 @@ function ComponentCard({
             ))}
           </ol>
         </SortableContext>
-        <AddRowButton onClick={onStepAdd} label="Schritt hinzufügen" />
+        <AddRowButton
+          onClick={onStepAdd}
+          label={t('recipes.form.addStep', { defaultValue: 'Schritt hinzufügen' })}
+        />
       </div>
     </li>
   )
@@ -2209,6 +2242,7 @@ function SortableIngredientRow({
   onUpdate: (index: number, updater: (row: IngredientRow) => IngredientRow) => void
   onRemove: () => void
 }) {
+  const { t } = useTranslation()
   const {
     attributes,
     listeners,
@@ -2239,7 +2273,9 @@ function SortableIngredientRow({
         {...attributes}
         {...listeners}
         data-testid={`ingredient-drag-handle-${index}`}
-        aria-label="Zutat verschieben"
+        aria-label={t('recipes.form.ingredientRow.dragHandleAria', {
+          defaultValue: 'Zutat verschieben',
+        })}
         className="grid h-10 min-h-[40px] w-7 place-items-center rounded-md text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 active:cursor-grabbing"
         style={{ touchAction: 'none', cursor: 'grab' }}
       >
@@ -2261,8 +2297,13 @@ function SortableIngredientRow({
           type="text"
           value={row.name}
           onChange={(e) => onUpdate(index, (r) => ({ ...r, name: e.target.value }))}
-          placeholder="Zutat"
-          aria-label={`Zutat ${index + 1} Name`}
+          placeholder={t('recipes.form.ingredientRow.namePlaceholder', {
+            defaultValue: 'Zutat',
+          })}
+          aria-label={t('recipes.form.ingredientRow.nameAria', {
+            index: index + 1,
+            defaultValue: `Zutat ${index + 1} Name`,
+          })}
           className="py-2 text-base md:order-3"
         />
         <div className="flex gap-1.5 md:contents">
@@ -2271,14 +2312,22 @@ function SortableIngredientRow({
             inputMode="decimal"
             value={row.quantity}
             onChange={(e) => onUpdate(index, (r) => ({ ...r, quantity: e.target.value }))}
-            placeholder="Menge"
-            aria-label={`Zutat ${index + 1} Menge`}
+            placeholder={t('recipes.form.ingredientRow.quantityPlaceholder', {
+              defaultValue: 'Menge',
+            })}
+            aria-label={t('recipes.form.ingredientRow.quantityAria', {
+              index: index + 1,
+              defaultValue: `Zutat ${index + 1} Menge`,
+            })}
             className="w-[96px] py-2 text-right text-base md:order-1 md:w-auto"
           />
           <FormSelect
             value={row.unit}
             onChange={(e) => onUpdate(index, (r) => ({ ...r, unit: e.target.value }))}
-            aria-label={`Zutat ${index + 1} Einheit`}
+            aria-label={t('recipes.form.ingredientRow.unitAria', {
+              index: index + 1,
+              defaultValue: `Zutat ${index + 1} Einheit`,
+            })}
             className="flex-1 py-2 text-base md:order-2 md:flex-none"
           >
             {UNITS.map((u) => (
@@ -2300,8 +2349,13 @@ function SortableIngredientRow({
             type="text"
             value={row.note}
             onChange={(e) => onUpdate(index, (r) => ({ ...r, note: e.target.value }))}
-            placeholder="Notiz (optional), z.B. „fein gehackt“"
-            aria-label={`Zutat ${index + 1} Notiz`}
+            placeholder={t('recipes.form.ingredientRow.notePlaceholder', {
+              defaultValue: 'Notiz (optional), z.B. „fein gehackt“',
+            })}
+            aria-label={t('recipes.form.ingredientRow.noteAria', {
+              index: index + 1,
+              defaultValue: `Zutat ${index + 1} Notiz`,
+            })}
             className="py-1.5 text-base"
           />
         </div>
@@ -2315,7 +2369,10 @@ function SortableIngredientRow({
           }
           disabled={!hasQty}
           aria-pressed={scalableEffective}
-          aria-label={`Zutat ${index + 1} skalieren`}
+          aria-label={t('recipes.form.ingredientRow.scalableAria', {
+            index: index + 1,
+            defaultValue: `Zutat ${index + 1} skalieren`,
+          })}
           className={cn(
             'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-1 text-[11px] font-medium transition-colors',
             scalableEffective
@@ -2325,13 +2382,21 @@ function SortableIngredientRow({
             hasQty && 'hover:border-[hsl(var(--primary-hover,var(--primary)))]',
           )}
         >
-          {scalableEffective ? 'skalierbar' : 'nicht skalieren'}
+          {scalableEffective
+            ? t('recipes.form.ingredientRow.scalableOn', {
+                defaultValue: 'skalierbar',
+              })
+            : t('recipes.form.ingredientRow.scalableOff', {
+                defaultValue: 'nicht skalieren',
+              })}
         </button>
         <button
           type="button"
           onClick={onRemove}
           disabled={!canRemove}
-          aria-label="Zutat entfernen"
+          aria-label={t('recipes.form.ingredientRow.removeAria', {
+            defaultValue: 'Zutat entfernen',
+          })}
           className={cn(
             'grid h-6 w-6 place-items-center rounded-md text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]',
             !canRemove && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[hsl(var(--muted-foreground))]',
@@ -2367,6 +2432,7 @@ function SortableStepRow({
   onChange: (content: string) => void
   onRemove: () => void
 }) {
+  const { t } = useTranslation()
   const {
     attributes,
     listeners,
@@ -2429,7 +2495,9 @@ function SortableStepRow({
         {...attributes}
         {...listeners}
         data-testid={`step-drag-handle-${index}`}
-        aria-label="Schritt verschieben"
+        aria-label={t('recipes.form.stepRow.dragHandleAria', {
+          defaultValue: 'Schritt verschieben',
+        })}
         className="grid h-10 min-h-[40px] w-7 place-items-center rounded-md text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 active:cursor-grabbing"
         style={{ touchAction: 'none', cursor: 'grab' }}
       >
@@ -2445,7 +2513,10 @@ function SortableStepRow({
             {index + 1}
           </div>
           <span className="text-[13px] font-semibold text-[hsl(var(--muted-foreground))]">
-            Schritt {index + 1}
+            {t('recipes.form.stepRow.stepNumberTemplate', {
+              index: index + 1,
+              defaultValue: `Schritt ${index + 1}`,
+            })}
           </span>
           {row.confidence === 'handwritten_uncertain' && (
             <ConfidenceBadge confidence={row.confidence} />
@@ -2461,12 +2532,17 @@ function SortableStepRow({
         {previewMode ? (
           <div
             data-testid={`step-preview-${index}`}
-            aria-label={`Schritt ${index + 1} Vorschau`}
+            aria-label={t('recipes.form.stepRow.previewAria', {
+              index: index + 1,
+              defaultValue: `Schritt ${index + 1} Vorschau`,
+            })}
             className="min-h-[52px] rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground [&_strong]:font-semibold [&_strong]:text-[hsl(var(--primary-hover,var(--primary)))]"
           >
             {row.content.trim().length === 0 ? (
               <span className="text-[hsl(var(--muted-foreground))]">
-                Noch kein Inhalt.
+                {t('recipes.form.stepRow.previewEmpty', {
+                  defaultValue: 'Noch kein Inhalt.',
+                })}
               </span>
             ) : (
               renderInlineMarkdown(row.content)
@@ -2478,8 +2554,13 @@ function SortableStepRow({
             value={row.content}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleTextareaKeyDown}
-            placeholder="Was wird in diesem Schritt gemacht?"
-            aria-label={`Schritt ${index + 1}`}
+            placeholder={t('recipes.form.stepRow.placeholder', {
+              defaultValue: 'Was wird in diesem Schritt gemacht?',
+            })}
+            aria-label={t('recipes.form.stepRow.textareaAria', {
+              index: index + 1,
+              defaultValue: `Schritt ${index + 1}`,
+            })}
             maxLength={5000}
             className="min-h-[52px] text-base"
           />
@@ -2491,7 +2572,9 @@ function SortableStepRow({
           type="button"
           onClick={onRemove}
           disabled={!canRemove}
-          aria-label="Schritt entfernen"
+          aria-label={t('recipes.form.stepRow.removeAria', {
+            defaultValue: 'Schritt entfernen',
+          })}
           className={cn(
             'grid h-6 w-6 place-items-center rounded-md text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]',
             !canRemove && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[hsl(var(--muted-foreground))]',
@@ -2532,12 +2615,22 @@ function ImportProvenanceBanner({
   isChatImport: boolean
   onDismiss: () => void
 }) {
+  const { t } = useTranslation()
   const displayUrl =
     sourceUrl.length > 40 ? `${sourceUrl.slice(0, 37)}…` : sourceUrl
+  // Load the shared strings once so the three variants below stay legible.
+  const lead = t('recipes.form.importBanner.leadUrl', {
+    defaultValue: 'AI-Vorschlag aus ',
+  })
+  const suffix = t('recipes.form.importBanner.suffix', {
+    defaultValue: '. Bitte durchsehen, bevor du speicherst.',
+  })
   return (
     <section
       role="region"
-      aria-label="KI-Import-Hinweis"
+      aria-label={t('recipes.form.importBanner.aria', {
+        defaultValue: 'KI-Import-Hinweis',
+      })}
       className="mb-5 flex items-start gap-3 rounded-[14px] border border-[hsl(var(--primary)/0.3)] bg-[hsl(var(--primary)/0.08)] px-4 py-3 text-[14px] leading-[1.5]"
     >
       <Sparkles
@@ -2547,33 +2640,43 @@ function ImportProvenanceBanner({
       <p className="min-w-0 flex-1 text-foreground">
         {isChatImport ? (
           <>
-            AI-Vorschlag aus{' '}
-            <span className="font-medium text-primary">dem Chat</span>. Bitte
-            durchsehen, bevor du speicherst.
+            {lead}
+            <span className="font-medium text-primary">
+              {t('recipes.form.importBanner.sourceChat', {
+                defaultValue: 'dem Chat',
+              })}
+            </span>
+            {suffix}
           </>
         ) : isPhotoImport ? (
           <>
-            AI-Vorschlag aus{' '}
-            <span className="font-medium text-primary">deinen Fotos</span>.
-            Bitte durchsehen, bevor du speicherst.
+            {lead}
+            <span className="font-medium text-primary">
+              {t('recipes.form.importBanner.sourcePhoto', {
+                defaultValue: 'deinen Fotos',
+              })}
+            </span>
+            {suffix}
           </>
         ) : (
           <>
-            AI-Vorschlag aus{' '}
+            {lead}
             <span
               className="break-all font-medium text-primary"
               title={sourceUrl}
             >
               {displayUrl}
             </span>
-            . Bitte durchsehen, bevor du speicherst.
+            {suffix}
           </>
         )}
       </p>
       <button
         type="button"
         onClick={onDismiss}
-        aria-label="Hinweis ausblenden"
+        aria-label={t('recipes.form.importBanner.dismissAria', {
+          defaultValue: 'Hinweis ausblenden',
+        })}
         className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-md text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] hover:text-foreground"
       >
         <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -2601,23 +2704,30 @@ export function ConfidenceBadge({
 }: {
   confidence?: IngredientConfidenceLevel | StepConfidenceLevel
 }) {
+  const { t } = useTranslation()
   if (confidence === 'missing') {
+    const label = t('recipes.form.ingredientRow.confidenceMissing', {
+      defaultValue: 'Menge fehlt',
+    })
     return (
       <span
         className="inline-flex items-center rounded-full border border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.14)] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--warning-foreground))]"
-        aria-label="Menge fehlt"
+        aria-label={label}
       >
-        Menge fehlt
+        {label}
       </span>
     )
   }
   if (confidence === 'handwritten_uncertain') {
+    const label = t('recipes.form.ingredientRow.confidenceHandwritten', {
+      defaultValue: 'Handschrift prüfen',
+    })
     return (
       <span
         className="inline-flex items-center rounded-full border border-[hsl(var(--caution)/0.35)] bg-[hsl(var(--caution)/0.14)] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--caution-foreground))]"
-        aria-label="Handschrift prüfen"
+        aria-label={label}
       >
-        Handschrift prüfen
+        {label}
       </span>
     )
   }

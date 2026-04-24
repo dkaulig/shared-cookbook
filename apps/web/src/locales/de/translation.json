@@ -330,7 +330,17 @@
         "sourcePhoto": "deinen Fotos",
         "suffix": ". Bitte durchsehen, bevor du speicherst."
       },
-      "stagedPhotosInfo": "Diese Fotos werden beim Speichern angehängt."
+      "stagedPhotosInfo": "Diese Fotos werden beim Speichern angehängt.",
+      "categoryLabels": {
+        "Mahlzeit": "Mahlzeit",
+        "Saison": "Saison",
+        "Typ": "Typ",
+        "Aufwand": "Aufwand",
+        "Diaet": "Diät",
+        "Kueche": "Küche",
+        "Komponente": "Komponente",
+        "Custom": "Gruppen-Tags (Custom)"
+      }
     },
     "photos": {
       "heading": "Fotos",

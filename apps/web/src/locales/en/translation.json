@@ -330,7 +330,17 @@
         "sourcePhoto": "your photos",
         "suffix": ". Please review before saving."
       },
-      "stagedPhotosInfo": "These photos will be attached on save."
+      "stagedPhotosInfo": "These photos will be attached on save.",
+      "categoryLabels": {
+        "Mahlzeit": "Meal",
+        "Saison": "Season",
+        "Typ": "Type",
+        "Aufwand": "Effort",
+        "Diaet": "Diet",
+        "Kueche": "Cuisine",
+        "Komponente": "Component",
+        "Custom": "Group tags (custom)"
+      }
     },
     "photos": {
       "heading": "Photos",
