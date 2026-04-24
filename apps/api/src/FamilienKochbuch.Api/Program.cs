@@ -473,6 +473,37 @@ builder.Services.AddRateLimiter(options =>
             });
     });
 
+    // REL-0b — import enqueue endpoints (/api/recipes/import/url +
+    // /api/recipes/import/photos). Each import spins up the Python
+    // extractor (yt-dlp + Whisper) and at least one Azure OpenAI call
+    // — an authenticated attacker (or a runaway-click / stuck reload
+    // loop on a legitimate user's device) could otherwise amplify into
+    // minutes of CPU + $$$ of Azure cost per request. 5/min per user
+    // is generous for hand-driven use and blunts machine-rate abuse.
+    // Partitioned on the JWT sub claim so one user's bucket never
+    // affects another user. Falls back to IP / "anonymous" only as a
+    // defensive safety net; both import endpoints are RequireAuthorization.
+    options.AddPolicy(RateLimitPolicies.Import, httpContext =>
+    {
+        if (ShouldBypassForTests(httpContext))
+            return RateLimitPartition.GetNoLimiter<string>("test-disabled");
+
+        var userId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                     ?? httpContext.User.FindFirst("sub")?.Value
+                     ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                     ?? "anonymous";
+        return RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
+    });
+
     // CR2 — chat /turn endpoint. Per-user sliding window, 10/min to
     // match the Generate policy's budget on AI calls. Partitioned on
     // the JWT sub claim so a shared household NAT doesn't throttle
@@ -668,6 +699,12 @@ internal static class RateLimitPolicies
     /// <c>POST /api/chat/sessions/{id}/turn</c>. Prevents a single user
     /// from running up Azure costs by spamming turns.</summary>
     public const string ChatTurn = "chat-turn";
+
+    /// <summary>REL-0b — per-user sliding window 5/min for the two
+    /// enqueue endpoints <c>POST /api/recipes/import/url</c> and
+    /// <c>POST /api/recipes/import/photos</c>. Blunts Azure-cost
+    /// amplification through runaway clicks or deliberate abuse.</summary>
+    public const string Import = "import";
 }
 
 /// <summary>Strongly-typed options for non-auth app config.</summary>

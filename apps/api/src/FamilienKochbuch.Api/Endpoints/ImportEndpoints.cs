@@ -214,8 +214,16 @@ public static class ImportEndpoints
         // the frontend's mental model ("I import a recipe") even though
         // it writes a RecipeImport.
         var enqueue = app.MapGroup("/api/recipes/import").WithTags("Imports");
-        enqueue.MapPost("/url", EnqueueUrlImportAsync).RequireAuthorization();
-        enqueue.MapPost("/photos", EnqueuePhotoImportAsync).RequireAuthorization();
+        // REL-0b — per-user rate limit caps Azure-cost amplification.
+        // Bucket defined in Program.cs (RateLimitPolicies.Import,
+        // 5/min sliding window). Both endpoints share the policy so a
+        // mix of URL + photo imports drains the same bucket.
+        enqueue.MapPost("/url", EnqueueUrlImportAsync)
+            .RequireAuthorization()
+            .RequireRateLimiting(RateLimitPolicies.Import);
+        enqueue.MapPost("/photos", EnqueuePhotoImportAsync)
+            .RequireAuthorization()
+            .RequireRateLimiting(RateLimitPolicies.Import);
     }
 
     private static async Task<IResult> GetImportAsync(
