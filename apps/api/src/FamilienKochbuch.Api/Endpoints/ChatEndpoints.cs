@@ -349,6 +349,7 @@ public static class ChatEndpoints
         TimeProvider clock,
         ILoggerFactory loggerFactory,
         IExtractorConfigReader configReader,
+        IBackgroundTaskTracker backgroundTasks,
         CancellationToken ct)
     {
         var logger = loggerFactory.CreateLogger("FamilienKochbuch.Api.Chat.Turn");
@@ -575,7 +576,7 @@ public static class ChatEndpoints
         if (!clientDisconnected && firstError is null && session.Title is null)
         {
             var sessionIdForTitle = session.Id;
-            _ = Task.Run(async () =>
+            backgroundTasks.Run(async () =>
             {
                 using var scope = scopeFactory.CreateScope();
                 var titleSvc = scope.ServiceProvider.GetRequiredService<ChatTitleService>();
