@@ -19,6 +19,11 @@ import type { ComponentType, SVGProps } from 'react'
  * to /profil — keeping a second entry in the bottom / side / top nav
  * is redundant clutter.
  *
+ * REL-3 (i18n): `labelKey` is the i18next key the nav surfaces resolve
+ * via `t()`. The literal `label` property stays alongside as the
+ * German fallback + as a stable value for drift-guard tests that run
+ * without a React context.
+ *
  * The `+ Neues Rezept` FAB between Gruppen and Suche is NOT a route
  * and therefore not in this list; BottomNav renders it inline via
  * `navItems.slice(0, 2)` + FAB + `navItems.slice(2)`. Keeping the
@@ -28,12 +33,18 @@ import type { ComponentType, SVGProps } from 'react'
 export type NavItem = {
   to: string
   label: string
+  labelKey: string
   icon: ComponentType<SVGProps<SVGSVGElement>>
 }
 
 export const navItems: readonly NavItem[] = [
-  { to: '/', label: 'Start', icon: Home },
-  { to: '/groups', label: 'Gruppen', icon: Users },
-  { to: '/suche', label: 'Suche', icon: Search },
-  { to: '/wochenplan', label: 'Wochenplan', icon: Calendar },
+  { to: '/', label: 'Start', labelKey: 'nav.home', icon: Home },
+  { to: '/groups', label: 'Gruppen', labelKey: 'nav.groups', icon: Users },
+  { to: '/suche', label: 'Suche', labelKey: 'nav.search', icon: Search },
+  {
+    to: '/wochenplan',
+    label: 'Wochenplan',
+    labelKey: 'nav.mealplan',
+    icon: Calendar,
+  },
 ] as const

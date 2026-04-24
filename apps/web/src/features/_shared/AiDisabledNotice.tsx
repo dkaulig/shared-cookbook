@@ -1,5 +1,6 @@
 import { Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { Trans, useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -8,9 +9,10 @@ import { Button } from '@/components/ui/button'
  * used by the URL-import page as an in-page banner above the raw-text
  * fallback form.
  *
- * Copy is German-first — REL-3 (i18n foundation) extracts these later;
- * for now they're hardcoded alongside the rest of the app's German UI
- * strings.
+ * REL-3 (i18n): call-sites pass pre-resolved `title` + `description`
+ * (so they can pick page-specific copy from `ai.offNotice.*`). The
+ * admin-hint + back-CTA are translated here via a <Trans> so the
+ * inline <code> styling stays without embedding raw HTML in the JSON.
  */
 export function AiDisabledNotice({
   title,
@@ -21,6 +23,7 @@ export function AiDisabledNotice({
   description: string
   backHref?: string
 }) {
+  const { t } = useTranslation()
   return (
     <div className="mx-auto w-full max-w-[720px] px-5 pt-10 md:max-w-[1120px] md:px-8">
       <div className="rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 p-8 text-center">
@@ -33,15 +36,40 @@ export function AiDisabledNotice({
         </h1>
         <p className="mt-2 text-[15px] text-muted-foreground">{description}</p>
         <p className="mt-3 text-[13px] text-muted-foreground">
-          Admin-Hinweis: setze <code className="rounded bg-muted px-1 py-0.5 text-xs">AI_ENABLED=true</code>{' '}
-          und <code className="rounded bg-muted px-1 py-0.5 text-xs">LLM_PROVIDER=azure</code>{' '}
-          oder <code className="rounded bg-muted px-1 py-0.5 text-xs">LLM_PROVIDER=ollama</code>{' '}
-          in der <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>{' '}
-          und starte die Container neu.
+          {/* Trans maps the placeholder tags to React elements — the
+              locale-writer only decides the surrounding copy and the
+              tag order. Security: the <code> elements have no
+              `children` here; Trans wires the text content from the
+              locale string into them, which is plain text — no HTML
+              injection surface. */}
+          <Trans
+            i18nKey="ai.offNotice.adminHintTemplate"
+            components={{
+              aiFlag: (
+                <code className="rounded bg-muted px-1 py-0.5 text-xs" />
+              ),
+              providerFlag: (
+                <code className="rounded bg-muted px-1 py-0.5 text-xs" />
+              ),
+              ollamaFlag: (
+                <code className="rounded bg-muted px-1 py-0.5 text-xs" />
+              ),
+              envFile: (
+                <code className="rounded bg-muted px-1 py-0.5 text-xs" />
+              ),
+            }}
+            defaults={
+              'Admin-Hinweis: setze <aiFlag>AI_ENABLED=true</aiFlag> und <providerFlag>LLM_PROVIDER=azure</providerFlag> oder <ollamaFlag>LLM_PROVIDER=ollama</ollamaFlag> in der <envFile>.env</envFile> und starte die Container neu.'
+            }
+          />
         </p>
         <div className="mt-5">
           <Button asChild variant="outline">
-            <Link to={backHref}>Zurück zur Startseite</Link>
+            <Link to={backHref}>
+              {t('ai.offNotice.back', {
+                defaultValue: 'Zurück zur Startseite',
+              })}
+            </Link>
           </Button>
         </div>
       </div>

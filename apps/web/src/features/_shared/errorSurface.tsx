@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { ApiError } from '@familien-kochbuch/shared'
+import i18n from '@/i18n'
 import { cn } from '@/lib/utils'
 
 /**
@@ -115,6 +117,7 @@ export function clearAllErrorToasts(): void {
  */
 export function ErrorToastHost(): React.ReactElement {
   const toasts = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const { t } = useTranslation()
   return (
     <div
       data-testid="error-toast-host"
@@ -129,20 +132,20 @@ export function ErrorToastHost(): React.ReactElement {
       aria-live="assertive"
       aria-atomic="true"
     >
-      {toasts.map((t) => (
+      {toasts.map((toast) => (
         <div
-          key={t.id}
+          key={toast.id}
           role="alert"
           className={cn(
             'pointer-events-auto flex w-full max-w-sm items-start gap-2 rounded-[12px]',
             'bg-[hsl(var(--destructive))] px-4 py-2.5 text-[13px] font-medium text-white shadow-lg',
           )}
         >
-          <span className="flex-1 break-words">{t.message}</span>
+          <span className="flex-1 break-words">{toast.message}</span>
           <button
             type="button"
-            aria-label="Schließen"
-            onClick={() => dismissErrorToast(t.id)}
+            aria-label={t('common.close', { defaultValue: 'Schließen' })}
+            onClick={() => dismissErrorToast(toast.id)}
             className={cn(
               '-mr-1 grid h-6 w-6 shrink-0 place-items-center rounded',
               'text-white/80 transition-colors hover:bg-white/10 hover:text-white',
@@ -183,6 +186,7 @@ export function ErrorBanner({
   onDismiss,
   className,
 }: ErrorBannerProps): React.ReactElement {
+  const { t } = useTranslation()
   return (
     <div
       role="alert"
@@ -196,7 +200,7 @@ export function ErrorBanner({
       {onDismiss && (
         <button
           type="button"
-          aria-label="Schließen"
+          aria-label={t('common.close', { defaultValue: 'Schließen' })}
           onClick={onDismiss}
           className={cn(
             '-mr-1 grid h-6 w-6 shrink-0 place-items-center rounded',
@@ -243,15 +247,26 @@ export interface ClassifiedError {
  *     shouldn't have been able to make (authz bug).
  */
 // eslint-disable-next-line react-refresh/only-export-components
-export function classifyMutationError(
-  err: unknown,
-): ClassifiedError {
+export function classifyMutationError(err: unknown): ClassifiedError {
+  // Resolve via the default singleton so non-hook call-sites work. If
+  // the singleton hasn't initialised yet (e.g. an error during boot,
+  // or a unit test that imports this module directly without the i18n
+  // bootstrap) we fall back to the `defaultValue` verbatim. Using a
+  // wrapper guarantees the return is always a string even when
+  // `i18n.t` would have been `undefined`.
+  const t = (key: string, opts: { defaultValue: string; ns?: string }): string =>
+    (i18n.isInitialized
+      ? (i18n.t(key, opts) as string | undefined)
+      : undefined) ?? opts.defaultValue
+
   // Native Error without a code/status — treat as network / unknown.
   if (err instanceof Error && !isApiErrorShaped(err)) {
     return {
       surface: 'toast',
-      message:
-        'Unbekannter Fehler. Bitte Verbindung prüfen und erneut versuchen.',
+      message: t('common.networkError', {
+        defaultValue:
+          'Unbekannter Fehler. Bitte Verbindung prüfen und erneut versuchen.',
+      }),
       code: null,
     }
   }
@@ -272,19 +287,24 @@ export function classifyMutationError(
   if (status === 409 || code === 'version_mismatch') {
     return {
       surface: 'banner',
-      message:
-        'Jemand anderes hat das inzwischen bearbeitet. Bitte neu laden.',
+      message: t('common.versionConflict', {
+        defaultValue:
+          'Jemand anderes hat das inzwischen bearbeitet. Bitte neu laden.',
+      }),
       code,
     }
   }
 
-  // 5xx, auth failures, unknown → generic German toast. We explicitly
-  // drop the backend message so stack traces / SQL fragments never
-  // reach the user. REL-0b security audit flagged this.
+  // 5xx, auth failures, unknown → generic localised toast. We
+  // explicitly drop the backend message so stack traces / SQL
+  // fragments never reach the user. REL-0b security audit flagged
+  // this.
   if (typeof status === 'number' && status >= 500) {
     return {
       surface: 'toast',
-      message: 'Unbekannter Fehler, bitte erneut versuchen.',
+      message: t('common.unknownError', {
+        defaultValue: 'Unbekannter Fehler, bitte erneut versuchen.',
+      }),
       code,
     }
   }
@@ -295,18 +315,30 @@ export function classifyMutationError(
   if (status === 401 || status === 403) {
     return {
       surface: 'toast',
-      message:
-        'Fehlende Berechtigung. Bitte neu anmelden oder Admin kontaktieren.',
+      message: t('common.forbidden', {
+        defaultValue:
+          'Fehlende Berechtigung. Bitte neu anmelden oder Admin kontaktieren.',
+      }),
       code,
     }
   }
 
-  // Everything else (400, 404, 422, …) — inline + keep the backend
-  // message. REL-3 i18n will swap this for a code-based translation
-  // table; until then the backend copy is already German.
+  // Everything else (400, 404, 422, …) — inline surface. Prefer a
+  // localised translation keyed by the backend error-code; fall back
+  // to the raw message (which is German today, English post-REL-4)
+  // and finally to a generic "action failed" copy. Empty rawMessage
+  // is NOT passed to `t()` as defaultValue because i18next would then
+  // return the key itself ("action.failed" etc.).
+  const codeLocalised = code
+    ? t(code, { ns: 'errors', defaultValue: '' })
+    : ''
+  const message =
+    codeLocalised ||
+    rawMessage ||
+    t('common.actionFailed', { defaultValue: 'Aktion fehlgeschlagen.' })
   return {
     surface: 'inline',
-    message: rawMessage || 'Aktion fehlgeschlagen.',
+    message,
     code,
   }
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { CreateActionSheet } from './CreateActionSheet'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
@@ -30,6 +31,7 @@ export function BottomNav() {
   const [createSheetOpen, setCreateSheetOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const { slot, containerRef } = useBottomZoneConsumer()
+  const { t } = useTranslation()
 
   return (
     <>
@@ -56,7 +58,7 @@ export function BottomNav() {
           </div>
         )}
         <nav
-          aria-label="Hauptnavigation"
+          aria-label={t('a11y.mainNav', { defaultValue: 'Hauptnavigation' })}
           className="flex items-stretch justify-around"
         >
           {navItems.slice(0, 2).map((item) => (
@@ -68,7 +70,7 @@ export function BottomNav() {
               now opens the create-action sheet instead of navigating away. */}
           <button
             type="button"
-            aria-label="Neues Rezept"
+            aria-label={t('nav.newRecipe', { defaultValue: 'Neues Rezept' })}
             aria-haspopup="dialog"
             aria-expanded={createSheetOpen}
             onClick={() => setCreateSheetOpen(true)}
@@ -80,7 +82,7 @@ export function BottomNav() {
             >
               <Plus className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
             </span>
-            <span>Neu</span>
+            <span>{t('nav.newShort', { defaultValue: 'Neu' })}</span>
           </button>
 
           {navItems.slice(2).map((item) => (
@@ -104,13 +106,15 @@ export function BottomNav() {
 
 function NavItemLink({ item }: { item: NavItem }) {
   const Icon = item.icon
+  const { t } = useTranslation()
+  const label = t(item.labelKey, { defaultValue: item.label })
   return (
     <NavLink
       to={item.to}
       // Gruppen should stay active on `/groups/:id` — pass `end` only
       // for the root Start link so it doesn't match every sub-route.
       end={item.to === '/'}
-      aria-label={item.label}
+      aria-label={label}
       className={({ isActive }) =>
         cn(
           'flex min-h-[56px] flex-1 flex-col items-center gap-[3px] px-1 pb-3 pt-2 text-[11px]',
@@ -120,7 +124,7 @@ function NavItemLink({ item }: { item: NavItem }) {
       }
     >
       <Icon className="h-[22px] w-[22px]" aria-hidden="true" />
-      <span>{item.label}</span>
+      <span>{label}</span>
     </NavLink>
   )
 }

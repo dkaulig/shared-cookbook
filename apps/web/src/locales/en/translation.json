@@ -32,7 +32,20 @@
     "import": "Import",
     "settings": "Settings",
     "aiUsage": "AI usage",
-    "extractor": "Extractor config"
+    "extractor": "Extractor config",
+    "newRecipe": "New recipe",
+    "newShort": "New"
+  },
+  "a11y": {
+    "mainNav": "Main navigation",
+    "sideRail": "Side rail",
+    "desktopNav": "Desktop navigation",
+    "accountNav": "Account navigation",
+    "closeDialog": "Close dialog",
+    "brandHome": "Family Cookbook — home",
+    "refreshPage": "Refresh page",
+    "searchRecipes": "Search recipes",
+    "yourProfile": "Your profile"
   },
   "auth": {
     "signIn": "Sign in",
@@ -224,7 +237,7 @@
       "title": "AI is disabled",
       "photoDescription": "Photo import needs an active AI model. Enable AI in .env or import via URL with the raw-text fallback.",
       "chatDescription": "Chat requires an active AI model. You can still manage recipes manually.",
-      "adminHint": "Admin hint: set {{aiEnabledKey}} and {{providerKey}} in .env and restart the containers.",
+      "adminHintTemplate": "Admin hint: set <aiFlag>AI_ENABLED=true</aiFlag> and <providerFlag>LLM_PROVIDER=azure</providerFlag> or <ollamaFlag>LLM_PROVIDER=ollama</ollamaFlag> in <envFile>.env</envFile> and restart the containers.",
       "back": "Back to home"
     }
   },
@@ -245,8 +258,8 @@
     "updateCta": "Update"
   },
   "notFound": {
-    "title": "Page not found",
-    "body": "The page you requested doesn't exist or has been moved.",
-    "home": "Go home"
+    "title": "404 · Nobody's cooking here",
+    "body": "This page doesn't exist (anymore).",
+    "home": "Back home"
   }
 }

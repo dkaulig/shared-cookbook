@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { navItems, type NavItem } from './navItems'
 
@@ -31,9 +32,10 @@ import { navItems, type NavItem } from './navItems'
  *   uses.
  */
 export function SideRail() {
+  const { t } = useTranslation()
   return (
     <nav
-      aria-label="Seitenleiste"
+      aria-label={t('a11y.sideRail', { defaultValue: 'Seitenleiste' })}
       className={cn(
         // Only visible in the tablet zone — hidden below md (BottomNav
         // takes over) and at/above xl (future Desktop TopNav scope).
@@ -50,11 +52,13 @@ export function SideRail() {
 
 function SideRailLink({ item }: { item: NavItem }) {
   const Icon = item.icon
+  const { t } = useTranslation()
+  const label = t(item.labelKey, { defaultValue: item.label })
   return (
     <NavLink
       to={item.to}
       end={item.to === '/'}
-      aria-label={item.label}
+      aria-label={label}
       className={({ isActive }) =>
         cn(
           'flex flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium',
@@ -68,7 +72,7 @@ function SideRailLink({ item }: { item: NavItem }) {
       }
     >
       <Icon className="h-[22px] w-[22px]" aria-hidden="true" />
-      <span className="leading-none">{item.label}</span>
+      <span className="leading-none">{label}</span>
     </NavLink>
   )
 }
