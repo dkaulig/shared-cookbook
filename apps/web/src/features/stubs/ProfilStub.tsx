@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Trans, useTranslation } from 'react-i18next'
 import { Mail, Pencil, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,8 +25,14 @@ const DISPLAYNAME_MAX = 50
  * detour: inline displayname edit and a Passwort-ändern card. Both
  * go through `accountClient` → `apiClient`, so the silent-refresh
  * and bearer-token wiring comes for free.
+ *
+ * REL-3g — copy routed through `t('account.profilePage.*')` so the
+ * surface flips locale cleanly. The `<Trans>` block for the display-
+ * name inline read-out uses a single `<name>` child so the `<span>`
+ * styling survives translation without eval'ing arbitrary HTML.
  */
 export function ProfilStub() {
+  const { t } = useTranslation()
   const { user, accessToken, logout } = useAuth()
   const setSession = useAuthStore((s) => s.setSession)
   const navigate = useNavigate()
@@ -39,7 +46,7 @@ export function ProfilStub() {
   return (
     <section className="mx-auto w-full max-w-2xl px-5 py-10 md:px-8 md:py-14">
       <h1 className="font-serif text-[clamp(30px,7vw,40px)] font-semibold leading-[1.05] tracking-[-0.015em]">
-        Mein Profil
+        {t('account.profilePage.heading')}
       </h1>
       <DisplayNameLine
         currentName={user?.displayName ?? ''}
@@ -50,7 +57,7 @@ export function ProfilStub() {
 
       <Card className="mt-8">
         <CardHeader>
-          <CardTitle>Konto</CardTitle>
+          <CardTitle>{t('account.profilePage.accountHeading')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -60,7 +67,7 @@ export function ProfilStub() {
             </span>
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Weitere Einstellungen folgen in einer späteren Version.
+            {t('account.profilePage.moreSettingsSoon')}
           </p>
         </CardContent>
       </Card>
@@ -69,15 +76,15 @@ export function ProfilStub() {
 
       <Card className="mt-5">
         <CardHeader>
-          <CardTitle>Familie erweitern</CardTitle>
+          <CardTitle>{t('account.profilePage.inviteHeading')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm leading-relaxed text-foreground">
-            Hol jemanden in die App. Einladungs-Links sind 14 Tage gültig und einmalig verwendbar.
+            {t('account.profilePage.inviteBody')}
           </p>
           <Button type="button" onClick={() => setInviteOpen(true)}>
             <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
-            Jemanden einladen
+            {t('account.profilePage.inviteCta')}
           </Button>
         </CardContent>
       </Card>
@@ -85,20 +92,24 @@ export function ProfilStub() {
       {user?.role === 'Admin' && (
         <Card className="mt-5">
           <CardHeader>
-            <CardTitle>Administration</CardTitle>
+            <CardTitle>{t('account.profilePage.adminHeading')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Sieh, wieviel die KI-Funktionen bisher gekostet haben.
+              {t('account.profilePage.adminAiUsageBody')}
             </p>
             <Button asChild variant="outline">
-              <Link to="/admin/ai-usage">KI-Verbrauch einsehen</Link>
+              <Link to="/admin/ai-usage">
+                {t('account.profilePage.adminAiUsageCta')}
+              </Link>
             </Button>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Passe Prompts, Modelle, Feature-Flags und Pipeline-Schwellenwerte live an — Änderungen wirken nach spätestens 60 Sekunden.
+              {t('account.profilePage.adminExtractorBody')}
             </p>
             <Button asChild variant="outline">
-              <Link to="/admin/extractor">Extractor-Konfiguration</Link>
+              <Link to="/admin/extractor">
+                {t('account.profilePage.adminExtractorCta')}
+              </Link>
             </Button>
           </CardContent>
         </Card>
@@ -106,14 +117,14 @@ export function ProfilStub() {
 
       <Card className="mt-5">
         <CardHeader>
-          <CardTitle>Abmelden</CardTitle>
+          <CardTitle>{t('account.profilePage.logoutHeading')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Melde dich ab, wenn du die App auf einem fremden Gerät benutzt hast.
+            {t('account.profilePage.logoutBody')}
           </p>
           <Button type="button" variant="outline" onClick={handleLogout}>
-            Abmelden
+            {t('account.profilePage.logoutCta')}
           </Button>
         </CardContent>
       </Card>
@@ -131,6 +142,7 @@ interface DisplayNameLineProps {
 }
 
 function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
+  const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(currentName)
   // REL-5d — inline field-error state. `null` = no error; otherwise
@@ -190,15 +202,17 @@ function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
   if (!editing) {
     return (
       <p className="mt-2 font-serif-body text-[15px] italic leading-[1.5] text-muted-foreground">
-        Angemeldet als{' '}
-        <span className="not-italic font-semibold text-foreground">
-          {currentName || '…'}
-        </span>
-        .
+        <Trans
+          i18nKey="account.profilePage.signedInAsTemplate"
+          values={{ name: currentName || '…' }}
+          components={{
+            name: <span className="not-italic font-semibold text-foreground" />,
+          }}
+        />
         <button
           type="button"
           onClick={enterEdit}
-          aria-label="Anzeigenamen bearbeiten"
+          aria-label={t('account.profilePage.editDisplayNameAria')}
           className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Pencil className="h-4 w-4" aria-hidden="true" />
@@ -217,7 +231,7 @@ function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
       noValidate
     >
       <Label htmlFor="displayname-input" className="text-sm">
-        Anzeigename
+        {t('account.profilePage.displayNameLabel')}
       </Label>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <Input
@@ -236,16 +250,19 @@ function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
         />
         <div className="flex gap-2">
           <Button type="submit" size="sm" disabled={!canSave}>
-            Speichern
+            {t('account.profilePage.saveCta')}
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={cancel} disabled={saving}>
-            Abbrechen
+            {t('account.profilePage.cancelCta')}
           </Button>
         </div>
       </div>
       {!validLength && (
         <p className="text-xs text-muted-foreground">
-          Anzeigename muss zwischen {DISPLAYNAME_MIN} und {DISPLAYNAME_MAX} Zeichen lang sein.
+          {t('account.profilePage.displayNameHintTemplate', {
+            min: DISPLAYNAME_MIN,
+            max: DISPLAYNAME_MAX,
+          })}
         </p>
       )}
       {fieldError && (
@@ -264,6 +281,7 @@ function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {
 // ── Passwort ändern ────────────────────────────────────────────────
 
 function PasswordCard() {
+  const { t } = useTranslation()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -327,12 +345,14 @@ function PasswordCard() {
   return (
     <Card className="mt-5">
       <CardHeader>
-        <CardTitle>Passwort ändern</CardTitle>
+        <CardTitle>{t('account.profilePage.passwordHeading')}</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
           <div className="space-y-1.5">
-            <Label htmlFor="current-password">Aktuelles Passwort</Label>
+            <Label htmlFor="current-password">
+              {t('account.profilePage.passwordCurrent')}
+            </Label>
             <Input
               id="current-password"
               type="password"
@@ -346,7 +366,9 @@ function PasswordCard() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="new-password">Neues Passwort</Label>
+            <Label htmlFor="new-password">
+              {t('account.profilePage.passwordNew')}
+            </Label>
             <Input
               id="new-password"
               type="password"
@@ -378,7 +400,9 @@ function PasswordCard() {
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="new-password-confirm">Neues Passwort bestätigen</Label>
+            <Label htmlFor="new-password-confirm">
+              {t('account.profilePage.passwordConfirm')}
+            </Label>
             <Input
               id="new-password-confirm"
               type="password"
@@ -414,12 +438,12 @@ function PasswordCard() {
 
           {allFilled && !matches && (
             <p className="text-xs text-muted-foreground">
-              Neues Passwort und Bestätigung stimmen nicht überein.
+              {t('account.profilePage.passwordMismatch')}
             </p>
           )}
           {allFilled && matches && !differsFromCurrent && (
             <p className="text-xs text-muted-foreground">
-              Das neue Passwort muss sich vom aktuellen unterscheiden.
+              {t('account.profilePage.passwordSameAsCurrent')}
             </p>
           )}
 
@@ -428,7 +452,7 @@ function PasswordCard() {
               role="status"
               className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 ring-1 ring-emerald-200"
             >
-              Passwort aktualisiert.
+              {t('account.profilePage.passwordUpdated')}
             </p>
           )}
           {fieldError && fieldError.fieldName === null && (
@@ -444,7 +468,7 @@ function PasswordCard() {
           )}
 
           <Button type="submit" disabled={!canSubmit} className="self-start">
-            Passwort ändern
+            {t('account.profilePage.passwordSaveCta')}
           </Button>
         </form>
       </CardContent>
