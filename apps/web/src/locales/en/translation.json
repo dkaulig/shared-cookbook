@@ -250,6 +250,32 @@
       "medium": "Medium",
       "hard": "Hard"
     },
+    "coverDialog": {
+      "title": "Change cover",
+      "description": "Pick an image from the import candidates. The current cover is kept as an additional photo.",
+      "loading": "Loading candidates…",
+      "saving": "Saving…",
+      "submitCta": "Save",
+      "errorFailed": "Cover could not be changed."
+    },
+    "nutrition": {
+      "heading": "Nutrition",
+      "estimatedChip": "estimated",
+      "perPortion": "per serving",
+      "missing": "No nutrition estimate yet.",
+      "energy": "Energy",
+      "protein": "Protein",
+      "carbs": "Carbs",
+      "fat": "Fat",
+      "editAria": "Edit {{label}}",
+      "submitCta": "Save",
+      "cancelCta": "Cancel",
+      "errors": {
+        "notInteger": "Please enter a whole number.",
+        "rangeTemplate": "Value must be between 0 and {{max}}.",
+        "saveFailed": "Save failed."
+      }
+    },
     "forkDialog": {
       "title": "Copy to another group",
       "targetLabel": "Target group",

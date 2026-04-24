@@ -250,6 +250,32 @@
       "medium": "Mittel",
       "hard": "Aufwendig"
     },
+    "coverDialog": {
+      "title": "Cover ändern",
+      "description": "Wähle ein Bild aus den Import-Kandidaten. Das aktuelle Cover bleibt als zusätzliches Foto erhalten.",
+      "loading": "Kandidaten werden geladen …",
+      "saving": "Speichere …",
+      "submitCta": "Speichern",
+      "errorFailed": "Cover konnte nicht geändert werden."
+    },
+    "nutrition": {
+      "heading": "Nährwerte",
+      "estimatedChip": "geschätzt",
+      "perPortion": "pro Portion",
+      "missing": "Noch keine Nährwert-Schätzung hinterlegt.",
+      "energy": "Energie",
+      "protein": "Eiweiß",
+      "carbs": "Kohlenhydrate",
+      "fat": "Fett",
+      "editAria": "{{label}} bearbeiten",
+      "submitCta": "Speichern",
+      "cancelCta": "Abbrechen",
+      "errors": {
+        "notInteger": "Bitte eine ganze Zahl eingeben.",
+        "rangeTemplate": "Wert muss zwischen 0 und {{max}} liegen.",
+        "saveFailed": "Speichern fehlgeschlagen."
+      }
+    },
     "forkDialog": {
       "title": "In andere Gruppe kopieren",
       "targetLabel": "Zielgruppe",
