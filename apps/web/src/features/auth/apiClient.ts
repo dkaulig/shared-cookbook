@@ -1,4 +1,5 @@
 import type { AuthResponse } from '@familien-kochbuch/shared'
+import i18n from 'i18next'
 import { useAuthStore } from './authStore'
 
 /**
@@ -71,6 +72,20 @@ async function fetchWithAuth(
   // exactly as before, and the header only lands on the wire when we
   // know the current cached Version.
   if (init?.ifMatch) headers.set('If-Match', init.ifMatch)
+  // LANG-1 — propagate the user's UI language to the backend so the
+  // .NET API + Python extractor's ``Accept-Language`` parsers see the
+  // same value the user is reading. Idempotent: if the caller already
+  // set their own ``Accept-Language`` header (rare; integration tests
+  // pin it explicitly), we leave it alone. Reads ``i18n.language``
+  // live on every request so the next API call after the user toggles
+  // language reflects the new preference without a page reload. We
+  // intentionally do NOT fall back to ``navigator.language`` here —
+  // that path runs once at i18n init via REL-3h's detector chain;
+  // running it twice would produce drift when the user's localStorage
+  // override differs from the browser default.
+  if (!headers.has('Accept-Language') && i18n.language) {
+    headers.set('Accept-Language', i18n.language)
+  }
   // TODO: CSRF hardening needed if cookie-based auth is added (today we
   // rely on Bearer tokens + SameSite=strict refresh cookie, so the
   // classic browser CSRF vector doesn't apply — revisit if that changes).
