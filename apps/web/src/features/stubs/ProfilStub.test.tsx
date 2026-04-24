@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
+import { createI18n } from '@/i18n'
 import { ProfilStub } from './ProfilStub'
 
 function renderPage() {
@@ -29,6 +30,17 @@ function renderPage() {
 }
 
 describe('<ProfilStub />', () => {
+  // REL-5d — init the shared i18n singleton so `classifyMutationError`
+  // resolves `errors:<code>` keys to German copy instead of falling
+  // back to the server-supplied English dev-message. Tests for the
+  // inline-field-focus migration assert the translated string lands
+  // under the focused input. `createI18n()` without `initialLng`
+  // mutates the default singleton (see `apps/web/src/i18n/index.ts`).
+  beforeAll(async () => {
+    window.localStorage.setItem('i18nextLng', 'de')
+    await createI18n()
+  })
+
   beforeEach(() => {
     useAuthStore.getState().setSession('tok', {
       id: 'u1',
@@ -221,10 +233,18 @@ describe('<ProfilStub />', () => {
     })
 
     it('shows an inline error on server 400', async () => {
+      // REL-5d: the rendered copy now comes from the `errors:*` i18n
+      // namespace keyed by the backend `code`, not the server message.
+      // A 400 without `fieldName` stays inline (banner at bottom) but
+      // the displayed text is translated to German via i18n.
       server.use(
         http.patch('/api/account/display-name', () =>
           HttpResponse.json(
-            { code: 'displayname_invalid', message: 'Anzeigename muss zwischen 2 und 50 Zeichen lang sein.' },
+            {
+              code: 'displayname_invalid',
+              message: 'Display name is invalid.',
+              status: 400,
+            },
             { status: 400 },
           ),
         ),
@@ -239,7 +259,8 @@ describe('<ProfilStub />', () => {
       await user.click(screen.getByRole('button', { name: /speichern/i }))
 
       const alert = await screen.findByRole('alert')
-      expect(alert).toHaveTextContent(/Anzeigename muss zwischen 2 und 50 Zeichen/i)
+      // Translation from errors:displayname_invalid (de locale).
+      expect(alert).toHaveTextContent(/Anzeigename ist ungültig/i)
     })
   })
 
@@ -323,11 +344,23 @@ describe('<ProfilStub />', () => {
       expect(card.getByLabelText(/neues passwort bestätigen/i)).toHaveValue('')
     })
 
-    it('wrong-current 401 surfaces as an inline error (not success)', async () => {
+    it('wrong-current 401 surfaces as an inline fallback banner (not success)', async () => {
+      // REL-5d: 401 responses go through `classifyMutationError` which
+      // routes them to the `forbidden` toast copy (generic i18n'd
+      // "Fehlende Berechtigung …"). The form still shows the fallback
+      // banner (fieldName is null — server didn't attribute to a
+      // field) so the user sees SOME error even if the toast is
+      // missed. The specific-password distinction is lost at this
+      // surface — intentional, since 401 on change-password should
+      // normally trigger the apiClient refresh path before we get here.
       server.use(
         http.post('/api/account/change-password', () =>
           HttpResponse.json(
-            { code: 'invalid_credentials', message: 'Aktuelles Passwort ist falsch.' },
+            {
+              code: 'invalid_credentials',
+              message: 'Current password is incorrect.',
+              status: 401,
+            },
             { status: 401 },
           ),
         ),
@@ -341,8 +374,9 @@ describe('<ProfilStub />', () => {
       await user.type(card.getByLabelText(/neues passwort bestätigen/i), 'NeuesPasswort1!')
       await user.click(card.getByRole('button', { name: /passwort ändern/i }))
 
+      // Fallback banner present with the translated "forbidden" copy.
       const alert = await card.findByRole('alert')
-      expect(alert).toHaveTextContent(/Aktuelles Passwort ist falsch/i)
+      expect(alert).toHaveTextContent(/Fehlende Berechtigung/i)
       expect(card.queryByText(/Passwort aktualisiert/i)).not.toBeInTheDocument()
     })
 
@@ -368,6 +402,146 @@ describe('<ProfilStub />', () => {
       expect(
         card.getByText(/stimmen nicht überein/i),
       ).toBeInTheDocument()
+    })
+
+    // ── REL-5d inline field-focus ─────────────────────────────────
+    it('focuses the newPassword field + renders the inline error under it when backend tags fieldName=newPassword', async () => {
+      server.use(
+        http.post('/api/account/change-password', () =>
+          HttpResponse.json(
+            {
+              code: 'password_rejected',
+              message: 'Password does not meet the policy.',
+              status: 400,
+              fieldName: 'newPassword',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderPage()
+      const user = userEvent.setup()
+      const card = passwordCard()
+
+      await user.type(card.getByLabelText(/aktuelles passwort/i), 'AltesPasswort1!')
+      await user.type(card.getByLabelText(/^neues passwort$/i), 'Schwach1!')
+      await user.type(
+        card.getByLabelText(/neues passwort bestätigen/i),
+        'Schwach1!',
+      )
+      await user.click(card.getByRole('button', { name: /passwort ändern/i }))
+
+      const newPwd = card.getByLabelText(/^neues passwort$/i)
+      await waitFor(() => expect(newPwd).toHaveFocus())
+      // The error sits next to the affected input, aria-linked via
+      // aria-describedby so screen-readers announce it when focus lands.
+      const describedBy = newPwd.getAttribute('aria-describedby')
+      expect(describedBy).toBeTruthy()
+      const fieldError = card
+        .getByText(/Passwort wurde abgelehnt/i)
+        .closest('p, div')
+      expect(fieldError?.id).toBe(describedBy)
+      // REL-3 i18n path: the rendered copy comes from `errors:password_rejected`
+      // (German translation), not the server-supplied English text.
+      expect(card.queryByText(/does not meet the policy/i)).toBeNull()
+    })
+
+    it('focuses the confirm field when backend tags fieldName=newPasswordConfirm', async () => {
+      server.use(
+        http.post('/api/account/change-password', () =>
+          HttpResponse.json(
+            {
+              code: 'password_mismatch',
+              message: 'New password and confirmation do not match.',
+              status: 400,
+              fieldName: 'newPasswordConfirm',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderPage()
+      const user = userEvent.setup()
+      const card = passwordCard()
+
+      await user.type(card.getByLabelText(/aktuelles passwort/i), 'AltesPasswort1!')
+      await user.type(card.getByLabelText(/^neues passwort$/i), 'NeuesPasswort1!')
+      await user.type(
+        card.getByLabelText(/neues passwort bestätigen/i),
+        'NeuesPasswort1!',
+      )
+      await user.click(card.getByRole('button', { name: /passwort ändern/i }))
+
+      const confirm = card.getByLabelText(/neues passwort bestätigen/i)
+      await waitFor(() => expect(confirm).toHaveFocus())
+    })
+
+    it('falls back to a banner when the server emits no fieldName', async () => {
+      server.use(
+        http.post('/api/account/change-password', () =>
+          HttpResponse.json(
+            {
+              code: 'invalid_credentials',
+              message: 'Current password is incorrect.',
+              status: 401,
+            },
+            { status: 401 },
+          ),
+        ),
+      )
+      renderPage()
+      const user = userEvent.setup()
+      const card = passwordCard()
+
+      await user.type(card.getByLabelText(/aktuelles passwort/i), 'WrongOld1!')
+      await user.type(card.getByLabelText(/^neues passwort$/i), 'NeuesPasswort1!')
+      await user.type(
+        card.getByLabelText(/neues passwort bestätigen/i),
+        'NeuesPasswort1!',
+      )
+      await user.click(card.getByRole('button', { name: /passwort ändern/i }))
+
+      // No fieldName → neither password input should receive focus.
+      const newPwd = card.getByLabelText(/^neues passwort$/i)
+      const confirm = card.getByLabelText(/neues passwort bestätigen/i)
+      // Wait for any mutation state to settle.
+      await card.findByRole('alert')
+      expect(newPwd).not.toHaveFocus()
+      expect(confirm).not.toHaveFocus()
+    })
+  })
+
+  // ── REL-5d displayname inline field-focus ─────────────────────
+  describe('REL-5d displayname inline field-focus', () => {
+    it('focuses the displayName input + shows the translated error under it on fieldName=displayName', async () => {
+      server.use(
+        http.patch('/api/account/display-name', () =>
+          HttpResponse.json(
+            {
+              code: 'displayname_invalid',
+              message: 'Display name is invalid.',
+              status: 400,
+              fieldName: 'displayName',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderPage()
+      const user = userEvent.setup()
+
+      await user.click(
+        screen.getByRole('button', { name: /anzeigenamen bearbeiten/i }),
+      )
+      const input = await screen.findByLabelText(/anzeigename/i)
+      await user.clear(input)
+      await user.type(input, 'Gueltig')
+      await user.click(screen.getByRole('button', { name: /speichern/i }))
+
+      await waitFor(() => expect(input).toHaveFocus())
+      // Translated copy from errors:displayname_invalid, not raw English.
+      expect(await screen.findByText(/Anzeigename ist ungültig/i)).toBeInTheDocument()
+      expect(screen.queryByText(/is invalid/)).toBeNull()
     })
   })
 })
