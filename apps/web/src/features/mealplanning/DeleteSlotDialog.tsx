@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { MealPlanApiError } from './mealPlanApi'
@@ -35,6 +36,7 @@ export function DeleteSlotDialog({
   childCount?: number
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [error, setError] = useState<string | null>(null)
   const del = useDeleteSlot(groupId, weekStart, planId)
 
@@ -44,10 +46,13 @@ export function DeleteSlotDialog({
       await del.mutateAsync({ slotId: slot.id })
       onClose()
     } catch (err) {
+      const fallback = t('mealplan.deleteDialog.errors.failed', {
+        defaultValue: 'Slot konnte nicht gelöscht werden.',
+      })
       if (err instanceof MealPlanApiError) {
-        setError(err.message || 'Slot konnte nicht gelöscht werden.')
+        setError(err.message || fallback)
       } else {
-        setError('Slot konnte nicht gelöscht werden.')
+        setError(fallback)
       }
     }
   }
@@ -68,11 +73,15 @@ export function DeleteSlotDialog({
           id="delete-slot-dialog-title"
           className="mb-1 font-serif text-xl font-semibold"
         >
-          Gericht wirklich löschen?
+          {t('mealplan.deleteDialog.title', {
+            defaultValue: 'Gericht wirklich löschen?',
+          })}
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Diese Aktion kann nicht rückgängig gemacht werden. Untergeordnete
-          Meal-Prep-Slots bleiben erhalten und werden freigestellt.
+          {t('mealplan.deleteDialog.description', {
+            defaultValue:
+              'Diese Aktion kann nicht rückgängig gemacht werden. Untergeordnete Meal-Prep-Slots bleiben erhalten und werden freigestellt.',
+          })}
         </p>
 
         {childCount > 0 && (
@@ -81,10 +90,12 @@ export function DeleteSlotDialog({
             data-testid="delete-slot-parent-warning"
             className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200"
           >
-            Dieser Slot ist Meal-Prep-Parent für {childCount}{' '}
-            {childCount === 1 ? 'weiteren Slot' : 'weitere Slots'}. Die
-            Kinder-Slots werden danach freie Slots (nicht automatisch
-            gelöscht).
+            {t('mealplan.deleteDialog.parentWarning', {
+              count: childCount,
+              defaultValue: `Dieser Slot ist Meal-Prep-Parent für ${childCount} ${
+                childCount === 1 ? 'weiteren Slot' : 'weitere Slots'
+              }. Die Kinder-Slots werden danach freie Slots (nicht automatisch gelöscht).`,
+            })}
           </p>
         )}
 
@@ -99,7 +110,7 @@ export function DeleteSlotDialog({
 
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Abbrechen
+            {t('common.cancel', { defaultValue: 'Abbrechen' })}
           </Button>
           <Button
             type="button"
@@ -107,7 +118,11 @@ export function DeleteSlotDialog({
             onClick={handleConfirm}
             disabled={del.isPending}
           >
-            {del.isPending ? 'Löscht …' : 'Löschen'}
+            {del.isPending
+              ? t('mealplan.deleteDialog.deleting', { defaultValue: 'Löscht …' })
+              : t('mealplan.deleteDialog.confirmCta', {
+                  defaultValue: 'Löschen',
+                })}
           </Button>
         </div>
       </div>

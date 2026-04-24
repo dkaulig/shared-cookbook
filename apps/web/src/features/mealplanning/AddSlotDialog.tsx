@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   AddSlotRequest,
   ApiError,
@@ -64,6 +65,7 @@ export function AddSlotDialog({
   existingSlots: readonly MealPlanSlotDto[]
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [date, setDate] = useState(initialDate)
   const [meal, setMeal] = useState<MealSlot>(initialMeal)
   const [query, setQuery] = useState('')
@@ -93,11 +95,19 @@ export function AddSlotDialog({
     setError(null)
     const trimmedLabel = label.trim()
     if (!recipeId && trimmedLabel.length === 0) {
-      setError('Bitte wähle ein Rezept oder gib einen Titel ein.')
+      setError(
+        t('mealplan.addDialog.errors.recipeOrTitle', {
+          defaultValue: 'Bitte wähle ein Rezept oder gib einen Titel ein.',
+        }),
+      )
       return
     }
     if (!Number.isFinite(servings) || servings < 1 || servings > 20) {
-      setError('Portionen müssen zwischen 1 und 20 liegen.')
+      setError(
+        t('mealplan.addDialog.errors.servingsRange', {
+          defaultValue: 'Portionen müssen zwischen 1 und 20 liegen.',
+        }),
+      )
       return
     }
     const body: AddSlotRequest = {
@@ -118,7 +128,12 @@ export function AddSlotDialog({
       onClose()
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Slot konnte nicht angelegt werden.')
+      setError(
+        apiErr.message ||
+          t('mealplan.addDialog.errors.failed', {
+            defaultValue: 'Slot konnte nicht angelegt werden.',
+          }),
+      )
     }
   }
 
@@ -148,7 +163,7 @@ export function AddSlotDialog({
           id="add-slot-dialog-title"
           className="mb-1 font-serif text-xl font-semibold"
         >
-          Gericht hinzufügen
+          {t('mealplan.addDialog.title', { defaultValue: 'Gericht hinzufügen' })}
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
           {formatGermanDate(date)} · {MEAL_SLOT_LABELS[meal]}
@@ -157,7 +172,9 @@ export function AddSlotDialog({
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="add-slot-date">Datum</Label>
+              <Label htmlFor="add-slot-date">
+                {t('mealplan.addDialog.dateLabel', { defaultValue: 'Datum' })}
+              </Label>
               <Input
                 id="add-slot-date"
                 type="date"
@@ -166,7 +183,9 @@ export function AddSlotDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="add-slot-meal">Mahlzeit</Label>
+              <Label htmlFor="add-slot-meal">
+                {t('mealplan.addDialog.mealLabel', { defaultValue: 'Mahlzeit' })}
+              </Label>
               <Select
                 id="add-slot-meal"
                 value={meal}
@@ -182,11 +201,17 @@ export function AddSlotDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="add-slot-search">Rezept suchen</Label>
+            <Label htmlFor="add-slot-search">
+              {t('mealplan.addDialog.searchLabel', {
+                defaultValue: 'Rezept suchen',
+              })}
+            </Label>
             <Input
               id="add-slot-search"
               type="search"
-              placeholder="Titel eingeben …"
+              placeholder={t('mealplan.addDialog.searchPlaceholder', {
+                defaultValue: 'Titel eingeben …',
+              })}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value)
@@ -198,7 +223,9 @@ export function AddSlotDialog({
             />
             {recipes.length > 0 && (
               <ul
-                aria-label="Rezepttreffer"
+                aria-label={t('mealplan.addDialog.matchesLabel', {
+                  defaultValue: 'Rezepttreffer',
+                })}
                 className="max-h-40 divide-y divide-border overflow-y-auto rounded-md border border-input bg-background"
               >
                 {recipes.map((r) => {
@@ -229,19 +256,36 @@ export function AddSlotDialog({
             )}
             {recipeId && (
               <p className="text-xs text-muted-foreground">
-                Ausgewählt — alternativ Suche leeren und frei eingeben.
+                {t('mealplan.addDialog.selectedHint', {
+                  defaultValue:
+                    'Ausgewählt — alternativ Suche leeren und frei eingeben.',
+                })}
               </p>
             )}
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="add-slot-label">
-              {recipeId ? 'Notiz (optional)' : 'Freier Titel'}
+              {recipeId
+                ? t('mealplan.addDialog.noteLabel', {
+                    defaultValue: 'Notiz (optional)',
+                  })
+                : t('mealplan.addDialog.freeTitleLabel', {
+                    defaultValue: 'Freier Titel',
+                  })}
             </Label>
             <Input
               id="add-slot-label"
               type="text"
-              placeholder={recipeId ? 'z.B. doppelte Portion' : 'z.B. Reste, Restaurant'}
+              placeholder={
+                recipeId
+                  ? t('mealplan.addDialog.notePlaceholder', {
+                      defaultValue: 'z.B. doppelte Portion',
+                    })
+                  : t('mealplan.addDialog.freeTitlePlaceholder', {
+                      defaultValue: 'z.B. Reste, Restaurant',
+                    })
+              }
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               disabled={!!recipeId}
@@ -250,7 +294,11 @@ export function AddSlotDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="add-slot-servings">Portionen</Label>
+            <Label htmlFor="add-slot-servings">
+              {t('mealplan.addDialog.servingsLabel', {
+                defaultValue: 'Portionen',
+              })}
+            </Label>
             <Input
               id="add-slot-servings"
               type="number"
@@ -263,7 +311,11 @@ export function AddSlotDialog({
 
           {parentCandidates.length > 0 && (
             <div className="space-y-1.5">
-              <Label htmlFor="add-slot-parent">Ist Rest von</Label>
+              <Label htmlFor="add-slot-parent">
+                {t('mealplan.addDialog.parentLabel', {
+                  defaultValue: 'Ist Rest von',
+                })}
+              </Label>
               <Select
                 id="add-slot-parent"
                 value={parentSlotId ?? ''}
@@ -271,7 +323,11 @@ export function AddSlotDialog({
                   setParentSlotId(e.target.value === '' ? null : e.target.value)
                 }
               >
-                <option value="">— kein Parent —</option>
+                <option value="">
+                  {t('mealplan.addDialog.noParent', {
+                    defaultValue: '— kein Parent —',
+                  })}
+                </option>
                 {parentCandidates.map((p) => (
                   <option key={p.id} value={p.id}>
                     {buildParentLabel(p)}
@@ -292,10 +348,16 @@ export function AddSlotDialog({
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
-              Abbrechen
+              {t('common.cancel', { defaultValue: 'Abbrechen' })}
             </Button>
             <Button type="submit" disabled={addSlot.isPending}>
-              {addSlot.isPending ? 'Speichert …' : 'Hinzufügen'}
+              {addSlot.isPending
+                ? t('mealplan.addDialog.saving', {
+                    defaultValue: 'Speichert …',
+                  })
+                : t('mealplan.addDialog.submitCta', {
+                    defaultValue: 'Hinzufügen',
+                  })}
             </Button>
           </div>
         </form>
