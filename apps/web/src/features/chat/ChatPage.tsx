@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import type { GroupSummary } from '@familien-kochbuch/shared'
 import {
@@ -118,6 +119,7 @@ interface LocalMessage {
 const localId = () => `local-${crypto.randomUUID()}`
 
 export function ChatPage() {
+  const { t } = useTranslation()
   const { sessionId: routeSessionId } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -508,9 +510,7 @@ export function ChatPage() {
   const handleConvertClick = useCallback(() => {
     const list = groups.data ?? []
     if (list.length === 0) {
-      setConvertError(
-        'Du brauchst mindestens eine Gruppe, um ein Rezept zu speichern.',
-      )
+      setConvertError(t('chat.page.convertNoGroup'))
       return
     }
     if (list.length === 1) {
@@ -518,7 +518,7 @@ export function ChatPage() {
       return
     }
     setPickerOpen(true)
-  }, [convertWithGroup, groups.data])
+  }, [convertWithGroup, groups.data, t])
 
   const handleGroupPick = useCallback(
     (group: GroupSummary) => {
@@ -552,7 +552,7 @@ export function ChatPage() {
         data-testid="chat-message-list"
         className="relative flex-1 overflow-y-auto px-1 py-3"
         aria-live="polite"
-        aria-label="Chat-Verlauf"
+        aria-label={t('chat.page.historyAria')}
       >
         {messages.length === 0 ? (
           <ChatEmptyState />
@@ -587,7 +587,7 @@ export function ChatPage() {
                   className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline"
                 >
                   <RotateCcw className="h-3 w-3" aria-hidden="true" />
-                  Erneut versuchen
+                  {t('chat.page.retryCta')}
                 </button>
               </div>
             </div>
@@ -603,7 +603,7 @@ export function ChatPage() {
               bottom: `${SCROLL_STICKY_THRESHOLD_PX}px`,
             }}
           >
-            Neue Nachricht
+            {t('chat.page.newMessage')}
             <ArrowDown className="h-3 w-3" aria-hidden="true" />
           </button>
         )}
@@ -625,7 +625,7 @@ export function ChatPage() {
       <div className="border-t border-border bg-background px-2 pb-[calc(16px+env(safe-area-inset-bottom,0px))] pt-3">
         <div className="flex items-end gap-2">
           <label htmlFor="chat-input" className="sr-only">
-            Nachricht
+            {t('chat.page.messageLabel')}
           </label>
           <textarea
             id="chat-input"
@@ -633,8 +633,8 @@ export function ChatPage() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder="Was möchtest du kochen?"
-            aria-label="Nachricht"
+            placeholder={t('chat.page.inputPlaceholder')}
+            aria-label={t('chat.page.messageLabel')}
             disabled={turnCap === 'blocked' || isStreaming}
             className="min-h-[44px] max-h-40 flex-1 resize-none rounded-[14px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
           />
@@ -643,22 +643,22 @@ export function ChatPage() {
               type="button"
               onClick={handleAbortClick}
               variant="outline"
-              aria-label="Abbrechen"
+              aria-label={t('chat.page.abortAria')}
               className="h-11 gap-1.5 px-4"
             >
               <Square className="h-4 w-4" aria-hidden="true" />
-              Abbrechen
+              {t('chat.page.abortLabel')}
             </Button>
           ) : (
             <Button
               type="button"
               onClick={handleSendClick}
               disabled={sendDisabled}
-              aria-label="Senden"
+              aria-label={t('chat.page.sendAria')}
               className="h-11 gap-1.5 px-4"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
-              Senden
+              {t('chat.page.sendLabel')}
             </Button>
           )}
         </div>
@@ -702,7 +702,8 @@ function ChatTopBar({
   onRename: () => void
   canRename: boolean
 }) {
-  const displayTitle = title ?? 'Rezept-Chat'
+  const { t } = useTranslation()
+  const displayTitle = title ?? t('chat.page.defaultTitle')
   const isFallback = !title
   return (
     <header
@@ -712,7 +713,7 @@ function ChatTopBar({
       <button
         type="button"
         onClick={onBack}
-        aria-label="Zurück"
+        aria-label={t('chat.page.backAria')}
         className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground"
       >
         <ChevronLeft className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -735,7 +736,7 @@ function ChatTopBar({
         <button
           type="button"
           onClick={onRename}
-          aria-label="Unterhaltung umbenennen"
+          aria-label={t('chat.page.renameAria')}
           className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <Pencil className="h-[16px] w-[16px]" aria-hidden="true" />
@@ -746,16 +747,15 @@ function ChatTopBar({
 }
 
 function ChatEmptyState() {
+  const { t } = useTranslation()
   return (
     <div className="mx-auto mt-8 max-w-md rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 p-6 text-center">
       <Sparkles className="mx-auto h-5 w-5 text-primary" aria-hidden="true" />
       <p className="mt-2 font-serif text-[20px] font-semibold leading-tight tracking-[-0.005em] text-foreground">
-        Was möchtest du heute kochen?
+        {t('chat.page.emptyTitle')}
       </p>
       <p className="mt-1 text-[13.5px] leading-[1.5] text-[hsl(var(--muted-foreground))]">
-        Erzähl, was du da hast — z.B. „Kartoffeln, Quark, Lauch, 30 Min, vegan“.
-        Wir schlagen was vor, du feilst nach, und am Ende wandeln wir es in ein
-        Rezept um.
+        {t('chat.page.emptyBody')}
       </p>
     </div>
   )
@@ -768,6 +768,7 @@ function ChatBubble({
   message: LocalMessage
   onRetry: () => void
 }) {
+  const { t } = useTranslation()
   const isUser = message.role === 'user'
   const isErrored = !!message.errored
   // Don't render an empty pre-stream assistant bubble — the typing
@@ -804,14 +805,14 @@ function ChatBubble({
         </div>
         {isErrored && (
           <div className="flex items-center gap-2 px-1 text-[12px] text-[hsl(var(--destructive))]">
-            <span className="font-semibold">Antwort unterbrochen</span>
+            <span className="font-semibold">{t('chat.page.interrupted')}</span>
             <button
               type="button"
               onClick={onRetry}
               className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
             >
               <RotateCcw className="h-3 w-3" aria-hidden="true" />
-              Erneut versuchen
+              {t('chat.page.retryCta')}
             </button>
           </div>
         )}
@@ -821,6 +822,7 @@ function ChatBubble({
 }
 
 function TurnCapNotice({ level }: { level: 'warn' | 'blocked' }) {
+  const { t } = useTranslation()
   const isBlocked = level === 'blocked'
   return (
     <div
@@ -843,11 +845,13 @@ function TurnCapNotice({ level }: { level: 'warn' | 'blocked' }) {
       />
       <p className="flex-1 leading-[1.4] text-foreground">
         {isBlocked
-          ? `Dialog ist voll — nutze „In Rezept umwandeln" oder starte eine neue Unterhaltung über die Seitenleiste.`
-          : 'Lange Dialoge werden schwächer. Bald bitte in Rezept umwandeln oder eine neue Unterhaltung starten.'}
+          ? t('chat.page.turnCapBlocked')
+          : t('chat.page.turnCapWarn')}
       </p>
       <span className="sr-only">
-        Turn {isBlocked ? CHAT_HARD_CAP : CHAT_WARN_AT}+
+        {t('chat.page.turnLabelTemplate', {
+          n: isBlocked ? CHAT_HARD_CAP : CHAT_WARN_AT,
+        })}
       </span>
     </div>
   )
@@ -862,12 +866,13 @@ function ConvertToRecipeBar({
   error: string | null
   onConvert: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="border-t border-[hsl(var(--primary)/0.25)] bg-[hsl(var(--primary)/0.06)] px-3 py-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[13px] text-foreground">
           <Sparkles className="mr-1 inline h-3.5 w-3.5 text-primary" aria-hidden="true" />
-          Passt das Rezept? Dann speichern.
+          {t('chat.page.convertPrompt')}
         </p>
         <Button
           type="button"
@@ -877,7 +882,7 @@ function ConvertToRecipeBar({
           className="gap-1.5"
         >
           <Utensils className="h-3.5 w-3.5" aria-hidden="true" />
-          {pending ? 'Wandle um …' : 'In Rezept umwandeln'}
+          {pending ? t('chat.page.convertPending') : t('chat.page.convertCta')}
         </Button>
       </div>
       {error && (

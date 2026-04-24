@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { MessageSquare, X } from 'lucide-react'
 import type { ChatSessionListItem } from '@familien-kochbuch/shared'
 import { cn } from '@/lib/utils'
@@ -48,6 +49,7 @@ export function ChatSessionsShell({
   activeSessionId,
   children,
 }: ChatSessionsShellProps) {
+  const { t } = useTranslation()
   const isMobile = useIsMobile()
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -117,11 +119,10 @@ export function ChatSessionsShell({
 
   async function handleDelete(session: ChatSessionListItem) {
     const ok = await confirm({
-      title: 'Unterhaltung löschen?',
-      description:
-        'Die gesamte Unterhaltung wird entfernt. Das kann nicht rückgängig gemacht werden.',
-      confirmLabel: 'Löschen',
-      cancelLabel: 'Abbrechen',
+      title: t('chat.sessions.deleteTitle'),
+      description: t('chat.sessions.deleteDescription'),
+      confirmLabel: t('chat.sessions.deleteConfirm'),
+      cancelLabel: t('common.cancel'),
       confirmVariant: 'destructive',
     })
     if (!ok) return
@@ -155,11 +156,11 @@ export function ChatSessionsShell({
     return (
       <>
         <SplitPane
-          leftLabel="Sitzungen-Liste"
-          rightLabel="Aktuelle Unterhaltung"
+          leftLabel={t('chat.sessions.splitLeftLabel')}
+          rightLabel={t('chat.sessions.splitRightLabel')}
           left={
             <aside
-              aria-label="Unterhaltungen"
+              aria-label={t('chat.sessions.drawerLabel')}
               className="flex h-full flex-col bg-card/30"
             >
               <ChatSessionsList
@@ -203,7 +204,7 @@ export function ChatSessionsShell({
 
       <button
         type="button"
-        aria-label="Unterhaltungen öffnen"
+        aria-label={t('chat.sessions.drawerOpenAria')}
         aria-haspopup="dialog"
         aria-expanded={drawerOpen}
         onClick={() => setDrawerOpen(true)}
@@ -219,14 +220,14 @@ export function ChatSessionsShell({
         data-testid="chat-sessions-drawer-trigger"
       >
         <MessageSquare className="h-4 w-4" aria-hidden="true" />
-        Unterhaltungen
+        {t('chat.sessions.drawerToggle')}
       </button>
 
       {drawerOpen && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Unterhaltungen"
+          aria-label={t('chat.sessions.drawerLabel')}
           className="fixed inset-0 z-40 flex items-end bg-black/40 md:hidden"
           onClick={() => setDrawerOpen(false)}
           data-testid="chat-sessions-drawer"
@@ -240,7 +241,7 @@ export function ChatSessionsShell({
             <div className="relative">
               <button
                 type="button"
-                aria-label="Schließen"
+                aria-label={t('chat.sessions.drawerCloseAria')}
                 onClick={() => setDrawerOpen(false)}
                 className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.1)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >

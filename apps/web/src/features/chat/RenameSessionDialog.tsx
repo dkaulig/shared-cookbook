@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -37,6 +38,7 @@ export function RenameSessionDialog({
   isLoading = false,
   error = null,
 }: RenameSessionDialogProps) {
+  const { t } = useTranslation()
   const [value, setValue] = useState(initialTitle ?? '')
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -99,15 +101,17 @@ export function RenameSessionDialog({
           id="rename-chat-session-title"
           className="mb-1 font-serif text-xl font-semibold"
         >
-          Unterhaltung umbenennen
+          {t('chat.rename.title')}
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Gib einen neuen Titel für diese Unterhaltung ein.
+          {t('chat.rename.description')}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-1.5">
-            <Label htmlFor="rename-session-title-input">Titel</Label>
+            <Label htmlFor="rename-session-title-input">
+              {t('chat.rename.titleLabel')}
+            </Label>
             <Input
               id="rename-session-title-input"
               ref={inputRef}
@@ -115,7 +119,7 @@ export function RenameSessionDialog({
               value={value}
               onChange={(e) => setValue(e.target.value)}
               maxLength={CHAT_SESSION_TITLE_MAX_LENGTH}
-              placeholder="z.B. Kartoffel-Lauch-Auflauf"
+              placeholder={t('chat.rename.titlePlaceholder')}
               disabled={isLoading}
               aria-describedby="rename-session-helper"
             />
@@ -123,7 +127,9 @@ export function RenameSessionDialog({
               id="rename-session-helper"
               className="text-[12px] text-muted-foreground"
             >
-              Max. {CHAT_SESSION_TITLE_MAX_LENGTH} Zeichen.
+              {t('chat.rename.maxCharsTemplate', {
+                max: CHAT_SESSION_TITLE_MAX_LENGTH,
+              })}
             </p>
           </div>
 
@@ -143,13 +149,13 @@ export function RenameSessionDialog({
               onClick={() => onOpenChange(false)}
               disabled={isLoading}
             >
-              Abbrechen
+              {t('common.cancel')}
             </Button>
             <Button
               type="submit"
               disabled={isLoading || value.trim().length === 0}
             >
-              {isLoading ? 'Speichere …' : 'Speichern'}
+              {isLoading ? t('chat.rename.savingCta') : t('common.save')}
             </Button>
           </div>
         </form>
