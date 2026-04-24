@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Pencil } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { ApiError, NutritionEstimate } from '@familien-kochbuch/shared'
 import { useUpdateRecipeNutrition } from './hooks'
 
@@ -28,6 +29,7 @@ export function NutritionSection({
   nutrition,
   canEdit,
 }: NutritionSectionProps) {
+  const { t } = useTranslation()
   // Hide entirely for viewers without an estimate + without edit
   // rights. Authors/admins with no estimate still see the "add"
   // affordance so they can kick off an edit.
@@ -39,19 +41,19 @@ export function NutritionSection({
         id="nutrition-heading"
         className="mb-3.5 font-serif text-[24px] font-semibold tracking-[-0.005em] text-foreground"
       >
-        Nährwerte{' '}
+        {t('recipes.nutrition.heading', { defaultValue: 'Nährwerte' })}{' '}
         <span className="ml-2 inline-flex items-center rounded-full bg-[hsl(var(--muted))] px-2 py-[2px] text-[11px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-          geschätzt
+          {t('recipes.nutrition.estimatedChip', { defaultValue: 'geschätzt' })}
         </span>
         <span className="ml-2 text-[12px] font-normal text-[hsl(var(--muted-foreground))]">
-          pro Portion
+          {t('recipes.nutrition.perPortion', { defaultValue: 'pro Portion' })}
         </span>
       </h2>
 
       {nutrition ? (
         <ul className="space-y-2">
           <NutritionRow
-            label="Energie"
+            label={t('recipes.nutrition.energy', { defaultValue: 'Energie' })}
             unit="kcal"
             value={nutrition.kcal}
             max={5000}
@@ -61,7 +63,7 @@ export function NutritionSection({
             nutrition={nutrition}
           />
           <NutritionRow
-            label="Eiweiß"
+            label={t('recipes.nutrition.protein', { defaultValue: 'Eiweiß' })}
             unit="g"
             value={nutrition.proteinG}
             max={500}
@@ -71,7 +73,9 @@ export function NutritionSection({
             nutrition={nutrition}
           />
           <NutritionRow
-            label="Kohlenhydrate"
+            label={t('recipes.nutrition.carbs', {
+              defaultValue: 'Kohlenhydrate',
+            })}
             unit="g"
             value={nutrition.carbsG}
             max={500}
@@ -81,7 +85,7 @@ export function NutritionSection({
             nutrition={nutrition}
           />
           <NutritionRow
-            label="Fett"
+            label={t('recipes.nutrition.fat', { defaultValue: 'Fett' })}
             unit="g"
             value={nutrition.fatG}
             max={500}
@@ -93,7 +97,9 @@ export function NutritionSection({
         </ul>
       ) : (
         <p className="text-[14px] italic text-[hsl(var(--muted-foreground))]">
-          Noch keine Nährwert-Schätzung hinterlegt.
+          {t('recipes.nutrition.missing', {
+            defaultValue: 'Noch keine Nährwert-Schätzung hinterlegt.',
+          })}
         </p>
       )}
     </section>
@@ -123,6 +129,7 @@ function NutritionRow({
   canEdit,
   nutrition,
 }: NutritionRowProps) {
+  const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<string>(String(value))
   const [error, setError] = useState<string | null>(null)
@@ -142,11 +149,20 @@ function NutritionRow({
   async function save() {
     const parsed = Number(draft)
     if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-      setError('Bitte eine ganze Zahl eingeben.')
+      setError(
+        t('recipes.nutrition.errors.notInteger', {
+          defaultValue: 'Bitte eine ganze Zahl eingeben.',
+        }),
+      )
       return
     }
     if (parsed < 0 || parsed > max) {
-      setError(`Wert muss zwischen 0 und ${max} liegen.`)
+      setError(
+        t('recipes.nutrition.errors.rangeTemplate', {
+          max,
+          defaultValue: `Wert muss zwischen 0 und ${max} liegen.`,
+        }),
+      )
       return
     }
     try {
@@ -155,7 +171,12 @@ function NutritionRow({
       setError(null)
     } catch (err) {
       const apiErr = err as Partial<ApiError>
-      setError(apiErr.message ?? 'Speichern fehlgeschlagen.')
+      setError(
+        apiErr.message ??
+          t('recipes.nutrition.errors.saveFailed', {
+            defaultValue: 'Speichern fehlgeschlagen.',
+          }),
+      )
     }
   }
 
@@ -172,7 +193,10 @@ function NutritionRow({
           <button
             type="button"
             onClick={enterEdit}
-            aria-label={`${label} bearbeiten`}
+            aria-label={t('recipes.nutrition.editAria', {
+              label,
+              defaultValue: `${label} bearbeiten`,
+            })}
             className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
@@ -190,7 +214,10 @@ function NutritionRow({
           void save()
         }}
         className="flex flex-wrap items-center gap-2 text-[15px]"
-        aria-label={`${label} bearbeiten`}
+        aria-label={t('recipes.nutrition.editAria', {
+          label,
+          defaultValue: `${label} bearbeiten`,
+        })}
       >
         <label
           htmlFor={`nutrition-${field}-input`}
@@ -219,7 +246,7 @@ function NutritionRow({
           disabled={mutation.isPending}
           className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
         >
-          Speichern
+          {t('recipes.nutrition.submitCta', { defaultValue: 'Speichern' })}
         </button>
         <button
           type="button"
@@ -227,7 +254,7 @@ function NutritionRow({
           disabled={mutation.isPending}
           className="rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-accent"
         >
-          Abbrechen
+          {t('recipes.nutrition.cancelCta', { defaultValue: 'Abbrechen' })}
         </button>
         {error && (
           <p role="alert" className="w-full text-xs text-[hsl(var(--destructive))]">

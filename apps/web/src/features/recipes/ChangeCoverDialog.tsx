@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { useImportCandidates } from '@/features/imports/hooks'
@@ -48,6 +49,7 @@ export function ChangeCoverDialog({
   onClose,
   onCandidatesExpired,
 }: ChangeCoverDialogProps) {
+  const { t } = useTranslation()
   const candidatesQuery = useImportCandidates(importId)
   const swap = useSwapRecipeCover(recipeId, importId)
 
@@ -90,7 +92,12 @@ export function ChangeCoverDialog({
         onCandidatesExpired()
         return
       }
-      setError(apiErr.message || 'Cover konnte nicht geändert werden.')
+      setError(
+        apiErr.message ||
+          t('recipes.coverDialog.errorFailed', {
+            defaultValue: 'Cover konnte nicht geändert werden.',
+          }),
+      )
     }
   }
 
@@ -112,16 +119,20 @@ export function ChangeCoverDialog({
           id="change-cover-dialog-title"
           className="mb-1 font-serif text-xl font-semibold"
         >
-          Cover ändern
+          {t('recipes.coverDialog.title', { defaultValue: 'Cover ändern' })}
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Wähle ein Bild aus den Import-Kandidaten. Das aktuelle Cover
-          bleibt als zusätzliches Foto erhalten.
+          {t('recipes.coverDialog.description', {
+            defaultValue:
+              'Wähle ein Bild aus den Import-Kandidaten. Das aktuelle Cover bleibt als zusätzliches Foto erhalten.',
+          })}
         </p>
 
         {candidatesQuery.isLoading && (
           <p className="text-sm text-muted-foreground">
-            Kandidaten werden geladen …
+            {t('recipes.coverDialog.loading', {
+              defaultValue: 'Kandidaten werden geladen …',
+            })}
           </p>
         )}
 
@@ -154,14 +165,18 @@ export function ChangeCoverDialog({
             onClick={onClose}
             disabled={swap.isPending}
           >
-            Abbrechen
+            {t('common.cancel', { defaultValue: 'Abbrechen' })}
           </Button>
           <Button
             type="button"
             onClick={handleSave}
             disabled={!coverStagedPhotoId || swap.isPending}
           >
-            {swap.isPending ? 'Speichere …' : 'Speichern'}
+            {swap.isPending
+              ? t('recipes.coverDialog.saving', { defaultValue: 'Speichere …' })
+              : t('recipes.coverDialog.submitCta', {
+                  defaultValue: 'Speichern',
+                })}
           </Button>
         </div>
       </div>
