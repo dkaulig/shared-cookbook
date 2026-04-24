@@ -86,11 +86,14 @@ describe('<CreateGroupDialog />', () => {
     expect(captured).toEqual({ name: 'Example Family', description: 'Unsere Sammlung' })
   })
 
-  it('surfaces the server error message on 4xx in German', async () => {
+  // REL-3f — 4xx server errors with a known `code` are routed through
+  // `classifyMutationError` → localised `errors.json` copy. The backend
+  // emits English Dev-Messages post REL-4, which must NOT leak verbatim.
+  it('surfaces the translated errors:<code> copy on 4xx', async () => {
     server.use(
       http.post('/api/groups', () =>
         HttpResponse.json(
-          { code: 'invalid_input', message: 'Name ist zu lang.' },
+          { code: 'invalid_input', message: 'Name is too long.', status: 400 },
           { status: 400 },
         ),
       ),
@@ -102,6 +105,38 @@ describe('<CreateGroupDialog />', () => {
     await user.type(screen.getByLabelText(/name/i), 'X')
     await user.click(screen.getByRole('button', { name: /erstellen/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Name ist zu lang/)
+    const alert = await screen.findByRole('alert')
+    // Localised German copy from errors.json
+    expect(alert).toHaveTextContent(/Eingabe ist ungültig\./)
+    // English Dev-Message must NOT leak
+    expect(alert).not.toHaveTextContent(/Name is too long/)
+  })
+
+  // REL-3f — 5xx responses must NEVER surface the backend's raw message
+  // (stack traces / SQL fragments). `classifyMutationError` swaps in a
+  // generic German toast copy for the security-audit requirement.
+  it('surfaces a generic German fallback on 5xx without leaking raw message', async () => {
+    server.use(
+      http.post('/api/groups', () =>
+        HttpResponse.json(
+          {
+            code: 'internal_error',
+            message: 'NullReferenceException at GroupService.cs:42',
+            status: 500,
+          },
+          { status: 500 },
+        ),
+      ),
+    )
+
+    const user = userEvent.setup()
+    renderDialog()
+
+    await user.type(screen.getByLabelText(/name/i), 'X')
+    await user.click(screen.getByRole('button', { name: /erstellen/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Unbekannter Fehler/)
+    expect(alert).not.toHaveTextContent(/NullReferenceException/)
   })
 })

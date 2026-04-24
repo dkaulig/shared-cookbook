@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Trash2, UserPlus } from 'lucide-react'
-import type { ApiError, GroupDetail, GroupMember, GroupRole } from '@familien-kochbuch/shared'
+import type { GroupDetail, GroupMember, GroupRole } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { InviteMemberDialog } from './InviteMemberDialog'
 import {
@@ -59,8 +60,8 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
     try {
       await changeRole.mutateAsync({ userId: member.userId, role: next })
     } catch (err) {
-      const apiErr = err as ApiError
-      setActionError(apiErr.message || 'Rolle konnte nicht geändert werden.')
+      // REL-3f — localise via errors.json codes + drop 5xx leaks.
+      setActionError(classifyMutationError(err).message)
     }
   }
 
@@ -76,8 +77,7 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
     try {
       await removeMember.mutateAsync(member.userId)
     } catch (err) {
-      const apiErr = err as ApiError
-      setActionError(apiErr.message || 'Mitglied konnte nicht entfernt werden.')
+      setActionError(classifyMutationError(err).message)
     }
   }
 
@@ -92,8 +92,7 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
     try {
       await revokeInvite.mutateAsync(inviteId)
     } catch (err) {
-      const apiErr = err as ApiError
-      setActionError(apiErr.message || 'Einladung konnte nicht zurückgezogen werden.')
+      setActionError(classifyMutationError(err).message)
     }
   }
 

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useCreateGroup } from './hooks'
 
 /**
@@ -31,8 +31,10 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
       })
       onClose()
     } catch (err) {
-      const apiErr = err as ApiError
-      setError(apiErr.message || 'Gruppe konnte nicht erstellt werden.')
+      // REL-3f — route through classifyMutationError so backend error-
+      // codes surface as the localised `errors.json` copy and 5xx / raw-
+      // English Dev-Messages never reach the user.
+      setError(classifyMutationError(err).message)
     }
   }
 

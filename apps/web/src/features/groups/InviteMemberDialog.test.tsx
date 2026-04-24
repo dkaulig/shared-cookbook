@@ -72,7 +72,11 @@ describe('<InviteMemberDialog />', () => {
       http.post('/api/groups/g1/invites', async ({ request }) => {
         inviteBody = await request.json()
         return HttpResponse.json(
-          { code: 'already_member', message: 'Nutzer:in ist bereits Mitglied.' },
+          {
+            code: 'already_member',
+            message: 'User is already a member.',
+            status: 400,
+          },
           { status: 400 },
         )
       }),
@@ -85,8 +89,13 @@ describe('<InviteMemberDialog />', () => {
     const pick = await screen.findByRole('button', { name: 'Bob Bauer' })
     await user.click(pick)
 
+    // REL-3f — `already_member` is routed through classifyMutationError
+    // to the localised `errors.json` copy; the backend's English
+    // Dev-Message must NOT leak verbatim.
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(/Nutzer:in ist bereits Mitglied/)
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveTextContent(/Nutzer ist bereits Mitglied/)
+      expect(alert).not.toHaveTextContent(/User is already a member/)
     })
     expect(inviteBody).toEqual({ invitedUserId: 'u2' })
     expect(onClose).not.toHaveBeenCalled()
