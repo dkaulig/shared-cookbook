@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { classifyMutationError } from '@/features/_shared/errorSurface'
+import { InlineFieldError } from '@/features/_shared/inlineFieldError'
 
 /**
  * /reset-password?token=... — completes the password-reset flow with
@@ -176,12 +177,11 @@ export function ResetPasswordPage() {
               </div>
 
               {error && (
-                <p
-                  role="alert"
+                <InlineFieldError
+                  id="reset-password-banner"
+                  message={error}
                   className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
-                >
-                  {error}
-                </p>
+                />
               )}
 
               <Button type="submit" size="lg" className="mt-2 w-full" disabled={submitting}>

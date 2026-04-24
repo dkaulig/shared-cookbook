@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -15,25 +15,23 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuthStore } from './authStore'
 import { isValidEmail } from './validation'
-import { classifyMutationError } from '@/features/_shared/errorSurface'
+import {
+  InlineFieldError,
+  useFieldErrorFocus,
+} from '@/features/_shared/inlineFieldError'
 
 type PreviewState =
   | { status: 'loading' }
   | { status: 'ok'; preview: InvitePreview }
   | { status: 'error'; message: string }
 
-// REL-5f — backend-emitted `fieldName` → frontend input-id mapping.
-// Backend (AuthEndpoints.cs) tags 400 bodies with one of these three
-// names; only the ones with a matching DOM input get focus-routed. The
-// `inviteToken` case intentionally maps to no input (the value lives in
-// the URL query-string) and falls through to the banner.
-const FIELD_TO_INPUT_ID: Record<string, string> = {
-  email: 'email',
-  // Wire-shape vocabulary is shared with ChangePassword / PasswordReset
-  // (the canonical "newPassword" name); the signup form's input id is
-  // the shorter "password" — this map makes the translation explicit.
-  newPassword: 'password',
-}
+// REL-5g — backend-emitted `fieldName` values the form recognises. The
+// ref-map inside `useFieldErrorFocus` is keyed by these values; the
+// `displayName`/`inviteToken` cases intentionally map to no ref (one
+// lives on its own input without focus routing for now, the other lives
+// in the URL query-string) and fall through to the banner.
+const INLINE_FIELD_NAMES = ['email', 'newPassword'] as const
+type InlineFieldName = (typeof INLINE_FIELD_NAMES)[number]
 
 /**
  * /signup?token=... — form backed by a valid AppInvite. Fetches the
@@ -60,18 +58,15 @@ export function SignupPage() {
   // Mirrors the pattern already used by ResetPasswordPage so the user
   // sees the same double-entry shape during invite-flow signup.
   const [confirm, setConfirm] = useState('')
-  // REL-5f — inline field-error state. `fieldName` is the backend map-
-  // key (never rendered as visible copy); null for errors the classifier
-  // did not attribute to a specific input — those still render as a
-  // banner but don't move focus.
-  const [fieldError, setFieldError] = useState<
-    { fieldName: string | null; message: string } | null
-  >(null)
+  // REL-5g — field-error routing via the shared hook. Known fieldNames
+  // (see INLINE_FIELD_NAMES above) focus + render inline; unknown/absent
+  // fall through to `fieldError.fieldName === null` which renders as the
+  // banner below. Client-side validation (displayName empty, email
+  // regex, password rules) reuses the same slot so there's one error
+  // surface shape for the whole form.
+  const { registerRef, fieldError, applyError, setBanner, clear } =
+    useFieldErrorFocus<HTMLInputElement>()
   const [submitting, setSubmitting] = useState(false)
-
-  // REL-5f — ref-map keyed by the backend `fieldName` (see
-  // FIELD_TO_INPUT_ID above for the wire-vs-DOM-id translation).
-  const fieldRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -126,42 +121,38 @@ export function SignupPage() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    setFieldError(null)
+    clear()
 
     if (!displayName.trim()) {
-      setFieldError({
-        fieldName: null,
-        message: t('auth.signup.errors.displayNameRequired', {
+      setBanner(
+        t('auth.signup.errors.displayNameRequired', {
           defaultValue: 'Bitte gib einen Anzeigenamen ein.',
         }),
-      })
+      )
       return
     }
     if (!isValidEmail(email.trim())) {
-      setFieldError({
-        fieldName: null,
-        message: t('auth.signup.errors.emailInvalid', {
+      setBanner(
+        t('auth.signup.errors.emailInvalid', {
           defaultValue: 'Bitte gib eine gültige E-Mail-Adresse ein.',
         }),
-      })
+      )
       return
     }
     if (password.length < 8) {
-      setFieldError({
-        fieldName: null,
-        message: t('auth.signup.errors.passwordTooShort', {
+      setBanner(
+        t('auth.signup.errors.passwordTooShort', {
           defaultValue: 'Passwort muss mindestens 8 Zeichen lang sein.',
         }),
-      })
+      )
       return
     }
     if (password !== confirm) {
-      setFieldError({
-        fieldName: null,
-        message: t('auth.signup.errors.passwordsMismatch', {
+      setBanner(
+        t('auth.signup.errors.passwordsMismatch', {
           defaultValue: 'Passwörter stimmen nicht überein.',
         }),
-      })
+      )
       return
     }
 
@@ -174,41 +165,27 @@ export function SignupPage() {
         body: JSON.stringify({ email: email.trim(), password, displayName: displayName.trim() }),
       })
       if (!response.ok) {
-        // REL-5f — route the ApiError body through the shared classifier
-        // so the rendered copy comes from `errors:<code>` (German) and
-        // `fieldName` can drive focus. If the body can't be parsed,
-        // `classified.message` falls back to the generic "actionFailed"
-        // copy so we still show *something*.
+        // REL-5g — route the ApiError body through the shared hook so
+        // the rendered copy comes from `errors:<code>` (German) and
+        // `fieldName` drives focus. If the body can't be parsed,
+        // `applyError` falls back to the banner slot with the
+        // classifier's "actionFailed" copy so we still show *something*.
         const apiErr = await safeJson<ApiError>(response)
-        const classified = classifyMutationError(
+        applyError(
           apiErr ?? { code: 'unknown', message: '', status: response.status },
         )
-        setFieldError({
-          fieldName: classified.fieldName ?? null,
-          message: classified.message,
-        })
-        // Only move focus when the backend-tagged field maps to a DOM
-        // input we actually render. `inviteToken` lives in the URL —
-        // nothing to focus there, fall through to banner.
-        const inputId = classified.fieldName
-          ? FIELD_TO_INPUT_ID[classified.fieldName]
-          : undefined
-        if (inputId) {
-          fieldRefs.current[inputId]?.focus()
-        }
         return
       }
       const body = (await response.json()) as AuthResponse
       setSession(body.accessToken, body.user)
       navigate('/', { replace: true })
     } catch {
-      setFieldError({
-        fieldName: null,
-        message: t('auth.signup.errors.failedRetry', {
+      setBanner(
+        t('auth.signup.errors.failedRetry', {
           defaultValue:
             'Registrierung fehlgeschlagen. Bitte später erneut versuchen.',
         }),
-      })
+      )
     } finally {
       setSubmitting(false)
     }
@@ -216,11 +193,14 @@ export function SignupPage() {
 
   const inviterName = preview.status === 'ok' ? preview.preview.inviterDisplayName ?? 'Jemand' : null
 
-  // REL-5f — which input (if any) owns the current inline error. Drives
-  // aria-invalid + aria-describedby wiring below.
-  const focusedInputId = fieldError?.fieldName
-    ? FIELD_TO_INPUT_ID[fieldError.fieldName]
-    : undefined
+  // REL-5g — narrow the hook's `fieldError.fieldName` to the allowlist
+  // before the JSX threads it into aria wiring. Anything not in the list
+  // (including nested `inviteToken`) falls through to the bottom banner.
+  const inlineFieldName: InlineFieldName | null =
+    fieldError?.fieldName &&
+    (INLINE_FIELD_NAMES as readonly string[]).includes(fieldError.fieldName)
+      ? (fieldError.fieldName as InlineFieldName)
+      : null
 
   return (
     <div className="mx-auto mt-10 flex w-full max-w-[440px] flex-col md:mt-16">
@@ -320,22 +300,18 @@ export function SignupPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={preview.status !== 'ok'}
-                ref={(el) => {
-                  fieldRefs.current.email = el
-                }}
-                aria-invalid={focusedInputId === 'email' || undefined}
+                ref={registerRef('email')}
+                aria-invalid={inlineFieldName === 'email' || undefined}
                 aria-describedby={
-                  focusedInputId === 'email' ? 'email-error' : undefined
+                  inlineFieldName === 'email' ? 'email-error' : undefined
                 }
               />
-              {focusedInputId === 'email' && fieldError && (
-                <p
+              {inlineFieldName === 'email' && fieldError && (
+                <InlineFieldError
                   id="email-error"
-                  role="alert"
+                  message={fieldError.message}
                   className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
-                >
-                  {fieldError.message}
-                </p>
+                />
               )}
             </div>
 
@@ -353,22 +329,18 @@ export function SignupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={preview.status !== 'ok'}
-                ref={(el) => {
-                  fieldRefs.current.password = el
-                }}
-                aria-invalid={focusedInputId === 'password' || undefined}
+                ref={registerRef('newPassword')}
+                aria-invalid={inlineFieldName === 'newPassword' || undefined}
                 aria-describedby={
-                  focusedInputId === 'password' ? 'password-error' : undefined
+                  inlineFieldName === 'newPassword' ? 'password-error' : undefined
                 }
               />
-              {focusedInputId === 'password' && fieldError && (
-                <p
+              {inlineFieldName === 'newPassword' && fieldError && (
+                <InlineFieldError
                   id="password-error"
-                  role="alert"
+                  message={fieldError.message}
                   className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
-                >
-                  {fieldError.message}
-                </p>
+                />
               )}
             </div>
 
@@ -391,17 +363,16 @@ export function SignupPage() {
               />
             </div>
 
-            {fieldError && !focusedInputId && (
-              // Fallback banner — error without a DOM-mapped fieldName
-              // (inviteToken lives in the URL; or the classifier had
-              // nothing to attribute). Keeps the surface behaviour
-              // identical to pre-REL-5f for these cases.
-              <p
-                role="alert"
+            {fieldError && !inlineFieldName && (
+              // Fallback banner — error without an allowlisted fieldName
+              // (inviteToken lives in the URL; displayName has no focus
+              // target yet; or the classifier had nothing to attribute).
+              // Keeps the surface behaviour identical to pre-REL-5g.
+              <InlineFieldError
+                id="signup-form-banner"
+                message={fieldError.message}
                 className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
-              >
-                {fieldError.message}
-              </p>
+              />
             )}
 
             <Button
