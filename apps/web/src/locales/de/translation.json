@@ -436,7 +436,84 @@
       "done": "Fertig",
       "failed": "Fehlgeschlagen"
     },
-    "emptyList": "Noch keine Importe gestartet."
+    "emptyList": "Noch keine Importe gestartet.",
+    "urlPage": {
+      "kicker": "KI-Import",
+      "heading": "Rezept aus Video importieren",
+      "tagline": "Füge eine URL ein (YouTube, Reel, Blog) — wir erkennen das Rezept und du kannst es vor dem Speichern prüfen.",
+      "prefillWarningLead": "Diese URL stammt aus einem Link.",
+      "prefillWarningBody": "Bitte prüfe sie, bevor du den Import startest.",
+      "aiOffBannerLead": "Diese Instanz läuft ohne KI.",
+      "aiOffBannerBody": "URLs mit Schema.org-Rezeptdaten (viele Foodblogs) lassen sich trotzdem importieren; bei Reels und Blogs ohne strukturierte Daten bleibt das Ergebnis leer und du musst das Rezept manuell ergänzen.",
+      "cacheHitTitle": "Diese URL wurde bereits importiert.",
+      "cacheHitBody": "Wir haben ein Rezept aus derselben URL in den letzten 7 Tagen gefunden. Du kannst es direkt öffnen — oder die Extraktion erneut durchlaufen lassen, falls sich das Video geändert hat.",
+      "cacheHitGotoCta": "Zum bestehenden Rezept",
+      "cacheHitForceCta": "Neu extrahieren",
+      "urlFieldLabel": "Video- oder Blog-URL",
+      "urlPlaceholder": "https://…",
+      "urlHelp": "Unterstützt: YouTube, Instagram Reels, TikTok, Facebook, Foodblogs mit Rezept-JSON-LD.",
+      "cancelCta": "Abbrechen",
+      "importing": "Importiere …",
+      "submitCta": "Rezept importieren",
+      "errors": {
+        "urlRequired": "Bitte gib eine URL ein.",
+        "urlProtocol": "Die URL muss absolut sein und mit http:// oder https:// beginnen.",
+        "enqueueFailed": "Der Import konnte nicht gestartet werden."
+      }
+    },
+    "sharePage": {
+      "expiredTitle": "Bild-Freigabe abgelaufen",
+      "expiredHint": "Bitte erneut teilen.",
+      "photoImportFallback": "Foto manuell importieren",
+      "tooManyTitle": "Zu viele Links",
+      "tooManyHint": "Maximal 10 Links auf einmal — bitte auswählen.",
+      "urlImportFallback": "URL manuell importieren",
+      "photoLoading": "Foto aus Freigabe wird vorbereitet …",
+      "recipeLoading": "Rezept wird geöffnet …",
+      "emptyTitle": "Kein Link in der Freigabe gefunden",
+      "emptyHint": "Bitte manuell importieren.",
+      "pickerTitle": "Welches Rezept willst du importieren?",
+      "pickerHintTemplate": "{{count}} Links in der Freigabe gefunden. Tippe einen an oder starte alle gleichzeitig.",
+      "cancelCta": "Abbrechen",
+      "importingAll": "Importiere …",
+      "importAllCtaTemplate": "Alle importieren ({{count}})",
+      "submitErrorBatch": "Die Imports konnten nicht gestartet werden. Bitte erneut versuchen."
+    },
+    "photoPage": {
+      "aiOff": {
+        "title": "Foto-Import benötigt KI",
+        "description": "Diese Instanz läuft ohne KI-Anbieter. Foto-Importe brauchen die Vision-KI, um Zutaten und Schritte aus Seitenfotos zu lesen."
+      },
+      "kicker": "KI-Import",
+      "heading": "Rezept aus Foto importieren",
+      "tagline": "Fotografiere eine Rezeptkarte oder lade bis zu 10 Bilder hoch — wir erkennen Zutaten und Schritte und du kannst sie vor dem Speichern prüfen.",
+      "photosLabel": "Fotos ({{count}} / {{max}})",
+      "cameraCta": "Kamera",
+      "galleryCta": "Fotos auswählen",
+      "formats": "Unterstützt: JPG, PNG, WebP bis 5 MB. HEIC (iPhone-Standard) bitte vorher als JPG exportieren.",
+      "uploadProgress": "Fotos werden hochgeladen … ({{count}} / {{total}})",
+      "cancelCta": "Abbrechen",
+      "uploading": "Lädt hoch …",
+      "enqueueing": "Starte …",
+      "submitCta": "Rezepte extrahieren",
+      "addSlotAria": "Foto hinzufügen",
+      "addSlotLine1": "Tippen zum Auswählen",
+      "addSlotLine2": "oder hierhin ziehen",
+      "photoAlt": "Foto {{n}}",
+      "photoRemove": "Foto {{n}} entfernen",
+      "photoMoveUp": "Foto {{n}} nach oben verschieben",
+      "photoMoveDown": "Foto {{n}} nach unten verschieben",
+      "errors": {
+        "mimeReject": "Nur JPG, PNG oder WebP werden unterstützt. Bitte HEIC vor dem Import als JPG/PNG speichern.",
+        "tooLargeTemplate": "\"{{name}}\" ist größer als 5 MB.",
+        "maxPhotosTemplate": "Maximal {{max}} Fotos pro Import.",
+        "atLeastOne": "Bitte füge mindestens ein Foto hinzu.",
+        "uploadFailed": "Foto-Upload fehlgeschlagen.",
+        "enqueueFailed": "Der Import konnte nicht gestartet werden.",
+        "sharedSkipped_one": "Format nicht unterstützt — {{count}} Bild übersprungen.",
+        "sharedSkipped_other": "Format nicht unterstützt — {{count}} Bilder übersprungen."
+      }
+    }
   },
   "chat": {
     "pageTitle": "Rezept-Chat",

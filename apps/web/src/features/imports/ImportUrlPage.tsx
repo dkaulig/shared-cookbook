@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { ApiError, GroupSummary } from '@familien-kochbuch/shared'
 import { Sparkles, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -41,6 +42,7 @@ interface CacheHit {
  */
 export function ImportUrlPage() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const groups = useMyGroups()
   const enqueue = useEnqueueUrlImport()
   const [searchParams] = useSearchParams()
@@ -84,15 +86,24 @@ export function ImportUrlPage() {
 
   function validateUrl(raw: string): string | null {
     const trimmed = raw.trim()
-    if (trimmed.length === 0) return 'Bitte gib eine URL ein.'
+    if (trimmed.length === 0)
+      return t('imports.urlPage.errors.urlRequired', {
+        defaultValue: 'Bitte gib eine URL ein.',
+      })
     let parsed: URL
     try {
       parsed = new URL(trimmed)
     } catch {
-      return 'Die URL muss absolut sein und mit http:// oder https:// beginnen.'
+      return t('imports.urlPage.errors.urlProtocol', {
+        defaultValue:
+          'Die URL muss absolut sein und mit http:// oder https:// beginnen.',
+      })
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return 'Die URL muss absolut sein und mit http:// oder https:// beginnen.'
+      return t('imports.urlPage.errors.urlProtocol', {
+        defaultValue:
+          'Die URL muss absolut sein und mit http:// oder https:// beginnen.',
+      })
     }
     return null
   }
@@ -127,7 +138,12 @@ export function ImportUrlPage() {
       navigate(`/rezepte/import/${response.importId}`, { state: { groupId } })
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Der Import konnte nicht gestartet werden.')
+      setError(
+        apiErr.message ||
+          t('imports.urlPage.errors.enqueueFailed', {
+            defaultValue: 'Der Import konnte nicht gestartet werden.',
+          }),
+      )
     }
   }
 
@@ -185,14 +201,18 @@ export function ImportUrlPage() {
     <main className="mx-auto w-full max-w-2xl overflow-hidden px-5 py-8 md:px-8 md:py-12">
       <div className="mb-6 flex items-center gap-2 text-[13px] font-medium uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
         <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-        KI-Import
+        {t('imports.urlPage.kicker', { defaultValue: 'KI-Import' })}
       </div>
       <h1 className="font-serif text-[clamp(28px,6vw,36px)] font-semibold leading-[1.1] tracking-[-0.015em]">
-        Rezept aus Video importieren
+        {t('imports.urlPage.heading', {
+          defaultValue: 'Rezept aus Video importieren',
+        })}
       </h1>
       <p className="mt-2 font-serif-body text-[15px] italic leading-[1.5] text-[hsl(var(--muted-foreground))]">
-        Füge eine URL ein (YouTube, Reel, Blog) — wir erkennen das Rezept
-        und du kannst es vor dem Speichern prüfen.
+        {t('imports.urlPage.tagline', {
+          defaultValue:
+            'Füge eine URL ein (YouTube, Reel, Blog) — wir erkennen das Rezept und du kannst es vor dem Speichern prüfen.',
+        })}
       </p>
 
       {urlFromQuery && (
@@ -201,8 +221,14 @@ export function ImportUrlPage() {
           data-testid="import-url-prefill-warning"
           className="mt-6 rounded-[12px] border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
         >
-          <strong>Diese URL stammt aus einem Link.</strong> Bitte prüfe sie,
-          bevor du den Import startest.
+          <strong>
+            {t('imports.urlPage.prefillWarningLead', {
+              defaultValue: 'Diese URL stammt aus einem Link.',
+            })}
+          </strong>{' '}
+          {t('imports.urlPage.prefillWarningBody', {
+            defaultValue: 'Bitte prüfe sie, bevor du den Import startest.',
+          })}
         </div>
       )}
 
@@ -212,10 +238,15 @@ export function ImportUrlPage() {
           data-testid="import-url-ai-off-banner"
           className="mt-6 rounded-[12px] border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
         >
-          <strong>Diese Instanz läuft ohne KI.</strong> URLs mit Schema.org-
-          Rezeptdaten (viele Foodblogs) lassen sich trotzdem importieren;
-          bei Reels und Blogs ohne strukturierte Daten bleibt das Ergebnis
-          leer und du musst das Rezept manuell ergänzen.
+          <strong>
+            {t('imports.urlPage.aiOffBannerLead', {
+              defaultValue: 'Diese Instanz läuft ohne KI.',
+            })}
+          </strong>{' '}
+          {t('imports.urlPage.aiOffBannerBody', {
+            defaultValue:
+              'URLs mit Schema.org-Rezeptdaten (viele Foodblogs) lassen sich trotzdem importieren; bei Reels und Blogs ohne strukturierte Daten bleibt das Ergebnis leer und du musst das Rezept manuell ergänzen.',
+          })}
         </div>
       )}
 
@@ -225,15 +256,22 @@ export function ImportUrlPage() {
           data-testid="import-url-cache-banner"
           className="mt-6 rounded-[12px] border border-sky-300 bg-sky-50 p-4 text-sm text-sky-900"
         >
-          <p className="font-semibold">Diese URL wurde bereits importiert.</p>
+          <p className="font-semibold">
+            {t('imports.urlPage.cacheHitTitle', {
+              defaultValue: 'Diese URL wurde bereits importiert.',
+            })}
+          </p>
           <p className="mt-1 text-sky-800">
-            Wir haben ein Rezept aus derselben URL in den letzten 7 Tagen
-            gefunden. Du kannst es direkt öffnen — oder die Extraktion
-            erneut durchlaufen lassen, falls sich das Video geändert hat.
+            {t('imports.urlPage.cacheHitBody', {
+              defaultValue:
+                'Wir haben ein Rezept aus derselben URL in den letzten 7 Tagen gefunden. Du kannst es direkt öffnen — oder die Extraktion erneut durchlaufen lassen, falls sich das Video geändert hat.',
+            })}
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Button type="button" onClick={handleGotoCachedImport}>
-              Zum bestehenden Rezept
+              {t('imports.urlPage.cacheHitGotoCta', {
+                defaultValue: 'Zum bestehenden Rezept',
+              })}
             </Button>
             <Button
               type="button"
@@ -241,7 +279,13 @@ export function ImportUrlPage() {
               onClick={() => void handleForceRefresh()}
               disabled={submitPending}
             >
-              {submitPending ? 'Importiere …' : 'Neu extrahieren'}
+              {submitPending
+                ? t('imports.urlPage.importing', {
+                    defaultValue: 'Importiere …',
+                  })
+                : t('imports.urlPage.cacheHitForceCta', {
+                    defaultValue: 'Neu extrahieren',
+                  })}
             </Button>
           </div>
         </div>
@@ -257,7 +301,9 @@ export function ImportUrlPage() {
           className="flex items-center gap-1.5 text-[13px] font-semibold tracking-[0.01em] text-foreground"
         >
           <Video className="h-3.5 w-3.5" aria-hidden="true" />
-          Video- oder Blog-URL
+          {t('imports.urlPage.urlFieldLabel', {
+            defaultValue: 'Video- oder Blog-URL',
+          })}
         </label>
         <input
           ref={urlRef}
@@ -269,14 +315,18 @@ export function ImportUrlPage() {
           spellCheck={false}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://…"
+          placeholder={t('imports.urlPage.urlPlaceholder', {
+            defaultValue: 'https://…',
+          })}
           aria-invalid={error != null}
           aria-describedby={error ? 'import-url-error' : undefined}
           className="mt-2 w-full max-w-full min-w-0 rounded-[12px] border border-[hsl(var(--input))] bg-background px-[13px] py-[11px] text-base leading-[1.4] text-foreground transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-[hsl(var(--muted-foreground))]/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-ring/25 focus-visible:bg-card"
         />
         <p className="mt-2 text-[12.5px] text-[hsl(var(--muted-foreground))]">
-          Unterstützt: YouTube, Instagram Reels, TikTok, Facebook, Foodblogs mit
-          Rezept-JSON-LD.
+          {t('imports.urlPage.urlHelp', {
+            defaultValue:
+              'Unterstützt: YouTube, Instagram Reels, TikTok, Facebook, Foodblogs mit Rezept-JSON-LD.',
+          })}
         </p>
 
         {error && (
@@ -296,10 +346,16 @@ export function ImportUrlPage() {
             onClick={() => navigate(-1)}
             disabled={submitPending}
           >
-            Abbrechen
+            {t('imports.urlPage.cancelCta', { defaultValue: 'Abbrechen' })}
           </Button>
           <Button type="submit" disabled={submitPending || url.trim().length === 0}>
-            {submitPending ? 'Importiere …' : 'Rezept importieren'}
+            {submitPending
+              ? t('imports.urlPage.importing', {
+                  defaultValue: 'Importiere …',
+                })
+              : t('imports.urlPage.submitCta', {
+                  defaultValue: 'Rezept importieren',
+                })}
           </Button>
         </div>
       </form>
