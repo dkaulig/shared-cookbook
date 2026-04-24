@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import type { ApiError, UserSearchResult } from '@familien-kochbuch/shared'
+import type { UserSearchResult } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useInviteToGroup, useUserSearch } from './hooks'
 import { useDebouncedValue } from './useDebouncedValue'
 
@@ -31,8 +32,8 @@ export function InviteMemberDialog({
       await invite.mutateAsync({ invitedUserId: user.id })
       onClose()
     } catch (err) {
-      const apiErr = err as ApiError
-      setError(apiErr.message || 'Einladung konnte nicht erstellt werden.')
+      // REL-3f — localise via errors.json + drop 5xx leaks.
+      setError(classifyMutationError(err).message)
     }
   }
 

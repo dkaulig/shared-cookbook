@@ -8,7 +8,7 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import { ArrowLeft, ChevronDown, ChevronUp, Plus, Users } from 'lucide-react'
-import type { ApiError, RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
+import type { RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
 import {
   DEFAULT_RECIPE_LIST_PAGE_SIZE,
   DEFAULT_RECIPE_LIST_SORT,
@@ -18,6 +18,7 @@ import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { RecipeGridCard } from '@/features/recipes/RecipeGridCard'
 import { useGroupTags } from '@/features/recipes/hooks'
 import { ActiveFilterChips } from '@/features/search/ActiveFilterChips'
@@ -185,8 +186,8 @@ export function GroupDetailPage() {
         setRandomError('Kein Rezept passt zu den aktuellen Filtern.')
       }
     } catch (err) {
-      const apiErr = err as ApiError
-      setRandomError(apiErr.message || 'Zufalls-Auswahl fehlgeschlagen.')
+      // REL-3f — localise via errors.json + drop 5xx leaks.
+      setRandomError(classifyMutationError(err).message)
     } finally {
       setRandomPending(false)
     }

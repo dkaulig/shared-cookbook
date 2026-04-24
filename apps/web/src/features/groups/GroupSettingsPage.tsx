@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ImageIcon, Trash2, UploadCloud } from 'lucide-react'
-import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { uploadStagedPhoto } from '@/features/imports/stagedPhotoApi'
 import { GroupTagsPanel } from '@/features/tagManagement/GroupTagsPanel'
 import { GroupMembersAndInvitesPanel } from './GroupMembersAndInvitesPanel'
@@ -148,8 +148,8 @@ export function GroupSettingsPage() {
       const result = await uploadStagedPhoto(file)
       setCoverImageUrl(result.signedUrl)
     } catch (err) {
-      const apiErr = err as ApiError
-      setPhotoError(apiErr.message ?? 'Upload fehlgeschlagen.')
+      // REL-3f — localise via errors.json and suppress 5xx leaks.
+      setPhotoError(classifyMutationError(err).message)
     } finally {
       setPhotoUploading(false)
     }
@@ -183,8 +183,7 @@ export function GroupSettingsPage() {
       })
       setSavedAt(Date.now())
     } catch (err) {
-      const apiErr = err as ApiError
-      setFormError(apiErr.message || 'Speichern fehlgeschlagen.')
+      setFormError(classifyMutationError(err).message)
     }
   }
 

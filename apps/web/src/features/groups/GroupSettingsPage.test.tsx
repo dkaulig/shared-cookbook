@@ -308,4 +308,32 @@ describe('<GroupSettingsPage />', () => {
       Element.prototype.scrollIntoView = original
     }
   })
+
+  // REL-3f — PUT /api/groups/:id 5xx responses must NOT leak the raw
+  // backend message (stack trace / SQL fragment) into the form alert.
+  // `classifyMutationError` swaps in a generic German fallback copy.
+  it('surfaces a generic German fallback on 5xx save failures (REL-3f)', async () => {
+    server.use(
+      http.put('/api/groups/g1', () =>
+        HttpResponse.json(
+          {
+            code: 'internal_error',
+            message: 'NullReferenceException at GroupsEndpoints.cs:118',
+            status: 500,
+          },
+          { status: 500 },
+        ),
+      ),
+    )
+
+    renderAt('/groups/g1/settings')
+    await screen.findByLabelText('Name')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /^speichern$/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Unbekannter Fehler/)
+    expect(alert).not.toHaveTextContent(/NullReferenceException/)
+  })
 })
