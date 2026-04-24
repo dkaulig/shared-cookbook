@@ -316,7 +316,9 @@ describe('<ImportPhotosPage />', () => {
     expect(posted).toBe(false)
   })
 
-  it('surfaces an upload error inline and stops the sequence', async () => {
+  // REL-3f — server error-codes route through `classifyMutationError`
+  // → localised `errors.json` copy.
+  it('surfaces an upload error via errors:<code> localisation and stops the sequence', async () => {
     const user = userEvent.setup()
     server.use(
       http.get('/api/groups', () =>
@@ -326,7 +328,8 @@ describe('<ImportPhotosPage />', () => {
         HttpResponse.json(
           {
             code: 'unsupported_media_type',
-            message: 'Nur JPEG-, PNG- und WebP-Bilder sind zulässig.',
+            message: 'Only JPEG, PNG and WebP are allowed.',
+            status: 400,
           },
           { status: 400 },
         ),
@@ -337,9 +340,9 @@ describe('<ImportPhotosPage />', () => {
     await user.upload(input, [fakeJpeg('a.jpg')])
     await user.click(screen.getByRole('button', { name: /Rezepte extrahieren/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /JPEG|WebP/i,
-    )
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Dateityp wird nicht unterstützt\./)
+    expect(alert).not.toHaveTextContent(/Only JPEG/)
     expect(screen.getByTestId('location')).toHaveTextContent('/rezepte/import/photos')
   })
 
