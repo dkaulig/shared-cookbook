@@ -6,7 +6,10 @@ import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { SplitPane } from '@/components/layout/SplitPane'
 import { useConfirmDialog } from '@/features/_shared/ConfirmDialog'
-import { toastMutationError } from '@/features/_shared/errorSurface'
+import {
+  classifyMutationError,
+  toastMutationError,
+} from '@/features/_shared/errorSurface'
 import { ChatSessionsList } from './ChatSessionsList'
 import { RenameSessionDialog } from './RenameSessionDialog'
 import {
@@ -103,10 +106,12 @@ export function ChatSessionsShell({
       })
       setRenameTarget(null)
     } catch (err) {
-      const apiErr = err as Error
-      setRenameError(
-        apiErr.message || 'Umbenennen fehlgeschlagen. Bitte erneut versuchen.',
-      )
+      // REL-3d — route through classifyMutationError so the backend's
+      // English Dev-Message (post REL-4) is swapped for the localised
+      // `errors.json` entry keyed by the error-code. The helper falls
+      // back to the raw message when the code has no translation, and
+      // to a generic "actionFailed" copy when there's no message at all.
+      setRenameError(classifyMutationError(err).message)
     }
   }
 

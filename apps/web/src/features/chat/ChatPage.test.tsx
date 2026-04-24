@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -14,8 +14,19 @@ import type {
 } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
+import i18n, { createI18n } from '@/i18n'
 import { ChatPage } from './ChatPage'
 import { recallChatImport } from './chatImportMemo'
+
+// REL-3d — `classifyMutationError` reads the global i18n singleton to
+// translate backend error-codes into `errors.json` copy. Boot the
+// singleton once per file so the rename-error localisation test sees
+// the resources loaded. Pin `de` so the REL-3d assertion matches the
+// German translation regardless of the environment's navigator.language.
+beforeAll(async () => {
+  await createI18n()
+  await i18n.changeLanguage('de')
+})
 
 const FIXED_SESSION_ID = '00000000-1111-2222-3333-444444444444'
 
@@ -552,6 +563,39 @@ describe('<ChatPage /> — rename top-bar affordance', () => {
     await waitFor(() => {
       expect(patchedBody).toEqual({ title: 'Omelette' })
     })
+  })
+
+  // REL-3d — the inline-title-update flow must translate backend
+  // error-codes through `classifyMutationError` so the dialog surfaces
+  // localised `errors.json` copy instead of leaking the English Dev-
+  // Message the backend emits post REL-4.
+  it('REL-3d: renders the localised errors:invalid_title copy when the PATCH 400s', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.patch('/api/chat/sessions/:sessionId', () =>
+        HttpResponse.json(
+          {
+            code: 'invalid_title',
+            message: 'Invalid title.',
+            status: 400,
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+    renderPage()
+    await screen.findByRole('button', { name: /Unterhaltung umbenennen/i })
+    await user.click(
+      screen.getByRole('button', { name: /Unterhaltung umbenennen/i }),
+    )
+    const input = await screen.findByLabelText(/Titel/i)
+    await user.clear(input)
+    await user.type(input, 'Ein viel zu langer Titel')
+    await user.click(screen.getByRole('button', { name: /Speichern/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Ungültiger Titel\./)
+    expect(alert).not.toHaveTextContent(/Invalid title\./)
   })
 })
 

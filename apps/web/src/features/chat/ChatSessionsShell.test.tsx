@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -9,7 +9,18 @@ import type { ChatSessionListItem } from '@familien-kochbuch/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { MOBILE_QUERY } from '@/lib/useIsMobile'
+import i18n, { createI18n } from '@/i18n'
 import { ChatSessionsShell } from './ChatSessionsShell'
+
+// REL-3d — `classifyMutationError` reads the global i18n singleton to
+// translate backend error-codes into `errors.json` copy. Boot the
+// singleton once per file so the rename-error localisation test sees
+// the resources loaded. Pin `de` so the REL-3d assertion matches the
+// German translation regardless of the environment's navigator.language.
+beforeAll(async () => {
+  await createI18n()
+  await i18n.changeLanguage('de')
+})
 
 function row(over: Partial<ChatSessionListItem> = {}): ChatSessionListItem {
   return {
@@ -192,5 +203,45 @@ describe('<ChatSessionsShell /> — mobile', () => {
       expect(screen.getByTestId('location')).toHaveTextContent('/chat/s2'),
     )
     expect(screen.queryByTestId('chat-sessions-drawer')).not.toBeInTheDocument()
+  })
+})
+
+// REL-3d — the rename flow previously surfaced the backend's raw
+// English Dev-Message (`apiErr.message`) verbatim in the dialog. Post
+// REL-4 the server emits English copy ("Invalid title.") that must be
+// routed through `classifyMutationError` → localised `errors.json`
+// entry so the user sees the German translation instead.
+describe('<ChatSessionsShell /> — REL-3d rename error localisation', () => {
+  it('shows the translated errors:invalid_title copy when the rename PATCH 400s', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.patch('/api/chat/sessions/:sessionId', () =>
+        HttpResponse.json(
+          {
+            code: 'invalid_title',
+            message: 'Invalid title.',
+            status: 400,
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+    renderShell({ isMobile: false })
+    // Open the rename dialog from the first row's pencil. The aria-
+    // label pattern in `ChatSessionsList` is `Umbenennen: <title>`.
+    const renameButtons = await screen.findAllByRole('button', {
+      name: /^Umbenennen:/i,
+    })
+    await user.click(renameButtons[0]!)
+    const input = await screen.findByLabelText(/Titel/i)
+    await user.clear(input)
+    await user.type(input, 'Neuer Titel der viel zu lang ist')
+    await user.click(screen.getByRole('button', { name: /Speichern/i }))
+
+    // The localised German copy from errors.json must appear.
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Ungültiger Titel\./)
+    // And the raw backend English must NOT leak through.
+    expect(alert).not.toHaveTextContent(/Invalid title\./)
   })
 })
