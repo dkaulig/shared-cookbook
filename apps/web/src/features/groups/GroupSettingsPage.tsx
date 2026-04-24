@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ImageIcon, Trash2, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -33,10 +34,9 @@ import { useGroup, useUpdateGroup } from './hooks'
  */
 const ACCEPT: readonly string[] = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_BYTES = 5 * 1024 * 1024
-const UNSUPPORTED_TYPE_ERROR = 'Nur JPG, PNG oder WebP unterstützt.'
-const FILE_TOO_LARGE_ERROR = 'Das Foto überschreitet das Limit von 5 MB.'
 
 export function GroupSettingsPage() {
+  const { t } = useTranslation()
   const params = useParams<{ groupId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -93,7 +93,7 @@ export function GroupSettingsPage() {
     return (
       <div
         className="mx-auto w-full max-w-[800px] px-5 py-6 md:px-8"
-        aria-label="Einstellungen werden geladen"
+        aria-label={t('groups.settingsPage.loadingAria')}
       >
         <Skeleton className="mb-4 h-5 w-32" />
         <Skeleton className="mb-3 h-8 w-2/3" />
@@ -110,10 +110,10 @@ export function GroupSettingsPage() {
           role="alert"
           className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
         >
-          Gruppe konnte nicht geladen werden.
+          {t('groups.detail.loadError')}
         </p>
         <Link to="/groups" className="mt-4 inline-block text-sm underline">
-          Zurück zu den Gruppen
+          {t('groups.detail.backToList')}
         </Link>
       </main>
     )
@@ -135,11 +135,11 @@ export function GroupSettingsPage() {
     setPhotoError(null)
 
     if (!ACCEPT.includes(file.type)) {
-      setPhotoError(UNSUPPORTED_TYPE_ERROR)
+      setPhotoError(t('groups.settingsPage.photoUnsupportedType'))
       return
     }
     if (file.size > MAX_BYTES) {
-      setPhotoError(FILE_TOO_LARGE_ERROR)
+      setPhotoError(t('groups.settingsPage.photoTooLarge'))
       return
     }
 
@@ -166,11 +166,11 @@ export function GroupSettingsPage() {
 
     const parsedServings = Number.parseFloat(defaultServings)
     if (Number.isNaN(parsedServings) || parsedServings <= 0) {
-      setFormError('Standard-Portionen muss eine positive Zahl sein.')
+      setFormError(t('groups.settingsPage.servingsNotPositive'))
       return
     }
     if (parsedServings > 20) {
-      setFormError('Standard-Portionen darf höchstens 20 sein.')
+      setFormError(t('groups.settingsPage.servingsTooHigh'))
       return
     }
 
@@ -199,19 +199,19 @@ export function GroupSettingsPage() {
           'sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
-        aria-label="Einstellungen-Navigation"
+        aria-label={t('groups.settingsPage.subNavAria')}
       >
         <button
           type="button"
           onClick={() => navigate(`/groups/${groupId}`)}
-          aria-label="Zurück"
+          aria-label={t('groups.detail.backAria')}
           className="grid h-10 w-10 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground"
         >
           <ArrowLeft className="h-[18px] w-[18px]" aria-hidden="true" />
         </button>
         <div className="flex min-w-0 flex-1 flex-col gap-0 leading-[1.1]">
           <span className="truncate font-serif text-[18px] font-semibold tracking-[-0.005em]">
-            Einstellungen
+            {t('groups.settingsPage.title')}
           </span>
           <span className="truncate text-[11px] text-[hsl(var(--muted-foreground))]">
             {group.name}
@@ -228,10 +228,10 @@ export function GroupSettingsPage() {
             id="group-photo-heading"
             className="mb-3 font-serif text-[20px] font-semibold tracking-[-0.005em] text-foreground"
           >
-            Gruppen-Foto
+            {t('groups.settingsPage.photoHeading')}
           </h2>
           <p className="mb-4 text-[13px] text-[hsl(var(--muted-foreground))]">
-            Wird im Banner der Gruppe angezeigt.
+            {t('groups.settingsPage.photoDescription')}
           </p>
 
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -242,7 +242,7 @@ export function GroupSettingsPage() {
               {coverImageUrl ? (
                 <img
                   src={coverImageUrl}
-                  alt="Gruppen-Foto Vorschau"
+                  alt={t('groups.settingsPage.photoPreviewAria')}
                   className="h-full w-full object-cover"
                   loading="lazy"
                 />
@@ -264,10 +264,10 @@ export function GroupSettingsPage() {
                 >
                   <UploadCloud className="mr-1.5 h-4 w-4" aria-hidden="true" />
                   {photoUploading
-                    ? 'Wird hochgeladen …'
+                    ? t('groups.settingsPage.photoUploading')
                     : coverImageUrl
-                      ? 'Foto ersetzen'
-                      : 'Foto hochladen'}
+                      ? t('groups.settingsPage.photoReplace')
+                      : t('groups.settingsPage.photoUpload')}
                 </Button>
                 {coverImageUrl && !photoUploading && (
                   <Button
@@ -277,12 +277,12 @@ export function GroupSettingsPage() {
                     onClick={handleRemovePhoto}
                   >
                     <Trash2 className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                    Foto entfernen
+                    {t('groups.settingsPage.photoRemove')}
                   </Button>
                 )}
               </div>
               <p className="text-[12px] text-[hsl(var(--muted-foreground))]">
-                JPG, PNG oder WebP — max. 5 MB.
+                {t('groups.settingsPage.photoHint')}
               </p>
               {photoError && (
                 <p
@@ -313,12 +313,14 @@ export function GroupSettingsPage() {
             id="group-meta-heading"
             className="mb-4 font-serif text-[20px] font-semibold tracking-[-0.005em] text-foreground"
           >
-            Allgemein
+            {t('groups.settingsPage.generalHeading')}
           </h2>
 
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div className="space-y-1.5">
-              <Label htmlFor="settings-group-name">Name</Label>
+              <Label htmlFor="settings-group-name">
+                {t('groups.settingsPage.nameLabel')}
+              </Label>
               <Input
                 id="settings-group-name"
                 value={name}
@@ -329,7 +331,9 @@ export function GroupSettingsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="settings-group-description">Beschreibung</Label>
+              <Label htmlFor="settings-group-description">
+                {t('groups.settingsPage.descriptionLabel')}
+              </Label>
               <Input
                 id="settings-group-description"
                 value={description}
@@ -339,7 +343,9 @@ export function GroupSettingsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="settings-group-default-servings">Standard-Portionen</Label>
+              <Label htmlFor="settings-group-default-servings">
+                {t('groups.settingsPage.defaultServingsLabel')}
+              </Label>
               <Input
                 id="settings-group-default-servings"
                 type="number"
@@ -365,16 +371,20 @@ export function GroupSettingsPage() {
                 role="status"
                 className="rounded-md bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-sm text-primary ring-1 ring-[hsl(var(--primary)/0.25)]"
               >
-                Einstellungen gespeichert.
+                {t('groups.settingsPage.savedStatus')}
               </p>
             )}
 
             <div className="flex justify-end gap-2">
               <Button asChild type="button" variant="ghost">
-                <Link to={`/groups/${groupId}`}>Zurück</Link>
+                <Link to={`/groups/${groupId}`}>
+                  {t('groups.settingsPage.backCta')}
+                </Link>
               </Button>
               <Button type="submit" disabled={update.isPending || photoUploading}>
-                {update.isPending ? 'Speichere …' : 'Speichern'}
+                {update.isPending
+                  ? t('groups.settingsPage.savingCta')
+                  : t('groups.settingsPage.saveCta')}
               </Button>
             </div>
           </form>
@@ -397,7 +407,7 @@ export function GroupSettingsPage() {
             id="tags"
             className="mb-4 font-serif text-[20px] font-semibold tracking-[-0.005em] text-foreground"
           >
-            Tags
+            {t('groups.settingsPage.tagsHeading')}
           </h2>
           <GroupTagsPanel groupId={groupId} />
         </section>

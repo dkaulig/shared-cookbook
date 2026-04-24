@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Trash2, UserPlus } from 'lucide-react'
 import type { GroupDetail, GroupMember, GroupRole } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,7 @@ import {
  * shadcn modal aesthetic.
  */
 export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
+  const { t } = useTranslation()
   const isAdmin = group.myRole === 'Admin'
   const groupId = group.id
   const [showInviteDialog, setShowInviteDialog] = useState(false)
@@ -69,9 +71,12 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
     setActionError(null)
     // BUG-004 — async-confirm through the shared shadcn-style dialog.
     const ok = await confirm({
-      title: 'Mitglied entfernen?',
-      description: `${member.displayName} verliert sofort den Zugriff auf ${group.name}. Eine erneute Einladung ist jederzeit möglich.`,
-      confirmLabel: 'Entfernen',
+      title: t('groups.members.removeTitle'),
+      description: t('groups.members.removeDescriptionTemplate', {
+        name: member.displayName,
+        group: group.name,
+      }),
+      confirmLabel: t('groups.members.removeConfirm'),
     })
     if (!ok) return
     try {
@@ -84,9 +89,11 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
   async function handleRevoke(inviteId: string, displayName: string) {
     setActionError(null)
     const ok = await confirm({
-      title: 'Einladung zurückziehen?',
-      description: `Die offene Einladung für ${displayName} wird ungültig. Eine neue Einladung kann danach wieder ausgestellt werden.`,
-      confirmLabel: 'Zurückziehen',
+      title: t('groups.members.revokeTitle'),
+      description: t('groups.members.revokeDescriptionTemplate', {
+        name: displayName,
+      }),
+      confirmLabel: t('groups.members.revokeConfirm'),
     })
     if (!ok) return
     try {
@@ -106,7 +113,7 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
           id="members-and-invites-heading"
           className="font-serif text-[20px] font-semibold tracking-[-0.005em] text-foreground"
         >
-          Mitglieder & Einladungen
+          {t('groups.members.heading')}
         </h2>
         {isAdmin && (
           <Button
@@ -116,7 +123,7 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
             onClick={() => setShowInviteDialog(true)}
           >
             <UserPlus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            Mitglied einladen
+            {t('groups.members.inviteCta')}
           </Button>
         )}
       </header>
@@ -131,9 +138,12 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
       )}
 
       <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-        Mitglieder ({group.memberCount})
+        {t('groups.members.membersCountTemplate', { count: group.memberCount })}
       </h3>
-      <ul aria-label="Mitglieder" className="divide-y divide-border/50 rounded-md bg-background ring-1 ring-border/50">
+      <ul
+        aria-label={t('groups.members.membersListAria')}
+        className="divide-y divide-border/50 rounded-md bg-background ring-1 ring-border/50"
+      >
         {group.members.map((m) => {
           const isLastAdmin = adminCount === 1 && m.role === 'Admin'
           return (
@@ -159,13 +169,17 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
                     : 'bg-muted text-[hsl(var(--muted-foreground))]',
                 )}
               >
-                {m.role === 'Admin' ? 'Admin' : 'Mitglied'}
+                {m.role === 'Admin'
+                  ? t('groups.members.roleBadgeAdmin')
+                  : t('groups.members.roleBadgeMember')}
               </span>
 
               {isAdmin && !isLastAdmin && (
                 <div className="flex items-center gap-2">
                   <Select
-                    aria-label={`Rolle von ${m.displayName}`}
+                    aria-label={t('groups.members.roleSelectAriaTemplate', {
+                      name: m.displayName,
+                    })}
                     value={m.role}
                     onChange={(e) =>
                       void handleRoleChange(m, e.target.value as GroupRole)
@@ -173,14 +187,20 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
                     disabled={changeRole.isPending}
                     className="h-9 w-[130px] py-1 text-sm"
                   >
-                    <option value="Admin">Admin</option>
-                    <option value="Member">Mitglied</option>
+                    <option value="Admin">
+                      {t('groups.members.roleOptionAdmin')}
+                    </option>
+                    <option value="Member">
+                      {t('groups.members.roleOptionMember')}
+                    </option>
                   </Select>
                   <button
                     type="button"
                     onClick={() => void handleRemove(m)}
                     disabled={removeMember.isPending}
-                    aria-label={`${m.displayName} entfernen`}
+                    aria-label={t('groups.members.removeAriaTemplate', {
+                      name: m.displayName,
+                    })}
                     className="grid h-9 w-9 place-items-center rounded-md text-[hsl(var(--destructive))] transition-colors hover:bg-[hsl(var(--destructive)/0.08)] disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -189,7 +209,7 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
               )}
               {isAdmin && isLastAdmin && (
                 <span className="text-[12px] text-[hsl(var(--muted-foreground))]">
-                  Letzter Admin — Rolle kann nicht geändert werden.
+                  {t('groups.members.lastAdminHint')}
                 </span>
               )}
             </li>
@@ -200,10 +220,13 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
       {isAdmin && (
         <div className="mt-6">
           <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-            Offene Einladungen
+            {t('groups.members.invitesHeading')}
           </h3>
           {invitesQuery.isLoading && (
-            <div className="space-y-2" aria-label="Einladungen werden geladen">
+            <div
+              className="space-y-2"
+              aria-label={t('groups.members.invitesLoadingAria')}
+            >
               <Skeleton className="h-10 w-full rounded-md" />
               <Skeleton className="h-10 w-full rounded-md" />
             </div>
@@ -213,12 +236,12 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
               role="alert"
               className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
             >
-              Einladungen konnten nicht geladen werden.
+              {t('groups.members.invitesLoadError')}
             </p>
           )}
           {invitesQuery.isSuccess && invitesQuery.data.length === 0 && (
             <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-[hsl(var(--muted-foreground))]">
-              Keine offenen Einladungen.
+              {t('groups.members.invitesEmpty')}
             </p>
           )}
           {invitesQuery.isSuccess && invitesQuery.data.length > 0 && (
@@ -238,7 +261,9 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
                     {invite.invitedUserDisplayName}
                   </span>
                   <span className="text-[12px] text-[hsl(var(--muted-foreground))]">
-                    eingeladen am {new Date(invite.createdAt).toLocaleDateString('de-DE')}
+                    {t('groups.members.invitedOnTemplate', {
+                      date: new Date(invite.createdAt).toLocaleDateString('de-DE'),
+                    })}
                   </span>
                   <button
                     type="button"
@@ -246,7 +271,9 @@ export function GroupMembersAndInvitesPanel({ group }: { group: GroupDetail }) {
                       void handleRevoke(invite.id, invite.invitedUserDisplayName)
                     }
                     disabled={revokeInvite.isPending}
-                    aria-label={`Einladung für ${invite.invitedUserDisplayName} zurückziehen`}
+                    aria-label={t('groups.members.revokeAriaTemplate', {
+                      name: invite.invitedUserDisplayName,
+                    })}
                     className="grid h-9 w-9 place-items-center rounded-md text-[hsl(var(--destructive))] transition-colors hover:bg-[hsl(var(--destructive)/0.08)] disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />

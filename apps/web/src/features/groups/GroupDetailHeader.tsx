@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { BookOpen, CalendarDays, Settings, Users } from 'lucide-react'
 import type { GroupDetail } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
@@ -31,17 +32,18 @@ export function GroupDetailHeader({
   group: GroupDetail
   recipeCount: number
 }) {
+  const { t } = useTranslation()
   const initial = group.name.trim().charAt(0).toUpperCase() || '·'
   const swatch = getGroupAvatarGradient(group.id)
-  const portionsLabel = group.defaultServings === 1 ? 'Portion' : 'Portionen'
-  const recipesLabel = recipeCount === 1 ? 'Rezept' : 'Rezepte'
+  const portionsUnit = t('groups.header.portion', {
+    count: group.defaultServings,
+  })
   const isAdmin = group.myRole === 'Admin'
 
   // Avatar stack: first three members inline, remainder collapsed into a
   // "+N" chip so a 10-person group doesn't push the row off the page.
   const shown = group.members.slice(0, 3)
   const remaining = Math.max(0, group.memberCount - shown.length)
-  const membersLabel = group.memberCount === 1 ? 'Mitglied' : 'Mitglieder'
 
   return (
     <section className="px-5 pt-2 md:px-8 md:pt-4">
@@ -90,19 +92,22 @@ export function GroupDetailHeader({
           </h1>
           <div className="flex items-center gap-2">
             <Button asChild type="button" variant="outline" size="sm">
-              <Link to={`/groups/${group.id}/mealplan`} aria-label="Wochenplan öffnen">
+              <Link
+                to={`/groups/${group.id}/mealplan`}
+                aria-label={t('groups.header.mealplanAria')}
+              >
                 <CalendarDays className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                Wochenplan
+                {t('groups.header.mealplanLabel')}
               </Link>
             </Button>
             {isAdmin && (
               <Button asChild type="button" variant="outline" size="sm">
                 <Link
                   to={`/groups/${group.id}/settings`}
-                  aria-label="Einstellungen öffnen"
+                  aria-label={t('groups.header.settingsAria')}
                 >
                   <Settings className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                  Einstellungen
+                  {t('groups.header.settingsLabel')}
                 </Link>
               </Button>
             )}
@@ -119,11 +124,11 @@ export function GroupDetailHeader({
         <span className="inline-flex items-center gap-1.5">
           <BookOpen className="h-[14px] w-[14px] text-[hsl(var(--muted-foreground))]" aria-hidden="true" />
           <strong className="font-semibold text-foreground">{recipeCount}</strong>{' '}
-          {recipesLabel}
+          {t('groups.header.recipeUnit', { count: recipeCount })}
         </span>
 
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex" aria-label="Mitglieder">
+          <span className="inline-flex" aria-label={t('groups.header.membersAria')}>
             {shown.map((m, idx) => (
               <MemberChip
                 key={m.userId}
@@ -142,14 +147,14 @@ export function GroupDetailHeader({
             )}
           </span>
           <strong className="font-semibold text-foreground">{group.memberCount}</strong>{' '}
-          {membersLabel}
+          {t('groups.header.memberUnit', { count: group.memberCount })}
         </span>
 
         <span className="inline-flex items-center gap-1.5">
           <Users className="h-[14px] w-[14px] text-[hsl(var(--muted-foreground))]" aria-hidden="true" />
-          Standard{' '}
+          {t('groups.header.defaultPortionsLead')}{' '}
           <strong className="font-semibold text-foreground">
-            {group.defaultServings} {portionsLabel}
+            {group.defaultServings} {portionsUnit}
           </strong>
         </span>
       </div>

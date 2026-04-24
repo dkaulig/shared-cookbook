@@ -7,6 +7,7 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ChevronDown, ChevronUp, Plus, Users } from 'lucide-react'
 import type { RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
 import {
@@ -68,12 +69,17 @@ import { useIsMobile } from '@/lib/useIsMobile'
  * `SearchSort` union still carries the value so frontend + backend can
  * wire it in without a breaking-type churn.
  */
-const SORT_OPTIONS: Array<{ value: SearchSort; label: string }> = [
-  { value: 'updated_desc', label: 'Zuletzt aktualisiert' },
-  { value: 'cooked_desc', label: 'Zuletzt gekocht' },
-  { value: 'title_asc', label: 'Titel A-Z' },
-  { value: 'rating_desc', label: 'Beste Bewertung' },
-]
+/**
+ * Sort values are stable; their labels are looked up per-render via
+ * the `groups.detail.sort*` translation keys so the header <Select>
+ * flips locale with `i18n.changeLanguage()`.
+ */
+const SORT_VALUES = [
+  'updated_desc',
+  'cooked_desc',
+  'title_asc',
+  'rating_desc',
+] as const satisfies readonly SearchSort[]
 
 // Mirror the PAGE-0 backend defaults so share-links + empty-state
 // escape-hatches agree on what "page 1, default sort" means.
@@ -81,11 +87,19 @@ const DEFAULT_SORT: SearchSort = DEFAULT_RECIPE_LIST_SORT
 const DEFAULT_PAGE_SIZE = DEFAULT_RECIPE_LIST_PAGE_SIZE
 
 export function GroupDetailPage() {
+  const { t } = useTranslation()
   const params = useParams<{ groupId: string }>()
   const navigate = useNavigate()
   const groupId = params.groupId ?? ''
   const detail = useGroup(groupId)
   const tagsQuery = useGroupTags(groupId)
+
+  const sortLabel: Record<SearchSort, string> = {
+    updated_desc: t('groups.detail.sortUpdatedDesc'),
+    cooked_desc: t('groups.detail.sortCookedDesc'),
+    title_asc: t('groups.detail.sortTitleAsc'),
+    rating_desc: t('groups.detail.sortRatingDesc'),
+  }
 
   const [searchParams, setSearchParams] = useSearchParams()
   const filters = readFiltersFromSearchParams(searchParams)
@@ -183,7 +197,7 @@ export function GroupDetailPage() {
       if (res.recipeId) {
         navigate(`/groups/${groupId}/recipes/${res.recipeId}`)
       } else {
-        setRandomError('Kein Rezept passt zu den aktuellen Filtern.')
+        setRandomError(t('groups.detail.randomEmpty'))
       }
     } catch (err) {
       // REL-3f — localise via errors.json + drop 5xx leaks.
@@ -191,7 +205,7 @@ export function GroupDetailPage() {
     } finally {
       setRandomPending(false)
     }
-  }, [groupId, navigate, searchParams])
+  }, [groupId, navigate, searchParams, t])
 
   // Preset consumer runs at the page level so it fires even when the
   // filter panel is still collapsed (the common case after arriving
@@ -240,7 +254,7 @@ export function GroupDetailPage() {
     groupId ? (
       <Link
         to={`/groups/${groupId}/recipes/new`}
-        aria-label="Neues Rezept anlegen"
+        aria-label={t('groups.detail.newRecipeAria')}
         className={cn(
           'flex-1 inline-flex items-center justify-center gap-2 rounded-[12px] border border-[hsl(var(--primary))] bg-[hsl(var(--primary))] px-4 py-[11px] text-[15px] font-semibold text-[hsl(var(--primary-foreground))]',
           'shadow-[0_4px_12px_-4px_rgba(180,83,9,0.45)] transition-colors hover:bg-[hsl(var(--primary-hover,var(--primary)))] active:scale-[0.99]',
@@ -248,10 +262,10 @@ export function GroupDetailPage() {
         )}
       >
         <Plus className="h-[18px] w-[18px]" strokeWidth={2.4} aria-hidden="true" />
-        Neues Rezept
+        {t('groups.detail.newRecipeLabel')}
       </Link>
     ) : null,
-    [groupId],
+    [groupId, t],
     { disabled: hasOutlet },
   )
 
@@ -259,7 +273,10 @@ export function GroupDetailPage() {
 
   if (detail.isLoading) {
     return (
-      <div className="mx-auto w-full max-w-[1120px] px-5 py-6 md:px-8" aria-label="Gruppe wird geladen">
+      <div
+        className="mx-auto w-full max-w-[1120px] px-5 py-6 md:px-8"
+        aria-label={t('groups.detail.loadingAria')}
+      >
         <Skeleton className="mb-4 h-5 w-32" />
         <Skeleton className="mb-3 h-[120px] w-full rounded-[24px] md:h-[180px]" />
         <Skeleton className="mb-2 h-8 w-2/3" />
@@ -273,10 +290,10 @@ export function GroupDetailPage() {
     return (
       <main className="mx-auto max-w-3xl px-6 py-10">
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
-          Gruppe konnte nicht geladen werden.
+          {t('groups.detail.loadError')}
         </p>
         <Link to="/groups" className="mt-4 inline-block text-sm underline">
-          Zurück zu den Gruppen
+          {t('groups.detail.backToList')}
         </Link>
       </main>
     )
@@ -285,13 +302,15 @@ export function GroupDetailPage() {
   if (!detail.isSuccess) return null
 
   const group = detail.data
-  const roleLabel = group.myRole === 'Admin' ? 'Admin' : 'Mitglied'
+  const roleLabel =
+    group.myRole === 'Admin'
+      ? t('groups.detail.roleAdmin')
+      : t('groups.detail.roleMember')
   const totalRecipes = search.data?.total ?? 0
   const items = search.data?.items ?? []
   const tags = tagsQuery.data ?? []
 
   const hasFiltersOrQuery = activeFilterCount > 0 || !!filters.q
-  const recipesLabel = totalRecipes === 1 ? 'Rezept' : 'Rezepte'
 
   const listPane = (
     <div className="mx-auto w-full max-w-[1120px]">
@@ -316,11 +335,11 @@ export function GroupDetailPage() {
           'sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 px-4 py-2.5',
           'bg-[hsl(var(--background)/0.88)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--background)/0.75)]',
         )}
-        aria-label="Gruppen-Navigation"
+        aria-label={t('groups.detail.subNavAria')}
       >
         <Link
           to="/groups"
-          aria-label="Zurück"
+          aria-label={t('groups.detail.backAria')}
           className="grid h-10 w-10 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground"
         >
           <ArrowLeft className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -331,11 +350,11 @@ export function GroupDetailPage() {
           </span>
           <span className="flex items-center gap-1 text-[11px] text-[hsl(var(--muted-foreground))]">
             <span>
-              {totalRecipes} {recipesLabel}
+              {t('groups.detail.recipe', { count: totalRecipes })}
             </span>
             <span aria-hidden="true" className="text-[hsl(var(--input))]">·</span>
             <span>
-              {group.memberCount} {group.memberCount === 1 ? 'Mitglied' : 'Mitglieder'}
+              {t('groups.detail.member', { count: group.memberCount })}
             </span>
             <span aria-hidden="true" className="text-[hsl(var(--input))]">·</span>
             <span>{roleLabel}</span>
@@ -354,7 +373,7 @@ export function GroupDetailPage() {
           className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-[hsl(var(--primary)/0.06)]"
         >
           <Users className="h-4 w-4 text-[hsl(var(--muted-foreground))]" aria-hidden="true" />
-          Mitglieder & Einladungen
+          {t('groups.detail.membersToggle')}
           {membersPanelOpen ? (
             <ChevronUp className="h-4 w-4" aria-hidden="true" />
           ) : (
@@ -412,22 +431,22 @@ export function GroupDetailPage() {
           change resets `page=1` in the handler). */}
       <div className="flex flex-wrap items-baseline justify-between gap-2.5 px-5 pb-2 pt-[18px] md:px-8 md:pt-[22px]">
         <div className="font-serif text-[22px] font-semibold">
-          {totalRecipes} {recipesLabel}
+          {t('groups.detail.recipe', { count: totalRecipes })}
           <span className="ml-1.5 font-sans text-[13px] font-medium text-[hsl(var(--muted-foreground))]">
-            in {group.name}
+            {t('groups.detail.recipesInGroupTemplate', { name: group.name })}
           </span>
         </div>
         <label className="inline-flex items-center gap-2 text-[13px] text-[hsl(var(--muted-foreground))]">
-          <span className="sr-only">Sortierung</span>
+          <span className="sr-only">{t('groups.detail.sortAria')}</span>
           <Select
-            aria-label="Sortierung"
+            aria-label={t('groups.detail.sortAria')}
             value={urlSort}
             onChange={(e) => handleSortChange(e.target.value as SearchSort)}
             className="h-9 w-auto min-w-[180px] text-sm"
           >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
+            {SORT_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {sortLabel[value]}
               </option>
             ))}
           </Select>
@@ -450,7 +469,7 @@ export function GroupDetailPage() {
 
         {search.isError && (
           <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
-            Rezepte konnten nicht geladen werden.
+            {t('groups.detail.recipesLoadError')}
           </p>
         )}
 
@@ -523,7 +542,7 @@ export function GroupDetailPage() {
       role="status"
     >
       <p className="max-w-sm text-[15px] leading-[1.5]">
-        Wähle ein Rezept links, um die Details hier zu sehen.
+        {t('groups.detail.outletEmpty')}
       </p>
     </div>
   )
@@ -538,8 +557,8 @@ export function GroupDetailPage() {
 
   return (
     <SplitPane
-      leftLabel="Rezept-Liste"
-      rightLabel="Rezept-Detail"
+      leftLabel={t('groups.detail.splitLeftLabel')}
+      rightLabel={t('groups.detail.splitRightLabel')}
       left={listPane}
       right={rightPane}
       className="h-full"
@@ -561,20 +580,21 @@ function buildFirstPageHref(current: URLSearchParams): string {
 }
 
 function EmptyPastEnd({ firstPageHref }: { firstPageHref: string }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 px-6 py-10 text-center">
       <p className="font-serif text-[22px] font-semibold text-foreground">
-        Keine Rezepte auf dieser Seite
+        {t('groups.detail.emptyPastEndTitle')}
       </p>
       <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-        Die gewählte Seite liegt hinter dem Ende der Liste.
+        {t('groups.detail.emptyPastEndBody')}
       </p>
       <div className="mt-4">
         <Link
           to={firstPageHref}
           className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
         >
-          Zur ersten Seite
+          {t('groups.detail.emptyPastEndCta')}
         </Link>
       </div>
     </div>
@@ -599,16 +619,19 @@ function EmptyState({
   onClearFilters: () => void
   newRecipeHref: string
 }) {
+  const { t } = useTranslation()
   if (hasFilters) {
     return (
       <div className="rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 px-6 py-10 text-center">
-        <p className="font-serif text-[22px] font-semibold text-foreground">Kein Treffer</p>
+        <p className="font-serif text-[22px] font-semibold text-foreground">
+          {t('groups.detail.emptyFilteredTitle')}
+        </p>
         <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-          Keine Rezepte passen zu den aktuellen Filtern.
+          {t('groups.detail.emptyFilteredBody')}
         </p>
         <div className="mt-4">
           <Button type="button" variant="outline" onClick={onClearFilters}>
-            Filter zurücksetzen
+            {t('groups.detail.emptyFilteredReset')}
           </Button>
         </div>
       </div>
@@ -616,13 +639,15 @@ function EmptyState({
   }
   return (
     <div className="rounded-[18px] border border-dashed border-[hsl(var(--input))] bg-card/60 px-6 py-10 text-center">
-      <p className="font-serif text-[22px] font-semibold text-foreground">Noch keine Rezepte</p>
+      <p className="font-serif text-[22px] font-semibold text-foreground">
+        {t('groups.detail.emptyTitle')}
+      </p>
       <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-        Leg gleich eines an — dein erstes Familienrezept wartet.
+        {t('groups.detail.emptyBody')}
       </p>
       <div className="mt-4">
         <Button asChild>
-          <Link to={newRecipeHref}>Rezept anlegen</Link>
+          <Link to={newRecipeHref}>{t('groups.detail.emptyCreateCta')}</Link>
         </Button>
       </div>
     </div>
