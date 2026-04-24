@@ -82,6 +82,7 @@ from extractor.pipeline.blog import (
     extract_recipe_scrapers,
     flatten_jsonld_image_candidates,
 )
+from extractor.pipeline.jsonld_parser import extract_recipe_from_html
 from extractor.pipeline.post_process import (
     GENERIC_COMPONENT_LABEL_BLACKLIST_DEFAULT,
     post_process,
@@ -706,6 +707,7 @@ async def extract_from_url(
                     caption_thumbnail,
                     caption_candidates,
                     caption_notes,
+                    _untrusted_jsonld,  # REL-8: untrusted path, pre-LLM branch disabled
                 ) = await _run_blog_path(external_url, untrusted=True)
                 notes.extend(caption_notes)
                 if thumbnail_url is None and caption_thumbnail is not None:
@@ -738,12 +740,14 @@ async def extract_from_url(
             # the LLM nothing but the URL itself; the empty-reason
             # classifier + signal-aware copy explains the situation to
             # the user.
+            jsonld_llm_output: dict[str, Any] | None = None
             if blog_follow_enabled:
                 (
                     blog_text,
                     thumbnail_url,
                     candidate_thumbnails,
                     notes,
+                    jsonld_llm_output,
                 ) = await _run_blog_path(url, untrusted=False)
                 # COVER-0 — a blog with og:image but no JSON-LD
                 # ``image`` array loses the cover on the wire if we
@@ -758,6 +762,42 @@ async def extract_from_url(
                 had_blog_source = bool(blog_text and blog_text.strip())
             else:
                 logger.info("blog_follow_skipped reason=feature_disabled")
+
+            # REL-8 — JSON-LD pre-LLM branch. When the blog ships a
+            # valid schema.org/Recipe (title + ingredients + steps),
+            # bypass the LLM entirely: direct-mapped output is more
+            # accurate than a gpt-4.1 round-trip AND works without any
+            # AI provider configured. Falls through to the LLM path
+            # automatically when the page has no JSON-LD or fails the
+            # minimum-validity gate inside ``extract_recipe_from_html``.
+            if jsonld_llm_output is not None:
+                await active_reporter.report(
+                    ProgressEvent(phase="post_processing", phase_progress=0)
+                )
+                signals_jsonld: ExtractionSignals = {
+                    "had_caption_url": False,
+                    "had_blog_source": had_blog_source,
+                    "had_transcript": False,
+                }
+                logger.info(
+                    "extract_from_url jsonld_pre_llm host=%s",
+                    _redact_host(url),
+                )
+                # No LLM call -> no config snapshot (the snapshot
+                # describes the prompt + temperature that produced the
+                # extract; JSON-LD direct-mapping uses neither).
+                return post_process(
+                    jsonld_llm_output,
+                    original_url=url,
+                    candidate_thumbnails=candidate_thumbnails,
+                    extra_notes=notes,
+                    usage=None,
+                    signals=signals_jsonld,
+                    nutrition_enabled=nutrition_enabled,
+                    component_label_max=component_label_max,
+                    generic_label_blacklist=generic_label_blacklist,
+                    config_snapshot=None,
+                )
 
         # Structuring phase — an async LLM call that yields no in-flight
         # granularity, so a single "phase starts" event is enough. The
@@ -1128,34 +1168,53 @@ def _safe_percent(done: int, total: int) -> int:
 
 async def _run_blog_path(
     url: str, *, untrusted: bool
-) -> tuple[str | None, str | None, list[str], list[str]]:
+) -> tuple[str | None, str | None, list[str], list[str], dict[str, Any] | None]:
     """Fetch + run the three-layer extractor.
 
-    Returns ``(blog_text, thumbnail, candidate_thumbnails, notes)``.
+    Returns ``(blog_text, thumbnail, candidate_thumbnails, notes,
+    jsonld_llm_output)``.
+
     ``untrusted=True`` marks the call as coming from a caption-linked
-    (attacker-controlled) page — the og:image query + fragment are
+    (attacker-controlled) page -- the og:image query + fragment are
     stripped before the thumbnail is returned as defence-in-depth.
 
-    COVER-0 slice A — ``candidate_thumbnails`` carries the JSON-LD
+    COVER-0 slice A -- ``candidate_thumbnails`` carries the JSON-LD
     ``image[]`` flattened into a list[str] capped at 6. Always
     present; empty list when the page had no JSON-LD or the image
-    field was missing. Slice A only returns URLs — downloading +
+    field was missing. Slice A only returns URLs -- downloading +
     SSRF enforcement lives on the .NET side in slice B.
+
+    REL-8 -- ``jsonld_llm_output`` is a recipe dict in the same shape
+    the Azure provider returns, produced by
+    :func:`extract_recipe_from_html` when the page carries a valid
+    schema.org/Recipe JSON-LD block that passes the minimum-validity
+    gate (title + ingredients + steps). When present the caller can
+    feed it into :func:`post_process` directly and skip the LLM call
+    entirely -- more accurate than a round-trip through gpt-4.1,
+    costs zero tokens, and works without any AI provider configured.
+    ``None`` when the page has no JSON-LD Recipe or the output fails
+    validity (then the caller falls through to the LLM path).
+
+    REL-8 untrusted flag -- the caption-linked blog path sets
+    ``untrusted=True``. The pre-LLM branch is SKIPPED for untrusted
+    pages so an attacker-controlled caption-link can't circumvent the
+    LLM's anti-injection system prompt. The LLM still sees the flat
+    ``blog_text`` wrapped in ``<untrusted_blog>`` delimiters as before.
     """
     try:
         html, fetched_thumbnail = await _fetch_blog(url)
     except SsrfBlockedError as exc:
         logger.warning("blog fetch blocked host=%s err=%s", _redact_host(url), exc)
-        return (None, None, [], ["Website blockiert (SSRF-Schutz)"])
+        return (None, None, [], ["Website blockiert (SSRF-Schutz)"], None)
     except httpx.HTTPError as exc:
         logger.warning("blog fetch failed host=%s err=%s", _redact_host(url), exc)
-        return (None, None, [], ["Website nicht erreichbar"])
+        return (None, None, [], ["Website nicht erreichbar"], None)
 
     if untrusted and fetched_thumbnail is not None:
         fetched_thumbnail = _strip_query_fragment(fetched_thumbnail)
 
     blog_text = _blog_layers_to_text(url=url, html=html)
-    # COVER-0 slice A — pull the JSON-LD ``image`` array when present.
+    # COVER-0 slice A -- pull the JSON-LD ``image`` array when present.
     # We re-parse the page; :func:`extract_jsonld` is cheap (regex +
     # json.loads). Untrusted pages get their candidate URLs passed
     # through to the .NET side as-is; the backend allowlist gate runs
@@ -1164,7 +1223,23 @@ async def _run_blog_path(
     jsonld = extract_jsonld(html)
     if jsonld is not None:
         candidates = flatten_jsonld_image_candidates(jsonld)
-    return (blog_text, fetched_thumbnail, candidates, [])
+
+    # REL-8 -- pre-LLM branch. Only activated on TRUSTED blog URLs (the
+    # caller passed ``untrusted=False``). The caption-linked path stays
+    # on the LLM route so attacker-shaped JSON-LD from a hostile blog
+    # cannot short-circuit the system prompt's anti-injection rules.
+    jsonld_llm_output: dict[str, Any] | None = None
+    if not untrusted:
+        jsonld_llm_output = extract_recipe_from_html(html)
+        if jsonld_llm_output is not None:
+            logger.info(
+                "jsonld_direct_hit host=%s ingredients=%d steps=%d",
+                _redact_host(url),
+                sum(len(c["ingredients"]) for c in jsonld_llm_output["components"]),
+                sum(len(c["steps"]) for c in jsonld_llm_output["components"]),
+            )
+
+    return (blog_text, fetched_thumbnail, candidates, [], jsonld_llm_output)
 
 
 async def _fetch_blog(url: str) -> tuple[str, str | None]:
