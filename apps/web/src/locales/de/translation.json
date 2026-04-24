@@ -250,6 +250,32 @@
       "medium": "Mittel",
       "hard": "Aufwendig"
     },
+    "forkDialog": {
+      "title": "In andere Gruppe kopieren",
+      "targetLabel": "Zielgruppe",
+      "selectPlaceholder": "Gruppe wählen …",
+      "noOtherGroups": "Du bist in keiner anderen Gruppe Mitglied.",
+      "submitCta": "Kopieren",
+      "errorFailed": "Kopieren fehlgeschlagen."
+    },
+    "actionBar": {
+      "addToPlan": "In Wochenplan",
+      "cookedPending": "Speichere…",
+      "cookedCta": "Jetzt gekocht",
+      "cookedAria": "Jetzt gekocht",
+      "cookedSuccess": "Rezept wurde als gekocht markiert.",
+      "cookedError": "Speichern fehlgeschlagen.",
+      "cookNowCta": "Jetzt kochen",
+      "cookNowAria": "Jetzt kochen"
+    },
+    "portions": {
+      "title": "Portionen",
+      "decrement": "Portion verringern",
+      "increment": "Portion erhöhen",
+      "groupDefaultTemplate": "Für {{name}} umrechnen ({{count}} Portionen)",
+      "stepperAria": "Portionen-Stepper",
+      "personsLabel": "Personen"
+    },
     "header": {
       "backAria": "Zurück",
       "shareAria": "Teilen",

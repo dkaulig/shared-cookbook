@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -24,6 +25,7 @@ export function ForkRecipeDialog({
   onClose: () => void
 }) {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const groups = useMyGroups()
   const [selected, setSelected] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +42,12 @@ export function ForkRecipeDialog({
       navigate(`/groups/${created.groupId}/recipes/${created.id}`)
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Kopieren fehlgeschlagen.')
+      setError(
+        apiErr.message ||
+          t('recipes.forkDialog.errorFailed', {
+            defaultValue: 'Kopieren fehlgeschlagen.',
+          }),
+      )
     }
   }
 
@@ -59,12 +66,18 @@ export function ForkRecipeDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="fork-recipe-dialog-title" className="mb-4 text-xl font-semibold text-stone-900">
-          In andere Gruppe kopieren
+          {t('recipes.forkDialog.title', {
+            defaultValue: 'In andere Gruppe kopieren',
+          })}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-1.5">
-            <Label htmlFor="fork-target-group">Zielgruppe</Label>
+            <Label htmlFor="fork-target-group">
+              {t('recipes.forkDialog.targetLabel', {
+                defaultValue: 'Zielgruppe',
+              })}
+            </Label>
             <select
               id="fork-target-group"
               value={selected}
@@ -72,7 +85,9 @@ export function ForkRecipeDialog({
               className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
             >
               <option value="" disabled>
-                Gruppe wählen …
+                {t('recipes.forkDialog.selectPlaceholder', {
+                  defaultValue: 'Gruppe wählen …',
+                })}
               </option>
               {options.map((g) => (
                 <option key={g.id} value={g.id}>
@@ -84,7 +99,9 @@ export function ForkRecipeDialog({
 
           {options.length === 0 && !groups.isLoading && (
             <p className="text-sm text-stone-500">
-              Du bist in keiner anderen Gruppe Mitglied.
+              {t('recipes.forkDialog.noOtherGroups', {
+                defaultValue: 'Du bist in keiner anderen Gruppe Mitglied.',
+              })}
             </p>
           )}
 
@@ -96,10 +113,10 @@ export function ForkRecipeDialog({
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
-              Abbrechen
+              {t('common.cancel', { defaultValue: 'Abbrechen' })}
             </Button>
             <Button type="submit" disabled={!selected || fork.isPending}>
-              Kopieren
+              {t('recipes.forkDialog.submitCta', { defaultValue: 'Kopieren' })}
             </Button>
           </div>
         </form>

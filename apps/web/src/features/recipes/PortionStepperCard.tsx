@@ -1,4 +1,5 @@
 import { Minus, Plus, Users } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { MAX_SERVINGS, MIN_SERVINGS, clampPortions } from './portions'
 
@@ -43,6 +44,7 @@ export function PortionStepperCard({
   groupName,
   className,
 }: PortionStepperCardProps) {
+  const { t } = useTranslation()
   const atMin = servings <= MIN_SERVINGS
   const atMax = servings >= MAX_SERVINGS
 
@@ -59,16 +61,20 @@ export function PortionStepperCard({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="text-[13px] font-semibold uppercase tracking-[0.02em] text-[hsl(var(--muted-foreground))]">
-          Portionen
+          {t('recipes.portions.title', { defaultValue: 'Portionen' })}
         </div>
         <div
           className="inline-flex items-stretch overflow-hidden rounded-full border border-[hsl(var(--input))] bg-background"
           role="group"
-          aria-label="Portionen-Stepper"
+          aria-label={t('recipes.portions.stepperAria', {
+            defaultValue: 'Portionen-Stepper',
+          })}
         >
           <button
             type="button"
-            aria-label="Portion verringern"
+            aria-label={t('recipes.portions.decrement', {
+              defaultValue: 'Portion verringern',
+            })}
             onClick={() => emit(servings - 1)}
             disabled={atMin}
             className={cn(
@@ -81,12 +87,14 @@ export function PortionStepperCard({
           <div className="flex min-w-[70px] flex-col items-center justify-center px-2.5 py-1.5 text-[17px] font-bold leading-[1.1] text-foreground">
             {servings}
             <small className="text-[10px] font-medium uppercase tracking-[0.04em] text-[hsl(var(--muted-foreground))]">
-              Personen
+              {t('recipes.portions.personsLabel', { defaultValue: 'Personen' })}
             </small>
           </div>
           <button
             type="button"
-            aria-label="Portion erhöhen"
+            aria-label={t('recipes.portions.increment', {
+              defaultValue: 'Portion erhöhen',
+            })}
             onClick={() => emit(servings + 1)}
             disabled={atMax}
             className={cn(
@@ -107,7 +115,13 @@ export function PortionStepperCard({
         )}
       >
         <Users className="h-3.5 w-3.5" aria-hidden="true" />
-        Für {groupName} umrechnen ({Math.round(groupDefaultServings)} Portionen)
+        {t('recipes.portions.groupDefaultTemplate', {
+          name: groupName,
+          count: Math.round(groupDefaultServings),
+          defaultValue: `Für ${groupName} umrechnen (${Math.round(
+            groupDefaultServings,
+          )} Portionen)`,
+        })}
       </button>
     </div>
   )
