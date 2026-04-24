@@ -506,6 +506,182 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // ── REL-4c — per-field validation on create/update ──────────────
+    //
+    // Each of these tests asserts that a domain-guard violation surfaces
+    // as a 400 with both a specific ErrorCode AND the matching camelCase
+    // fieldName so the RecipeFormPage's inline-focus logic can route it
+    // to the right input (REL-5e follow-up). The frontend translates via
+    // `errors:<code>` so the English server message never reaches the UI.
+
+    [Fact]
+    public async Task CreateRecipe_400_BlankTitle_Emits_FieldName_Title()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4c-title@ex.com", "T");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var invalid = BuildCreateRequest("   ");
+        var response = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_title", root.GetProperty("code").GetString());
+        Assert.Equal("title", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_ServingsZero_Emits_FieldName_DefaultServings()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4c-serv@ex.com", "S");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var invalid = BuildCreateRequest("OK") with { DefaultServings = 0 };
+        var response = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_value", root.GetProperty("code").GetString());
+        Assert.Equal("defaultServings", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_NegativePrepTime_Emits_FieldName_PrepTimeMinutes()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4c-prep@ex.com", "P");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var invalid = BuildCreateRequest("OK") with { PrepTimeMinutes = -1 };
+        var response = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_value", root.GetProperty("code").GetString());
+        Assert.Equal("prepTimeMinutes", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_OutOfRangeDifficulty_Emits_FieldName_Difficulty()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4c-diff@ex.com", "D");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var invalid = BuildCreateRequest("OK") with { Difficulty = 99 };
+        var response = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_value", root.GetProperty("code").GetString());
+        Assert.Equal("difficulty", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_InvalidSourceUrlScheme_Emits_FieldName_SourceUrl()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4c-url@ex.com", "U");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        var invalid = BuildCreateRequest("OK") with { SourceUrl = "javascript:alert(1)" };
+        var response = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_source_url", root.GetProperty("code").GetString());
+        Assert.Equal("sourceUrl", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRecipe_400_TooLongDescription_Emits_FieldName_Description()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4c-desc@ex.com", "DE");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        // Description max is 2000 — 3000 chars triggers the length guard.
+        var tooLong = new string('x', 3000);
+        var invalid = BuildCreateRequest("OK") with { Description = tooLong };
+        var response = await _client.PostAsJsonAsync($"/api/groups/{groupId}/recipes", invalid);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_value", root.GetProperty("code").GetString());
+        Assert.Equal("description", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateRecipe_400_BlankTitle_Emits_FieldName_Title()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4c-up-title@ex.com", "UT");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Orig"));
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var update = BuildSingleComponentUpdate(
+            title: "   ",
+            description: null,
+            defaultServings: 2,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: null,
+            ingredients: new[]
+            {
+                new RecipeEndpoints.IngredientRequest(0, 1m, "g", "Salz", null, true),
+            },
+            steps: new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") },
+            tagIds: Array.Empty<Guid>());
+        var response = await _client.PutAsJsonAsync($"/api/recipes/{created.Id}", update);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_title", root.GetProperty("code").GetString());
+        Assert.Equal("title", root.GetProperty("fieldName").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateRecipe_400_InvalidSourceUrl_Emits_FieldName_SourceUrl()
+    {
+        var (_, token) = await SignupAndLoginAsync("rel4c-up-url@ex.com", "UU");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var createRes = await _client.PostAsJsonAsync(
+            $"/api/groups/{groupId}/recipes", BuildCreateRequest("Orig"));
+        var created = (await createRes.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        var update = BuildSingleComponentUpdate(
+            title: "OK",
+            description: null,
+            defaultServings: 2,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: "file:///etc/passwd",
+            ingredients: new[]
+            {
+                new RecipeEndpoints.IngredientRequest(0, 1m, "g", "Salz", null, true),
+            },
+            steps: new[] { new RecipeEndpoints.StepRequest(0, "Mischen.") },
+            tagIds: Array.Empty<Guid>());
+        var response = await _client.PutAsJsonAsync($"/api/recipes/{created.Id}", update);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("invalid_source_url", root.GetProperty("code").GetString());
+        Assert.Equal("sourceUrl", root.GetProperty("fieldName").GetString());
+    }
+
     // ── P2-10 — Nutrition on create ─────────────────────────────────
 
     [Fact]
