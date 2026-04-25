@@ -7,7 +7,7 @@ import type {
   RecipeSearchParams,
   RecipeSearchResult,
   RecipeSummaryDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { RecipeList } from './RecipeList'
 import { searchQueryKeys } from '@/features/search/hooks'
 

@@ -161,7 +161,7 @@ export function ProfilePage() {
 
 interface DisplayNameLineProps {
   currentName: string
-  onSaved: (next: import('@familien-kochbuch/shared').AuthUser) => void
+  onSaved: (next: import('@shared-cookbook/shared').AuthUser) => void
 }
 
 function DisplayNameLine({ currentName, onSaved }: DisplayNameLineProps) {

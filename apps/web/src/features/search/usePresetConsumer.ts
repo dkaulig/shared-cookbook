@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { TagDto } from '@familien-kochbuch/shared'
+import type { TagDto } from '@shared-cookbook/shared'
 import { readFiltersFromSearchParams, writeFiltersToSearchParams } from './urlState'
 import { applyFilterPreset, isFilterPreset } from './presets'
 

@@ -1,7 +1,7 @@
 import type {
   IngredientCategory,
   ShoppingListItemDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { CATEGORY_ORDER } from './categoryLabels'
 
 /**

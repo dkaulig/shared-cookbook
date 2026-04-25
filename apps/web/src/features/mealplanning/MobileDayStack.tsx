@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, Plus } from 'lucide-react'
-import type { MealPlanSlotDto, MealSlot } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto, MealSlot } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 import { SortableMealRow } from './SortableMealRow'
 import {

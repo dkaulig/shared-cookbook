@@ -2,7 +2,7 @@ import type {
   ApiError,
   RecipeRevisionDetail,
   RecipeRevisionSummary,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**

@@ -1,4 +1,4 @@
-import type { MealPlanSlotDto, MealSlot } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto, MealSlot } from '@shared-cookbook/shared'
 
 /**
  * Pure helpers for the Wochenplan grid. They operate on ISO `YYYY-MM-DD`

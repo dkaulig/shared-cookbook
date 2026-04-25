@@ -18,7 +18,7 @@ import {
   Plus,
   ShoppingBasket,
 } from 'lucide-react'
-import type { MealPlanSlotDto, MealSlot, PatchSlotRequest } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto, MealSlot, PatchSlotRequest } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SplitPane } from '@/components/layout/SplitPane'
@@ -145,7 +145,7 @@ export function MealPlanPage() {
   const pendingPatchRef = useRef<
     | {
         slotId: string
-        patch: import('@familien-kochbuch/shared').PatchSlotRequest
+        patch: import('@shared-cookbook/shared').PatchSlotRequest
         local: MealPlanSlotDto
       }
     | null

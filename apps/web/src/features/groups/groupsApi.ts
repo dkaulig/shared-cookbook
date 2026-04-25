@@ -11,7 +11,7 @@ import type {
   InviteToGroupRequest,
   UpdateGroupRequest,
   UserSearchResult,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**

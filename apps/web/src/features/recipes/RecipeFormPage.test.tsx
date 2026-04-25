@@ -17,7 +17,7 @@ import { BottomNav } from '@/components/layout/BottomNav'
 import type {
   CreateRecipeRequest,
   RecipeImportDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { importQueryKeys } from '@/features/imports/hooks'
 
 beforeEach(() => {

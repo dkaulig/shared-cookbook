@@ -10,7 +10,7 @@ import {
   type RecipeImportDto,
   type RecipeImportProgressEventPayload,
   type ShoppingListItemChangedPayload,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { useAuthStore } from '@/features/auth/authStore'
 import { mealPlanQueryKeys } from '@/features/mealplanning/useMealPlan'
 import { shoppingListQueryKeys } from '@/features/shoppinglist/useShoppingList'

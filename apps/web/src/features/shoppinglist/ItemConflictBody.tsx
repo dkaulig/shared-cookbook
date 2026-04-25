@@ -1,4 +1,4 @@
-import type { ShoppingListItemDto } from '@familien-kochbuch/shared'
+import type { ShoppingListItemDto } from '@shared-cookbook/shared'
 import { CATEGORY_LABELS } from './categoryLabels'
 
 /**

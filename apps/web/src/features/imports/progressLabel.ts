@@ -1,4 +1,4 @@
-import type { ImportStatus } from '@familien-kochbuch/shared'
+import type { ImportStatus } from '@shared-cookbook/shared'
 
 /**
  * Progress labels per P2-7 plan step 4.

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { RecipeImportDto } from '@familien-kochbuch/shared'
+import type { RecipeImportDto } from '@shared-cookbook/shared'
 import { PhaseDetailCard } from './PhaseDetailCard'
 
 type Payload = Pick<

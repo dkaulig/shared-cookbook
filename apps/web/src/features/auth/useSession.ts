@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AuthResponse, AuthUser } from '@familien-kochbuch/shared'
+import type { AuthResponse, AuthUser } from '@shared-cookbook/shared'
 import { useAuthStore } from './authStore'
 
 export type SessionStatus = 'loading' | 'authenticated' | 'anonymous'

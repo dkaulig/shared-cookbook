@@ -14,7 +14,7 @@ import type {
   ImportStatusResponseWire,
   ImportSummaryWire,
 } from './importsApi'
-import type { ExtractionResult } from '@familien-kochbuch/shared'
+import type { ExtractionResult } from '@shared-cookbook/shared'
 
 beforeEach(() => {
   useAuthStore.setState({

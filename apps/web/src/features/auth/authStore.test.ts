@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useAuthStore } from './authStore'
-import type { AuthUser } from '@familien-kochbuch/shared'
+import type { AuthUser } from '@shared-cookbook/shared'
 
 describe('useAuthStore', () => {
   beforeEach(() => {

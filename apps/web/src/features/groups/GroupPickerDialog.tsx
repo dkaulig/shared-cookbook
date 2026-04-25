@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { GroupSummary } from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 
 /**

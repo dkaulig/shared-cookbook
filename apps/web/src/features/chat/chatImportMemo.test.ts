@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import type { ExtractionResult } from '@familien-kochbuch/shared'
+import type { ExtractionResult } from '@shared-cookbook/shared'
 import {
   forgetChatImport,
   recallChatImport,

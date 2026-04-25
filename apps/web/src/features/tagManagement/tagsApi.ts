@@ -1,4 +1,4 @@
-import type { ApiError, TagCategory, TagDto } from '@familien-kochbuch/shared'
+import type { ApiError, TagCategory, TagDto } from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 async function request<T>(input: RequestInfo | URL, init?: RequestInit, emptyResult?: T): Promise<T> {

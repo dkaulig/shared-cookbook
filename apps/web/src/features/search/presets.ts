@@ -1,4 +1,4 @@
-import type { RecipeSearchParams, TagDto } from '@familien-kochbuch/shared'
+import type { RecipeSearchParams, TagDto } from '@shared-cookbook/shared'
 
 /**
  * URL preset mapping for the DS3 Home quick-filter chips.

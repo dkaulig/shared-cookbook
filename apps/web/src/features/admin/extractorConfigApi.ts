@@ -4,7 +4,7 @@ import type {
   ExtractorConfigItem,
   ExtractorConfigListResponse,
   PutExtractorConfigRequest,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**

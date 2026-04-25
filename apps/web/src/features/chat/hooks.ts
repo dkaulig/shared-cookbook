@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import type { ExtractionResult } from '@familien-kochbuch/shared'
+import type { ExtractionResult } from '@shared-cookbook/shared'
 import { convertChatToRecipe } from './chatApi'
 
 /**

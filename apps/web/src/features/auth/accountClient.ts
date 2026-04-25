@@ -3,7 +3,7 @@ import type {
   AuthUser,
   ChangeDisplayNameRequest,
   ChangePasswordRequest,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { apiClient } from './apiClient'
 
 /**

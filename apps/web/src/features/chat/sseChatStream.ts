@@ -4,7 +4,7 @@ import type {
   SseMessageStartedData,
   SseTokenData,
   SseUsageData,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { useAuthStore } from '@/features/auth/authStore'
 
 /**

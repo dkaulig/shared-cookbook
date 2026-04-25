@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import type { IngredientDto } from '@familien-kochbuch/shared'
-import { scaleIngredients, type ScalableIngredient } from '@familien-kochbuch/shared'
+import type { IngredientDto } from '@shared-cookbook/shared'
+import { scaleIngredients, type ScalableIngredient } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -46,7 +46,7 @@ function stateFromServings(servings: number): ScalerState {
  * user picks a target servings count via ±1 buttons, direct numeric input,
  * or the "Für {Gruppe} umrechnen" shortcut. The ingredient list below
  * re-renders with scaled quantities computed by `scaleIngredients()` in
- * `@familien-kochbuch/shared`.
+ * `@shared-cookbook/shared`.
  *
  * Input is clamped to the inclusive range [1, 99]. Fractional servings
  * coming in via the group default are passed through to the scaler

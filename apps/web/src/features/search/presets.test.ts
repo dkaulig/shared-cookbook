@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { TagDto } from '@familien-kochbuch/shared'
+import type { TagDto } from '@shared-cookbook/shared'
 import {
   applyFilterPreset,
   currentSeasonTagName,

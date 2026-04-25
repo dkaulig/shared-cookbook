@@ -1,5 +1,5 @@
 import { AlertCircle, Check } from 'lucide-react'
-import type { RecipeImportPhase } from '@familien-kochbuch/shared'
+import type { RecipeImportPhase } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { phaseLabel, phaseOrder, stepperPhases } from './phaseProgress'

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { useState } from 'react'
 import { act } from '@testing-library/react'
-import type { IngredientDto } from '@familien-kochbuch/shared'
+import type { IngredientDto } from '@shared-cookbook/shared'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MiseEnPlaceList } from './MiseEnPlaceList'

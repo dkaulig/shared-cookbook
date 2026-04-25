@@ -11,7 +11,7 @@ import {
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import type { RecipeDetailDto } from '@familien-kochbuch/shared'
+import type { RecipeDetailDto } from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { RecipeDetailPage } from './RecipeDetailPage'

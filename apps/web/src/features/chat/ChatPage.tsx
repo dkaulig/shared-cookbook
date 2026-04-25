@@ -3,7 +3,7 @@ import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
-import type { GroupSummary } from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@shared-cookbook/shared'
 import {
   AlertTriangle,
   ArrowDown,

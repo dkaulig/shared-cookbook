@@ -1,4 +1,4 @@
-import type { RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
+import type { RecipeSearchParams, SearchSort } from '@shared-cookbook/shared'
 
 /**
  * Bidirectional mapping between filter state and URL search params.

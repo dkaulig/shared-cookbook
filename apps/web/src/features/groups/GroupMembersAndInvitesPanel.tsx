@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Trash2, UserPlus } from 'lucide-react'
-import type { GroupDetail, GroupMember, GroupRole } from '@familien-kochbuch/shared'
+import type { GroupDetail, GroupMember, GroupRole } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'

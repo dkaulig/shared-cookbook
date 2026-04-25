@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import type { TagDto } from '@familien-kochbuch/shared'
+import type { TagDto } from '@shared-cookbook/shared'
 import { createGroupTag, deleteGroupTag, type CreateTagRequest } from './tagsApi'
 import { recipeQueryKeys } from '@/features/recipes/queryKeys'
 

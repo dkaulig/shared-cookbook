@@ -5,7 +5,7 @@ import type {
   MealPlanDto,
   MealPlanSlotDto,
   PatchSlotRequest,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import {
   MealPlanApiError,
   addSlot,

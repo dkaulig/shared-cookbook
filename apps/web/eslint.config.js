@@ -1,4 +1,4 @@
-import base from '@familien-kochbuch/config/eslint.config.base.js'
+import base from '@shared-cookbook/config/eslint.config.base.js'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [

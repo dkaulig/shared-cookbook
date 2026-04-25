@@ -5,7 +5,7 @@ import type {
   AddSlotRequest,
   MealPlanSlotDto,
   MealSlot,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'

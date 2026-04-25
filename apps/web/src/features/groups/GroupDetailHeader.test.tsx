@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import type { GroupDetail, GroupMember } from '@familien-kochbuch/shared'
+import type { GroupDetail, GroupMember } from '@shared-cookbook/shared'
 import { GroupDetailHeader } from './GroupDetailHeader'
 
 function withRouter(node: ReactNode): ReactNode {

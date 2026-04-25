@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type {
   GlobalSearchSort,
   RecipeGlobalSearchResult,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**

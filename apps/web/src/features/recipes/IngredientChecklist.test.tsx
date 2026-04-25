@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { IngredientDto } from '@familien-kochbuch/shared'
+import type { IngredientDto } from '@shared-cookbook/shared'
 import { IngredientChecklist } from './IngredientChecklist'
 
 const INGREDIENTS: IngredientDto[] = [

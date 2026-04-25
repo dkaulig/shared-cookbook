@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import type { HealthResponse } from '@familien-kochbuch/shared/types'
+import type { HealthResponse } from '@shared-cookbook/shared/types'
 
 /**
  * Default MSW handlers used across the test suite. Individual tests can

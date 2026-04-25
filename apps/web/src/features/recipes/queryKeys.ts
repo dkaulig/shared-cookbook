@@ -1,7 +1,7 @@
 import {
   DEFAULT_RECIPE_LIST_PAGE_SIZE,
   type RecipeListSort,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 
 /**
  * Centralised TanStack Query cache keys for the recipes feature. Keeping

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import type { AiUsageGroupBy, AiUsageSummary } from '@familien-kochbuch/shared'
+import type { AiUsageGroupBy, AiUsageSummary } from '@shared-cookbook/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { fetchAiUsage } from './aiUsageApi'
 

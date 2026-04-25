@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ApiError } from '@familien-kochbuch/shared'
+import type { ApiError } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { useImportCandidates } from '@/features/imports/hooks'
 import { useSwapRecipeCover } from './hooks'

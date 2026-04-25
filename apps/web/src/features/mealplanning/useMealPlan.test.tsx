@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
-import type { MealPlanDto, MealPlanSlotDto } from '@familien-kochbuch/shared'
+import type { MealPlanDto, MealPlanSlotDto } from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import {

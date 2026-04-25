@@ -13,7 +13,7 @@ import type {
   TagCategory,
   TagDto,
   UpdateRecipeRequest,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import {
   DndContext,
   KeyboardSensor,

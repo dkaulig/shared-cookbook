@@ -5,7 +5,7 @@ import type {
   ShoppingListDto,
   ShoppingListItemDto,
   VersionMismatchError as VersionMismatchErrorBody,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 import { ApiErrorBase, VersionMismatchError } from '@/features/_shared/apiError'
 import { stripUndefined } from '@/features/_shared/mergePatch'

@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
 import type {
   RecipeDetailDto,
   RecipeTranslationResponse,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { I18nextProvider } from 'react-i18next'
 import { createI18n } from '@/i18n'
 import { server } from '@/test/msw/server'

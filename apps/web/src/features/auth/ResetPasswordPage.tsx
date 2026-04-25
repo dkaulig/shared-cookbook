@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { ApiError } from '@familien-kochbuch/shared'
+import type { ApiError } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import {
   Card,

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import type { GroupSummary, RecipeSummaryDto } from '@familien-kochbuch/shared'
+import type { GroupSummary, RecipeSummaryDto } from '@shared-cookbook/shared'
 import {
   Camera,
   Check,

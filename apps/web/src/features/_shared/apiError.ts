@@ -1,7 +1,7 @@
 import type {
   ApiError,
   VersionMismatchError as VersionMismatchErrorBody,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 
 /**
  * Common ground for feature-scoped typed `Error` subclasses (e.g.

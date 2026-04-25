@@ -11,7 +11,7 @@ import type {
   RecipeSnapshot,
   RecipeStepDto,
   RecipeTranslationPayload,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'

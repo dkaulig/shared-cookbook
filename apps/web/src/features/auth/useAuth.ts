@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ApiError, AuthResponse } from '@familien-kochbuch/shared'
+import type { ApiError, AuthResponse } from '@shared-cookbook/shared'
 import { useAuthStore } from './authStore'
 
 /**

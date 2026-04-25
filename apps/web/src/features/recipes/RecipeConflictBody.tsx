@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { IngredientDto, RecipeStepDto } from '@familien-kochbuch/shared'
+import type { IngredientDto, RecipeStepDto } from '@shared-cookbook/shared'
 
 /**
  * OFF4 — Recipe-scoped diff body for `<ConflictDialog />`.

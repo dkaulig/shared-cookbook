@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   IngredientCategory,
   ShoppingListItemDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { byCategory, byName } from './shoppingListSort'
 
 function makeItem(

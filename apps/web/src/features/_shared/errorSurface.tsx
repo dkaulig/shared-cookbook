@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { ApiError } from '@familien-kochbuch/shared'
+import type { ApiError } from '@shared-cookbook/shared'
 import i18n from '@/i18n'
 import { cn } from '@/lib/utils'
 

@@ -5,7 +5,7 @@ import type {
   RecipeStepDto,
   RecipeTranslationPayload,
   TagDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 
 /**
  * LANG-2 — merge a translated text-payload onto a `RecipeDetailDto` so

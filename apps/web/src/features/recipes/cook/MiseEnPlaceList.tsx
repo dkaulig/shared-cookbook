@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
-import type { IngredientDto, ScaledIngredient } from '@familien-kochbuch/shared'
-import { scaleIngredients } from '@familien-kochbuch/shared'
+import type { IngredientDto, ScaledIngredient } from '@shared-cookbook/shared'
+import { scaleIngredients } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 
 /**

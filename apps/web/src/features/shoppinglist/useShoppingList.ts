@@ -4,7 +4,7 @@ import type {
   PatchShoppingListItemRequest,
   ShoppingListDto,
   ShoppingListItemDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import {
   ShoppingListApiError,
   addShoppingListItem,

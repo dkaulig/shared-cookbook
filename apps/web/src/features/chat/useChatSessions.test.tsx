@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { http, HttpResponse } from 'msw'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ChatSessionListItem } from '@familien-kochbuch/shared'
+import type { ChatSessionListItem } from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import {

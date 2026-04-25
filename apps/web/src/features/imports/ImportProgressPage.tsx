@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ImportStatus, RecipeImportPhase } from '@familien-kochbuch/shared'
+import type { ImportStatus, RecipeImportPhase } from '@shared-cookbook/shared'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'

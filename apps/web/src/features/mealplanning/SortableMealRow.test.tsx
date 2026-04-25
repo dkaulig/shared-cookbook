@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto } from '@shared-cookbook/shared'
 import { MEALPLAN_POINTER_ACTIVATION, SortableMealRow } from './SortableMealRow'
 import { SORT_ORDER_STEP } from './constants'
 

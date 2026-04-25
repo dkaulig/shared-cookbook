@@ -1,7 +1,7 @@
 import type { KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MessageSquarePlus, Pencil, Sparkles, Trash2 } from 'lucide-react'
-import type { ChatSessionListItem } from '@familien-kochbuch/shared'
+import type { ChatSessionListItem } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/features/imports/relativeTime'

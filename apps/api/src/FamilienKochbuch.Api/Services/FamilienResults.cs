@@ -7,7 +7,7 @@ namespace FamilienKochbuch.Api.Services;
 /// <summary>
 /// Uniform error-body shape returned by every 4xx/5xx JSON response from
 /// the API. Mirrored by the TypeScript <c>ApiError</c> type in
-/// <c>@familien-kochbuch/shared</c>.
+/// <c>@shared-cookbook/shared</c>.
 ///
 /// <para>REL-4 — the shape carries five well-known fields:</para>
 /// <list type="bullet">

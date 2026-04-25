@@ -158,7 +158,7 @@ public class RecipeRevisionService(AppDbContext db) : IRecipeRevisionService
     /// <summary>
     /// Serializable snapshot of a recipe's content. Property names are
     /// part of the on-disk wire contract; matches the TypeScript
-    /// <c>RecipeSnapshot</c> type in <c>@familien-kochbuch/shared</c>.
+    /// <c>RecipeSnapshot</c> type in <c>@shared-cookbook/shared</c>.
     /// </summary>
     public sealed class RecipeSnapshot
     {
