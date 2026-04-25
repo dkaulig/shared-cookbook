@@ -1,0 +1,102 @@
+name: CI
+
+# Public-friendly test/lint/build matrix. Runs on every push and on
+# every pull_request, including PRs from forks. Uses no secrets so
+# it's safe for fork PRs by default — GitHub will auto-skip secret
+# injection here, but this workflow doesn't ask for any anyway.
+#
+# This is separate from `deploy.yml` (tag-only, secret-heavy) on
+# purpose: contributors get green checks without the maintainer
+# having to grant any access.
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+# Least-privilege: read-only access to the repo, nothing else.
+permissions:
+  contents: read
+
+# Cancel in-flight runs when a new commit lands on the same ref.
+# Saves CI minutes and keeps the queue snappy on rapid pushes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web (lint + build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm --filter @familien-kochbuch/web lint
+      - name: Test
+        run: pnpm --filter @familien-kochbuch/web test
+      - name: Build
+        run: pnpm --filter @familien-kochbuch/web build
+
+  shared:
+    name: shared (test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+      - name: Test
+        run: pnpm --filter @familien-kochbuch/shared test
+
+  api:
+    name: api (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore apps/api/FamilienKochbuch.sln
+      - name: Build
+        run: dotnet build apps/api/FamilienKochbuch.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test apps/api/FamilienKochbuch.sln --configuration Release --no-build
+
+  python-extractor:
+    name: python-extractor (4-gate)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/python-extractor
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.7"
+          enable-cache: true
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+      - name: Sync dependencies (frozen)
+        run: uv sync --all-extras --frozen
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Mypy (strict)
+        run: uv run mypy --strict src tests
+      - name: Pytest
+        run: uv run pytest -v
