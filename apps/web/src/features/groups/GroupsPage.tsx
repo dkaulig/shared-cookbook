@@ -11,7 +11,7 @@ import { useMyGroups } from './useMyGroups'
  * Sammlung + any additional collaborative groups as shadcn-styled cards.
  * Primary action is "+ Gruppe erstellen" which opens the create dialog.
  *
- * DS3 moved the Abmelden affordance to `/profil` (ProfilStub) and the
+ * DS3 moved the Abmelden affordance to `/profil` (ProfilePage) and the
  * pending-invite banner to the Home page — both previously lived here
  * but were redundant once the AppLayout's TopNav + BottomNav shell
  * landed.

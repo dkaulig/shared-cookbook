@@ -34,8 +34,12 @@ const DISPLAYNAME_MAX = 50
  * surface flips locale cleanly. The `<Trans>` block for the display-
  * name inline read-out uses a single `<name>` child so the `<span>`
  * styling survives translation without eval'ing arbitrary HTML.
+ *
+ * SMALL-1d — renamed from `ProfilStub` and moved out of `features/stubs`
+ * into `features/account` (the surface graduated from "stub" to a real
+ * profile page long ago; the legacy folder layout was misleading).
  */
-export function ProfilStub() {
+export function ProfilePage() {
   const { t } = useTranslation()
   const { user, accessToken, logout } = useAuth()
   const setSession = useAuthStore((s) => s.setSession)
