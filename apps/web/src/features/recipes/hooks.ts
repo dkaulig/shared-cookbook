@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   CreateRecipeRequest,
@@ -10,11 +12,13 @@ import type {
   RecipeRevisionDetail,
   RecipeRevisionSummary,
   RecipeSummaryListDto,
+  RecipeTranslationPayload,
   RecipeTranslationResponse,
   TagDto,
   UpdateRecipeRequest,
   UploadPhotoResponse,
 } from '@familien-kochbuch/shared'
+import { applyTranslation } from './applyTranslation'
 import { DEFAULT_RECIPE_LIST_SORT } from '@familien-kochbuch/shared'
 import {
   createRecipe,
@@ -393,4 +397,61 @@ export function useCachedTranslation(recipeId: string, lang: string) {
   return client.getQueryData<RecipeTranslationResponse>(
     recipeQueryKeys.translation(recipeId, lang),
   )
+}
+
+/**
+ * LANG-2-FU-1 — view-respecting recipe accessor for surfaces other than
+ * the detail page (Cook-Now today, PDF / Print / Share when those land).
+ *
+ * Pulls the recipe via `useRecipe`, looks up the cached translation for
+ * the active UI language (no implicit re-fetch — deep-link-safe), and
+ * merges the two via `applyTranslation` when:
+ *
+ *   - the recipe's `sourceLanguage` differs from the UI lang AND
+ *   - a cached translation exists.
+ *
+ * Returns `recipe` unchanged otherwise — callers don't have to branch
+ * for the no-translation case. The `isStaleTranslation` flag mirrors
+ * the `RecipeTranslationResponse.isStale` field and is true only when a
+ * translation is actively rendered AND flagged stale by the backend
+ * (recipe was edited after the last translate).
+ *
+ * Edge-case caveat: the detail page's per-session `viewState` toggle is
+ * NOT round-tripped here. If the user translates → toggles back to
+ * "Original anzeigen" → opens Cook-Now, this hook still shows the
+ * cached translation (the cache wasn't evicted by the toggle). The
+ * audit finding the FU-1 slice addresses is the inverse direction
+ * (translated → Cook-Now showed German). A future Route-State or
+ * shared-store extension can plug the reverse-toggle hole if it shows
+ * up in user feedback.
+ */
+export function useViewLanguageRecipe(recipeId: string) {
+  const detail = useRecipe(recipeId)
+  const { i18n } = useTranslation()
+  const uiLang = i18n.language?.startsWith('de') ? 'de' : 'en'
+  const sourceLanguage = detail.data?.sourceLanguage ?? 'de'
+  const cachedTranslation = useCachedTranslation(recipeId, uiLang)
+  const translatedPayload = useMemo<RecipeTranslationPayload | null>(() => {
+    if (!cachedTranslation) return null
+    if (sourceLanguage === uiLang) return null
+    try {
+      return JSON.parse(
+        cachedTranslation.translatedPayload,
+      ) as RecipeTranslationPayload
+    } catch {
+      return null
+    }
+  }, [cachedTranslation, sourceLanguage, uiLang])
+  const recipe = useMemo<RecipeDetailDto | null>(() => {
+    if (!detail.data) return null
+    if (translatedPayload) return applyTranslation(detail.data, translatedPayload)
+    return detail.data
+  }, [detail.data, translatedPayload])
+  return {
+    recipe,
+    isLoading: detail.isLoading,
+    isError: detail.isError,
+    isStaleTranslation:
+      !!translatedPayload && !!cachedTranslation?.isStale,
+  }
 }

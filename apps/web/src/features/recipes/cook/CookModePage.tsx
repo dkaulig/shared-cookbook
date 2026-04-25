@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { Languages } from 'lucide-react'
 import type {
   RecipeComponentDto,
   RecipeStepDto,
 } from '@familien-kochbuch/shared'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { useMediaQuery } from '@/lib/useIsMobile'
-import { useMarkAsCooked, useRecipe } from '../hooks'
+import { useMarkAsCooked, useViewLanguageRecipe } from '../hooks'
 import { CookBottomBar } from './CookBottomBar'
 import { CookFinishCard } from './CookFinishCard'
 import { CookStepCard } from './CookStepCard'
@@ -80,8 +82,17 @@ export function CookModePage() {
   }
   const navigate = useNavigate()
 
-  const detail = useRecipe(recipeId)
+  // LANG-2-FU-1 — Cook-Now honors the active translation toggled on the
+  // detail page (LANG-2 design-doc Q5-B "view-respecting"). The hook
+  // reads the cached translation for the active UI lang and merges it
+  // onto the recipe via `applyTranslation` so the cook never tab-
+  // switches from EN-detail into DE-cook. Deep-link safe: when the user
+  // lands on Cook-Now via a bookmarked URL there's no cached
+  // translation → renders the original recipe verbatim, no implicit
+  // LLM re-fetch.
+  const detail = useViewLanguageRecipe(recipeId)
   const markCooked = useMarkAsCooked(recipeId)
+  const { t } = useTranslation()
 
   const [sessionPortions, setSessionPortions] = useState<number | null>(null)
   const [step, setStep] = useState<number>(-1)
@@ -117,11 +128,11 @@ export function CookModePage() {
   // memos can re-use the same reference (stable when recipe.components
   // is stable).
   const orderedComponents = useMemo<RecipeComponentDto[]>(() => {
-    if (!detail.data) return []
-    return detail.data.components
+    if (!detail.recipe) return []
+    return detail.recipe.components
       .slice()
       .sort((a, b) => a.position - b.position)
-  }, [detail.data])
+  }, [detail.recipe])
 
   // COMP-2 — mise-en-place groups by component. Each group carries the
   // component's ingredients (already position-sorted by the server) plus
@@ -253,7 +264,7 @@ export function CookModePage() {
     )
   }
 
-  if (detail.isError || !detail.data) {
+  if (detail.isError || !detail.recipe) {
     return (
       <main className="fixed inset-0 flex flex-col items-center justify-center gap-4 bg-background px-6 text-center">
         <p
@@ -273,7 +284,7 @@ export function CookModePage() {
     )
   }
 
-  const recipe = detail.data
+  const recipe = detail.recipe
   const totalSteps = sortedSteps.length
   const portions = sessionPortions ?? recipe.defaultServings
 
@@ -341,6 +352,25 @@ export function CookModePage() {
         portions={portions}
         onPortionsClick={() => setStep(-1)}
       />
+
+      {detail.isStaleTranslation && (
+        <div
+          data-testid="cook-translation-stale-hint"
+          role="status"
+          className="flex items-center gap-2 border-b border-[hsl(var(--primary)/0.25)] bg-[hsl(var(--primary)/0.08)] px-4 py-1.5 text-[12px] leading-snug text-[hsl(var(--muted-foreground))]"
+        >
+          <Languages
+            className="h-[14px] w-[14px] shrink-0 text-[hsl(var(--primary))]"
+            aria-hidden="true"
+          />
+          <span>
+            {t('recipes.translation.staleHint', {
+              defaultValue:
+                'Das Rezept wurde geändert; die Übersetzung könnte veraltet sein.',
+            })}
+          </span>
+        </div>
+      )}
 
       <main
         data-testid="cook-stage"
