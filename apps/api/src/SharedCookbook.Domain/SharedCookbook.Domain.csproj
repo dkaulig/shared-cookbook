@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SharedCookbook.Domain</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- IdentityUser&lt;TKey&gt; lives in Microsoft.Extensions.Identity.Stores; the EF store lives in
+         Microsoft.AspNetCore.Identity.EntityFrameworkCore which is referenced by Infrastructure. -->
+    <PackageReference Include="Microsoft.Extensions.Identity.Stores" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SharedCookbook.Domain.Tests" />
+    <!-- CR2 — the chat/turn endpoint appends streamed tokens onto the
+         assistant ChatMessage row via AppendContent/RecordUsage which
+         are internal to the domain project (mutations-post-create are
+         domain-internal by design). -->
+    <InternalsVisibleTo Include="SharedCookbook.Api" />
+  </ItemGroup>
+</Project>
