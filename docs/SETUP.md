@@ -272,7 +272,7 @@ Legend: **✓** = operator MUST set; ✓ = recommended; opt = optional;
 
 1. **Migrations run automatically** when the API container starts. EF
    Core applies any pending migration in
-   `apps/api/src/FamilienKochbuch.Infrastructure/Migrations/` against
+   `apps/api/src/SharedCookbook.Infrastructure/Migrations/` against
    the `__EFMigrationsHistory` table. To roll back a migration use
    `dotnet ef database update <previous-migration>`
    (operator-side, requires the `.NET 10 SDK`).
@@ -305,7 +305,7 @@ b. Or delete the old row and let `SeedDataService` recreate it on
 
 ### Insecure-default warning — `JWT_SIGNING_KEY`
 
-`apps/api/src/FamilienKochbuch.Api/appsettings.json:7` contains a
+`apps/api/src/SharedCookbook.Api/appsettings.json:7` contains a
 hard-coded placeholder
 
 ```text
@@ -372,7 +372,7 @@ The full set of test + lint commands lives in
 
 ```bash
 # Backend
-dotnet test apps/api/FamilienKochbuch.sln
+dotnet test apps/api/SharedCookbook.sln
 
 # Web (unit + integration)
 pnpm --filter web run test
@@ -390,7 +390,7 @@ uv run mypy --strict src tests
 # Lint + build
 pnpm --filter web run lint
 pnpm --filter web run build
-dotnet build apps/api/FamilienKochbuch.sln
+dotnet build apps/api/SharedCookbook.sln
 ```
 
 For Playwright E2E specs against the Docker stack see

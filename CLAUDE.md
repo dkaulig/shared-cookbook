@@ -108,7 +108,7 @@ playwright test --config=playwright.docker.config.ts <spec-file>`.
 
 ```bash
 # Backend
-dotnet test apps/api/FamilienKochbuch.sln
+dotnet test apps/api/SharedCookbook.sln
 
 # Web unit + integration
 pnpm --filter web run test
@@ -125,7 +125,7 @@ cd apps/python-extractor && uv run mypy --strict src tests
 # Full lint / build
 pnpm --filter web run lint
 pnpm --filter web run build
-dotnet build apps/api/FamilienKochbuch.sln
+dotnet build apps/api/SharedCookbook.sln
 ```
 
 ### Pre-tag checklist

@@ -129,7 +129,7 @@ pnpm install
 
 # Terminal 1 — API + Postgres + Redis + SeaweedFS via Docker.
 docker compose up -d postgres redis seaweedfs
-dotnet watch --project apps/api/src/FamilienKochbuch.Api run
+dotnet watch --project apps/api/src/SharedCookbook.Api run
 
 # Terminal 2 — Vite dev server (HMR, proxies /api to localhost:5000).
 pnpm --filter web dev
@@ -149,7 +149,7 @@ mode — talk to the Vite dev server directly.
 
 ```bash
 # .NET — Domain + Infrastructure + Api integration tests.
-dotnet test apps/api/FamilienKochbuch.sln
+dotnet test apps/api/SharedCookbook.sln
 
 # Web — Vitest + RTL + MSW.
 pnpm --filter web run test
@@ -167,7 +167,7 @@ uv run mypy --strict src tests
 # Full lint + build.
 pnpm --filter web run lint
 pnpm --filter web run build
-dotnet build apps/api/FamilienKochbuch.sln
+dotnet build apps/api/SharedCookbook.sln
 ```
 
 Playwright E2E specs live under `apps/web/e2e/`. See

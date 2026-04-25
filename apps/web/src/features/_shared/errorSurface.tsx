@@ -224,7 +224,7 @@ export type ErrorSurface = 'inline' | 'banner' | 'toast'
  * REL-4 emits `status` + optional `fieldName` in every ApiError body;
  * the classifier exposes `fieldName` so forms that want inline
  * placement can look up the matching input by name. See
- * `apps/api/src/FamilienKochbuch.Api/Services/ErrorCodes.cs`.
+ * `apps/api/src/SharedCookbook.Api/Services/ErrorCodes.cs`.
  */
 export interface ClassifiedError {
   surface: ErrorSurface

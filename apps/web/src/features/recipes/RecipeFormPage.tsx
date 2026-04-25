@@ -168,7 +168,7 @@ const COMPONENT_LABEL_MAX = 50
 // generic bottom-of-form banner so the user still gets actionable copy.
 //
 // Wire-level source of truth: RecipeEndpoints.MapRecipeValidationError
-// (apps/api/src/FamilienKochbuch.Api/Endpoints/RecipeEndpoints.cs).
+// (apps/api/src/SharedCookbook.Api/Endpoints/RecipeEndpoints.cs).
 const SUPPORTED_INLINE_FIELDS = [
   'tagIds',
   'coverStagedPhotoId',
