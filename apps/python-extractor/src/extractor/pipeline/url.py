@@ -154,7 +154,7 @@ _VIDEO_HOSTS: frozenset[str] = frozenset(
 # so a tight timeout is fine.
 _BLOG_TIMEOUT_SECONDS: float = 10.0
 _BLOG_USER_AGENT: str = (
-    "Mozilla/5.0 (compatible; FamilienKochbuch-Extractor/0.1; +https://familien-kochbuch.example)"
+    "Mozilla/5.0 (compatible; SharedCookbook-Extractor/0.1; +https://shared-cookbook.example)"
 )
 
 # Security caps (P2-2.1).
