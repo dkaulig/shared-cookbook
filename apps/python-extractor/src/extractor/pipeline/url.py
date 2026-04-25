@@ -102,7 +102,7 @@ from extractor.pipeline.video import (
     FasterWhisperTranscriber as _FasterWhisperTranscriber,  # for lazy default
 )
 from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
-from extractor.prompts.language import SupportedLanguage, append_language_directive
+from extractor.prompts.language import SupportedLanguage, apply_language_directive
 from extractor.prompts.recipe_extraction import (
     RECIPE_SCHEMA,
     SYSTEM_PROMPT_DE,
@@ -820,8 +820,14 @@ async def extract_from_url(
         # in the user's UI language. The directive lands at the end of
         # the prompt (recency bias) and is deterministic per ``lang``,
         # so the prompt-hash on the ConfigSnapshot stays stable per
-        # language.
-        system_prompt = append_language_directive(system_prompt_base, lang)
+        # language. POLISH-1 — for providers that opt in (Ollama), the
+        # directive also prepends the prompt for redundancy across the
+        # weaker 4-12B-class local-model long-prompt window.
+        system_prompt = apply_language_directive(
+            system_prompt_base,
+            lang,
+            redundant=provider.requires_redundant_language_directive,
+        )
         temperature = await get_float(config, "llm.structured.temperature", 0.0)
         max_completion_tokens = await get_int(config, "llm.structured.max_completion_tokens", 2048)
         deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1")

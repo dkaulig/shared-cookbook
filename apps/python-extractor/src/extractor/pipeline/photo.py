@@ -35,7 +35,7 @@ from extractor.pipeline.post_process import post_process
 from extractor.pipeline.types import ConfigSnapshot, ExtractionResult
 from extractor.pipeline.video import ExtractionError
 from extractor.progress import NullProgressReporter, ProgressEvent, ProgressReporter
-from extractor.prompts.language import SupportedLanguage, append_language_directive
+from extractor.prompts.language import SupportedLanguage, apply_language_directive
 from extractor.prompts.photo_recipe import (
     PHOTO_RECIPE_SCHEMA,
     SYSTEM_PROMPT_DE,
@@ -105,8 +105,13 @@ async def extract_from_photos(
     # CFG-1 — resolve hot params once up front.
     system_prompt_base = await get_str(config, "llm.vision.system_prompt", SYSTEM_PROMPT_DE)
     # LANG-1 — language directive lives at the end of the prompt; see
-    # ``pipeline.url._run_llm_structuring`` for the rationale.
-    system_prompt = append_language_directive(system_prompt_base, lang)
+    # ``pipeline.url._run_llm_structuring`` for the rationale. POLISH-1
+    # adds prepend redundancy for providers that opt in (Ollama).
+    system_prompt = apply_language_directive(
+        system_prompt_base,
+        lang,
+        redundant=provider.requires_redundant_language_directive,
+    )
     temperature = await get_float(config, "llm.vision.temperature", 0.0)
     max_completion_tokens = await get_int(config, "llm.vision.max_completion_tokens", 2048)
     deployment = await get_str(config, "llm.vision.deployment", "gpt-4.1-mini")

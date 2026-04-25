@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Literal, TypedDict
+from typing import Any, ClassVar, Literal, TypedDict
 
 
 class ChatMessage(TypedDict):
@@ -86,6 +86,14 @@ class LLMProvider(ABC):
     ``LLMProviderError`` on failure — callers should not need to catch
     raw network errors.
     """
+
+    #: POLISH-1 / LANG-1 — capability flag. When ``True``, the
+    #: pipeline frames the base system prompt with the language
+    #: directive on BOTH sides so weaker local models (Ollama 4-12B
+    #: class) see the rule at both anchors. Frontier models (Azure
+    #: GPT-4.x / GPT-5.x) follow the suffix-only contract reliably and
+    #: keep this at ``False`` to save tokens.
+    requires_redundant_language_directive: ClassVar[bool] = False
 
     @abstractmethod
     async def extract_structured(

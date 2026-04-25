@@ -23,6 +23,7 @@ import pytest
 
 from extractor.prompts.language import (
     append_language_directive,
+    apply_language_directive,
     normalize_accept_language,
 )
 
@@ -157,3 +158,58 @@ def test_append_language_directive_de_and_en_differ() -> None:
     de = append_language_directive(_BASE_PROMPT, "de")
     en = append_language_directive(_BASE_PROMPT, "en")
     assert de != en
+
+
+# ─────────────────────────────────────────────────────────────────────
+# apply_language_directive (POLISH-1) — adds optional redundancy for
+# weaker-instruction-following local models (Ollama 4-12B class).
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_apply_language_directive_default_matches_append() -> None:
+    """Without ``redundant=True`` the helper degrades to the existing
+    suffix-only behaviour. Same input → byte-identical output as
+    :func:`append_language_directive`."""
+    direct = append_language_directive(_BASE_PROMPT, "de")
+    via_apply = apply_language_directive(_BASE_PROMPT, "de")
+    assert via_apply == direct
+
+
+def test_apply_language_directive_redundant_de_appears_twice() -> None:
+    """POLISH-1 / LANG-1 redundancy: for weaker local models (Ollama)
+    the directive lands BEFORE the base prompt AND after it. The
+    target-language token (``German``) shows up at least twice as a
+    coarse but reliable indicator the directive is in two places."""
+    out = apply_language_directive(_BASE_PROMPT, "de", redundant=True)
+    assert _BASE_PROMPT in out
+    assert out.count("German") >= 2
+
+
+def test_apply_language_directive_redundant_en_appears_twice() -> None:
+    """Same redundancy contract for English."""
+    out = apply_language_directive(_BASE_PROMPT, "en", redundant=True)
+    assert _BASE_PROMPT in out
+    assert out.count("English") >= 2
+
+
+def test_apply_language_directive_redundant_brackets_base_prompt() -> None:
+    """The base prompt must appear between the leading and trailing
+    directive — not after both, not before both."""
+    out = apply_language_directive(_BASE_PROMPT, "en", redundant=True)
+    base_idx = out.index(_BASE_PROMPT)
+    # First English mention should land before the base prompt; another
+    # mention should land after the base prompt's tail position.
+    first_lang = out.find("English")
+    last_lang = out.rfind("English")
+    assert first_lang < base_idx, "leading directive should precede the base prompt"
+    assert last_lang > base_idx + len(_BASE_PROMPT), (
+        "trailing directive should follow the base prompt"
+    )
+
+
+def test_apply_language_directive_redundant_is_deterministic() -> None:
+    """Determinism guarantees the prompt-hash on ``ConfigSnapshot``
+    stays stable across requests with the same language."""
+    a = apply_language_directive(_BASE_PROMPT, "de", redundant=True)
+    b = apply_language_directive(_BASE_PROMPT, "de", redundant=True)
+    assert a == b

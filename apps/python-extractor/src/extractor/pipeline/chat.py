@@ -39,7 +39,7 @@ from extractor.prompts.chat import (
     RECIPE_SCHEMA,
     TO_RECIPE_SYSTEM_PROMPT_DE,
 )
-from extractor.prompts.language import SupportedLanguage, append_language_directive
+from extractor.prompts.language import SupportedLanguage, apply_language_directive
 
 logger = logging.getLogger("extractor.pipeline.chat")
 
@@ -116,7 +116,12 @@ async def chat_to_recipe(
     # LANG-1 — append the language directive so the chat-to-recipe
     # output (German prose dialog → structured recipe values in the
     # user's UI language) lines up with the rest of the touchpoints.
-    system_prompt = append_language_directive(system_prompt_base, lang)
+    # POLISH-1 — Ollama opts into prepend+append redundancy.
+    system_prompt = apply_language_directive(
+        system_prompt_base,
+        lang,
+        redundant=provider.requires_redundant_language_directive,
+    )
     temperature = await get_float(config, "llm.structured.temperature", 0.0)
     max_completion_tokens = await get_int(config, "llm.structured.max_completion_tokens", 2048)
     deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1-mini")

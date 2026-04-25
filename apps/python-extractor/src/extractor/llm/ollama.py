@@ -43,7 +43,7 @@ import json
 import logging
 from collections.abc import Sequence
 from types import TracebackType
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 import tenacity
@@ -102,6 +102,12 @@ def _wait_strategy(default_wait_seconds: float) -> tenacity.wait.wait_base:
 
 class OllamaProvider(LLMProvider):
     """Self-hosted ``LLMProvider`` talking to an Ollama server over HTTP."""
+
+    # POLISH-1 / LANG-1 — local 4-12B-class models follow long-prompt
+    # instructions less reliably than Azure's frontier models. Opt into
+    # the pipeline's redundant-directive path so the language rule
+    # frames the base system prompt on both sides.
+    requires_redundant_language_directive: ClassVar[bool] = True
 
     def __init__(
         self,

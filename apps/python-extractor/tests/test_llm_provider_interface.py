@@ -105,3 +105,12 @@ def test_token_usage_round_trips_dict_literal() -> None:
     assert usage["completion_tokens"] == 42
     assert usage["cached_prompt_tokens"] == 30
     assert usage["model"] == "gpt-5.1"
+
+
+def test_llm_provider_default_does_not_require_redundant_directive() -> None:
+    """POLISH-1 — the abstract base defaults to single-suffix language
+    directives. Concrete providers opt INTO redundancy by overriding the
+    class attribute (currently only Ollama does, because its 4-12B-class
+    local models follow long-prompt instructions less reliably than
+    Azure's frontier models)."""
+    assert LLMProvider.requires_redundant_language_directive is False
