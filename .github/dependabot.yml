@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+  # JS/TS workspaces (pnpm uses npm-style semantics for dependabot)
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # .NET API
+  - package-ecosystem: nuget
+    directory: "/apps/api"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Python extractor (pyproject.toml resolved via pip ecosystem)
+  - package-ecosystem: pip
+    directory: "/apps/python-extractor"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions version pins
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # Docker base images (docker-compose + Dockerfiles)
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
