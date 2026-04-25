@@ -179,6 +179,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.Property(r => r.Description).HasMaxLength(Recipe.DescriptionMaxLength);
             e.Property(r => r.SourceUrl).HasMaxLength(Recipe.SourceUrlMaxLength);
             e.Property(r => r.SourceType).HasConversion<int>();
+            // LANG-2 — two-letter ISO code (whitelist enforced in the
+            // domain). Default <c>'de'</c> matches the migration backfill
+            // for pre-LANG-2 rows.
+            e.Property(r => r.SourceLanguage)
+                .IsRequired()
+                .HasMaxLength(2)
+                .HasDefaultValue(Recipe.DefaultSourceLanguage);
             // OFF3: Version powers the weak ETag (W/"<id>-<version>") on
             // GET and the If-Match check on PUT/DELETE/PATCH/POST /cook/
             // /fork/ /nutrition. IsConcurrencyToken hardens SaveChanges

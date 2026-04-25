@@ -362,6 +362,11 @@ public static class RecipeEndpoints
         // present on the response (null when unset) so the frontend
         // never has to probe for a missing key.
         NutritionEstimateDto? NutritionEstimate,
+        // LANG-2: two-letter language code of the recipe's authored
+        // content. The frontend renders the Translate button only when
+        // this differs from the active UI language. Always present;
+        // pre-LANG-2 rows backfill to "de" via the migration default.
+        string SourceLanguage,
         // Per-photo failures from the create-recipe promote flow.
         // Always ``null`` outside the create response — read paths
         // (Get/Update/Fork/PatchNutrition/MarkCooked) leave this off
@@ -594,6 +599,7 @@ public static class RecipeEndpoints
             components,
             tags,
             nutritionDto,
+            recipe.SourceLanguage,
             partialPhotoFailures);
     }
 
@@ -602,6 +608,7 @@ public static class RecipeEndpoints
     private static async Task<IResult> CreateRecipeAsync(
         Guid groupId,
         CreateRecipeRequest body,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
         IPhotoStorage photoStorage,
@@ -623,6 +630,15 @@ public static class RecipeEndpoints
                 "One or more tags are unknown or do not belong to the group.",
                 fieldName: "tagIds");
 
+        // LANG-2 — capture the caller's UI language so manual creates AND
+        // post-AI-extraction-review inserts (URL/photo imports funnel here
+        // after the user reviews the extracted output) tag the recipe
+        // with the language its content was authored in. The Translate
+        // button on the detail page only appears when this differs from
+        // the active UI language.
+        var sourceLanguage = Services.LanguageNormalizer.Normalise(
+            httpRequest.Headers.AcceptLanguage.ToString());
+
         Recipe recipe;
         try
         {
@@ -638,7 +654,8 @@ public static class RecipeEndpoints
                 sourceUrl: body.SourceUrl,
                 sourceType: RecipeSourceType.Manual,
                 forkOfRecipeId: null,
-                createdAt: now);
+                createdAt: now,
+                sourceLanguage: sourceLanguage);
 
             // COMP-0 — materialize the nested components + children then
             // hand them to the aggregate's invariant-enforcing
@@ -2039,7 +2056,12 @@ public static class RecipeEndpoints
                 sourceUrl: source.SourceUrl,
                 sourceType: source.SourceType,
                 forkOfRecipeId: source.Id,
-                createdAt: now);
+                createdAt: now,
+                // LANG-2 — fork inherits the source's content language;
+                // the body is copied byte-for-byte so the fork-creator's
+                // UI language is irrelevant. If they want it in their
+                // language, they hit the Translate button on the fork.
+                sourceLanguage: source.SourceLanguage);
 
             // COMP-0 — clone each source component onto the fork and
             // re-wire ingredients + steps through the new ComponentIds.

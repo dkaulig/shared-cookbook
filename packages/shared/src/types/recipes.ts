@@ -170,6 +170,13 @@ export interface RecipeDetailDto {
   /** P2-10: optional per-portion nutrition estimate. `null` = no estimate. */
   nutritionEstimate: NutritionEstimate | null
   /**
+   * LANG-2: two-letter ISO code (`'de'` | `'en'`) of the recipe's
+   * authored content. The detail page renders the Translate button only
+   * when this differs from the active UI language. Pre-LANG-2 rows
+   * backfill to `'de'` via the migration default.
+   */
+  sourceLanguage: string
+  /**
    * PF1: per-photo failures from the create-recipe promote flow.
    * Always omitted/`null` for read paths (Get/Update/Fork/...) — the
    * field is only populated on the response of the create endpoint

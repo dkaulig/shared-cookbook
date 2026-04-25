@@ -23,6 +23,15 @@ public class Recipe : IVersionedEntity
     public const int MinDifficulty = 1;
     public const int MaxDifficulty = 3;
 
+    /// <summary>
+    /// LANG-2 — fallback for the <see cref="SourceLanguage"/> ctor
+    /// parameter. <c>"de"</c> matches the migration backfill and the
+    /// pre-LANG-1 corpus's de-facto language. New production call sites
+    /// MUST pass the caller's UI language explicitly; the default exists
+    /// so existing tests don't churn for a column they don't exercise.
+    /// </summary>
+    public const string DefaultSourceLanguage = "de";
+
     // EF-friendly parameterless ctor — private so domain construction goes
     // through the validating ctor below.
     private Recipe() { }
@@ -38,7 +47,8 @@ public class Recipe : IVersionedEntity
         string? sourceUrl,
         RecipeSourceType sourceType,
         Guid? forkOfRecipeId,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        string sourceLanguage = DefaultSourceLanguage)
     {
         if (groupId == Guid.Empty)
             throw new ArgumentException("GroupId must not be empty.", nameof(groupId));
@@ -51,6 +61,7 @@ public class Recipe : IVersionedEntity
         ValidatePrepTime(prepTimeMinutes);
         ValidateDifficulty(difficulty);
         var normalizedSourceUrl = ValidateSourceUrl(sourceUrl);
+        var normalizedLanguage = ValidateSourceLanguage(sourceLanguage);
 
         Id = Guid.NewGuid();
         GroupId = groupId;
@@ -63,6 +74,7 @@ public class Recipe : IVersionedEntity
         SourceUrl = normalizedSourceUrl;
         SourceType = sourceType;
         ForkOfRecipeId = forkOfRecipeId;
+        SourceLanguage = normalizedLanguage;
         Version = 0;
         CreatedAt = createdAt;
         UpdatedAt = createdAt;
@@ -79,6 +91,23 @@ public class Recipe : IVersionedEntity
     public string? SourceUrl { get; private set; }
     public RecipeSourceType SourceType { get; private set; }
     public Guid? ForkOfRecipeId { get; private set; }
+
+    /// <summary>
+    /// LANG-2 — two-letter language code (lowercase) of the recipe's
+    /// authored content (title, ingredients, steps, etc.). Whitelist
+    /// matches <see cref="Services.LanguageNormalizer"/> (<c>"de"</c> /
+    /// <c>"en"</c> today). Migration <c>AddRecipeSourceLanguage</c>
+    /// backfilled <c>"de"</c> for all pre-LANG-2 rows; new rows MUST set
+    /// it from the caller's <c>Accept-Language</c> via the import / create
+    /// endpoints.
+    ///
+    /// The frontend renders the "Auf Englisch anzeigen" /
+    /// "Auf Deutsch anzeigen" toggle only when this value differs from the
+    /// caller's UI language; the backend defends against
+    /// <c>same-language</c> translation requests with the
+    /// <c>already_in_language</c> error code.
+    /// </summary>
+    public string SourceLanguage { get; private set; } = DefaultSourceLanguage;
 
     /// <summary>Ordered photo URLs. Max 3. Managed via <see cref="AddPhoto"/>
     /// / <see cref="RemovePhoto"/>.</summary>
@@ -498,6 +527,26 @@ public class Recipe : IVersionedEntity
         if (difficulty < MinDifficulty || difficulty > MaxDifficulty)
             throw new ArgumentException(
                 $"Difficulty must be between {MinDifficulty} and {MaxDifficulty}.", nameof(difficulty));
+    }
+
+    /// <summary>
+    /// LANG-2 — validate + normalise the source-language code. Returns
+    /// the lowercase trimmed value if it matches the
+    /// <see cref="Services.LanguageNormalizer"/> whitelist; throws an
+    /// <see cref="ArgumentException"/> otherwise. The whitelist is
+    /// duplicated here (rather than referenced) so the Domain assembly
+    /// stays free of the Api dependency it doesn't otherwise carry.
+    /// </summary>
+    private static string ValidateSourceLanguage(string sourceLanguage)
+    {
+        if (string.IsNullOrWhiteSpace(sourceLanguage))
+            throw new ArgumentException(
+                "Source language must not be blank.", nameof(sourceLanguage));
+        var normalized = sourceLanguage.Trim().ToLowerInvariant();
+        if (normalized != "de" && normalized != "en")
+            throw new ArgumentException(
+                "Source language must be one of: de, en.", nameof(sourceLanguage));
+        return normalized;
     }
 
     private static string? ValidateSourceUrl(string? sourceUrl)

@@ -463,6 +463,83 @@ public class RecipeEndpointsTests : IClassFixture<FamilienKochbuchWebApplication
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // ── LANG-2: Accept-Language → Recipe.SourceLanguage ─────────────
+
+    [Theory]
+    [InlineData("de", "de")]
+    [InlineData("en", "en")]
+    [InlineData("de-DE,de;q=0.9,en;q=0.8", "de")]
+    [InlineData("en-US", "en")]
+    [InlineData("fr", "en")] // unsupported → LanguageNormalizer fallback
+    [InlineData("", "en")]    // missing → LanguageNormalizer fallback
+    public async Task CreateRecipe_Tags_SourceLanguage_From_AcceptLanguage(
+        string acceptLanguageHeader, string expectedStored)
+    {
+        var (_, token) = await SignupAndLoginAsync(
+            $"lang-{Guid.NewGuid():N}@ex.com", "L");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+
+        using var req = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/groups/{groupId}/recipes");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (!string.IsNullOrEmpty(acceptLanguageHeader))
+        {
+            req.Headers.TryAddWithoutValidation(
+                "Accept-Language", acceptLanguageHeader);
+        }
+        req.Content = JsonContent.Create(BuildCreateRequest("Lang-Test"));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stored = await db.Recipes.AsNoTracking()
+            .SingleAsync(r => r.Id == body.Id);
+        Assert.Equal(expectedStored, stored.SourceLanguage);
+    }
+
+    [Fact]
+    public async Task ForkRecipe_Inherits_SourceLanguage_From_Source()
+    {
+        var (_, tokenA) = await SignupAndLoginAsync("forka@ex.com", "ForkA");
+        AuthorizeClient(_client, tokenA);
+        var groupAId = await CreateGroupAsync(_client, "Source-Group");
+
+        // Create the source recipe with English Accept-Language so the
+        // source row carries SourceLanguage = "en".
+        using var srcReq = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/groups/{groupAId}/recipes");
+        srcReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenA);
+        srcReq.Headers.TryAddWithoutValidation("Accept-Language", "en");
+        srcReq.Content = JsonContent.Create(BuildCreateRequest("Original"));
+        var srcResp = await _client.SendAsync(srcReq);
+        srcResp.EnsureSuccessStatusCode();
+        var source = (await srcResp.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        // Fork target group + the fork itself, this time the fork-creator
+        // uses German UI language. The fork MUST carry the source's "en",
+        // not the creator's "de".
+        var groupBId = await CreateGroupAsync(_client, "Target-Group");
+
+        using var forkReq = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/recipes/{source.Id}/fork");
+        forkReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenA);
+        forkReq.Headers.TryAddWithoutValidation("Accept-Language", "de");
+        forkReq.Content = JsonContent.Create(new { TargetGroupId = groupBId });
+        var forkResp = await _client.SendAsync(forkReq);
+        forkResp.EnsureSuccessStatusCode();
+        var forked = (await forkResp.Content.ReadFromJsonAsync<RecipeEndpoints.RecipeDetailDto>())!;
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var storedFork = await db.Recipes.AsNoTracking()
+            .SingleAsync(r => r.Id == forked.Id);
+        Assert.Equal("en", storedFork.SourceLanguage);
+    }
+
     [Fact]
     public async Task CreateRecipe_403_When_Not_Member()
     {
