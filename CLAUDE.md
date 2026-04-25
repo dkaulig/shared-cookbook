@@ -213,6 +213,14 @@ When the user wants a non-trivial new feature:
 Existing design docs live in `docs/plans/` — skim them before
 proposing anything that overlaps with an in-flight initiative.
 
+**Design-doc lifecycle.** `docs/plans/` contains active or planned
+design-docs only. When a slice ships (all commits on `main` + tests
+green), move its design-doc to `docs/plans/archive/` in a doc-
+housekeeping commit. Don't retro-edit content — only relocate.
+Exception: `2026-04-22-open-source-release-plan.md` is a long-running
+master roadmap and stays in `docs/plans/` until the public-flip is
+complete.
+
 ## CSS + layout
 
 The app uses the **hoppr-style** root pattern to keep the BottomNav
@@ -266,9 +274,10 @@ any of these need a parallel edit:
   gate lands.
 - **`docs/SECURITY.md`** — disclosure channel. Update when:
   contact / scope / response SLA changes.
-- **`docs/plans/*.md`** — design docs of shipped slices. Don't
-  retro-edit shipped design docs; start a new dated one for
-  amendments.
+- **`docs/plans/*.md`** — active or planned design docs only. When a
+  slice ships, move its doc to `docs/plans/archive/` (relocate-only,
+  no content edit). Don't retro-edit shipped design docs; start a new
+  dated one for amendments.
 - **`docs/bugs-backlog.md`** — bug history. Append a `[x] fixed` row
   when a bug bundle ships.
 
