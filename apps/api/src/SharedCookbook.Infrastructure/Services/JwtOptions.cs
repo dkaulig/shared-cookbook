@@ -12,9 +12,9 @@ public class JwtOptions
     /// <summary>HMAC-SHA256 signing key. Must be at least 32 characters (256 bits).</summary>
     public string SigningKey { get; set; } = string.Empty;
 
-    public string Issuer { get; set; } = "familien-kochbuch";
+    public string Issuer { get; set; } = "shared-cookbook";
 
-    public string Audience { get; set; } = "familien-kochbuch-web";
+    public string Audience { get; set; } = "shared-cookbook-web";
 
     public int AccessTokenLifetimeMinutes { get; set; } = 15;
 
