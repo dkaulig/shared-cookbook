@@ -305,13 +305,11 @@ public class ChatEndpointsTests : IClassFixture<SharedCookbookWebApplicationFact
     public async Task RenameSession_Happy_Updates_Title()
     {
         var (userId, token) = await SignupAsync("rename-ok@ex.com", "Chat");
-        // NOTE: we deliberately do NOT call _factory.Clock.Advance here —
-        // the JWT token lifetime path reads the FakeTimeProvider; advancing
-        // the fake past the real system clock's window produces notBefore
-        // values in the future, which the JwtBearer middleware (bound to
-        // real time) rejects as NotYetValid. Advancing Clock would break
-        // *every subsequent test* in this class. Instead we seed the session
-        // one minute in the past and assert the endpoint bumps UpdatedAt.
+        // FLAKY-2 — Clock.Advance is now safe across the IClassFixture
+        // because the test factory wires a TimeProvider-backed
+        // LifetimeValidator into JwtBearer. Kept the past-stamp seed to
+        // avoid touching neighbouring assertions; future tests can
+        // Advance freely without breaking sibling JWT issuance.
         var pastCreated = _factory.Clock.GetUtcNow().AddMinutes(-1);
         var sessionId = await SeedSessionAsync(userId, updatedAt: pastCreated);
 
@@ -616,6 +614,14 @@ public class ChatEndpointsTests : IClassFixture<SharedCookbookWebApplicationFact
         var response = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
         await ReadSseAsync(response);
 
+        // FLAKY-2 — the session was seeded without a title, so the turn's
+        // happy-path schedules an auto-title background task that races
+        // the foreground assertion read on the shared in-memory SQLite
+        // connection (manifests as `SqliteException: database is locked`
+        // on a parallel-class run). Drain pending background tasks before
+        // asserting on persisted DB rows so the test is deterministic.
+        await _factory.BackgroundTasks.WhenAllAsync();
+
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -649,6 +655,12 @@ public class ChatEndpointsTests : IClassFixture<SharedCookbookWebApplicationFact
         req.Content = JsonContent.Create(new { content = "Hi" });
         var response = await _client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
         await ReadSseAsync(response);
+
+        // FLAKY-2 — same auto-title race as Turn_Persists. Drain the
+        // background task before asserting on DB rows so the foreground
+        // read doesn't race the title-write on the shared SQLite
+        // connection.
+        await _factory.BackgroundTasks.WhenAllAsync();
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
