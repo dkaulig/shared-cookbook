@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -63,11 +64,18 @@ export function ConflictDialog<T>({
   onKeepLocal,
   onKeepServer,
   onManualMerge,
-  keepLocalLabel = 'Lokal behalten',
-  keepServerLabel = 'Server übernehmen',
-  mergeLabel = 'Manuell zusammenführen',
+  keepLocalLabel,
+  keepServerLabel,
+  mergeLabel,
   isLoading = false,
 }: ConflictDialogProps<T>) {
+  const { t } = useTranslation()
+  const resolvedKeepLocalLabel =
+    keepLocalLabel ?? t('common.conflict.keepLocal', { defaultValue: 'Lokal behalten' })
+  const resolvedKeepServerLabel =
+    keepServerLabel ?? t('common.conflict.keepServer', { defaultValue: 'Server übernehmen' })
+  const resolvedMergeLabel =
+    mergeLabel ?? t('common.conflict.merge', { defaultValue: 'Manuell zusammenführen' })
   const rootRef = useRef<HTMLDivElement | null>(null)
   const firstActionRef = useRef<HTMLButtonElement | null>(null)
   // Caller-supplied merge state — the Recipe body calls
@@ -201,7 +209,7 @@ export function ConflictDialog<T>({
                 aria-hidden="true"
               />
             )}
-            {keepLocalLabel}
+            {resolvedKeepLocalLabel}
           </Button>
           <Button
             type="button"
@@ -215,7 +223,7 @@ export function ConflictDialog<T>({
             disabled={isLoading}
             data-testid="conflict-dialog-keep-server"
           >
-            {keepServerLabel}
+            {resolvedKeepServerLabel}
           </Button>
           {onManualMerge && (
             <Button
@@ -237,7 +245,7 @@ export function ConflictDialog<T>({
               disabled={isLoading}
               data-testid="conflict-dialog-merge"
             >
-              {mergeLabel}
+              {resolvedMergeLabel}
             </Button>
           )}
         </div>

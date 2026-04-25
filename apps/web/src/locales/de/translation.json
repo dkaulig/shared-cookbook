@@ -18,7 +18,15 @@
     "networkError": "Unbekannter Fehler. Bitte Verbindung prüfen und erneut versuchen.",
     "forbidden": "Fehlende Berechtigung. Bitte neu anmelden oder Admin kontaktieren.",
     "versionConflict": "Jemand anderes hat das inzwischen bearbeitet. Bitte neu laden.",
-    "actionFailed": "Aktion fehlgeschlagen."
+    "actionFailed": "Aktion fehlgeschlagen.",
+    "dismissBanner": "Banner schließen",
+    "clearSearch": "Suchbegriff löschen",
+    "preview": "Vorschau",
+    "conflict": {
+      "keepLocal": "Lokal behalten",
+      "keepServer": "Server übernehmen",
+      "merge": "Manuell zusammenführen"
+    }
   },
   "nav": {
     "home": "Start",
@@ -353,6 +361,11 @@
         "Kueche": "Küche",
         "Komponente": "Komponente",
         "Custom": "Gruppen-Tags (Custom)"
+      },
+      "topNav": {
+        "createTitle": "Neues Rezept",
+        "editTitle": "Rezept bearbeiten",
+        "subtitleUnsaved": "Ungespeicherte Änderungen"
       }
     },
     "photos": {
@@ -444,6 +457,14 @@
       "menuDelete": "Löschen",
       "photoCountTemplate": "Foto 1 / {{total}}",
       "minutesTemplate": "{{minutes}} Min"
+    },
+    "cook": {
+      "timerResetAria": "Timer zurücksetzen",
+      "exitDialog": {
+        "title": "Kochmodus wirklich beenden?",
+        "description": "Fortschritt geht verloren.",
+        "confirmCta": "Beenden"
+      }
     }
   },
   "mealplan": {

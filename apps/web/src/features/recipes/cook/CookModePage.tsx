@@ -486,9 +486,15 @@ export function CookModePage() {
       <ConfirmDialog
         open={exitDialogOpen}
         onOpenChange={setExitDialogOpen}
-        title="Kochmodus wirklich beenden?"
-        description="Fortschritt geht verloren."
-        confirmLabel="Beenden"
+        title={t('recipes.cook.exitDialog.title', {
+          defaultValue: 'Kochmodus wirklich beenden?',
+        })}
+        description={t('recipes.cook.exitDialog.description', {
+          defaultValue: 'Fortschritt geht verloren.',
+        })}
+        confirmLabel={t('recipes.cook.exitDialog.confirmCta', {
+          defaultValue: 'Beenden',
+        })}
         onConfirm={handleConfirmExit}
       />
     </div>

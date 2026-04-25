@@ -1,4 +1,5 @@
 import { MoreHorizontal, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 export interface RecipeFormTopNavProps {
@@ -35,10 +36,19 @@ export interface RecipeFormTopNavProps {
 export function RecipeFormTopNav({
   mode,
   onCancel,
-  subtitle = 'Ungespeicherte Änderungen',
+  subtitle,
   className,
 }: RecipeFormTopNavProps) {
-  const title = mode === 'create' ? 'Neues Rezept' : 'Rezept bearbeiten'
+  const { t } = useTranslation()
+  const resolvedSubtitle =
+    subtitle ??
+    t('recipes.form.topNav.subtitleUnsaved', {
+      defaultValue: 'Ungespeicherte Änderungen',
+    })
+  const title =
+    mode === 'create'
+      ? t('recipes.form.topNav.createTitle', { defaultValue: 'Neues Rezept' })
+      : t('recipes.form.topNav.editTitle', { defaultValue: 'Rezept bearbeiten' })
 
   return (
     <header
@@ -55,7 +65,7 @@ export function RecipeFormTopNav({
     >
       <button
         type="button"
-        aria-label="Abbrechen"
+        aria-label={t('common.cancel', { defaultValue: 'Abbrechen' })}
         onClick={onCancel}
         className={cn(
           'grid h-10 w-10 flex-shrink-0 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))]',
@@ -70,13 +80,13 @@ export function RecipeFormTopNav({
           {title}
         </div>
         <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
-          {subtitle}
+          {resolvedSubtitle}
         </div>
       </div>
 
       <button
         type="button"
-        aria-label="Mehr"
+        aria-label={t('common.more', { defaultValue: 'Mehr' })}
         className={cn(
           'grid h-10 w-10 flex-shrink-0 place-items-center rounded-[10px] text-[hsl(var(--muted-foreground))]',
           'transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground',

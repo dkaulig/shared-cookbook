@@ -18,7 +18,15 @@
     "networkError": "Connection problem. Please check your network and try again.",
     "forbidden": "Missing permission. Please sign in again or contact an admin.",
     "versionConflict": "Someone else already edited this. Please reload.",
-    "actionFailed": "Action failed."
+    "actionFailed": "Action failed.",
+    "dismissBanner": "Dismiss banner",
+    "clearSearch": "Clear search",
+    "preview": "Preview",
+    "conflict": {
+      "keepLocal": "Keep local",
+      "keepServer": "Keep server",
+      "merge": "Merge manually"
+    }
   },
   "nav": {
     "home": "Home",
@@ -353,6 +361,11 @@
         "Kueche": "Cuisine",
         "Komponente": "Component",
         "Custom": "Group tags (custom)"
+      },
+      "topNav": {
+        "createTitle": "New recipe",
+        "editTitle": "Edit recipe",
+        "subtitleUnsaved": "Unsaved changes"
       }
     },
     "photos": {
@@ -444,6 +457,14 @@
       "menuDelete": "Delete",
       "photoCountTemplate": "Photo 1 / {{total}}",
       "minutesTemplate": "{{minutes}} min"
+    },
+    "cook": {
+      "timerResetAria": "Reset timer",
+      "exitDialog": {
+        "title": "Exit cook mode?",
+        "description": "Progress will be lost.",
+        "confirmCta": "Exit"
+      }
     }
   },
   "mealplan": {

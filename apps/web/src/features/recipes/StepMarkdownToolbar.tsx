@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Bold, Eye, Italic, List, ListOrdered, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -36,6 +37,7 @@ export function StepMarkdownToolbar({
   previewMode,
   onTogglePreview,
 }: StepMarkdownToolbarProps) {
+  const { t } = useTranslation()
   // We can't set the textarea selection immediately after `onChange`
   // because React hasn't rendered the new value yet. Queue the selection
   // in a ref + bump a "pending" counter; an effect applies it after the
@@ -98,7 +100,9 @@ export function StepMarkdownToolbar({
     )
   }
 
-  const previewLabel = previewMode ? 'Bearbeiten' : 'Vorschau'
+  const previewLabel = previewMode
+    ? t('common.edit', { defaultValue: 'Bearbeiten' })
+    : t('common.preview', { defaultValue: 'Vorschau' })
   const PreviewIcon = previewMode ? Pencil : Eye
 
   // UX1-RT plan §5 — announce preview-mode changes via a polite

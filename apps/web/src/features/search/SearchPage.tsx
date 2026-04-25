@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import type { GlobalSearchSort } from '@shared-cookbook/shared'
 import {
@@ -56,6 +57,7 @@ function parseSort(raw: string | null): GlobalSearchSort {
 }
 
 export function SearchPage() {
+  const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const urlQ = searchParams.get('q') ?? ''
   const urlSort = parseSort(searchParams.get('sort'))
@@ -175,7 +177,9 @@ export function SearchPage() {
               <button
                 type="button"
                 onClick={handleClear}
-                aria-label="Suchbegriff löschen"
+                aria-label={t('common.clearSearch', {
+                  defaultValue: 'Suchbegriff löschen',
+                })}
                 className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-[hsl(var(--primary)/0.08)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 <X className="h-4 w-4" aria-hidden="true" />

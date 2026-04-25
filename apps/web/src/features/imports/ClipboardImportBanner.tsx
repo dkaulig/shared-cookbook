@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Clipboard, X } from 'lucide-react'
 import { extractSharedUrl } from '@/features/share/extractSharedUrl'
 
@@ -40,6 +41,7 @@ import { extractSharedUrl } from '@/features/share/extractSharedUrl'
 type ErrorState = 'none' | 'not-a-url' | 'unsupported'
 
 export function ClipboardImportBanner() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [dismissed, setDismissed] = useState(false)
   const [errorState, setErrorState] = useState<ErrorState>('none')
@@ -144,7 +146,7 @@ export function ClipboardImportBanner() {
       </div>
       <button
         type="button"
-        aria-label="Banner schließen"
+        aria-label={t('common.dismissBanner', { defaultValue: 'Banner schließen' })}
         onClick={() => setDismissed(true)}
         className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-[hsl(var(--muted))]"
       >

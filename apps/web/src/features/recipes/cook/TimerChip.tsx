@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 /**
@@ -45,6 +46,7 @@ export function TimerChip({
   state: controlledState,
   onStateChange,
 }: TimerChipProps) {
+  const { t } = useTranslation()
   // The state prop may be `undefined` for a not-yet-created entry in
   // the parent's map — we present a default idle state in that case so
   // the parent can populate on first interaction.
@@ -179,7 +181,9 @@ export function TimerChip({
         <button
           type="button"
           onClick={handleReset}
-          aria-label="Timer zurücksetzen"
+          aria-label={t('recipes.cook.timerResetAria', {
+            defaultValue: 'Timer zurücksetzen',
+          })}
           className="inline-flex h-6 w-6 items-center justify-center rounded-full text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
         >
           ✕

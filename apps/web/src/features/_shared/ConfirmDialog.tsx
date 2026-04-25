@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -45,12 +46,17 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = 'Bestätigen',
-  cancelLabel = 'Abbrechen',
+  confirmLabel,
+  cancelLabel,
   confirmVariant = 'destructive',
   onConfirm,
   isLoading = false,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation()
+  const resolvedConfirmLabel =
+    confirmLabel ?? t('common.confirm', { defaultValue: 'Bestätigen' })
+  const resolvedCancelLabel =
+    cancelLabel ?? t('common.cancel', { defaultValue: 'Abbrechen' })
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null)
 
   // ESC to close. Listener only runs while the dialog is open so we
@@ -127,7 +133,7 @@ export function ConfirmDialog({
             onClick={() => onOpenChange(false)}
             disabled={isLoading}
           >
-            {cancelLabel}
+            {resolvedCancelLabel}
           </Button>
           <Button
             ref={confirmButtonRef}
@@ -143,7 +149,7 @@ export function ConfirmDialog({
                 data-testid="confirm-dialog-spinner"
               />
             )}
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </Button>
         </div>
       </div>
