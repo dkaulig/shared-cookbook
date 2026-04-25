@@ -41,7 +41,7 @@ public class SmtpEmailSenderTests : IDisposable
                 Port: _port,
                 User: user,
                 Password: string.Empty,
-                FromAddress: "no-reply@familien-kochbuch.test",
+                FromAddress: "no-reply@shared-cookbook.test",
                 FromName: "Familien-Kochbuch",
                 UseStartTls: useStartTls),
             NullLogger<SmtpEmailSender>.Instance);
@@ -108,7 +108,7 @@ public class SmtpEmailSenderTests : IDisposable
 
         Assert.Equal(1, _server.ReceivedEmailCount);
         var msg = _server.ReceivedEmail[0];
-        Assert.Contains("<no-reply@familien-kochbuch.test>", msg.Headers["From"]);
+        Assert.Contains("<no-reply@shared-cookbook.test>", msg.Headers["From"]);
         Assert.Contains("Familien-Kochbuch", msg.Headers["From"]);
         Assert.Equal("user@example.com", msg.ToAddresses[0].Address);
         // Subject may be encoded-word-wrapped for the umlaut; normalise to
@@ -194,7 +194,7 @@ public class SmtpEmailSenderTests : IDisposable
                 Port: deadPort,
                 User: string.Empty,
                 Password: string.Empty,
-                FromAddress: "no-reply@familien-kochbuch.test",
+                FromAddress: "no-reply@shared-cookbook.test",
                 FromName: "Familien-Kochbuch",
                 UseStartTls: false),
             NullLogger<SmtpEmailSender>.Instance);
@@ -218,7 +218,7 @@ public class SmtpEmailSenderTests : IDisposable
                 Port: port,
                 User: "fake-user",
                 Password: "fake-password",
-                FromAddress: "no-reply@familien-kochbuch.test",
+                FromAddress: "no-reply@shared-cookbook.test",
                 FromName: "Familien-Kochbuch",
                 UseStartTls: false),
             NullLogger<SmtpEmailSender>.Instance);

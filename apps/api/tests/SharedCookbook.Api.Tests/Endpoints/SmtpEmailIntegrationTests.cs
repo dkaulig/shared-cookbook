@@ -38,7 +38,7 @@ public class SmtpEmailIntegrationTests : IAsyncLifetime
         _factory = new SharedCookbookWebApplicationFactory()
             .WithSmtpConfig(
                 host: "127.0.0.1",
-                fromAddress: "no-reply@familien-kochbuch.test",
+                fromAddress: "no-reply@shared-cookbook.test",
                 port: _port,
                 useStartTls: false)
             .WithoutFakeEmailSender();
@@ -94,6 +94,6 @@ public class SmtpEmailIntegrationTests : IAsyncLifetime
         Assert.Equal(1, _smtp.ReceivedEmailCount);
         var msg = _smtp.ReceivedEmail[0];
         Assert.Equal("smtp.integration@example.com", msg.ToAddresses[0].Address);
-        Assert.Contains("<no-reply@familien-kochbuch.test>", msg.Headers["From"]);
+        Assert.Contains("<no-reply@shared-cookbook.test>", msg.Headers["From"]);
     }
 }
