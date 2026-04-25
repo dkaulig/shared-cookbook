@@ -7,12 +7,14 @@ import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { VersionMismatchError } from '@/features/_shared/apiError'
 import {
+  useCachedTranslation,
   useCreateRecipe,
   useGroupTags,
   useMarkAsCooked,
   useRecipe,
   useRecipes,
   useReimportRecipe,
+  useTranslateRecipe,
 } from './hooks'
 
 beforeEach(() => {
@@ -178,5 +180,101 @@ describe('useReimportRecipe', () => {
     await expect(result.current.mutateAsync(0)).rejects.toMatchObject({
       code: 'source_url_missing',
     })
+  })
+
+  // ── LANG-2: Translate hook ───────────────────────────────────────
+
+  it('useTranslateRecipe POSTs to /translate with lang query and resolves', async () => {
+    server.use(
+      http.post('/api/recipes/r1/translate', ({ request }) => {
+        const url = new URL(request.url)
+        return HttpResponse.json({
+          recipeId: 'r1',
+          language: url.searchParams.get('lang'),
+          translatedPayload: '{"title":"Translated","components":[],"tags":[]}',
+          isStale: false,
+          cacheHit: false,
+          updatedAt: new Date().toISOString(),
+        })
+      }),
+    )
+    const { result } = renderHook(() => useTranslateRecipe('r1', 'en'), {
+      wrapper: makeWrapper(),
+    })
+    const response = await result.current.mutateAsync()
+    expect(response.language).toBe('en')
+    expect(response.translatedPayload).toContain('Translated')
+  })
+
+  it('useTranslateRecipe forwards force=true on opt-in', async () => {
+    let receivedForce: string | null = null
+    server.use(
+      http.post('/api/recipes/r1/translate', ({ request }) => {
+        receivedForce = new URL(request.url).searchParams.get('force')
+        return HttpResponse.json({
+          recipeId: 'r1',
+          language: 'en',
+          translatedPayload: '{"title":"x","components":[],"tags":[]}',
+          isStale: false,
+          cacheHit: false,
+          updatedAt: new Date().toISOString(),
+        })
+      }),
+    )
+    const { result } = renderHook(() => useTranslateRecipe('r1', 'en'), {
+      wrapper: makeWrapper(),
+    })
+    await result.current.mutateAsync({ force: true })
+    expect(receivedForce).toBe('true')
+  })
+
+  it('useTranslateRecipe surfaces already_in_language as a typed error', async () => {
+    server.use(
+      http.post('/api/recipes/r1/translate', () =>
+        HttpResponse.json(
+          {
+            code: 'already_in_language',
+            message:
+              'Target language equals the recipe\'s source language.',
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+    const { result } = renderHook(() => useTranslateRecipe('r1', 'de'), {
+      wrapper: makeWrapper(),
+    })
+    await expect(result.current.mutateAsync()).rejects.toMatchObject({
+      code: 'already_in_language',
+    })
+  })
+
+  it('useTranslateRecipe primes the local cache; useCachedTranslation reads it back', async () => {
+    server.use(
+      http.post('/api/recipes/r1/translate', () =>
+        HttpResponse.json({
+          recipeId: 'r1',
+          language: 'en',
+          translatedPayload: '{"title":"Cached","components":[],"tags":[]}',
+          isStale: false,
+          cacheHit: false,
+          updatedAt: new Date().toISOString(),
+        }),
+      ),
+    )
+
+    // Single QueryClient shared between both hook renderings so the
+    // mutation's onSuccess primes the same cache useCachedTranslation
+    // reads.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+
+    const mutation = renderHook(() => useTranslateRecipe('r1', 'en'), { wrapper })
+    await mutation.result.current.mutateAsync()
+
+    const reader = renderHook(() => useCachedTranslation('r1', 'en'), { wrapper })
+    expect(reader.result.current?.translatedPayload).toContain('Cached')
   })
 })

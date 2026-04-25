@@ -222,6 +222,19 @@
         "errorFailed": "Re-import could not be started."
       }
     },
+    "translation": {
+      "translateToDe": "Show in German",
+      "translateToEn": "Show in English",
+      "translatingPending": "Translating…",
+      "showOriginal": "Show original",
+      "translatedFromDe": "Automatically translated from German.",
+      "translatedFromEn": "Automatically translated from English.",
+      "staleHint": "The recipe was edited; this translation may be outdated.",
+      "refreshCta": "Refresh",
+      "errorAlreadyInLanguage": "The recipe is already in the selected language.",
+      "errorUnavailable": "Translation not available right now. Please try again later.",
+      "errorAiDisabled": "AI features are currently disabled."
+    },
     "form": {
       "titleLabel": "Title",
       "titlePlaceholder": "e.g. Grandma's apple cake",

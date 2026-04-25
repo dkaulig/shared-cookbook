@@ -197,6 +197,62 @@ export interface PartialPhotoFailureDto {
   reason: string
 }
 
+/**
+ * LANG-2 — server response of `POST /api/recipes/:id/translate`. The
+ * `translatedPayload` carries the JSON document the LLM returned;
+ * the frontend merges it onto the source `RecipeDetailDto` to render
+ * (numbers + photo URLs stay byte-identical because the payload only
+ * contains translatable text). `isStale` flips when a recipe edit
+ * happens between cache and re-fetch; `cacheHit` is informational.
+ */
+export interface RecipeTranslationResponse {
+  recipeId: string
+  language: string
+  translatedPayload: string
+  isStale: boolean
+  cacheHit: boolean
+  updatedAt: string
+}
+
+/**
+ * LANG-2 — shape of the JSON document inside
+ * `RecipeTranslationResponse.translatedPayload`. Mirrors the
+ * server-side `RecipeTranslationPrompt.SerializeSource` contract:
+ * translatable subset of the recipe shape, anchored by stable IDs and
+ * positions so the merge with the source recipe stays unambiguous.
+ */
+export interface RecipeTranslationPayload {
+  title: string
+  description?: string | null
+  components: TranslatedComponentDto[]
+  tags: TranslatedTagDto[]
+}
+
+export interface TranslatedComponentDto {
+  id: string
+  position: number
+  label?: string | null
+  ingredients: TranslatedIngredientDto[]
+  steps: TranslatedStepDto[]
+}
+
+export interface TranslatedIngredientDto {
+  position: number
+  name: string
+  unit?: string | null
+  note?: string | null
+}
+
+export interface TranslatedStepDto {
+  position: number
+  content: string
+}
+
+export interface TranslatedTagDto {
+  id: string
+  name: string
+}
+
 export interface CreateRecipeRequest {
   title: string
   description?: string

@@ -9,6 +9,7 @@ import type {
   RecipeListSort,
   RecipeOriginImportResponse,
   RecipeSummaryListDto,
+  RecipeTranslationResponse,
   TagDto,
   UpdateRecipeRequest,
   VersionMismatchError as VersionMismatchErrorBody,
@@ -275,6 +276,30 @@ export async function reimportRecipe(
       method: 'POST',
       ifMatch: options?.ifMatch,
     },
+  )
+}
+
+/**
+ * LANG-2 — POST /api/recipes/:id/translate?lang=de|en[&force=true]
+ *
+ * Triggers an on-demand re-translation. The server caches the result by
+ * `(recipeId, language)` and returns the cached payload on repeat hits;
+ * `force=true` re-runs the LLM even on a stale cache. Errors surface
+ * via the standard ApiError pipeline:
+ * - 400 `already_in_language` — target equals source language.
+ * - 503 `ai_service_unavailable` — Azure timeout / parse failure.
+ * - 503 `ai_disabled` — REL-7 OSS profile.
+ */
+export async function translateRecipe(
+  id: string,
+  lang: string,
+  options?: { force?: boolean },
+): Promise<RecipeTranslationResponse> {
+  const params = new URLSearchParams({ lang })
+  if (options?.force) params.set('force', 'true')
+  return request<RecipeTranslationResponse>(
+    `/api/recipes/${encodeURIComponent(id)}/translate?${params.toString()}`,
+    { method: 'POST' },
   )
 }
 
