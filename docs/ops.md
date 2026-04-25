@@ -2,7 +2,8 @@
 
 Short documentation for running `shared-cookbook` on the Hetzner VPS
 (CPX41, 16 GB RAM, 8 vCPU). Host: `EXAMPLE_HOST`, deploy user:
-`deploy`, compose root: `/srv/familien-kochbuch`.
+`deploy`, compose root: `/srv/shared-cookbook` (renamed from
+`/srv/familien-kochbuch` on 2026-04-25 — see §10 if migrating).
 
 Hobby-project runbook — not enterprise ops.
 
@@ -11,23 +12,23 @@ Hobby-project runbook — not enterprise ops.
 ## 1. Restore `.env` from a backup
 
 The deploy workflow writes a copy of `.env` to
-`/srv/familien-kochbuch/.env-backups/` before every overwrite (the last
+`/srv/shared-cookbook/.env-backups/` before every overwrite (the last
 20 deploys are kept). If a GitHub secret (`PROD_ENV`) was clobbered:
 
 ```bash
 # 1. List backups (newest first)
 ssh deploy@EXAMPLE_HOST \
-  'ls -1t /srv/familien-kochbuch/.env-backups/'
+  'ls -1t /srv/shared-cookbook/.env-backups/'
 
 # 2. Copy the desired backup back into place
 ssh deploy@EXAMPLE_HOST \
-  'cp /srv/familien-kochbuch/.env-backups/env-20260419-093012-pre-v0.3.0.bak \
-      /srv/familien-kochbuch/.env && \
-   chmod 600 /srv/familien-kochbuch/.env'
+  'cp /srv/shared-cookbook/.env-backups/env-20260419-093012-pre-v0.3.0.bak \
+      /srv/shared-cookbook/.env && \
+   chmod 600 /srv/shared-cookbook/.env'
 
 # 3. Restart the stack so API + extractor reload the variables
 ssh deploy@EXAMPLE_HOST \
-  'cd /srv/familien-kochbuch && \
+  'cd /srv/shared-cookbook && \
    docker compose -f docker-compose.prod.yml up -d --force-recreate api python-extractor'
 ```
 
@@ -46,7 +47,7 @@ and the GitHub Secrets copy is stale:
 # (/tmp is world-readable; the home directory is not).
 mkdir -p ~/.config/familien-kochbuch
 umask 077
-scp deploy@EXAMPLE_HOST:/srv/familien-kochbuch/.env \
+scp deploy@EXAMPLE_HOST:/srv/shared-cookbook/.env \
     ~/.config/familien-kochbuch/.env.prod.tmp
 
 # Inspect the contents, then push it into the GH secret via stdin —
@@ -108,22 +109,22 @@ What to watch for:
 ```bash
 # Container status at a glance
 ssh deploy@EXAMPLE_HOST \
-  'cd /srv/familien-kochbuch && docker compose -f docker-compose.prod.yml ps'
+  'cd /srv/shared-cookbook && docker compose -f docker-compose.prod.yml ps'
 
 # Logs — Python extractor (last 200 lines, follow with -f)
 ssh deploy@EXAMPLE_HOST \
-  'docker compose -f /srv/familien-kochbuch/docker-compose.prod.yml logs python-extractor --tail=200'
+  'docker compose -f /srv/shared-cookbook/docker-compose.prod.yml logs python-extractor --tail=200'
 
 # API logs
 ssh deploy@EXAMPLE_HOST \
-  'docker compose -f /srv/familien-kochbuch/docker-compose.prod.yml logs api --tail=200'
+  'docker compose -f /srv/shared-cookbook/docker-compose.prod.yml logs api --tail=200'
 
 # Health check (external, through Caddy)
 curl -fsS https://EXAMPLE_HOST/api/health
 
 # Restart the stack after a config change
 ssh deploy@EXAMPLE_HOST \
-  'cd /srv/familien-kochbuch && docker compose -f docker-compose.prod.yml up -d'
+  'cd /srv/shared-cookbook && docker compose -f docker-compose.prod.yml up -d'
 ```
 
 ---
@@ -171,7 +172,7 @@ How to read failures:
 
 ## 6.1 Rotate the bot password
 
-1. On the VPS: edit `/srv/familien-kochbuch/.env`
+1. On the VPS: edit `/srv/shared-cookbook/.env`
    ```
    ORCHESTRATOR_PASSWORD=newValue
    # temporarily append:
@@ -262,7 +263,7 @@ that does not trigger (manual edits on the VPS, hash file deleted,
 
 ```bash
 ssh deploy@EXAMPLE_HOST
-cd /srv/familien-kochbuch
+cd /srv/shared-cookbook
 docker compose -f docker-compose.prod.yml down
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -435,3 +436,147 @@ same time.
 - **Inspect queued mutations**: DevTools → Application → IndexedDB →
   `workbox-background-sync` → `fk-mutation-queue`. Each request is
   stored as a serialised `Request` object with headers + body.
+
+---
+
+## 10. VPS migration: familien-kochbuch → shared-cookbook
+
+One-shot procedure to rename the VPS deploy directory from
+`/srv/familien-kochbuch` to `/srv/shared-cookbook` after the 2026-04-25
+brand consolidation (RENAME-1/2/3 + ENGLISH-1 + DEPLOY-MIGRATE-1).
+Container names change from `familien-kochbuch-*` to `shared-cookbook-*`,
+but Docker **volumes** stay on the old `familien-kochbuch_*` prefix so
+the existing data is preserved.
+
+Plan a ~1-minute downtime window. Steps 4–6 are the user-visible blip.
+
+1. **Pre-flight verification.** Confirm `secrets.PROD_ENV` already
+   includes `COMPOSE_PROJECT_NAME=familien-kochbuch` (done by the
+   maintainer 2026-04-25). Without it the dir-rename creates fresh
+   empty volumes and the existing data is orphaned — irreversible
+   without a manual `docker volume rename`.
+
+2. **Backup database.**
+   ```bash
+   ssh deploy@EXAMPLE_HOST \
+     "cd /srv/familien-kochbuch && mkdir -p backups && \
+      docker exec familien-kochbuch-postgres pg_dump -U app familien_kochbuch \
+      | gzip > backups/pre-rename-$(date -u +%Y%m%d-%H%M%S).sql.gz"
+   ```
+   Uses the existing `backups/` directory if present, else creates it.
+
+3. **Backup SeaweedFS.**
+   ```bash
+   ssh deploy@EXAMPLE_HOST \
+     "cd /srv/familien-kochbuch && \
+      tar czf backups/seaweedfs-$(date -u +%Y%m%d-%H%M%S).tar.gz \
+        -C data/seaweedfs ."
+   ```
+   Adjust the source path if SeaweedFS data lives outside `data/seaweedfs`
+   on your host.
+
+4. **Stop the stack.** ~20–30 s downtime starts here.
+   ```bash
+   ssh deploy@EXAMPLE_HOST \
+     "cd /srv/familien-kochbuch && \
+      docker compose -f docker-compose.prod.yml down"
+   ```
+
+5. **Rename the VPS directory.** Needs root for the `/srv/`-level mv.
+   ```bash
+   ssh deploy@EXAMPLE_HOST \
+     "sudo mv /srv/familien-kochbuch /srv/shared-cookbook && \
+      sudo chown -R deploy:deploy /srv/shared-cookbook"
+   ```
+
+6. **Trigger deploy.** Either tag-push or manual dispatch:
+   ```bash
+   # Option A — cut a release tag
+   git tag vX.Y.Z && git push origin vX.Y.Z
+   # Option B — ad-hoc dispatch off main
+   gh workflow run Deploy --repo dKaulig/shared-cookbook --ref main
+   ```
+   CI deploys to `/srv/shared-cookbook` with the new `shared-cookbook-*`
+   container names but keeps the old `familien-kochbuch_*` volumes
+   attached (because PROD_ENV pins `COMPOSE_PROJECT_NAME=familien-kochbuch`).
+
+7. **Verify data integrity.** Sample query:
+   ```bash
+   ssh deploy@EXAMPLE_HOST \
+     "docker exec shared-cookbook-postgres psql -U app -d familien_kochbuch \
+        -c 'SELECT count(*) FROM \"Recipes\"'"
+   ```
+   The count should match what the pre-migration backup contained.
+   Spot-check a recipe photo URL renders end-to-end through Caddy.
+
+8. **Apply legacy-DB SQL migrations.** Two `UPDATE`s for previously
+   seeded admin/bot accounts whose email domains pre-date the rename
+   (REL-0 bot-email + RENAME-3 admin-email):
+   ```sql
+   UPDATE "AspNetUsers"
+      SET "Email"='orchestrator@example.com',
+          "NormalizedEmail"='ORCHESTRATOR@EXAMPLE.COM',
+          "UserName"='orchestrator@example.com',
+          "NormalizedUserName"='ORCHESTRATOR@EXAMPLE.COM'
+    WHERE "Email"='orchestrator@EXAMPLE_HOST';
+
+   UPDATE "AspNetUsers"
+      SET "Email"='admin@shared-cookbook.local',
+          "NormalizedEmail"='ADMIN@SHARED-COOKBOOK.LOCAL',
+          "UserName"='admin@shared-cookbook.local',
+          "NormalizedUserName"='ADMIN@SHARED-COOKBOOK.LOCAL'
+    WHERE "Email"='admin@familien-kochbuch.local';
+   ```
+   Apply via `scp` + `docker exec`:
+   ```bash
+   scp migrate.sql deploy@EXAMPLE_HOST:/tmp/migrate.sql
+   ssh deploy@EXAMPLE_HOST \
+     "docker exec -i shared-cookbook-postgres \
+        psql -U app -d familien_kochbuch -f /tmp/migrate.sql && \
+      rm /tmp/migrate.sql"
+   ```
+
+9. **Old container cleanup.** Some may already be gone after `docker
+   compose down`; the `|| true` keeps the loop idempotent.
+   ```bash
+   ssh deploy@EXAMPLE_HOST \
+     "docker rm -f \
+        familien-kochbuch-postgres \
+        familien-kochbuch-redis \
+        familien-kochbuch-seaweedfs \
+        familien-kochbuch-api \
+        familien-kochbuch-web \
+        familien-kochbuch-python-extractor \
+        familien-kochbuch-caddy \
+        familien-kochbuch-ollama \
+        2>/dev/null || true"
+   ```
+
+10. **Re-login on web.** RENAME-2 rotated the JWT audience from
+    `familien-kochbuch-web` to `shared-cookbook-web`. All currently-
+    issued tokens are invalid; the user (and the orchestrator bot,
+    via `scripts/smoke-live.sh`) re-logs-in once.
+
+### Rollback
+
+The rename is reversible because Docker volumes never moved. Worst case
+(deploy fails partway) restore the pre-rename layout:
+
+```bash
+# 1. Stop the half-deployed new stack
+ssh deploy@EXAMPLE_HOST \
+  "cd /srv/shared-cookbook && \
+   docker compose -f docker-compose.prod.yml down"
+
+# 2. Move the directory back
+ssh deploy@EXAMPLE_HOST \
+  "sudo mv /srv/shared-cookbook /srv/familien-kochbuch"
+
+# 3. Re-deploy with the previous PROD_ENV (without COMPOSE_PROJECT_NAME
+#    override is fine — same value either way) and the previous tag,
+#    e.g. via `gh workflow run Deploy --ref <previous-sha>`.
+```
+
+Database + SeaweedFS data is intact in either path: volumes are pinned
+to the `familien-kochbuch_*` prefix regardless of where the compose
+file lives.
