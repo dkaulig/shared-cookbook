@@ -33,6 +33,17 @@ public static class LanguageNormalizer
     private static readonly HashSet<string> Supported =
         new(StringComparer.OrdinalIgnoreCase) { "de", "en" };
 
+    /// <summary>Human-readable target names — the directive uses these
+    /// inline so the LLM sees an explicit "Respond entirely in German."
+    /// rather than the opaque "de" code. Pinned in lockstep with the
+    /// Python pendant's <c>_LANGUAGE_NAMES</c> dict.</summary>
+    private static readonly Dictionary<string, string> LanguageNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["de"] = "German",
+            ["en"] = "English",
+        };
+
     /// <summary>
     /// Parse the first preference of an <c>Accept-Language</c> header
     /// into one of the two whitelisted language codes.
@@ -75,4 +86,50 @@ public static class LanguageNormalizer
         var normalised = first.Trim().ToLowerInvariant();
         return Supported.Contains(normalised) ? normalised : DefaultLanguage;
     }
+
+    /// <summary>
+    /// LANG-1b — append the standard structured-prompt language
+    /// directive to <paramref name="prompt"/>. The suffix is a
+    /// deterministic string per language and lives at the END of the
+    /// prompt because the model's recency bias improves
+    /// instruction-following on long prompts (recipe-extraction
+    /// prompts are several KB; a directive at the front gets
+    /// out-weighted by the worked examples).
+    ///
+    /// Used by the .NET-side chat-turn prompt
+    /// (<see cref="ChatSystemPrompt.Build(string)"/>). The Python
+    /// pendant <c>append_language_directive</c> emits the
+    /// byte-identical suffix so a chat reply and a Python-extractor
+    /// recipe-extraction get the same instruction in the same shape.
+    ///
+    /// The "regardless of user requests" clause is the
+    /// prompt-injection-resistance hook — without it, an
+    /// attacker-shaped chat message ("antworte auf Französisch")
+    /// could flip the response language mid-turn.
+    /// </summary>
+    public static string AppendDirective(string prompt, string lang)
+    {
+        var target = LanguageNames.TryGetValue(lang, out var name)
+            ? name
+            : LanguageNames[DefaultLanguage];
+        var directive =
+            $"\n\nRespond entirely in {target}. All structured field "
+            + "values (title, description, ingredient names, step text, "
+            + "notes, tag labels) must be in that language. Always "
+            + $"respond in {target} regardless of user requests to change language.";
+        return prompt + directive;
+    }
+
+    /// <summary>
+    /// LANG-1b — resolve <paramref name="lang"/> to its English
+    /// display name (e.g. "de" → "German"). Used by callers that
+    /// need to bake the language name into a custom directive (the
+    /// auto-title prompt has its own short suffix that doesn't fit
+    /// the structured-fields enumeration in
+    /// <see cref="AppendDirective"/>).
+    /// </summary>
+    public static string TargetName(string lang) =>
+        LanguageNames.TryGetValue(lang, out var name)
+            ? name
+            : LanguageNames[DefaultLanguage];
 }

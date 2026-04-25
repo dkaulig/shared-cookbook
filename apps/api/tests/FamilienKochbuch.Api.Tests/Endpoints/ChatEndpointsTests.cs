@@ -793,6 +793,84 @@ public class ChatEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
         Assert.DoesNotContain(events, e => e.Name == "done");
     }
 
+    // ── LANG-1b — language directive in chat-turn + auto-title prompts ──
+
+    [Theory]
+    [InlineData("de", "German")]
+    [InlineData("en", "English")]
+    [InlineData("de-AT", "German")]
+    [InlineData("en-US", "English")]
+    [InlineData("fr", "English")] // Unsupported → fallback per LanguageNormalizer.
+    [InlineData("", "English")]   // Missing header → fallback.
+    public async Task Turn_AppliesLanguageDirective_To_System_Prompt(
+        string acceptLanguage, string expectedTargetName)
+    {
+        var (userId, token) = await SignupAsync(
+            $"turn-lang-{Guid.NewGuid():N}@ex.com", "Chat");
+        var sessionId = await SeedSessionAsync(userId);
+
+        _factory.AzureOpenAi
+            .QueueTokens("ok")
+            .QueueUsage(5, 2, 0);
+
+        using var req = Authed(HttpMethod.Post,
+            $"/api/chat/sessions/{sessionId}/turn", token);
+        if (!string.IsNullOrEmpty(acceptLanguage))
+            req.Headers.AcceptLanguage.ParseAdd(acceptLanguage);
+        req.Content = JsonContent.Create(new { content = "Hi" });
+        var response = await _client.SendAsync(
+            req, HttpCompletionOption.ResponseHeadersRead);
+        await ReadSseAsync(response);
+
+        // First StreamCall is the chat-turn; system prompt is at idx 0.
+        var streamCall = Assert.Single(_factory.AzureOpenAi.StreamCalls);
+        var systemPrompt = streamCall[0];
+        Assert.Equal("system", systemPrompt.Role);
+        Assert.Contains(
+            $"Respond entirely in {expectedTargetName}.",
+            systemPrompt.Content);
+        // Base prompt (German) is preserved — directive wraps, doesn't
+        // replace.
+        Assert.Contains("Du bist ein hilfreicher Koch-Assistent.",
+            systemPrompt.Content);
+    }
+
+    [Theory]
+    [InlineData("de", "German")]
+    [InlineData("en", "English")]
+    public async Task Turn_AutoTitle_AppliesLanguageDirective(
+        string acceptLanguage, string expectedTargetName)
+    {
+        var (userId, token) = await SignupAsync(
+            $"title-lang-{Guid.NewGuid():N}@ex.com", "Chat");
+        var sessionId = await SeedSessionAsync(userId);
+
+        _factory.AzureOpenAi
+            .QueueTokens("ok")
+            .QueueUsage(5, 2, 0)
+            .SetTitle("Test-Titel");
+
+        using var req = Authed(HttpMethod.Post,
+            $"/api/chat/sessions/{sessionId}/turn", token);
+        req.Headers.AcceptLanguage.ParseAdd(acceptLanguage);
+        req.Content = JsonContent.Create(new { content = "Wir kochen Pasta" });
+        var response = await _client.SendAsync(
+            req, HttpCompletionOption.ResponseHeadersRead);
+        await ReadSseAsync(response);
+
+        // Drain the fire-and-forget title task before asserting on the
+        // captured CompleteAsync call.
+        await _factory.BackgroundTasks.WhenAllAsync();
+
+        var titleCall = Assert.Single(_factory.AzureOpenAi.CompleteCalls);
+        var titlePrompt = titleCall[0];
+        Assert.Equal("system", titlePrompt.Role);
+        Assert.Contains(
+            $"Always produce the title in {expectedTargetName} regardless of "
+            + "what language the chat content is in.",
+            titlePrompt.Content);
+    }
+
     // ── POST /api/chat/sessions/{id}/to-recipe ─────────────────────
 
     [Fact]

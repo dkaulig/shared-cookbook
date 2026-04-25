@@ -25,10 +25,15 @@ namespace FamilienKochbuch.Api.Services;
 /// </summary>
 public sealed class ChatTitleService
 {
-    private const string TitleSystemPrompt =
-        "Gib einen knappen deutschen Titel (max 6 Wörter) für dieses "
-        + "Gespräch. Nur der Titel als Text — ohne Anführungszeichen, "
-        + "ohne Satzzeichen am Ende, ohne Präfix.";
+    /// <summary>The base auto-title prompt. Public so the LANG-1b unit
+    /// tests can assert "Build wraps the base, doesn't replace it"
+    /// without re-encoding the whole string. The base prompt asks for
+    /// a short title (≤ 6 words) and bans quotes / trailing punctuation
+    /// so <see cref="NormaliseTitle"/> doesn't have to rip them off.</summary>
+    public const string BaseTitleSystemPrompt =
+        "Generate a short title (max 6 words) for this conversation. "
+        + "Output the title as plain text — no surrounding quotes, no "
+        + "trailing punctuation, no prefix.";
 
     private readonly AppDbContext _db;
     private readonly IAzureOpenAIChatClient _llm;
@@ -48,14 +53,41 @@ public sealed class ChatTitleService
     }
 
     /// <summary>
+    /// LANG-1b — build the auto-title system prompt for the caller's
+    /// UI language. Uses a SHORTER directive than
+    /// <see cref="LanguageNormalizer.AppendDirective"/> because a
+    /// title is a single short string — no need to enumerate
+    /// "structured field values (title, description, …)". The
+    /// "regardless of what language the chat content is in" clause is
+    /// preserved because the chat history is real user content and
+    /// therefore a prompt-injection surface (a German user chatting
+    /// about an English recipe should still get a German title).
+    ///
+    /// Pinned wording so the LANG-1b tests don't drift.
+    /// </summary>
+    public static string BuildTitlePrompt(string lang)
+    {
+        var target = LanguageNormalizer.TargetName(lang);
+        return BaseTitleSystemPrompt
+            + $"\n\nAlways produce the title in {target} regardless of "
+            + "what language the chat content is in.";
+    }
+
+    /// <summary>
     /// Generate and persist the title for <paramref name="sessionId"/>.
     /// No-op when the session is already titled, missing, or when the
     /// first user+assistant pair isn't present yet (shouldn't happen
     /// from the endpoint but keeps the method robust if called early).
     /// Swallows all exceptions — caller is fire-and-forget and logs via
     /// its own try/catch wrapper.
+    ///
+    /// LANG-1b — <paramref name="lang"/> is the UI language captured
+    /// from the originating <c>Accept-Language</c> header at endpoint
+    /// time. Forwarded to <see cref="BuildTitlePrompt"/> so a German
+    /// user gets a German title and an English user gets an English
+    /// title regardless of what language the chat content is in.
     /// </summary>
-    public async Task GenerateAsync(Guid sessionId, CancellationToken ct)
+    public async Task GenerateAsync(Guid sessionId, string lang, CancellationToken ct)
     {
         var session = await _db.ChatSessions
             .FirstOrDefaultAsync(s => s.Id == sessionId, ct)
@@ -80,7 +112,7 @@ public sealed class ChatTitleService
 
         var llmMessages = new List<ChatCompletionMessage>(messages.Count + 1)
         {
-            new("system", TitleSystemPrompt),
+            new("system", BuildTitlePrompt(lang)),
         };
         foreach (var m in messages)
         {
