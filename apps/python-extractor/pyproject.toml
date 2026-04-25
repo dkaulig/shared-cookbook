@@ -15,17 +15,17 @@ authors = [{ name = "Familien-Kochbuch" }]
 # ranges; that silently upgrades on every fresh install. Bumps happen
 # deliberately in dedicated dependency-update slices.
 dependencies = [
-  "fastapi==0.136.0",
-  "uvicorn[standard]==0.44.0",
-  "pydantic==2.13.2",
-  "pydantic-settings==2.13.1",
+  "fastapi==0.136.1",
+  "uvicorn[standard]==0.46.0",
+  "pydantic==2.13.3",
+  "pydantic-settings==2.14.0",
   # P2-1: real HTTP against the Azure OpenAI Responses API. httpx was
   # dev-only in P2-0 (TestClient); promoted to runtime here because
   # `AzureOpenAIProvider` uses `httpx.AsyncClient` directly.
   "httpx==0.28.1",
   # P2-1: retry with exponential backoff + Retry-After honouring for
   # transient Azure errors (5xx, 429). Tiny pure-Python lib.
-  "tenacity==9.1.2",
+  "tenacity==9.1.4",
   # P2-2 blog path: three-layered HTML → recipe extractors.
   # `extruct` parses JSON-LD / microdata / RDFa blocks from HTML.
   # `recipe-scrapers` covers 1000+ cooking sites with hand-rolled
@@ -49,14 +49,14 @@ dependencies = [
 dev = [
   "pytest==9.0.3",
   "pytest-asyncio==1.3.0",
-  "ruff==0.15.11",
-  "mypy==1.20.1",
+  "ruff==0.15.12",
+  "mypy==1.20.2",
   # P2-1: stub the Azure Responses API in always-on tests. MSW-style
   # route matching on httpx calls; no real network.
-  "respx==0.22.0",
+  "respx==0.23.1",
   # P2-2: validate the RECIPE_SCHEMA JSON Schema at test time so a typo
   # in the schema fails the suite rather than at runtime against Azure.
-  "jsonschema==4.25.1",
+  "jsonschema==4.26.0",
   "types-jsonschema==4.26.0.20260408",
 ]
 
