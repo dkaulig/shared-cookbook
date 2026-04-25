@@ -1,307 +1,211 @@
-# Familien-Kochbuch
+# shared-cookbook
 
-Ein privates, familien-internes digitales Kochbuch. Rezepte werden per
-Einladungslink geteilt, in Gruppen gesammelt, bewertet, durchsucht und
-zwischen Gruppen kopiert. Die UI ist auf Deutsch; Code, Commits und diese
-Datei sind Englisch.
+> Self-hosted family recipe-book PWA with optional AI-assisted import
+> from social-video + recipe blogs. Built end-to-end with
+> AI-orchestrated development.
 
-Phase 1 scope, architecture and the underlying product thinking live in
-[`docs/plans/2026-04-17-familien-kochbuch-design.md`](docs/plans/2026-04-17-familien-kochbuch-design.md)
-and the slice-by-slice implementation plan in
-[`docs/plans/phase-1-implementation-plan.md`](docs/plans/phase-1-implementation-plan.md).
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Stack](https://img.shields.io/badge/stack-.NET%2010%20%2B%20React%2019%20%2B%20Python%203.13-blueviolet)](#architecture-at-a-glance)
+
+`shared-cookbook` is a private cookbook you host yourself. Invite the
+people you cook with, share recipes inside groups, plan the week,
+generate the shopping list automatically, and import recipes from a
+URL, a video, a photo, or a chat conversation. The UI is multilingual
+(German + English), the import pipeline is AI-optional, and the whole
+thing runs from a single `docker compose up -d`.
 
 ---
 
-## Quick start
+## Why does this exist?
 
-### Prerequisites
+Two things at once:
 
-- **Docker** 25+ (Desktop on macOS/Windows, Engine + Compose on Linux)
-- **.NET 10 SDK** (for running tests and `dotnet watch` outside Docker)
-- **Node.js** 22+ (Node 25 works too)
-- **pnpm** 10+ (`corepack enable && corepack prepare pnpm@10 --activate`)
-- `curl` + `jq` (only needed for the smoke-test script)
+1. **A real product.** Recipe apps either lock you into a SaaS or
+   ignore the whole "cook with my family" use-case. `shared-cookbook`
+   is invite-only, group-scoped, offline-first (PWA), and runs on a
+   single VPS. Photo upload, weekly meal-plan, auto-shopping-list,
+   portion scaling, fork-from-other-group, full-text search, ratings,
+   "cook now" wake-lock mode.
+2. **A full-stack reference codebase built by AI-orchestrated dev.**
+   The entire project was implemented through Claude Code with
+   sub-agent dispatch, 4-stage review per slice (impl → simplify →
+   security → fix-commit → reviewer), TDD discipline, design docs
+   under `docs/plans/`, and a rolling bug-backlog. The git history
+   literally shows the workflow as commits — see
+   [`CLAUDE.md`](CLAUDE.md) for the operating guide and
+   [`docs/plans/`](docs/plans/) for the per-slice design docs.
 
-### Boot the full stack
+---
+
+## Architecture at a glance
+
+Three services behind a Caddy edge, plus shared infra:
+
+```
+                   ┌──────────────┐
+                   │  Caddy edge  │  HTTPS / HTTP/3, ACME
+                   └──────┬───────┘
+                          │
+              ┌───────────┴────────────┐
+              │                        │
+      ┌───────▼───────┐        ┌───────▼────────┐
+      │  React 19 PWA │        │  .NET 10 API   │
+      │  Vite 6       │        │  Minimal API   │
+      │  Tailwind 4   │        │  EF Core 10    │
+      │  shadcn/ui    │        │  SignalR       │
+      └───────────────┘        └───┬──────┬─────┘
+                                   │      │
+                ┌──────────────────┘      └──────────────┐
+                │                                        │
+       ┌────────▼─────────┐                  ┌───────────▼──────────┐
+       │  Postgres 17     │                  │  Python 3.13          │
+       │  SeaweedFS       │                  │  FastAPI extractor    │
+       │  Redis           │                  │  yt-dlp + Whisper +   │
+       └──────────────────┘                  │  Azure OpenAI / Ollama│
+                                             └───────────────────────┘
+```
+
+- **Frontend** — React 19 + Vite 6 + Tailwind 4 + shadcn/ui (New York,
+  neutral) + TanStack Query (with persist) + Workbox. Offline-first
+  PWA with background-sync mutations. i18n via `react-i18next`
+  (German + English).
+- **API** — .NET 10 ASP.NET Core Minimal API + EF Core 10 + Postgres
+  17 + SignalR for chat + Hangfire for background work. JWT auth,
+  group-based authorisation, signed photo URLs.
+- **Extractor** — Python 3.13 FastAPI + `yt-dlp` (video download) +
+  `faster-whisper` (CPU-local transcription) + `extruct` /
+  `recipe-scrapers` (JSON-LD blog parsing) + Azure OpenAI **or**
+  self-hosted Ollama for the structuring + vision steps. Reachable
+  only on the internal docker network — the .NET API proxies every
+  call.
+
+---
+
+## Quick start (30 seconds)
 
 ```bash
+git clone https://github.com/<your-fork>/shared-cookbook.git
+cd shared-cookbook
+cp .env.example .env
+docker compose up -d
+open http://localhost
+```
+
+That's the **Minimal path** — no AI required. You get full manual
+recipe CRUD, meal-plan, shopping list, portion scaling, ratings,
+"cook now" mode, JSON-LD blog imports, and offline PWA. AI features
+(structured video / photo / chat imports) stay disabled until you
+flip a profile.
+
+The default seeded admin lives in `.env.example`. Change the password
+on first login.
+
+For the **+ Azure OpenAI** and **+ self-hosted Ollama** paths (Whisper
+weights, model picks, cost estimates), see
+[`docs/SETUP.md`](docs/SETUP.md).
+
+---
+
+## Install on your phone
+
+`shared-cookbook` is a PWA. After your first visit:
+
+- **iOS Safari:** Share → "Zum Home-Bildschirm".
+- **Android Chrome:** menu → "App installieren".
+
+Once installed, the app appears in the OS share sheet — share a reel
+or a recipe URL from any app directly into `shared-cookbook`.
+
+---
+
+## Development setup
+
+The full Docker stack is the easiest way to run the app. For
+hot-reloading dev work, run each service natively:
+
+```bash
+# Install web dependencies (pnpm workspace).
 pnpm install
-docker compose up --build -d
-open http://localhost/
-```
 
-Caddy routes `/api/*` to the .NET API and everything else to the
-React PWA. First boot seeds an admin account whose credentials you can
-override in a `.env` file at the repo root via `ADMIN_EMAIL` /
-`ADMIN_PASSWORD`. The defaults are:
-
-```
-email:    admin@familien-kochbuch.local
-password: ChangeMe!Admin2026
-```
-
-Log in as the admin, click **Jemanden einladen** (on `/profil` or on the
-Home invite card), copy the invite URL for every family member, and
-paste it into their browser (or mail, or WhatsApp, or carrier pigeon).
-
-Tear down with `docker compose down` (add `-v` to also drop the
-Postgres / SeaweedFS / Caddy volumes).
-
----
-
-## UI Stand (Phase 1.5 — Warme-Küche)
-
-Alle Seiten sind mobile-first (375 × 812 px Screenshots, aufgenommen
-auf einem iPhone-X-Viewport). Palette: amber-700 auf cream, Cormorant
-Garamond für Überschriften, Libre Baskerville italic für Zitate und
-Taglines, Inter für den Rest.
-
-### Login — `/login`
-
-Einladung zum Anmelden mit ruhiger Begrüßung und gepunktetem Pergament-
-Hintergrund.
-
-![Login-Seite mit Begrüßung, Pergament-Hintergrund und Anmeldeformular](docs/screenshots/login.png)
-
-### Startseite — `/`
-
-Persönliche Begrüßung mit Tageszeit, Schnellfilter-Chips, den eigenen
-Gruppen und "zuletzt gekocht". Die Glocke oben rechts zeigt einen Punkt,
-sobald es offene Einladungen gibt.
-
-![Home-Seite mit Begrüßung, Schnellfilter-Chips und Gruppenliste](docs/screenshots/home.png)
-
-### Gruppendetail — `/groups/:id`
-
-Warmer Amber-Banner, überlappendes Avatar-Tile, Stats-Zeile, Filter +
-Zufall, gefolgt vom Rezept-Grid. Die rote "Zufall"-Taste springt zu
-einem zufälligen passenden Rezept.
-
-![Gruppendetail mit Amber-Banner, Filter und Rezept-Grid](docs/screenshots/group-detail.png)
-
-### Rezept-Detail — `/groups/:id/recipes/:id`
-
-Hero-Foto (Fallback: deterministischer warmer Verlauf), Titelkarte mit
-Tags + Rating, Portionen-Stepper, Zutaten-Checkliste, nummerierte
-Schritte und sticky Action-Bar am unteren Rand ("In Wochenplan" +
-"Jetzt gekocht").
-
-![Rezept-Detail-Seite mit Hero, Portionen-Stepper und sticky Action-Bar](docs/screenshots/recipe-detail.png)
-
-### Rezeptformular — `/groups/:id/recipes/new`
-
-Sticky Top-Bar mit X-Abbrechen + Serif-Titel, Intro-Block mit Ziel-
-Gruppen-Pille, Grunddaten-, Foto-, Zutaten-, Schritt- und Tag-Blöcke,
-und unten die sticky "Rezept speichern"-Bar.
-
-![Rezeptformular mit sticky Speichern-Bar](docs/screenshots/recipe-form.png)
-
----
-
-## Dev loop (hot-reload, no Docker)
-
-The containers are handy for full-system tests, but during feature work
-it's faster to run each side natively:
-
-```bash
-# Terminal 1 — API with hot-reload against a local Postgres/Redis/SeaweedFS.
+# Terminal 1 — API + Postgres + Redis + SeaweedFS via Docker.
 docker compose up -d postgres redis seaweedfs
 dotnet watch --project apps/api/src/FamilienKochbuch.Api run
 
-# Terminal 2 — Vite dev server with HMR. Proxies /api to localhost:5000.
-pnpm dev
+# Terminal 2 — Vite dev server (HMR, proxies /api to localhost:5000).
+pnpm --filter web dev
+
+# Terminal 3 — Python extractor with reload.
+cd apps/python-extractor
+uv sync --all-extras
+uv run uvicorn extractor.main:app --reload --port 8000
 ```
 
-The Vite dev server listens on <http://localhost:5173>. Caddy is
-skipped in this mode; use the Vite server directly.
+Vite serves on <http://localhost:5173>. Caddy is skipped in this
+mode — talk to the Vite dev server directly.
 
 ---
 
-## Test commands
+## Tests
 
 ```bash
-# .NET — Domain + Infrastructure + Api (WebApplicationFactory integration)
+# .NET — Domain + Infrastructure + Api integration tests.
 dotnet test apps/api/FamilienKochbuch.sln
 
-# Web — Vitest + RTL + MSW
-pnpm -C apps/web test --run
+# Web — Vitest + RTL + MSW.
+pnpm --filter web run test
 
-# Shared DTOs + utility tests
-pnpm -C packages/shared test --run
+# Shared DTOs.
+pnpm --filter shared run test
 
-# Lint (ESLint flat config)
-pnpm lint
+# Python extractor — match the CI four-gate locally.
+cd apps/python-extractor
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy --strict src tests
+
+# Full lint + build.
+pnpm --filter web run lint
+pnpm --filter web run build
+dotnet build apps/api/FamilienKochbuch.sln
 ```
 
-Phase 1.5 baseline, recorded after DS7:
-
-| Target | Count |
-| --- | --- |
-| `dotnet test` | 432 |
-| `pnpm -C apps/web test --run` | 442 |
-| `pnpm -C packages/shared test --run` | 32 |
-| **Total** | **906** |
+Playwright E2E specs live under `apps/web/e2e/`. See
+[`CLAUDE.md`](CLAUDE.md) for how to run them against the Docker
+stack.
 
 ---
 
-## Smoke test
+## Where to go next
 
-```bash
-./scripts/smoke-test.sh             # or: pnpm smoke-test
-```
-
-Runs 13 steps against the stack currently reachable at
-`http://localhost`: health-check, admin login, invite → signup, group +
-recipe CRUD, rating, search, fork, revision-history check, teardown.
-Exits 0 on success. Override the target URL with `SMOKE_BASE_URL=…` or
-seeded credentials with `ADMIN_EMAIL=…` / `ADMIN_PASSWORD=…`.
-
----
-
-## Project structure
-
-```
-/
-├── apps/
-│   ├── api/                     # .NET 10 Minimal API (FamilienKochbuch.sln)
-│   │   ├── Directory.Build.props
-│   │   ├── Dockerfile
-│   │   ├── openapi.json         # snapshot of /api/swagger/v1/swagger.json
-│   │   ├── src/
-│   │   │   ├── FamilienKochbuch.Api/
-│   │   │   │   ├── Endpoints/           # Auth, Groups, Recipes, Search, …
-│   │   │   │   └── Services/            # FamilienResults, GlobalExceptionHandler, …
-│   │   │   ├── FamilienKochbuch.Domain/
-│   │   │   └── FamilienKochbuch.Infrastructure/
-│   │   │       └── Persistence/Migrations/  # 5 migrations — reviewed per hard-rule
-│   │   └── tests/
-│   │       ├── FamilienKochbuch.Api.Tests/
-│   │       ├── FamilienKochbuch.Domain.Tests/
-│   │       └── FamilienKochbuch.Infrastructure.Tests/
-│   └── web/                     # Vite 8 + React 19 + Tailwind 4 + VitePWA
-│       ├── Dockerfile           # multi-stage build → caddy:2-alpine static serve
-│       ├── public/              # favicon, icons, default manifest stub
-│       ├── src/
-│       │   ├── App.tsx          # router wrapped in <ErrorBoundary>
-│       │   ├── components/      # shadcn-style primitives (Button, Skeleton, …)
-│       │   ├── features/        # feature modules (auth, groups, recipes, …)
-│       │   ├── pwa/             # service-worker registration + update toast
-│       │   ├── lib/             # cn() util, api client
-│       │   └── test/            # Vitest setup, MSW server + handlers
-│       └── vite.config.ts       # VitePWA plugin + runtime cache strategies
-├── packages/
-│   ├── shared/                  # @familien-kochbuch/shared — DTO types
-│   └── config/                  # @familien-kochbuch/config — tsconfig + eslint base
-├── infra/
-│   ├── Caddyfile                # dev reverse proxy (/api → api, / → web)
-│   └── Caddyfile.prod           # prod reverse proxy (Let's Encrypt via $CADDY_DOMAIN)
-├── scripts/
-│   ├── smoke-test.sh            # end-to-end happy-path check
-│   └── export-openapi.sh        # refresh apps/api/openapi.json
-├── docker-compose.yml           # dev stack (builds from source)
-├── docker-compose.prod.yml      # prod stack (images from GHCR)
-├── docs/
-│   ├── plans/                   # PRD + implementation plan
-│   └── phase-1-progress.md      # slice-by-slice progress tracker
-└── .github/
-    └── workflows/
-        ├── ci.yml               # PR gate (lint + tests)
-        └── deploy.yml           # build + push to GHCR; deploy step scaffolded
-```
+| Doc | What it covers |
+|---|---|
+| [`docs/SETUP.md`](docs/SETUP.md) | Full runbook — env vars, the three deploy paths (Minimal / Azure / Ollama), PWA install, troubleshooting. |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Private-disclosure channel for security findings. |
+| [`docs/SECURITY-AUDIT-2026-04.md`](docs/SECURITY-AUDIT-2026-04.md) | The OWASP Top-10 audit done before going public. |
+| [`CLAUDE.md`](CLAUDE.md) | How the codebase is maintained — 4-stage flow, TDD, sub-agent dispatch. |
+| [`docs/plans/`](docs/plans/) | Per-slice design docs. The AI-orchestrated-dev case study is in this folder. |
+| [`docs/bugs-backlog.md`](docs/bugs-backlog.md) | User-reported bugs with fix-history. |
 
 ---
 
-## Deployment
+## License
 
-`docker-compose.prod.yml` expects the API + web images to be prebuilt and
-pushed to GHCR under `ghcr.io/kay-solutions/familien-kochbuch-{api,web}:latest`.
-The deploy workflow in `.github/workflows/deploy.yml` handles both the
-push and the image build on every commit to `main`. The SSH-to-Hetzner
-step is **scaffolded but commented out** — activate it once the VPS is
-provisioned and the repo has `VPS_HOST`, `VPS_SSH_KEY`, and `PROD_ENV`
-secrets set.
-
-See PRD §11 for the complete deployment story (target platform, TLS,
-secrets handling, backups, cost estimate).
-
-### Running prod compose locally
-
-```bash
-# one-shot sanity check, using the local CA for TLS
-CADDY_DOMAIN=localhost \
-POSTGRES_PASSWORD=change-me \
-JWT_SIGNING_KEY=$(openssl rand -hex 32) \
-ADMIN_EMAIL=admin@example.com \
-ADMIN_PASSWORD=ChangeMeNow \
-docker compose -f docker-compose.prod.yml up -d
-```
-
-Then visit <https://localhost> and accept the self-signed certificate.
+MIT — see [`LICENSE`](LICENSE).
 
 ---
 
-## Swagger / OpenAPI
+## Disclaimer — third-party content
 
-Swagger UI is mounted at **`/api/swagger`** in Development only. The
-production stack leaves the routes unregistered so the schema can't be
-scraped anonymously.
+`shared-cookbook` uses [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
+to fetch publicly-available video metadata + audio for the user's
+own personal use. **It is the user's responsibility to comply with
+the source platform's Terms of Service.** This project does not
+encourage redistribution of extracted content. Imported recipes,
+transcripts, and thumbnails stay inside your self-hosted instance;
+nothing leaves except for the optional Azure OpenAI structuring call
+(disabled by default).
 
-To refresh `apps/api/openapi.json` from the running stack:
-
-```bash
-docker compose up -d
-pnpm api:openapi          # or: bash scripts/export-openapi.sh
-```
-
-The snapshot lives at `apps/api/openapi.json` so downstream clients can
-generate their own typed SDKs without needing to boot the service.
-
----
-
-## Troubleshooting
-
-- **Ports 80/443/5173/5432/6379 already in use.** Change the published
-  port on the affected service in `docker-compose.yml` or stop the
-  conflicting process — `lsof -i :80` identifies the culprit on macOS.
-- **Admin login returns 401 on first boot.** The seeded password only
-  applies when no users exist. If you've tried logging in with the wrong
-  password and the admin was already seeded, reset with
-  `docker compose down -v && docker compose up -d`. (Nukes the volumes —
-  only safe in dev.)
-- **Photos return 403 Forbidden.** Signed URLs expire after
-  `Images:SignatureValidityHours` (default 2 h). Fetch a fresh recipe
-  detail to regenerate the URL.
-- **Migrations don't apply.** Check `docker compose logs api` — startup
-  aborts if the DB schema mismatch is unresolvable. On first boot after
-  a schema change, prune with `docker compose down -v`.
-- **SeaweedFS data loss on `docker compose down -v`.** Explicit: the
-  `-v` flag drops the `seaweedfs-data` volume. Skip `-v` to preserve
-  uploaded photos between restarts.
-- **`pnpm lint` fails after editing a .cs file.** Lint only runs against
-  the web package; unrelated failure usually means a stale cache. Re-run
-  `pnpm install` to refresh workspace symlinks.
-
----
-
-## Contributor notes
-
-- **TDD is non-optional.** Failing tests land in their own commit, then
-  the implementation commit turns them green. Reviewers inspect commit
-  order.
-- **Small commits, push after every logical step.**
-- **German UI, English code / commits / docs.**
-- When EF migrations arrive, always read the generated `.cs` file before
-  committing — EF sometimes bundles unintended schema changes from other
-  branches.
-- Every 4xx / 5xx JSON response MUST use the unified `FamilienResults`
-  helper (see `apps/api/src/FamilienKochbuch.Api/Services/FamilienResults.cs`).
-  Tests enforce the `{ code, message, details? }` envelope shape.
-
----
-
-## Related docs
-
-- [Product design document (PRD)](docs/plans/2026-04-17-familien-kochbuch-design.md)
-- [Phase 1 implementation plan](docs/plans/phase-1-implementation-plan.md)
-- [Phase 1 progress tracker](docs/phase-1-progress.md)
-- [Anti-shortcut reviewer checklist](docs/reviewing/anti-shortcut-checklist.md)
+The German UI label "Familien-Kochbuch" remains as a localised
+in-app label for the maintainer's family deployment; the public
+project, packages, and documentation use the `shared-cookbook` name.
