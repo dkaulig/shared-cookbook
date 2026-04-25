@@ -846,7 +846,7 @@ def create_app() -> FastAPI:
         config: Annotated[ExtractorConfig | None, Depends(get_extractor_config)],
         lang: Annotated[SupportedLanguage, Depends(get_user_language)],
     ) -> ExtractionResult:
-        """Verdichte den Dialog zu einem strukturierten Rezept.
+        """Compress the dialog into a structured recipe.
 
         The path's ``session_id`` becomes the synthetic ``source_url``
         ("chat:<session_id>") on the returned recipe so the downstream
