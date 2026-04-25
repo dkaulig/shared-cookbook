@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { CreateInviteResponse } from '@familien-kochbuch/shared'
+import type { CreateInviteResponse } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/features/auth/apiClient'
 

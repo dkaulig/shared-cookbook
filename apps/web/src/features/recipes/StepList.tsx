@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { RecipeStepDto } from '@familien-kochbuch/shared'
+import type { RecipeStepDto } from '@shared-cookbook/shared'
 import { renderInlineMarkdown } from './markdownRenderer'
 
 export interface StepListProps {

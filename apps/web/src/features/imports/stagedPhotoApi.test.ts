@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import type { ApiError } from '@familien-kochbuch/shared'
+import type { ApiError } from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { uploadStagedPhoto } from './stagedPhotoApi'

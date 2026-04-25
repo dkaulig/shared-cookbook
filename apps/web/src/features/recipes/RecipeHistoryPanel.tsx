@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, GitFork, Pencil, Sparkles } from 'lucide-react'
-import type { RecipeChangeType, RecipeSnapshot } from '@familien-kochbuch/shared'
+import type { RecipeChangeType, RecipeSnapshot } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 import { useRecipeRevision, useRecipeRevisions } from './hooks'
 import { formatRelativeDe } from './relativeTime'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import type { RatingListResponse, UpsertRatingResponse } from '@familien-kochbuch/shared'
+import type { RatingListResponse, UpsertRatingResponse } from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { deleteRating, fetchRatings, upsertRating } from './ratingsApi'

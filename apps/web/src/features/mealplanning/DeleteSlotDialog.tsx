@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useDeleteSlot } from './useMealPlan'

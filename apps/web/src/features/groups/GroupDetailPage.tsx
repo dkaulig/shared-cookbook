@@ -9,11 +9,11 @@ import {
 } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ChevronDown, ChevronUp, Plus, Users } from 'lucide-react'
-import type { RecipeSearchParams, SearchSort } from '@familien-kochbuch/shared'
+import type { RecipeSearchParams, SearchSort } from '@shared-cookbook/shared'
 import {
   DEFAULT_RECIPE_LIST_PAGE_SIZE,
   DEFAULT_RECIPE_LIST_SORT,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'

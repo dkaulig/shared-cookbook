@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom'
-import type { ImportSummaryDto } from '@familien-kochbuch/shared'
+import type { ImportSummaryDto } from '@shared-cookbook/shared'
 import {
   AlertCircle,
   Camera,

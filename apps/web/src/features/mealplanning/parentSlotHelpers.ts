@@ -1,4 +1,4 @@
-import type { MealPlanSlotDto, MealSlot } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto, MealSlot } from '@shared-cookbook/shared'
 import { MEAL_SLOTS } from './weekGrid'
 
 /**

@@ -6,7 +6,7 @@ import type {
   ApiError,
   ExtractorConfigItem,
   ExtractorConfigListResponse,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

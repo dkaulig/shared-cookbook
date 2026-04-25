@@ -1,5 +1,5 @@
 {
-  "name": "@familien-kochbuch/web",
+  "name": "@shared-cookbook/web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -17,7 +17,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@familien-kochbuch/shared": "workspace:*",
+    "@shared-cookbook/shared": "workspace:*",
     "@fontsource/cormorant-garamond": "^5.2.11",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/libre-baskerville": "^5.2.10",
@@ -44,7 +44,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@familien-kochbuch/config": "workspace:*",
+    "@shared-cookbook/config": "workspace:*",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/dom": "^10.4.0",

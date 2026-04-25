@@ -1,4 +1,4 @@
-import type { AiUsageGroupBy, AiUsageSummary, ApiError } from '@familien-kochbuch/shared'
+import type { AiUsageGroupBy, AiUsageSummary, ApiError } from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**

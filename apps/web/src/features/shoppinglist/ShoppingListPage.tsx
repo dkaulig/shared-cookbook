@@ -14,7 +14,7 @@ import {
 import type {
   IngredientCategory,
   ShoppingListItemDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -144,7 +144,7 @@ function ShoppingListView({
   const pendingPatchRef = useRef<
     | {
         itemId: string
-        patch: import('@familien-kochbuch/shared').PatchShoppingListItemRequest
+        patch: import('@shared-cookbook/shared').PatchShoppingListItemRequest
         local: ShoppingListItemDto
       }
     | null

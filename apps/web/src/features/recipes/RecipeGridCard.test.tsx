@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import type { RecipeSummaryDto, TagDto } from '@familien-kochbuch/shared'
+import type { RecipeSummaryDto, TagDto } from '@shared-cookbook/shared'
 import { RecipeGridCard } from './RecipeGridCard'
 
 /**

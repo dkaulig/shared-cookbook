@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Check } from 'lucide-react'
-import type { IngredientDto } from '@familien-kochbuch/shared'
-import type { ScaledIngredient } from '@familien-kochbuch/shared'
-import { scaleIngredients } from '@familien-kochbuch/shared'
+import type { IngredientDto } from '@shared-cookbook/shared'
+import type { ScaledIngredient } from '@shared-cookbook/shared'
+import { scaleIngredients } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 
 export interface IngredientChecklistProps {
@@ -24,7 +24,7 @@ export interface IngredientChecklistProps {
  * docs/mockups/warme-kueche-recipe-detail.html.
  *
  * Scaling math is delegated to scaleIngredients() from
- * @familien-kochbuch/shared so the wire-level contract stays with the
+ * @shared-cookbook/shared so the wire-level contract stays with the
  * domain utility.
  */
 export function IngredientChecklist({

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   RecipeDetailDto,
   RecipeTranslationPayload,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { applyTranslation } from './applyTranslation'
 
 const sampleRecipe: RecipeDetailDto = {

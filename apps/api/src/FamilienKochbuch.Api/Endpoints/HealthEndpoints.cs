@@ -17,7 +17,7 @@ public static class HealthEndpoints
 
     /// <summary>
     /// Payload returned by <c>GET /api/health</c>. Shape is mirrored by the
-    /// TypeScript <c>HealthResponse</c> type in <c>@familien-kochbuch/shared</c>.
+    /// TypeScript <c>HealthResponse</c> type in <c>@shared-cookbook/shared</c>.
     /// </summary>
     public sealed record HealthResponse(string Status, string Timestamp);
 }

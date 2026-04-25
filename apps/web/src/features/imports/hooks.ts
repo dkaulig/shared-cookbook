@@ -6,7 +6,7 @@ import type {
   ImportSummaryDto,
   ImportUrlRequest,
   RecipeImportDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import {
   enqueuePhotoImport,
   enqueueUrlImport,

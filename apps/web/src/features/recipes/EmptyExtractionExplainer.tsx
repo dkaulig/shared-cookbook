@@ -1,5 +1,5 @@
 import { FileQuestion } from 'lucide-react'
-import type { EmptyReason, ExtractionSignals } from '@familien-kochbuch/shared'
+import type { EmptyReason, ExtractionSignals } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 
 export interface EmptyExtractionExplainerProps {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import type { RecipeRevisionDetail, RecipeRevisionSummary } from '@familien-kochbuch/shared'
+import type { RecipeRevisionDetail, RecipeRevisionSummary } from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { fetchRecipeRevision, fetchRecipeRevisions } from './revisionsApi'

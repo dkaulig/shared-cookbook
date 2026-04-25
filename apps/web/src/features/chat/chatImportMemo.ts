@@ -1,4 +1,4 @@
-import type { ExtractionResult } from '@familien-kochbuch/shared'
+import type { ExtractionResult } from '@shared-cookbook/shared'
 import {
   safeGetItem,
   safeRemoveItem,

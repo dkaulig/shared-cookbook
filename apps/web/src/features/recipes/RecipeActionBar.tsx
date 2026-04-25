@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Calendar, ChefHat, Check } from 'lucide-react'
-import type { ApiError } from '@familien-kochbuch/shared'
+import type { ApiError } from '@shared-cookbook/shared'
 import { toMondayIso } from '@/features/mealplanning/weekGrid'
 import { cn } from '@/lib/utils'
 

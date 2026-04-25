@@ -22,9 +22,6 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.5)
-      '@familien-kochbuch/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@fontsource/cormorant-garamond':
         specifier: ^5.2.11
         version: 5.2.11
@@ -40,6 +37,9 @@ importers:
       '@radix-ui/react-slot':
         specifier: ^1.2.4
         version: 1.2.4(@types/react@19.2.14)(react@19.2.5)
+      '@shared-cookbook/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@tanstack/query-async-storage-persister':
         specifier: ^5.99.2
         version: 5.99.2
@@ -98,12 +98,12 @@ importers:
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.4
-      '@familien-kochbuch/config':
-        specifier: workspace:*
-        version: link:../../packages/config
       '@playwright/test':
         specifier: ^1.59.1
         version: 1.59.1
+      '@shared-cookbook/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.2.2(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1))

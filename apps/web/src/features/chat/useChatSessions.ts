@@ -3,7 +3,7 @@ import type {
   ChatMessageDto,
   ChatSessionListItem,
   CreateSessionResponse,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import {
   createChatSession,
   deleteChatSession,

@@ -1,5 +1,5 @@
 import { Fragment, useMemo } from 'react'
-import type { RecipeStepDto } from '@familien-kochbuch/shared'
+import type { RecipeStepDto } from '@shared-cookbook/shared'
 import { renderInlineMarkdown } from '../markdownRenderer'
 import { IngredientChip } from './IngredientChip'
 import { TimerChip, type TimerChipState } from './TimerChip'

@@ -1,5 +1,5 @@
 {
-  "name": "@familien-kochbuch/shared",
+  "name": "@shared-cookbook/shared",
   "version": "0.0.0",
   "private": true,
   "type": "module",

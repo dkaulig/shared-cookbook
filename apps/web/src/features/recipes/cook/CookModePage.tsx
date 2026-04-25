@@ -5,7 +5,7 @@ import { Languages } from 'lucide-react'
 import type {
   RecipeComponentDto,
   RecipeStepDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { ConfirmDialog } from '@/features/_shared/ConfirmDialog'
 import { useMediaQuery } from '@/lib/useIsMobile'
 import { useMarkAsCooked, useViewLanguageRecipe } from '../hooks'

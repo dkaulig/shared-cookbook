@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { GroupSummary } from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@shared-cookbook/shared'
 import i18n from '@/i18n'
 import {
   ArrowDown,

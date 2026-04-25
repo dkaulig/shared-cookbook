@@ -16,7 +16,7 @@ RUN pnpm install --frozen-lockfile
 COPY packages/ packages/
 COPY apps/web/ apps/web/
 
-RUN pnpm --filter @familien-kochbuch/web build
+RUN pnpm --filter @shared-cookbook/web build
 
 FROM caddy:2-alpine AS runtime
 

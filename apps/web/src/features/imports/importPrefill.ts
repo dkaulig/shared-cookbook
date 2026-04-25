@@ -7,7 +7,7 @@ import type {
   IngredientConfidenceLevel,
   NutritionEstimate,
   StepConfidenceLevel,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 
 /**
  * Output shape consumed by `RecipeFormPage` when prefilling from an

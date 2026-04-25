@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { MealPlanSlotDto, MealSlot } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto, MealSlot } from '@shared-cookbook/shared'
 import {
   buildParentLabel,
   childrenOf,

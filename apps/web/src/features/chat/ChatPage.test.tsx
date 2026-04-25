@@ -11,7 +11,7 @@ import type {
   ChatMessageDto,
   ChatSessionListItem,
   GroupSummary,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { ChatPage } from './ChatPage'

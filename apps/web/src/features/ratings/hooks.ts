@@ -3,7 +3,7 @@ import type {
   RatingListResponse,
   UpsertRatingRequest,
   UpsertRatingResponse,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { deleteRating, fetchRatings, upsertRating } from './ratingsApi'
 import { ratingQueryKeys } from './queryKeys'
 import { recipeQueryKeys } from '@/features/recipes/queryKeys'

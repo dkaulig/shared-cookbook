@@ -24,7 +24,7 @@ namespace FamilienKochbuch.Api.Services;
 /// <c>recipe_not_found</c> when the caller has to branch on resource
 /// type for its UI).</item>
 /// <item>Wire shape mirrored by the TypeScript <c>ApiError</c> in
-/// <c>@familien-kochbuch/shared</c> (<c>packages/shared/src/types/auth.ts</c>).
+/// <c>@shared-cookbook/shared</c> (<c>packages/shared/src/types/auth.ts</c>).
 /// The Python extractor's <c>ai_disabled</c> code is listed here for
 /// cross-layer reference even though the Python side owns its own
 /// emission (REL-7).</item>

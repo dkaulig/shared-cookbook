@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { BookOpen, CalendarDays, Settings, Users } from 'lucide-react'
-import type { GroupDetail } from '@familien-kochbuch/shared'
+import type { GroupDetail } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getGroupAvatarGradient } from './groupAvatarGradient'

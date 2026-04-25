@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto } from '@shared-cookbook/shared'
 import { SlotConflictBody } from './SlotConflictBody'
 
 function makeSlot(overrides: Partial<MealPlanSlotDto> = {}): MealPlanSlotDto {

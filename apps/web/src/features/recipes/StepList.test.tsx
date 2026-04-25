@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { RecipeStepDto } from '@familien-kochbuch/shared'
+import type { RecipeStepDto } from '@shared-cookbook/shared'
 import { StepList } from './StepList'
 
 const STEPS: RecipeStepDto[] = [

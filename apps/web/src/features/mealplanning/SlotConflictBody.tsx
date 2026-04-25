@@ -1,4 +1,4 @@
-import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto } from '@shared-cookbook/shared'
 import { MEAL_SLOT_LABELS, formatGermanDate } from './weekGrid'
 
 /**

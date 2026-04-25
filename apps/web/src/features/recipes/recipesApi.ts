@@ -13,11 +13,11 @@ import type {
   TagDto,
   UpdateRecipeRequest,
   VersionMismatchError as VersionMismatchErrorBody,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import {
   DEFAULT_RECIPE_LIST_PAGE_SIZE,
   DEFAULT_RECIPE_LIST_SORT,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 import { VersionMismatchError } from '@/features/_shared/apiError'
 

@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import type {
   AddShoppingListItemRequest,
   ShoppingListItemDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { AddItemDialog } from './AddItemDialog'

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { MealPlanSlotDto, MealSlot } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto, MealSlot } from '@shared-cookbook/shared'
 import { MobileDayStack } from './MobileDayStack'
 import { defaultOpenDays } from './mobileDayStackHelpers'
 

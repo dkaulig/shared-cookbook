@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { X } from 'lucide-react'
-import type { GlobalSearchSort } from '@familien-kochbuch/shared'
+import type { GlobalSearchSort } from '@shared-cookbook/shared'
 import {
   DEFAULT_GLOBAL_SEARCH_PAGE_SIZE,
   DEFAULT_GLOBAL_SEARCH_SORT,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'

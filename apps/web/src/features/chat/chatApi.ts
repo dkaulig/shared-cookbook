@@ -4,7 +4,7 @@ import type {
   ChatSessionListItem,
   CreateSessionResponse,
   ExtractionResult,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**

@@ -3,7 +3,7 @@ import type {
   RecipeSnapshot,
   RecipeSnapshotIngredient,
   RecipeSnapshotStep,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 
 interface DiffModalProps {

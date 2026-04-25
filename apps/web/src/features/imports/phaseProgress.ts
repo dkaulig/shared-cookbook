@@ -1,4 +1,4 @@
-import type { ImportStatus, RecipeImportDto, RecipeImportPhase } from '@familien-kochbuch/shared'
+import type { ImportStatus, RecipeImportDto, RecipeImportPhase } from '@shared-cookbook/shared'
 import { progressLabel } from './progressLabel'
 
 /**

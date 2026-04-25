@@ -6,7 +6,7 @@ import type {
   SearchSort,
   TagCategory,
   TagDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 import { useGroupTags } from '@/features/recipes/hooks'
 import { useGroupMembers } from '@/features/groups/hooks'

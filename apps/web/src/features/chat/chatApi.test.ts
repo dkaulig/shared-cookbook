@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import type { ExtractionResult } from '@familien-kochbuch/shared'
+import type { ExtractionResult } from '@shared-cookbook/shared'
 import { convertChatToRecipe } from './chatApi'
 
 /**

@@ -1,7 +1,7 @@
 import { Star } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { RecipeSummaryDto, TagDto } from '@familien-kochbuch/shared'
+import type { RecipeSummaryDto, TagDto } from '@shared-cookbook/shared'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { recipePhotoGradient } from './recipePhotoGradient'

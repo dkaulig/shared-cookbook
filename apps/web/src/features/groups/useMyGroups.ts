@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { GroupSummary } from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@shared-cookbook/shared'
 import { fetchMyGroups } from './groupsApi'
 import { groupQueryKeys } from './queryKeys'
 

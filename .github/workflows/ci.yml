@@ -39,11 +39,11 @@ jobs:
       - name: Install JS deps
         run: pnpm install --frozen-lockfile
       - name: Lint
-        run: pnpm --filter @familien-kochbuch/web lint
+        run: pnpm --filter @shared-cookbook/web lint
       - name: Test
-        run: pnpm --filter @familien-kochbuch/web test
+        run: pnpm --filter @shared-cookbook/web test
       - name: Build
-        run: pnpm --filter @familien-kochbuch/web build
+        run: pnpm --filter @shared-cookbook/web build
 
   shared:
     name: shared (test)
@@ -58,7 +58,7 @@ jobs:
       - name: Install JS deps
         run: pnpm install --frozen-lockfile
       - name: Test
-        run: pnpm --filter @familien-kochbuch/shared test
+        run: pnpm --filter @shared-cookbook/shared test
 
   api:
     name: api (build + test)

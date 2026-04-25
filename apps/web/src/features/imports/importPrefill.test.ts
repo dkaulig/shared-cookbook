@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ExtractedRecipe, ExtractionResult } from '@familien-kochbuch/shared'
+import type { ExtractedRecipe, ExtractionResult } from '@shared-cookbook/shared'
 import {
   extractedRecipeToPrefill,
   extractedResultToPrefill,

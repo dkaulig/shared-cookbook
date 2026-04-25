@@ -1,4 +1,4 @@
-import type { HealthResponse } from '@familien-kochbuch/shared/types'
+import type { HealthResponse } from '@shared-cookbook/shared/types'
 
 /**
  * Fetches the API health status. Uses the `/api` path which is proxied to

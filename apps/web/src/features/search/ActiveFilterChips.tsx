@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
-import type { TagDto } from '@familien-kochbuch/shared'
+import type { TagDto } from '@shared-cookbook/shared'
 import { useGroupTags } from '@/features/recipes/hooks'
 import { useGroupMembers } from '@/features/groups/hooks'
 import { readFiltersFromSearchParams, writeFiltersToSearchParams } from './urlState'

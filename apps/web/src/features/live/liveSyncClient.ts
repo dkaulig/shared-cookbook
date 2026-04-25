@@ -11,7 +11,7 @@ import { nextReconnectDelayForContext } from './reconnectBackoff'
  * Minimal shape of the live-sync client the hook uses. A dedicated
  * interface lets tests inject a fake without wiring a real WebSocket,
  * and keeps the hook free of concrete SignalR types on its public
- * surface (the backend payload types live in @familien-kochbuch/shared).
+ * surface (the backend payload types live in @shared-cookbook/shared).
  */
 export interface LiveSyncClient {
   start(): Promise<void>

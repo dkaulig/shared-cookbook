@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { ShoppingListItemDto } from '@familien-kochbuch/shared'
+import type { ShoppingListItemDto } from '@shared-cookbook/shared'
 import { ItemConflictBody } from './ItemConflictBody'
 
 function makeItem(

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TagDto } from '@familien-kochbuch/shared'
+import type { TagDto } from '@shared-cookbook/shared'
 import { Button } from '@/components/ui/button'
 import { useGroup } from '@/features/groups/hooks'
 import { useGroupTags } from '@/features/recipes/hooks'

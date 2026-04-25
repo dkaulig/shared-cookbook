@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { ApiError, NutritionEstimate } from '@familien-kochbuch/shared'
+import type { ApiError, NutritionEstimate } from '@shared-cookbook/shared'
 import { useUpdateRecipeNutrition } from './hooks'
 
 interface NutritionSectionProps {

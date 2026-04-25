@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AuthUser } from '@familien-kochbuch/shared'
+import type { AuthUser } from '@shared-cookbook/shared'
 
 /**
  * Auth store — access token in JS memory only, user profile alongside.

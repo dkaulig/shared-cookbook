@@ -6,7 +6,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import type {
   ShoppingListDto,
   ShoppingListItemDto,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import {

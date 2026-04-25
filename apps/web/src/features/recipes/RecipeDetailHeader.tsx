@@ -11,7 +11,7 @@ import {
   User,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { RecipeDetailDto } from '@familien-kochbuch/shared'
+import type { RecipeDetailDto } from '@shared-cookbook/shared'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { isPhotoImportSource } from '@/features/imports/importPrefill'

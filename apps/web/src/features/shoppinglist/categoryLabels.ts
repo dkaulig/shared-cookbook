@@ -1,4 +1,4 @@
-import type { IngredientCategory } from '@familien-kochbuch/shared'
+import type { IngredientCategory } from '@shared-cookbook/shared'
 
 /**
  * German UI labels for the eleven `IngredientCategory` values. The

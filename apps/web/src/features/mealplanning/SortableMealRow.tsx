@@ -17,7 +17,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { CheckCircle2, GripVertical, MoreHorizontal, Repeat } from 'lucide-react'
-import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 
 /**

@@ -1,4 +1,4 @@
-import type { ApiError, StagedPhotoResponse } from '@familien-kochbuch/shared'
+import type { ApiError, StagedPhotoResponse } from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**

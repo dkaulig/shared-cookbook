@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { GroupSummary } from '@familien-kochbuch/shared'
+import type { GroupSummary } from '@shared-cookbook/shared'
 import { GroupPickerDialog } from './GroupPickerDialog'
 
 function group(over: Partial<GroupSummary>): GroupSummary {

@@ -11,8 +11,8 @@ import type {
   ImportUrlRequest,
   RecipeImportDto,
   RecipeImportPhase,
-} from '@familien-kochbuch/shared'
-import { RECIPE_IMPORT_PHASES } from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
+import { RECIPE_IMPORT_PHASES } from '@shared-cookbook/shared'
 import { apiClient } from '@/features/auth/apiClient'
 
 /**

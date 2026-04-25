@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { RecipeImportPhase } from '@familien-kochbuch/shared'
+import type { RecipeImportPhase } from '@shared-cookbook/shared'
 import {
   derivePhase,
   formatBytes,

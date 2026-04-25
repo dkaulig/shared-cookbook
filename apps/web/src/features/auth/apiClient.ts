@@ -1,4 +1,4 @@
-import type { AuthResponse } from '@familien-kochbuch/shared'
+import type { AuthResponse } from '@shared-cookbook/shared'
 import i18n from 'i18next'
 import { useAuthStore } from './authStore'
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { RecipeDetailDto } from '@familien-kochbuch/shared'
+import type { RecipeDetailDto } from '@shared-cookbook/shared'
 import { RecipeDetailHeader } from './RecipeDetailHeader'
 
 const RECIPE: RecipeDetailDto = {

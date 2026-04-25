@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { CalendarDays, CheckCircle2, ChefHat, Circle, ExternalLink, Users } from 'lucide-react'
-import type { MealPlanSlotDto } from '@familien-kochbuch/shared'
+import type { MealPlanSlotDto } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 import { useMealPlan } from './useMealPlan'
 import {

@@ -8,7 +8,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type {
   ExtractorConfigItem,
   ExtractorConfigListResponse,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { ExtractorConfigPage } from './ExtractorConfigPage'

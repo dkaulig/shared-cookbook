@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { RecipeSearchParams, RecipeSearchResult } from '@familien-kochbuch/shared'
+import type { RecipeSearchParams, RecipeSearchResult } from '@shared-cookbook/shared'
 import { searchRecipes } from './searchApi'
 
 export const searchQueryKeys = {

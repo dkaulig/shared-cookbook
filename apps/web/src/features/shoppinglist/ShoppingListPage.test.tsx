@@ -15,7 +15,7 @@ import type {
   ShoppingListDto,
   ShoppingListItemDto,
   ShoppingListItemSource,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import {

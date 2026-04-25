@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PartyPopper } from 'lucide-react'
-import type { ApiError } from '@familien-kochbuch/shared'
+import type { ApiError } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 
 export interface CookFinishCardProps {

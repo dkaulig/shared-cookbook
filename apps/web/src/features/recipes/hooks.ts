@@ -17,9 +17,9 @@ import type {
   TagDto,
   UpdateRecipeRequest,
   UploadPhotoResponse,
-} from '@familien-kochbuch/shared'
+} from '@shared-cookbook/shared'
 import { applyTranslation } from './applyTranslation'
-import { DEFAULT_RECIPE_LIST_SORT } from '@familien-kochbuch/shared'
+import { DEFAULT_RECIPE_LIST_SORT } from '@shared-cookbook/shared'
 import {
   createRecipe,
   deleteRecipe,
