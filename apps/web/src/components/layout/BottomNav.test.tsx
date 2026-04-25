@@ -12,7 +12,8 @@ import type { GroupSummary } from '@shared-cookbook/shared'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
 import { BottomNav } from './BottomNav'
-import { BottomZoneProvider, useBottomZoneSlot } from './bottomZone'
+import { BottomZoneProvider } from './bottomZone'
+import { useBottomZoneSlot } from './bottomZoneHooks'
 
 function renderAt(initialPath: string) {
   const client = new QueryClient({

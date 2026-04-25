@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { CreateActionSheet } from './CreateActionSheet'
 import { CreateGroupDialog } from '@/features/groups/CreateGroupDialog'
-import { useBottomZoneConsumer } from './bottomZone'
+import { useBottomZoneConsumer } from './bottomZoneHooks'
 import { navItems, type NavItem } from './navItems'
 
 /**

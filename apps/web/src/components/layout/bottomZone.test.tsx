@@ -3,7 +3,8 @@ import { render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BottomZoneProvider, useBottomZoneSlot } from './bottomZone'
+import { BottomZoneProvider } from './bottomZone'
+import { useBottomZoneSlot } from './bottomZoneHooks'
 import { BottomNav } from './BottomNav'
 
 /**
