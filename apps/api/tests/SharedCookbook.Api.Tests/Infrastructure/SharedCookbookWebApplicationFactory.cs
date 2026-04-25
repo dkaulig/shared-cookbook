@@ -4,6 +4,7 @@ using SharedCookbook.Infrastructure.Ai;
 using SharedCookbook.Infrastructure.Persistence;
 using SharedCookbook.Infrastructure.Services;
 using Hangfire;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -24,10 +25,13 @@ public class SharedCookbookWebApplicationFactory : WebApplicationFactory<Program
 {
     private SqliteConnection? _connection;
 
-    // Seed at real "now" so JwtBearer's lifetime validation (which runs
-    // against real system time and cannot be intercepted via TimeProvider)
-    // still sees non-expired tokens. FakeTimeProvider advances drive the
-    // rotation/expiry assertions forward explicitly via Clock.Advance().
+    // Seed at real "now" so any code path that mixes the FakeTimeProvider
+    // with real-clock comparisons (e.g. CookieOptions absolute expiry) still
+    // sees a sensible baseline. FLAKY-2 — JwtBearer's lifetime validator no
+    // longer races real time: ConfigureWebHost installs a custom
+    // LifetimeValidator that routes through the registered TimeProvider, so
+    // tests that Clock.Advance to exercise rotation / expiry stay aligned
+    // with the issuer.
     public FakeTimeProvider Clock { get; } = new(startDateTime: DateTimeOffset.UtcNow);
 
     public FakeEmailSender Email { get; } = new();
@@ -194,6 +198,44 @@ public class SharedCookbookWebApplicationFactory : WebApplicationFactory<Program
             // before asserting on the resulting row.
             services.RemoveAll<IBackgroundTaskTracker>();
             services.AddSingleton<IBackgroundTaskTracker>(BackgroundTasks);
+
+            // FLAKY-2 — JwtBearer's lifetime validator defaults to real
+            // system time, but the test host issues tokens via TokenService
+            // against the FakeTimeProvider. Tests in AuthEndpointsTests
+            // share an IClassFixture-backed factory and several call
+            // Clock.Advance to exercise expiry / rotation paths
+            // (Signup_With_Expired_Invite +10 min, Refresh_With_Valid_Cookie
+            // +5 min, Refresh_With_Reused_Old_Cookie +1+1 min). Each Advance
+            // permanently rolls FakeTimeProvider forward for every
+            // subsequent test in the class — so a JWT issued late in the
+            // run carries a `nbf` minutes past real-now and the default
+            // (real-time) JwtBearer validator rejects it as
+            // `IDX10222: not yet valid`.
+            //
+            // PostConfigure hooks into the same JwtBearerOptions slot as
+            // Program.cs so the override runs after the production
+            // configurator. The custom LifetimeValidator routes time
+            // through the registered TimeProvider (FakeTimeProvider in
+            // tests, TimeProvider.System in production), realigning the
+            // validator with the issuer.
+            services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+                .PostConfigure<TimeProvider>((options, clock) =>
+                {
+                    var validationParameters = options.TokenValidationParameters;
+                    validationParameters.LifetimeValidator = (notBefore, expires, _, parameters) =>
+                    {
+                        // Match the default JwtBearer validator: a valid
+                        // token MUST have an `exp` claim. TokenService
+                        // always emits one — defensive guard so a missing
+                        // claim doesn't silently bypass lifetime checks.
+                        if (!expires.HasValue) return false;
+                        var now = clock.GetUtcNow().UtcDateTime;
+                        var skew = parameters.ClockSkew;
+                        if (notBefore.HasValue && notBefore.Value > now + skew) return false;
+                        if (expires.Value < now - skew) return false;
+                        return true;
+                    };
+                });
         });
     }
 
