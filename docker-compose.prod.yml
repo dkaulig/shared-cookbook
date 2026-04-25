@@ -10,7 +10,7 @@
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: familien-kochbuch-postgres
+    container_name: shared-cookbook-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-familien_kochbuch}
       POSTGRES_USER: ${POSTGRES_USER:-app}
@@ -27,7 +27,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: familien-kochbuch-redis
+    container_name: shared-cookbook-redis
     command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
@@ -40,7 +40,7 @@ services:
 
   seaweedfs:
     image: chrislusf/seaweedfs:latest
-    container_name: familien-kochbuch-seaweedfs
+    container_name: shared-cookbook-seaweedfs
     command: server -filer -dir=/data -filer.port=8333
     volumes:
       - seaweedfs-data:/data
@@ -49,8 +49,8 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/kay-solutions/familien-kochbuch-api:latest
-    container_name: familien-kochbuch-api
+    image: ghcr.io/${IMAGE_REGISTRY_OWNER:-dkaulig}/shared-cookbook-api:latest
+    container_name: shared-cookbook-api
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-familien_kochbuch};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD}"
@@ -106,8 +106,8 @@ services:
     cpus: 1.0
 
   web:
-    image: ghcr.io/kay-solutions/familien-kochbuch-web:latest
-    container_name: familien-kochbuch-web
+    image: ghcr.io/${IMAGE_REGISTRY_OWNER:-dkaulig}/shared-cookbook-web:latest
+    container_name: shared-cookbook-web
     depends_on:
       - api
     restart: unless-stopped
@@ -118,8 +118,8 @@ services:
     # Phase 2 recipe-extraction microservice (P2-0 scaffold).
     # NOT published to the host — reachable only on the internal docker
     # network. The .NET API will proxy in P2-6.
-    image: ghcr.io/kay-solutions/familien-kochbuch-python-extractor:latest
-    container_name: familien-kochbuch-python-extractor
+    image: ghcr.io/${IMAGE_REGISTRY_OWNER:-dkaulig}/shared-cookbook-python-extractor:latest
+    container_name: shared-cookbook-python-extractor
     environment:
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
@@ -169,7 +169,7 @@ services:
 
   caddy:
     image: caddy:2-alpine
-    container_name: familien-kochbuch-caddy
+    container_name: shared-cookbook-caddy
     environment:
       CADDY_DOMAIN: ${CADDY_DOMAIN}
     ports:

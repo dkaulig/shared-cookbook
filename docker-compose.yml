@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: familien-kochbuch-postgres
+    container_name: shared-cookbook-postgres
     environment:
       POSTGRES_DB: "${POSTGRES_DB:-familien_kochbuch}"
       POSTGRES_USER: "${POSTGRES_USER:-app}"
@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: familien-kochbuch-redis
+    container_name: shared-cookbook-redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -30,7 +30,7 @@ services:
 
   seaweedfs:
     image: chrislusf/seaweedfs:latest
-    container_name: familien-kochbuch-seaweedfs
+    container_name: shared-cookbook-seaweedfs
     # Master + volume + filer, no S3 gateway. The filer speaks plain
     # HTTP on port 8333 (PUT/GET/DELETE against raw paths). We talk to
     # it from the API container over the internal docker network; the
@@ -46,7 +46,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    container_name: familien-kochbuch-api
+    container_name: shared-cookbook-api
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-familien_kochbuch};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD:-dev}"
@@ -133,7 +133,7 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    container_name: familien-kochbuch-web
+    container_name: shared-cookbook-web
     depends_on:
       - api
     restart: unless-stopped
@@ -145,7 +145,7 @@ services:
     build:
       context: ./apps/python-extractor
       dockerfile: Dockerfile
-    container_name: familien-kochbuch-python-extractor
+    container_name: shared-cookbook-python-extractor
     environment:
       # REL-7 — master AI switch + backend selector. Defaults to "AI
       # off" so a no-profile `docker compose up -d` boots without any
@@ -219,7 +219,7 @@ services:
 
   caddy:
     image: caddy:2-alpine
-    container_name: familien-kochbuch-caddy
+    container_name: shared-cookbook-caddy
     ports:
       - "80:80"
       - "443:443"
@@ -239,7 +239,7 @@ services:
   # network on the default Ollama port.
   #
   # Initial model pull is NOT automated here — operators run
-  # `docker exec familien-kochbuch-ollama ollama pull gemma3:12b`
+  # `docker exec shared-cookbook-ollama ollama pull gemma3:12b`
   # after first boot. See docs/SETUP.md (REL-6) for the HOWTO.
   #
   # GPU passthrough: uncomment the `deploy.resources.reservations`
@@ -250,7 +250,7 @@ services:
     profiles:
       - ollama
     image: ollama/ollama:latest
-    container_name: familien-kochbuch-ollama
+    container_name: shared-cookbook-ollama
     volumes:
       # Persist pulled model weights across container restarts so
       # `ollama pull` is a one-time cost per model.
