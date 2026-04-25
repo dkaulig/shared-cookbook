@@ -326,13 +326,27 @@ export function classifyMutationError(err: unknown): ClassifiedError {
   // 401/403 — auth surface handles 401 via apiClient refresh path. If
   // we land here, the refresh failed or this is a 403. Toast is the
   // lowest-friction nudge.
+  //
+  // SMALL-1b: when the backend tagged the failure with a user-
+  // actionable code (e.g. `invalid_credentials` on /auth/login), prefer
+  // the localised `errors:<code>` copy over the generic forbidden
+  // string. The previous order routed every 401 to "Fehlende
+  // Berechtigung. Bitte neu anmelden …" which is nonsensical during a
+  // failed login attempt, forcing LoginPage to wear a bespoke 4xx
+  // fall-through. With the priority flipped, a known code wins; only
+  // unknown / missing codes keep the generic toast.
   if (status === 401 || status === 403) {
+    const codeLocalised = code
+      ? t(code, { ns: 'errors', defaultValue: '' })
+      : ''
     return {
       surface: 'toast',
-      message: t('common.forbidden', {
-        defaultValue:
-          'Fehlende Berechtigung. Bitte neu anmelden oder Admin kontaktieren.',
-      }),
+      message:
+        codeLocalised ||
+        t('common.forbidden', {
+          defaultValue:
+            'Fehlende Berechtigung. Bitte neu anmelden oder Admin kontaktieren.',
+        }),
       code,
     }
   }

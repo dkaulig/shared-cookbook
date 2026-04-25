@@ -268,4 +268,55 @@ describe('classifyMutationError', () => {
     expect(result.surface).toBe('toast')
     expect(result.fieldName).toBeUndefined()
   })
+
+  it('SMALL-1b prioritises errors:<code> translation over the generic 401-forbidden copy', () => {
+    // A 401 with a known code (e.g. `invalid_credentials` from /auth/login)
+    // must surface the localised `errors:<code>` copy, not the generic
+    // "Fehlende Berechtigung. Bitte neu anmelden …" forbidden text. This
+    // lets call-sites use `classifyMutationError` directly without a
+    // bespoke 401 fall-through (the bespoke LoginPage path from REL-3f
+    // becomes unnecessary once this priority lands).
+    const result = classifyMutationError({
+      code: 'invalid_credentials',
+      message: 'Invalid credentials.',
+      status: 401,
+    })
+    expect(result.message).toMatch(/E-Mail oder Passwort/i)
+    expect(result.message).not.toMatch(/Fehlende Berechtigung/i)
+  })
+
+  it('SMALL-1b 403 with a known code surfaces the errors:<code> copy too', () => {
+    // Symmetry with the 401 path — if the backend tagged a 403 with a
+    // user-actionable code (e.g. a future `quota_exceeded`), the
+    // localised translation wins over the generic forbidden text.
+    const result = classifyMutationError({
+      code: 'invalid_credentials',
+      message: 'Invalid credentials.',
+      status: 403,
+    })
+    expect(result.message).toMatch(/E-Mail oder Passwort/i)
+  })
+
+  it('SMALL-1b unknown 401 codes still fall back to the generic forbidden toast', () => {
+    // Defensive: an unknown code on 401 must NOT crash the classifier —
+    // it falls back to the generic forbidden copy on the toast surface,
+    // which is the safe default for an authn race / auth-layer redirect
+    // miss.
+    const result = classifyMutationError({
+      code: 'zz_no_such_code',
+      message: 'whatever',
+      status: 401,
+    })
+    expect(result.surface).toBe('toast')
+    expect(result.message).toMatch(/Fehlende Berechtigung/i)
+  })
+
+  it('SMALL-1b 401 without a code stays on the generic forbidden toast', () => {
+    const result = classifyMutationError({
+      message: 'no code',
+      status: 401,
+    })
+    expect(result.surface).toBe('toast')
+    expect(result.message).toMatch(/Fehlende Berechtigung/i)
+  })
 })
