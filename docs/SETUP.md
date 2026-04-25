@@ -196,9 +196,9 @@ OLLAMA_VISION_MODEL=gemma3:12b
 (~9 GB for Gemma 3 12B):
 
 ```bash
-docker exec familien-kochbuch-ollama ollama pull gemma3:12b
+docker exec shared-cookbook-ollama ollama pull gemma3:12b
 # Or if you set a different OLLAMA_MODEL:
-# docker exec familien-kochbuch-ollama ollama pull qwen2.5:14b
+# docker exec shared-cookbook-ollama ollama pull qwen2.5:14b
 ```
 
 Hardware suggestions (operator-side verify on your hardware):
@@ -359,7 +359,7 @@ the placeholders so a fresh clone boots without manual setup.
 | Web shows blank page / spinner                       | Hard-refresh (Cmd+Shift+R / Ctrl+Shift+R) to bust the service-worker cache. After major redeploys, re-install the PWA. |
 | Photo / video import returns 503 `ai_disabled`       | Path 1: expected, AI is off. Path 2/3: confirm `AI_ENABLED=true` AND `LLM_PROVIDER=azure\|ollama` in `.env`, recreate api + python-extractor containers. |
 | Photo / video import returns 500 `not_configured`    | `LLM_PROVIDER` is set but the provider's credentials aren't (Azure key empty, or Ollama model not pulled).             |
-| Ollama calls time out                                | `docker exec familien-kochbuch-ollama ollama list` — model pulled? CPU-only on a 12B model can legitimately take 2–3 min. |
+| Ollama calls time out                                | `docker exec shared-cookbook-ollama ollama list` — model pulled? CPU-only on a 12B model can legitimately take 2–3 min. |
 | Whisper first import hangs forever                   | `docker compose logs -f python-extractor` — look for `whisper prefetch completed`. Slow uplinks need patience on first boot. |
 | Reset / invite emails never arrive                   | SMTP envs blank → links log to `docker compose logs api`. Configure SMTP for production.                               |
 | Orchestrator bot can't log in                        | `ORCHESTRATOR_PASSWORD` set in `.env`? Recreate the api container so SeedDataService runs.                             |

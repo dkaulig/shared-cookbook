@@ -85,7 +85,7 @@ Compose-Limits in `docker-compose.prod.yml`:
 Whisper large-v3 residentem RAM-Footprint ~3 GB. Live beobachten:
 
 ```bash
-ssh deploy@EXAMPLE_HOST 'docker stats familien-kochbuch-python-extractor --no-stream'
+ssh deploy@EXAMPLE_HOST 'docker stats shared-cookbook-python-extractor --no-stream'
 ```
 
 Worauf achten:
@@ -299,11 +299,11 @@ gleiche Secret aus `.env` lesen — mismatch → 401 auf jedem Callback.
   nicht an. Ursachen & Checks:
   ```bash
   # 1. Python-Logs auf HTTP-Fehler oder SsrfBlockedError
-  ssh deploy@EXAMPLE_HOST 'docker logs familien-kochbuch-python-extractor --tail=200 | grep -E "progress|callback|Ssrf"'
+  ssh deploy@EXAMPLE_HOST 'docker logs shared-cookbook-python-extractor --tail=200 | grep -E "progress|callback|Ssrf"'
   # 2. Subnet-Pin prüfen (muss 172.28.0.0/16 sein)
   ssh deploy@EXAMPLE_HOST 'docker network inspect familien-kochbuch_default | jq ".[0].IPAM.Config"'
   # 3. Shared-Secret auf beiden Containern vergleichen (Hash statt Klartext)
-  ssh deploy@EXAMPLE_HOST 'for c in familien-kochbuch-api familien-kochbuch-python-extractor; do
+  ssh deploy@EXAMPLE_HOST 'for c in shared-cookbook-api shared-cookbook-python-extractor; do
     docker exec "$c" sh -c "printenv EXTRACTOR_SHARED_SECRET | sha256sum"; done'
   ```
 
@@ -320,7 +320,7 @@ gleiche Secret aus `.env` lesen — mismatch → 401 auf jedem Callback.
   dauert >10 min (sehr großes Video → yt-dlp/Whisper langsam) ODER
   Clock-Skew zwischen den Containern:
   ```bash
-  ssh deploy@EXAMPLE_HOST 'for c in familien-kochbuch-api familien-kochbuch-python-extractor; do
+  ssh deploy@EXAMPLE_HOST 'for c in shared-cookbook-api shared-cookbook-python-extractor; do
     echo "$c: $(docker exec "$c" date -u)"; done'
   ```
   Bei >5 s Drift: Host-Zeit via `timedatectl` prüfen, Docker neu starten.
