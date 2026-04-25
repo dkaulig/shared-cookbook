@@ -139,7 +139,7 @@ describe('<ExtractorConfigPage />', () => {
 
     // Wait for the list query to resolve + seed drafts before poking
     // at section-level content.
-    await screen.findByLabelText(/llm\.structured\.system_prompt/i)
+    await screen.findByLabelText(/Strukturierter System-Prompt/i)
 
     // All four section headings present.
     expect(screen.getByRole('heading', { level: 2, name: /Prompts/i })).toBeInTheDocument()
@@ -153,15 +153,16 @@ describe('<ExtractorConfigPage />', () => {
       screen.getByRole('heading', { level: 2, name: /Thresholds/i }),
     ).toBeInTheDocument()
 
-    // Prompts — three textareas contain the seeded text.
+    // Prompts — three textareas contain the seeded text. Labels render
+    // via admin.extractor.keyLabels (POLISH-2 fix).
     const structuredPrompt = screen.getByLabelText(
-      /llm\.structured\.system_prompt/i,
+      /Strukturierter System-Prompt/i,
     ) as HTMLTextAreaElement
     expect(structuredPrompt.value).toBe('Du bist ein Koch.')
 
     // Modelle — deployment input carries the server default.
     const structuredDeployment = screen.getByLabelText(
-      /llm\.structured\.deployment/i,
+      /Strukturiert: Deployment-Name/i,
     ) as HTMLInputElement
     expect(structuredDeployment.value).toBe('gpt-4.1-mini')
 
@@ -179,7 +180,7 @@ describe('<ExtractorConfigPage />', () => {
 
     // Thresholds — number input populated.
     const minChars = screen.getByLabelText(
-      /pipeline\.min_transcript_chars/i,
+      /Min\. Transkript-Zeichen/i,
     ) as HTMLInputElement
     expect(minChars.value).toBe('20')
 
@@ -219,7 +220,7 @@ describe('<ExtractorConfigPage />', () => {
     renderPage()
 
     const tempInput = (await screen.findByLabelText(
-      /llm\.structured\.temperature/i,
+      /Strukturiert: Temperatur/i,
     )) as HTMLInputElement
     await user.clear(tempInput)
     await user.type(tempInput, '0.5')
@@ -263,7 +264,7 @@ describe('<ExtractorConfigPage />', () => {
     renderPage()
 
     const tempInput = (await screen.findByLabelText(
-      /llm\.structured\.temperature/i,
+      /Strukturiert: Temperatur/i,
     )) as HTMLInputElement
     await user.clear(tempInput)
     await user.type(tempInput, '0.3')
@@ -304,7 +305,7 @@ describe('<ExtractorConfigPage />', () => {
     renderPage()
 
     const tempInput = (await screen.findByLabelText(
-      /llm\.structured\.temperature/i,
+      /Strukturiert: Temperatur/i,
     )) as HTMLInputElement
     await user.clear(tempInput)
     await user.type(tempInput, '5')
@@ -346,12 +347,12 @@ describe('<ExtractorConfigPage />', () => {
 
     renderPage()
 
-    await screen.findByLabelText(/llm\.structured\.system_prompt/i)
+    await screen.findByLabelText(/Strukturierter System-Prompt/i)
 
     // The prompts section has a "Zurücksetzen" button per row — pick
     // the one in the Structured prompt's row group.
     const structuredGroup = screen
-      .getByLabelText(/llm\.structured\.system_prompt/i)
+      .getByLabelText(/Strukturierter System-Prompt/i)
       .closest('div[data-testid="prompt-row"]') as HTMLDivElement
     const resetBtn = within(structuredGroup).getByRole('button', {
       name: /Zurücksetzen/i,
@@ -363,7 +364,7 @@ describe('<ExtractorConfigPage />', () => {
     )
 
     const textarea = (await screen.findByLabelText(
-      /llm\.structured\.system_prompt/i,
+      /Strukturierter System-Prompt/i,
     )) as HTMLTextAreaElement
     await waitFor(() =>
       expect(textarea.value).toBe('Default-Prompt nach Reset.'),
@@ -496,7 +497,7 @@ describe('<ExtractorConfigPage />', () => {
       renderPage()
 
       const tempInput = (await screen.findByLabelText(
-        /llm\.structured\.temperature/i,
+        /Strukturiert: Temperatur/i,
       )) as HTMLInputElement
       await user.clear(tempInput)
       await user.type(tempInput, '0.4')

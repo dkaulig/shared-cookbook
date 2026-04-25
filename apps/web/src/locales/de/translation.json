@@ -1104,6 +1104,25 @@
         "feature.nutrition_estimate_enabled": "Nährwert-Schätzung aktivieren",
         "feature.thumbnail_auto_attach_enabled": "Thumbnail automatisch anhängen",
         "feature.chat_enabled": "Chat-Funktion aktivieren"
+      },
+      "keyLabels": {
+        "llm.structured.system_prompt": "Strukturierter System-Prompt",
+        "llm.chat.system_prompt": "Chat-System-Prompt",
+        "llm.vision.system_prompt": "Vision-System-Prompt",
+        "llm.structured.deployment": "Strukturiert: Deployment-Name",
+        "llm.structured.temperature": "Strukturiert: Temperatur",
+        "llm.structured.max_completion_tokens": "Strukturiert: Max-Completion-Tokens",
+        "llm.chat.deployment": "Chat: Deployment-Name",
+        "llm.chat.max_completion_tokens": "Chat: Max-Completion-Tokens",
+        "llm.vision.deployment": "Vision: Deployment-Name",
+        "llm.vision.temperature": "Vision: Temperatur",
+        "llm.vision.max_completion_tokens": "Vision: Max-Completion-Tokens",
+        "pipeline.min_transcript_chars": "Min. Transkript-Zeichen",
+        "pipeline.component_label_max": "Max. Komponenten-Label-Länge",
+        "pipeline.shortener_max_redirects": "Shortener: Max Redirects",
+        "pipeline.shortener_head_timeout_seconds": "Shortener: HEAD-Timeout (Sekunden)",
+        "pipeline.shortener_hosts": "Shortener-Hosts",
+        "pipeline.generic_label_blacklist": "Generische Label-Blacklist"
       }
     },
     "aiUsage": {

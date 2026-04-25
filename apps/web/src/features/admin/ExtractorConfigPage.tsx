@@ -376,7 +376,7 @@ function PromptsSection(
               >
                 <div className="flex items-baseline justify-between gap-3">
                   <Label htmlFor={key} className="text-sm font-medium">
-                    {key}
+                    {t(`admin.extractor.keyLabels.${key}`, { defaultValue: key })}
                   </Label>
                   <EditorChip item={base} />
                 </div>
@@ -673,6 +673,7 @@ interface FieldProps {
 
 function StringField(props: FieldProps) {
   const { fieldKey, baseline, drafts, savedAt, fieldErrors, setDraft } = props
+  const { t } = useTranslation()
   const base = baseline[fieldKey]
   if (!base) return null
   const value = typeof drafts[fieldKey] === 'string' ? (drafts[fieldKey] as string) : ''
@@ -680,7 +681,7 @@ function StringField(props: FieldProps) {
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-3">
         <Label htmlFor={fieldKey} className="text-sm font-medium">
-          {fieldKey}
+          {t(`admin.extractor.keyLabels.${fieldKey}`, { defaultValue: fieldKey })}
         </Label>
         <EditorChip item={base} />
       </div>
@@ -714,6 +715,7 @@ function NumberField(props: NumberFieldProps) {
     max,
     step = 1,
   } = props
+  const { t } = useTranslation()
   const base = baseline[fieldKey]
   if (!base) return null
   const raw = drafts[fieldKey]
@@ -727,7 +729,7 @@ function NumberField(props: NumberFieldProps) {
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-3">
         <Label htmlFor={fieldKey} className="text-sm font-medium">
-          {fieldKey}
+          {t(`admin.extractor.keyLabels.${fieldKey}`, { defaultValue: fieldKey })}
         </Label>
         <EditorChip item={base} />
       </div>
@@ -795,7 +797,7 @@ function StringListField(props: FieldProps) {
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-3">
         <Label htmlFor={`${fieldKey}__input`} className="text-sm font-medium">
-          {fieldKey}
+          {t(`admin.extractor.keyLabels.${fieldKey}`, { defaultValue: fieldKey })}
         </Label>
         <EditorChip item={base} />
       </div>
