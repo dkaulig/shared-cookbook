@@ -13,7 +13,7 @@
     "lint": "echo 'no lint target' && exit 0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^10.0.1",
     "eslint": "^10.2.0",
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^17.4.0",

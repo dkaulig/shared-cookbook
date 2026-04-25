@@ -43,7 +43,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^10.0.1",
     "@familien-kochbuch/config": "workspace:*",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.1.18",
