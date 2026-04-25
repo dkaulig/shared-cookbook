@@ -1,5 +1,5 @@
 /**
- * Rating DTOs — mirrors .NET API in `FamilienKochbuch.Api/Endpoints/
+ * Rating DTOs — mirrors .NET API in `SharedCookbook.Api/Endpoints/
  * RatingEndpoints.cs`. Hand-written for now; OpenAPI-generated later.
  */
 

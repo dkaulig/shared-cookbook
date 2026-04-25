@@ -8,7 +8,7 @@ import {
 /**
  * Type-level + shape regression tests for the PV3 shared types. The
  * `RecipeImportPhase` union mirrors the .NET `RecipeImportPhaseWire`
- * output (see `apps/api/src/FamilienKochbuch.Api/Hubs/LiveSyncPublisher.cs`)
+ * output (see `apps/api/src/SharedCookbook.Api/Hubs/LiveSyncPublisher.cs`)
  * and the Python extractor's callback body. Breaking the alignment
  * here is a coordination bug; these tests fail on `vitest --run`'s
  * type-check pass before the UI even starts rendering.

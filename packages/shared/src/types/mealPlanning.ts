@@ -1,6 +1,6 @@
 /**
  * Meal-planning DTOs mirroring the .NET API contract in
- * `FamilienKochbuch.Api/Endpoints/MealPlanning/MealPlanEndpoints.cs`
+ * `SharedCookbook.Api/Endpoints/MealPlanning/MealPlanEndpoints.cs`
  * (P3-1). Hand-written for now; will be generated from the OpenAPI
  * spec once the tooling lands.
  *

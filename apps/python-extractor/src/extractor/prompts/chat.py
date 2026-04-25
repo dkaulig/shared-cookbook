@@ -8,7 +8,7 @@ drift).
 
 CR5 removed the conversational system prompt (``CHAT_SYSTEM_PROMPT_DE``)
 from this module — the .NET API now owns the chat turn and has its own
-copy at ``apps/api/src/FamilienKochbuch.Api/Services/ChatSystemPrompt.cs``
+copy at ``apps/api/src/SharedCookbook.Api/Services/ChatSystemPrompt.cs``
 (ported verbatim from the German original).
 
 Reuse (not duplicate): :data:`RECIPE_SCHEMA` is re-exported from

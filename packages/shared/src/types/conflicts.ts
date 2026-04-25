@@ -3,7 +3,7 @@
  * mutation endpoints when the client's `If-Match` header doesn't line
  * up with the server's current `Version`. Mirrors the C# helper
  * `FamilienResults.Conflict(code, message, current)` in
- * `apps/api/src/FamilienKochbuch.Api/Services/FamilienResults.cs`.
+ * `apps/api/src/SharedCookbook.Api/Services/FamilienResults.cs`.
  *
  * The `current` field carries the full server-authoritative DTO at the
  * moment the conflict was detected — the frontend can hydrate its

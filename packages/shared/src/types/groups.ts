@@ -1,6 +1,6 @@
 /**
  * Group-related DTOs mirroring the .NET API contract in
- * `FamilienKochbuch.Api/Endpoints/GroupEndpoints.cs`. Hand-written for now;
+ * `SharedCookbook.Api/Endpoints/GroupEndpoints.cs`. Hand-written for now;
  * will be generated from the OpenAPI spec in a later slice.
  */
 

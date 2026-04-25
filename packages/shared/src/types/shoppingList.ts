@@ -1,6 +1,6 @@
 /**
  * Shopping-list DTOs mirroring the .NET API contract in
- * `FamilienKochbuch.Api/Endpoints/MealPlanning/ShoppingListEndpoints.cs`
+ * `SharedCookbook.Api/Endpoints/MealPlanning/ShoppingListEndpoints.cs`
  * (P3-5). Hand-written for now; will be generated from the OpenAPI
  * spec once the tooling lands.
  *
@@ -12,7 +12,7 @@
 
 /**
  * Supermarket aisle bucket. Mirrors the .NET
- * `FamilienKochbuch.Domain.Enums.IngredientCategory` enum — string
+ * `SharedCookbook.Domain.Enums.IngredientCategory` enum — string
  * literals because the API serialises enums by name. P3-6 expanded the
  * union from the initial `Sonstiges`-only fallback to the full ten-
  * category supermarket layout (Obst/Gemüse, Trockenwaren, Gewürze,

@@ -1,6 +1,6 @@
 /**
  * Recipe-search DTOs — mirrors .NET API in
- * `FamilienKochbuch.Api/Endpoints/SearchEndpoints.cs`. Hand-written for
+ * `SharedCookbook.Api/Endpoints/SearchEndpoints.cs`. Hand-written for
  * now; OpenAPI-generated later.
  */
 

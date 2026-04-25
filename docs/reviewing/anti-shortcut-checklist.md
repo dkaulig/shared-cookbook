@@ -66,7 +66,7 @@ Rationale: reviewer-agents have historically caught deviations-from-plan well bu
 
 The reviewer **must run** these themselves:
 
-- [ ] `dotnet test apps/api/FamilienKochbuch.sln` — all tests actually pass locally
+- [ ] `dotnet test apps/api/SharedCookbook.sln` — all tests actually pass locally
 - [ ] `pnpm test` (from repo root or filter) — all web + shared tests pass
 - [ ] `pnpm lint` — no errors (warnings are OK if justified)
 - [ ] If slice involves Docker: `docker compose up --build -d` succeeds; `docker compose ps` shows expected services; the slice's smoke commands succeed (`curl -s http://localhost/api/health`, etc.); `docker compose down` at the end

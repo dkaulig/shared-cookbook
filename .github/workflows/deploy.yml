@@ -51,11 +51,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Restore
-        run: dotnet restore apps/api/FamilienKochbuch.sln
+        run: dotnet restore apps/api/SharedCookbook.sln
       - name: Build
-        run: dotnet build apps/api/FamilienKochbuch.sln --configuration Release --no-restore
+        run: dotnet build apps/api/SharedCookbook.sln --configuration Release --no-restore
       - name: Test
-        run: dotnet test apps/api/FamilienKochbuch.sln --configuration Release --no-build
+        run: dotnet test apps/api/SharedCookbook.sln --configuration Release --no-build
 
   test-web:
     name: test:web

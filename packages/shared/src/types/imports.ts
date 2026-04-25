@@ -1,6 +1,6 @@
 /**
  * Recipe-import DTOs — mirror the .NET `ImportStatusResponse` (see
- * `apps/api/src/FamilienKochbuch.Api/Endpoints/ImportEndpoints.cs`)
+ * `apps/api/src/SharedCookbook.Api/Endpoints/ImportEndpoints.cs`)
  * + the Python extractor `ExtractionResult` shape (see
  * `apps/python-extractor/src/extractor/pipeline/types.py`).
  *

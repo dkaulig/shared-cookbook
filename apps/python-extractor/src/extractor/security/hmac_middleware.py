@@ -37,7 +37,7 @@ from starlette.types import ASGIApp
 logger = logging.getLogger(__name__)
 
 # Header contract — must stay in lockstep with
-# apps/api/src/FamilienKochbuch.Api/Services/ExtractorHmacSigner.cs.
+# apps/api/src/SharedCookbook.Api/Services/ExtractorHmacSigner.cs.
 USER_ID_HEADER: Final[str] = "x-user-id"
 TIMESTAMP_HEADER: Final[str] = "x-extractor-timestamp"
 SIGNATURE_HEADER: Final[str] = "x-extractor-signature"

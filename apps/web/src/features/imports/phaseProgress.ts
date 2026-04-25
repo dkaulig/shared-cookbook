@@ -4,7 +4,7 @@ import { progressLabel } from './progressLabel'
 /**
  * Phase helpers shared between `ImportProgressPage`, `PhaseStepper` and
  * friends. The phase-weighted formula itself lives on the server (see
- * `apps/api/src/FamilienKochbuch.Domain/Entities/RecipeImport.cs` +
+ * `apps/api/src/SharedCookbook.Domain/Entities/RecipeImport.cs` +
  * design doc §Phase-Weighted Progress Formula). We deliberately keep
  * the client free of a parallel implementation — every SignalR payload
  * and GET response carries the authoritative `progress` field, and

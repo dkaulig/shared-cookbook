@@ -1,6 +1,6 @@
 /**
  * User-facing auth DTOs mirroring the .NET API contract in
- * `FamilienKochbuch.Api/Endpoints/AuthEndpoints.cs`. Hand-written for now;
+ * `SharedCookbook.Api/Endpoints/AuthEndpoints.cs`. Hand-written for now;
  * will be generated from the OpenAPI spec in a later slice.
  */
 export type UserRole = 'User' | 'Admin'

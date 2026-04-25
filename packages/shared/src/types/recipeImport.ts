@@ -12,7 +12,7 @@
  *
  * Wire contract:
  *   - `.NET` `RecipeImportPhaseWire.ToWire(phase)` (see
- *     `apps/api/src/FamilienKochbuch.Api/Hubs/LiveSyncPublisher.cs`)
+ *     `apps/api/src/SharedCookbook.Api/Hubs/LiveSyncPublisher.cs`)
  *     emits the snake-case strings below.
  *   - Python `ProgressReporter` uses the same snake-case form when it
  *     posts `POST /api/internal/imports/{id}/progress`.
@@ -51,7 +51,7 @@ export const RECIPE_IMPORT_PHASES = [
 /**
  * SignalR `RecipeImportProgressChanged` payload. Matches the .NET
  * `RecipeImportProgressPayload` record in
- * `apps/api/src/FamilienKochbuch.Api/Hubs/LiveSyncPayloads.cs` — keep
+ * `apps/api/src/SharedCookbook.Api/Hubs/LiveSyncPayloads.cs` — keep
  * the two in lockstep. Keys are camelCase on the wire (see
  * `[JsonPropertyName]` decorators on the .NET side).
  */
