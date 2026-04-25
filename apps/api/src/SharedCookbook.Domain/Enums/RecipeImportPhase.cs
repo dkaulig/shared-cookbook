@@ -1,42 +1,43 @@
 namespace SharedCookbook.Domain.Enums;
 
 /// <summary>
-/// Phase-bewusster Fortschritt für einen <see cref="Entities.RecipeImport"/>.
-/// Der <see cref="Entities.ImportStatus"/>-Statemachine beschreibt die grobe
-/// Lebenszeit des Imports (Queued → Running → Done/Error); die Phase beschreibt
-/// <em>innerhalb</em> Running, welche Teilphase die Python-Extraktion gerade
-/// durchläuft. Beide Werte landen auf der Wire (<c>GET /api/imports/{id}</c>
-/// + SignalR-Event <c>RecipeImportProgressChanged</c>) und werden vom
-/// Frontend für den phasen-spezifischen Fortschrittsbalken verwendet.
+/// Phase-aware progress for a <see cref="Entities.RecipeImport"/>.
+/// The <see cref="Entities.ImportStatus"/> state machine describes the
+/// coarse lifetime of the import (Queued → Running → Done/Error); the
+/// phase describes <em>within</em> Running which sub-phase the Python
+/// extraction is currently running. Both values land on the wire
+/// (<c>GET /api/imports/{id}</c> + SignalR event
+/// <c>RecipeImportProgressChanged</c>) and the frontend uses them to
+/// drive the phase-specific progress bar.
 ///
-/// Die explizit vergebenen Int-Werte sind Teil des Wire-/On-Disk-Vertrags
-/// — neue Phasen kommen am Ende dazu, bestehende Werte dürfen sich nie
-/// verschieben. Monoton-steigende Werte ermöglichen den Out-Of-Order-Guard
-/// in <see cref="Entities.RecipeImport.UpdateProgress"/>.
+/// The explicitly assigned int values are part of the wire / on-disk
+/// contract — new phases append at the end; existing values must never
+/// shift. Monotonically increasing values enable the out-of-order
+/// guard in <see cref="Entities.RecipeImport.UpdateProgress"/>.
 /// </summary>
 public enum RecipeImportPhase
 {
-    /// <summary>Import ist in der Warteschlange — noch kein Python-Call.</summary>
+    /// <summary>Import is queued — no Python call yet.</summary>
     Queued = 0,
 
-    /// <summary>yt-dlp lädt das Video herunter. URL-Pfad only.</summary>
+    /// <summary>yt-dlp is downloading the video. URL path only.</summary>
     Downloading = 1,
 
-    /// <summary>faster-whisper transkribiert das Audio. URL-Pfad only.</summary>
+    /// <summary>faster-whisper is transcribing the audio. URL path only.</summary>
     Transcribing = 2,
 
-    /// <summary>Azure OpenAI strukturiert den Transkript-Text in Rezept-JSON.</summary>
+    /// <summary>Azure OpenAI is structuring the transcript text into recipe JSON.</summary>
     Structuring = 3,
 
-    /// <summary>Nachverarbeitung auf der .NET-Seite (Persistenz, Thumbnails).</summary>
+    /// <summary>Post-processing on the .NET side (persistence, thumbnails).</summary>
     PostProcessing = 4,
 
-    /// <summary>Azure Vision analysiert Foto(s). Photo-Pfad only; single-shot.</summary>
+    /// <summary>Azure Vision is analysing the photo(s). Photo path only; single-shot.</summary>
     VisionAnalysis = 5,
 
-    /// <summary>Import abgeschlossen; Rezept gespeichert.</summary>
+    /// <summary>Import complete; recipe stored.</summary>
     Done = 6,
 
-    /// <summary>Terminaler Fehlerzustand; <c>ErrorMessage</c> trägt den Grund.</summary>
+    /// <summary>Terminal error state; <c>ErrorMessage</c> carries the reason.</summary>
     Error = 7,
 }
