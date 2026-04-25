@@ -63,7 +63,7 @@ docker compose build python-extractor
 docker compose up -d python-extractor
 
 # The port is intentionally NOT published to the host — reach it via:
-docker exec familien-kochbuch-python-extractor curl -s http://localhost:8000/health
+docker exec shared-cookbook-python-extractor curl -s http://localhost:8000/health
 ```
 
 The .NET API will proxy in P2-6. Frontend never talks to this service
