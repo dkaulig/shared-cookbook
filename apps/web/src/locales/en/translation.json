@@ -1031,6 +1031,43 @@
       }
     }
   },
+  "tagManagement": {
+    "panel": {
+      "loading": "Loading…",
+      "loadError": "Could not load tags.",
+      "intro": "Manage your custom tags and review the global ones.",
+      "createCta": "+ Create custom tag",
+      "memberHint": "Only admins can manage tags.",
+      "customHeading": "Custom tags",
+      "customEmpty": "No custom tags yet.",
+      "globalHeading": "Global tags",
+      "globalBadge": "Global, not deletable",
+      "deleteAriaTemplate": "Delete tag {{name}}",
+      "deleteCta": "Delete",
+      "deleteDialogTitle": "Really delete this tag?",
+      "deleteDialogDescriptionTemplate": "\"{{name}}\" will be removed. Existing recipe links stay.",
+      "deleteDialogConfirm": "Delete"
+    },
+    "createDialog": {
+      "title": "Create custom tag",
+      "nameLabel": "Name",
+      "categoryLabel": "Category",
+      "nameRequired": "Name is required.",
+      "cancelCta": "Cancel",
+      "savingCta": "Creating…",
+      "submitCta": "Create tag",
+      "categoryLabels": {
+        "Custom": "Custom",
+        "Mahlzeit": "Meal",
+        "Saison": "Season",
+        "Typ": "Type",
+        "Aufwand": "Effort",
+        "Diaet": "Diet",
+        "Kueche": "Cuisine",
+        "Komponente": "Component"
+      }
+    }
+  },
   "admin": {
     "extractor": {
       "heading": "Extractor config",

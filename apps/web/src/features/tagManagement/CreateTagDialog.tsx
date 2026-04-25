@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { TagCategory } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,18 +8,19 @@ import { Label } from '@/components/ui/label'
 import { classifyMutationError } from '@/features/_shared/errorSurface'
 import { useCreateGroupTag } from './hooks'
 
-const CATEGORIES: { value: TagCategory; label: string }[] = [
-  { value: 'Custom', label: 'Eigene' },
-  { value: 'Mahlzeit', label: 'Mahlzeit' },
-  { value: 'Saison', label: 'Saison' },
-  { value: 'Typ', label: 'Typ' },
-  { value: 'Aufwand', label: 'Aufwand' },
-  { value: 'Diaet', label: 'Diät' },
-  { value: 'Kueche', label: 'Küche' },
+const CATEGORY_DEFAULTS: Record<TagCategory, string> = {
+  Custom: 'Eigene',
+  Mahlzeit: 'Mahlzeit',
+  Saison: 'Saison',
+  Typ: 'Typ',
+  Aufwand: 'Aufwand',
+  Diaet: 'Diät',
+  Kueche: 'Küche',
   // GR1 — lets groups author their own Komponente-style sub-recipe
   // tags alongside the seven seeded globals.
-  { value: 'Komponente', label: 'Komponente' },
-]
+  Komponente: 'Komponente',
+}
+const CATEGORY_VALUES = Object.keys(CATEGORY_DEFAULTS) as TagCategory[]
 
 /**
  * Small modal dialog that creates a new group-scoped tag. Used by
@@ -33,6 +35,7 @@ export function CreateTagDialog({
   groupId: string
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [category, setCategory] = useState<TagCategory>('Custom')
   const [error, setError] = useState<string | null>(null)
@@ -42,7 +45,11 @@ export function CreateTagDialog({
     e.preventDefault()
     setError(null)
     if (name.trim().length === 0) {
-      setError('Name ist erforderlich.')
+      setError(
+        t('tagManagement.createDialog.nameRequired', {
+          defaultValue: 'Name ist erforderlich.',
+        }),
+      )
       return
     }
     try {
@@ -63,11 +70,13 @@ export function CreateTagDialog({
     >
       <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
         <h2 id="create-tag-title" className="mb-4 text-lg font-semibold text-stone-900">
-          Eigenen Tag erstellen
+          {t('tagManagement.createDialog.title', { defaultValue: 'Eigenen Tag erstellen' })}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-1.5">
-            <Label htmlFor="tag-name">Name</Label>
+            <Label htmlFor="tag-name">
+              {t('tagManagement.createDialog.nameLabel', { defaultValue: 'Name' })}
+            </Label>
             <Input
               id="tag-name"
               type="text"
@@ -78,16 +87,20 @@ export function CreateTagDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="tag-category">Kategorie</Label>
+            <Label htmlFor="tag-category">
+              {t('tagManagement.createDialog.categoryLabel', { defaultValue: 'Kategorie' })}
+            </Label>
             <select
               id="tag-category"
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
               value={category}
               onChange={(e) => setCategory(e.target.value as TagCategory)}
             >
-              {CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
+              {CATEGORY_VALUES.map((value) => (
+                <option key={value} value={value}>
+                  {t(`tagManagement.createDialog.categoryLabels.${value}`, {
+                    defaultValue: CATEGORY_DEFAULTS[value],
+                  })}
                 </option>
               ))}
             </select>
@@ -101,10 +114,12 @@ export function CreateTagDialog({
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
-              Abbrechen
+              {t('tagManagement.createDialog.cancelCta', { defaultValue: 'Abbrechen' })}
             </Button>
             <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? 'Erstelle…' : 'Tag anlegen'}
+              {mutation.isPending
+                ? t('tagManagement.createDialog.savingCta', { defaultValue: 'Erstelle…' })
+                : t('tagManagement.createDialog.submitCta', { defaultValue: 'Tag anlegen' })}
             </Button>
           </div>
         </form>

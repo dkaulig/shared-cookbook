@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { TagDto } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { useGroup } from '@/features/groups/hooks'
@@ -22,6 +23,7 @@ import { useDeleteGroupTag } from './hooks'
  * mutations — drop-in section, no other props required.
  */
 export function GroupTagsPanel({ groupId }: { groupId: string }) {
+  const { t } = useTranslation()
   const groupQuery = useGroup(groupId)
   const tagsQuery = useGroupTags(groupId)
   const deleteMutation = useDeleteGroupTag(groupId)
@@ -34,7 +36,11 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
   const [pendingDelete, setPendingDelete] = useState<TagDto | null>(null)
 
   if (groupQuery.isLoading || tagsQuery.isLoading) {
-    return <p className="text-sm text-stone-500">Lade …</p>
+    return (
+      <p className="text-sm text-stone-500">
+        {t('tagManagement.panel.loading', { defaultValue: 'Lade …' })}
+      </p>
+    )
   }
 
   if (groupQuery.isError || !groupQuery.data || tagsQuery.isError) {
@@ -43,7 +49,9 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
         role="alert"
         className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
       >
-        Tags konnten nicht geladen werden.
+        {t('tagManagement.panel.loadError', {
+          defaultValue: 'Tags konnten nicht geladen werden.',
+        })}
       </p>
     )
   }
@@ -72,18 +80,22 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="text-[13px] text-[hsl(var(--muted-foreground))]">
-          Eigene Tags pflegen und globale Tags ansehen.
+          {t('tagManagement.panel.intro', {
+            defaultValue: 'Eigene Tags pflegen und globale Tags ansehen.',
+          })}
         </p>
         {isAdmin && (
           <Button type="button" size="sm" onClick={() => setShowDialog(true)}>
-            + Eigenen Tag erstellen
+            {t('tagManagement.panel.createCta', { defaultValue: '+ Eigenen Tag erstellen' })}
           </Button>
         )}
       </div>
 
       {!isAdmin && (
         <p className="rounded-md bg-stone-50 px-3 py-2 text-sm text-stone-700 ring-1 ring-stone-200">
-          Nur Admins können Tags verwalten.
+          {t('tagManagement.panel.memberHint', {
+            defaultValue: 'Nur Admins können Tags verwalten.',
+          })}
         </p>
       )}
 
@@ -97,9 +109,15 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
       )}
 
       <section className="rounded-md bg-background p-4 ring-1 ring-border">
-        <h3 className="mb-3 text-base font-semibold text-stone-900">Eigene Tags</h3>
+        <h3 className="mb-3 text-base font-semibold text-stone-900">
+          {t('tagManagement.panel.customHeading', { defaultValue: 'Eigene Tags' })}
+        </h3>
         {customTags.length === 0 ? (
-          <p className="text-sm text-stone-500">Noch keine eigenen Tags angelegt.</p>
+          <p className="text-sm text-stone-500">
+            {t('tagManagement.panel.customEmpty', {
+              defaultValue: 'Noch keine eigenen Tags angelegt.',
+            })}
+          </p>
         ) : (
           <ul className="divide-y">
             {customTags.map((tag) => (
@@ -115,11 +133,14 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    aria-label={`Tag ${tag.name} löschen`}
+                    aria-label={t('tagManagement.panel.deleteAriaTemplate', {
+                      defaultValue: 'Tag {{name}} löschen',
+                      name: tag.name,
+                    })}
                     onClick={() => setPendingDelete(tag)}
                     disabled={deleteMutation.isPending}
                   >
-                    Löschen
+                    {t('tagManagement.panel.deleteCta', { defaultValue: 'Löschen' })}
                   </Button>
                 )}
               </li>
@@ -129,7 +150,9 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
       </section>
 
       <section className="rounded-md bg-background p-4 ring-1 ring-border">
-        <h3 className="mb-3 text-base font-semibold text-stone-900">Globale Tags</h3>
+        <h3 className="mb-3 text-base font-semibold text-stone-900">
+          {t('tagManagement.panel.globalHeading', { defaultValue: 'Globale Tags' })}
+        </h3>
         <ul className="divide-y">
           {globalTags.map((tag) => (
             <li key={tag.id} className="flex items-center justify-between py-2 text-sm">
@@ -139,7 +162,9 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
                   {tag.category}
                 </span>
               </span>
-              <span className="text-xs text-stone-400">Global, nicht löschbar</span>
+              <span className="text-xs text-stone-400">
+                {t('tagManagement.panel.globalBadge', { defaultValue: 'Global, nicht löschbar' })}
+              </span>
             </li>
           ))}
         </ul>
@@ -154,13 +179,19 @@ export function GroupTagsPanel({ groupId }: { groupId: string }) {
         onOpenChange={(next) => {
           if (!next) setPendingDelete(null)
         }}
-        title="Tag wirklich löschen?"
+        title={t('tagManagement.panel.deleteDialogTitle', {
+          defaultValue: 'Tag wirklich löschen?',
+        })}
         description={
           pendingDelete
-            ? `"${pendingDelete.name}" wird entfernt. Vorhandene Rezept-Verknüpfungen bleiben erhalten.`
+            ? t('tagManagement.panel.deleteDialogDescriptionTemplate', {
+                defaultValue:
+                  '"{{name}}" wird entfernt. Vorhandene Rezept-Verknüpfungen bleiben erhalten.',
+                name: pendingDelete.name,
+              })
             : ''
         }
-        confirmLabel="Löschen"
+        confirmLabel={t('tagManagement.panel.deleteDialogConfirm', { defaultValue: 'Löschen' })}
         onConfirm={handleConfirmDelete}
         isLoading={deleteMutation.isPending}
       />
