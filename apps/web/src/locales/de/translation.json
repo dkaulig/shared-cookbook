@@ -1031,6 +1031,43 @@
       }
     }
   },
+  "tagManagement": {
+    "panel": {
+      "loading": "Lade …",
+      "loadError": "Tags konnten nicht geladen werden.",
+      "intro": "Eigene Tags pflegen und globale Tags ansehen.",
+      "createCta": "+ Eigenen Tag erstellen",
+      "memberHint": "Nur Admins können Tags verwalten.",
+      "customHeading": "Eigene Tags",
+      "customEmpty": "Noch keine eigenen Tags angelegt.",
+      "globalHeading": "Globale Tags",
+      "globalBadge": "Global, nicht löschbar",
+      "deleteAriaTemplate": "Tag {{name}} löschen",
+      "deleteCta": "Löschen",
+      "deleteDialogTitle": "Tag wirklich löschen?",
+      "deleteDialogDescriptionTemplate": "\"{{name}}\" wird entfernt. Vorhandene Rezept-Verknüpfungen bleiben erhalten.",
+      "deleteDialogConfirm": "Löschen"
+    },
+    "createDialog": {
+      "title": "Eigenen Tag erstellen",
+      "nameLabel": "Name",
+      "categoryLabel": "Kategorie",
+      "nameRequired": "Name ist erforderlich.",
+      "cancelCta": "Abbrechen",
+      "savingCta": "Erstelle…",
+      "submitCta": "Tag anlegen",
+      "categoryLabels": {
+        "Custom": "Eigene",
+        "Mahlzeit": "Mahlzeit",
+        "Saison": "Saison",
+        "Typ": "Typ",
+        "Aufwand": "Aufwand",
+        "Diaet": "Diät",
+        "Kueche": "Küche",
+        "Komponente": "Komponente"
+      }
+    }
+  },
   "admin": {
     "extractor": {
       "heading": "Extractor-Konfiguration",
