@@ -101,8 +101,23 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
             publicResolver);
         _job = new ExtractRecipeFromUrlJob(
             _db, runner, candidateAttacher, _photoStorage, _clock,
-            NullLogger<ExtractRecipeFromUrlJob>.Instance);
+            NullLogger<ExtractRecipeFromUrlJob>.Instance,
+            BuildTranslationService());
     }
+
+    /// <summary>
+    /// LANG-2 — translation service stub for the job-under-test. The
+    /// reimport path's only call into this service is
+    /// <c>MarkAllStaleAsync</c>, which is a pure DB read+write and
+    /// doesn't touch the LLM. The Azure fake stays unused but is
+    /// required by the constructor.
+    /// </summary>
+    private RecipeTranslationService BuildTranslationService() =>
+        new RecipeTranslationService(
+            _db,
+            new FakeAzureOpenAIChatClient(),
+            _clock,
+            NullLogger<RecipeTranslationService>.Instance);
 
     public async Task DisposeAsync()
     {
@@ -771,7 +786,8 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
                 _clock),
             _progressTokens, new NullLiveSyncPublisher(), _clock,
             NullLogger<PythonExtractorRunner>.Instance), attacher, _photoStorage, _clock,
-            NullLogger<ExtractRecipeFromUrlJob>.Instance);
+            NullLogger<ExtractRecipeFromUrlJob>.Instance,
+            BuildTranslationService());
 
         var import = await SeedImportAsync("https://evil.com/recipe");
         _handler.QueueResponse(HttpStatusCode.OK, """
@@ -1331,7 +1347,8 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
                 _progressTokens, new NullLiveSyncPublisher(), _clock,
                 NullLogger<PythonExtractorRunner>.Instance),
             attacher, _photoStorage, _clock,
-            NullLogger<ExtractRecipeFromUrlJob>.Instance);
+            NullLogger<ExtractRecipeFromUrlJob>.Instance,
+            BuildTranslationService());
         await job.ExecuteAsync(import.Id, CancellationToken.None);
 
         var reloaded = await _db.RecipeImports.AsNoTracking()

@@ -50,6 +50,7 @@ public class ExtractRecipeFromUrlJob
     private readonly IPhotoStorage _photoStorage;
     private readonly TimeProvider _clock;
     private readonly ILogger<ExtractRecipeFromUrlJob> _logger;
+    private readonly Services.RecipeTranslationService _translationService;
 
     public ExtractRecipeFromUrlJob(
         AppDbContext db,
@@ -57,7 +58,8 @@ public class ExtractRecipeFromUrlJob
         CandidateAttacher candidateAttacher,
         IPhotoStorage photoStorage,
         TimeProvider clock,
-        ILogger<ExtractRecipeFromUrlJob> logger)
+        ILogger<ExtractRecipeFromUrlJob> logger,
+        Services.RecipeTranslationService translationService)
     {
         _db = db;
         _runner = runner;
@@ -65,6 +67,7 @@ public class ExtractRecipeFromUrlJob
         _photoStorage = photoStorage;
         _clock = clock;
         _logger = logger;
+        _translationService = translationService;
     }
 
     /// <summary>Entry point invoked by Hangfire. Public for EF's DI
@@ -329,6 +332,15 @@ public class ExtractRecipeFromUrlJob
             _db.RecipeSteps.Add(step);
         foreach (var tagLink in mergedTagLinks)
             _db.RecipeTags.Add(tagLink);
+
+        // LANG-2 — stale-cascade for the reimport path. Recipe body got
+        // wholesale-replaced by UpdateFromImport; every cached
+        // translation row is now potentially stale. Mark them and let
+        // the user decide whether to refresh on next detail-page load.
+        // No-op when no translations exist (the common case for a
+        // freshly-imported recipe).
+        await _translationService.MarkAllStaleAsync(target.Id, ct);
+
         await _db.SaveChangesAsync(ct);
 
         // COVER-0 — download every candidate thumbnail the extractor

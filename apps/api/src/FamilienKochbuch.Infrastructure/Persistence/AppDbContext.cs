@@ -26,6 +26,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<GroupInvite> GroupInvites => Set<GroupInvite>();
     public DbSet<Recipe> Recipes => Set<Recipe>();
     public DbSet<RecipeComponent> RecipeComponents => Set<RecipeComponent>();
+    public DbSet<RecipeTranslation> RecipeTranslations => Set<RecipeTranslation>();
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
     public DbSet<RecipeStep> RecipeSteps => Set<RecipeStep>();
     public DbSet<Tag> Tags => Set<Tag>();
@@ -271,6 +272,27 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.Property(c => c.Label).HasMaxLength(RecipeComponent.LabelMaxLength);
             e.HasIndex(c => c.RecipeId);
             e.HasIndex(c => new { c.RecipeId, c.Position }).IsUnique();
+        });
+
+        // LANG-2 — cached recipe translations. UNIQUE (RecipeId, Language)
+        // matches the design's "one row per (recipe, language)" rule;
+        // FK ON DELETE CASCADE so a hard-delete sweep takes the
+        // translation rows with the recipe.
+        builder.Entity<RecipeTranslation>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Language)
+                .IsRequired()
+                .HasMaxLength(RecipeTranslation.LanguageMaxLength);
+            e.Property(t => t.TranslatedPayload)
+                .IsRequired()
+                .HasColumnType("jsonb");
+            e.HasIndex(t => t.RecipeId);
+            e.HasIndex(t => new { t.RecipeId, t.Language }).IsUnique();
+            e.HasOne<Recipe>()
+                .WithMany()
+                .HasForeignKey(t => t.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<Ingredient>(e =>

@@ -450,6 +450,14 @@ public static class RecipeEndpoints
         // never redirect the job at an arbitrary host (SSRF guard).
         recipe.MapPost("/reimport", ReimportRecipeAsync);
 
+        // LANG-2 — translate the recipe into the target UI language.
+        // Returns the cached translated payload, fetching from the LLM
+        // on a cache miss / stale-with-force. Group-membership gated
+        // (same as other recipe-scoped endpoints); soft-deleted recipes
+        // 404. The 400 `already_in_language` defends a tampered request;
+        // the frontend hides the button when source == target language.
+        recipe.MapPost("/translate", TranslateRecipeAsync);
+
         // COVER-0: swap the recipe's cover photo. Body carries a
         // staged-photo id that must be either already promoted onto
         // this recipe (re-order existing photos) or an un-promoted
@@ -1595,6 +1603,7 @@ public static class RecipeEndpoints
         AppDbContext db,
         IPhotoStorage photoStorage,
         IRecipeRevisionService revisionService,
+        Services.RecipeTranslationService translationService,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -1682,6 +1691,15 @@ public static class RecipeEndpoints
                 db.RecipeSteps.Add(step);
             foreach (var tagId in body.TagIds.Distinct())
                 db.RecipeTags.Add(new RecipeTag(recipe.Id, tagId));
+
+            // LANG-2 — flag every cached translation stale so the next
+            // detail-page load sees the "could be outdated" hint with a
+            // refresh affordance. The MarkAllStaleAsync call queues
+            // the UPDATE on each translation row but defers SaveChanges
+            // to the next line so the source-edit and stale-cascade
+            // land in the same transaction.
+            await translationService.MarkAllStaleAsync(recipe.Id, ct);
+
             await db.SaveChangesAsync(ct);
         }
         catch (ArgumentException ex)
@@ -2659,6 +2677,90 @@ public static class RecipeEndpoints
         return Results.Accepted(
             $"/api/imports/{import.Id}",
             new ImportEndpoints.ImportEnqueueResponse(import.Id));
+    }
+
+    // ── POST /api/recipes/{id}/translate (LANG-2) ───────────────────
+
+    /// <summary>LANG-2 — response payload of the translate endpoint.
+    /// <see cref="TranslatedPayload"/> is the JSON document the LLM
+    /// returned, mirroring the translatable subset of the recipe shape;
+    /// the frontend merges it onto the source recipe so numbers and
+    /// photo URLs stay byte-identical. <see cref="IsStale"/> tells the
+    /// banner whether to surface the "could be outdated" hint;
+    /// <see cref="CacheHit"/> is informational (debugging / metrics).</summary>
+    public record RecipeTranslationResponseDto(
+        Guid RecipeId,
+        string Language,
+        string TranslatedPayload,
+        bool IsStale,
+        bool CacheHit,
+        DateTimeOffset UpdatedAt);
+
+    private static async Task<IResult> TranslateRecipeAsync(
+        Guid id,
+        string? lang,
+        bool? force,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        Services.RecipeTranslationService translationService,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        // Normalise + whitelist the target language before any DB read
+        // so we 400 fast on garbage input. The recipe-existence + group-
+        // membership checks happen below after we know the lang is sane.
+        var normalizedLang = Services.LanguageNormalizer.Normalise(lang);
+        if (string.IsNullOrWhiteSpace(lang)
+            || !string.Equals(normalizedLang, lang, StringComparison.OrdinalIgnoreCase))
+        {
+            // Strict input — the caller MUST send a 2-letter whitelisted
+            // code in the query. We don't fall back to Accept-Language
+            // here because the user explicitly clicked "translate to X";
+            // a silent fallback would mask a frontend bug.
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidQuery,
+                "Query parameter 'lang' must be one of: de, en.",
+                fieldName: "lang");
+        }
+
+        var recipe = await db.Recipes.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == id && r.DeletedAt == null, ct);
+        if (recipe is null)
+        {
+            return FamilienResults.NotFound(
+                ErrorCodes.RecipeNotFound, "Recipe not found.");
+        }
+        if (!await IsGroupMemberAsync(db, recipe.GroupId, userId, ct))
+            return Results.Forbid();
+
+        var result = await translationService.TranslateAsync(
+            id, normalizedLang, force ?? false, ct);
+
+        if (!result.IsSuccess)
+        {
+            var failure = result.Error!;
+            return failure.Code switch
+            {
+                ErrorCodes.RecipeNotFound =>
+                    FamilienResults.NotFound(failure.Code, failure.Message),
+                ErrorCodes.AlreadyInLanguage =>
+                    FamilienResults.BadRequest(failure.Code, failure.Message),
+                ErrorCodes.AiServiceUnavailable =>
+                    FamilienResults.ServiceUnavailable(failure.Code, failure.Message),
+                _ =>
+                    FamilienResults.InternalServerError(failure.Code, failure.Message),
+            };
+        }
+
+        return Results.Ok(new RecipeTranslationResponseDto(
+            RecipeId: id,
+            Language: normalizedLang,
+            TranslatedPayload: result.TranslatedPayload,
+            IsStale: result.IsStale,
+            CacheHit: result.CacheHit,
+            UpdatedAt: clock.GetUtcNow()));
     }
 
     // ── GET /api/groups/{groupId}/tags ──────────────────────────────

@@ -269,6 +269,13 @@ public static class ErrorCodes
     /// plan. HTTP 400.</summary>
     public const string CopySamePlan = "copy_same_plan";
 
+    /// <summary>LANG-2 — translate request asked for the recipe's
+    /// source language; nothing to translate. HTTP 400. The frontend
+    /// hides the Translate button when
+    /// <c>recipe.sourceLanguage === ui-language</c> so this defends a
+    /// tampered request rather than a normal user click.</summary>
+    public const string AlreadyInLanguage = "already_in_language";
+
     // ── Auth (401 / 403) ─────────────────────────────────────────────
 
     /// <summary>Caller has no valid authentication. HTTP 401.

@@ -157,6 +157,8 @@ builder.Services.AddScoped<IPrivateCollectionService, PrivateCollectionService>(
 builder.Services.AddScoped<IRecipeSearchService, PostgresRecipeSearchService>();
 builder.Services.AddScoped<IRecipeRevisionService, RecipeRevisionService>();
 builder.Services.AddScoped<PhotoPathMigrationService>();
+// LANG-2 — on-demand recipe re-translation service.
+builder.Services.AddScoped<FamilienKochbuch.Api.Services.RecipeTranslationService>();
 
 // ── Photo URL signing (HMAC over path+exp, keyed off Jwt:SigningKey) ──
 builder.Services.AddSingleton<ImageSigningService>();
