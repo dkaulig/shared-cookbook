@@ -67,7 +67,7 @@ def _validate_messages(messages: Sequence[ChatMessage]) -> None:
         raise EmptyMessagesError("messages must not be empty")
     if len(messages) > MAX_MESSAGES:
         raise MessagesTooLongError(
-            f"messages zu lang: got {len(messages)} turns, max {MAX_MESSAGES}"
+            f"messages too long: got {len(messages)} turns, max {MAX_MESSAGES}"
         )
 
 
@@ -79,7 +79,7 @@ async def chat_to_recipe(
     config: ExtractorConfig | None = None,
     lang: SupportedLanguage = "en",
 ) -> ExtractionResult:
-    """Verdichte die Konversation zu einem strukturierten Rezept.
+    """Compress the conversation into a structured recipe.
 
     Parameters
     ----------
