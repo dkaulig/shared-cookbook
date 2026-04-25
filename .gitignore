@@ -58,3 +58,8 @@ htmlcov/
 # Playwright MCP cache (local session artifacts)
 .playwright-mcp/
 phase-0-test-result.png
+
+# Playwright test runner output
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/test-results.json
