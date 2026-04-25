@@ -35,7 +35,7 @@ import { GroupDetailHeader } from './GroupDetailHeader'
 import { GroupFilterBar } from './GroupFilterBar'
 import { GroupMembersAndInvitesPanel } from './GroupMembersAndInvitesPanel'
 import { useGroup } from './hooks'
-import { useBottomZoneSlot } from '@/components/layout/bottomZone'
+import { useBottomZoneSlot } from '@/components/layout/bottomZoneHooks'
 import { SplitPane } from '@/components/layout/SplitPane'
 import { useIsMobile } from '@/lib/useIsMobile'
 

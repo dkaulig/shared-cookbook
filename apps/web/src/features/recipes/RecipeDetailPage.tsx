@@ -43,7 +43,7 @@ import { RecipeActionBar } from './RecipeActionBar'
 import { ForkRecipeDialog } from './ForkRecipeDialog'
 import { TranslationBanner } from './TranslationBanner'
 import { applyTranslation } from './applyTranslation'
-import { useBottomZoneSlot } from '@/components/layout/bottomZone'
+import { useBottomZoneSlot } from '@/components/layout/bottomZoneHooks'
 
 /**
  * DS5 recipe-detail page. Composes the hero header, portion stepper,
