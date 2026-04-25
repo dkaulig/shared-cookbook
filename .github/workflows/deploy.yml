@@ -3,10 +3,10 @@ name: Deploy
 # NOTE FOR FORKS / EXTERNAL CONTRIBUTORS
 # --------------------------------------
 # This workflow deploys to the maintainer's VPS via tag-only triggers.
-# It will not work for you out-of-the-box: it expects org-scoped GHCR
-# images (`kay-solutions/familien-kochbuch-*`) and three repo secrets
-# (`VPS_HOST`, `VPS_SSH_KEY`, `PROD_ENV`) that only the maintainer can
-# set. A push to a fork will fail at the SSH step.
+# It will not work for you out-of-the-box: it expects GHCR images under
+# the repository owner's namespace (`shared-cookbook-*`) and three repo
+# secrets (`VPS_HOST`, `VPS_SSH_KEY`, `PROD_ENV`) that only the
+# maintainer can set. A push to a fork will fail at the SSH step.
 #
 # If you fork this project to self-host: redirect the GHCR image paths
 # in `env.IMAGE_PREFIX` and the matrix in the `prune-ghcr` job to your
@@ -39,7 +39,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/kay-solutions/familien-kochbuch
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/shared-cookbook
 
 jobs:
   test-api:
@@ -70,9 +70,9 @@ jobs:
       - name: Install JS deps
         run: pnpm install --frozen-lockfile
       - name: Lint
-        run: pnpm --filter @familien-kochbuch/web lint
+        run: pnpm --filter @shared-cookbook/web lint
       - name: Test
-        run: pnpm --filter @familien-kochbuch/web test
+        run: pnpm --filter @shared-cookbook/web test
 
   test-shared:
     name: test:shared
@@ -87,7 +87,7 @@ jobs:
       - name: Install JS deps
         run: pnpm install --frozen-lockfile
       - name: Test
-        run: pnpm --filter @familien-kochbuch/shared test
+        run: pnpm --filter @shared-cookbook/shared test
 
   test-python:
     name: test:python
@@ -302,15 +302,15 @@ jobs:
     strategy:
       matrix:
         package:
-          - familien-kochbuch-api
-          - familien-kochbuch-web
-          - familien-kochbuch-python-extractor
+          - shared-cookbook-api
+          - shared-cookbook-web
+          - shared-cookbook-python-extractor
     steps:
       - name: Delete untagged versions
         uses: actions/delete-package-versions@v5
         with:
           package-name: ${{ matrix.package }}
           package-type: container
-          owner: kay-solutions
+          owner: ${{ github.repository_owner }}
           min-versions-to-keep: 10
           delete-only-untagged-versions: 'true'
