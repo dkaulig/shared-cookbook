@@ -5,9 +5,15 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import type { RecipeDetailDto } from '@familien-kochbuch/shared'
+import type {
+  RecipeDetailDto,
+  RecipeTranslationResponse,
+} from '@familien-kochbuch/shared'
+import { I18nextProvider } from 'react-i18next'
+import { createI18n } from '@/i18n'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
+import { recipeQueryKeys } from '../queryKeys'
 import { CookModePage } from './CookModePage'
 
 const recipe: RecipeDetailDto = {
@@ -65,9 +71,17 @@ beforeEach(() => {
   )
 })
 
-function withProviders(path: string): ReactNode {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return (
+function withProviders(
+  path: string,
+  options: {
+    client?: QueryClient
+    i18n?: import('i18next').i18n
+  } = {},
+): ReactNode {
+  const client =
+    options.client ??
+    new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const tree = (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <LocationProbe />
@@ -83,6 +97,14 @@ function withProviders(path: string): ReactNode {
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
+  )
+  // LANG-2-FU-1 — specs that pin the UI language wrap with a detached
+  // i18n instance so they don't mutate the global singleton (which
+  // would leak into parallel test files via the shared default).
+  return options.i18n ? (
+    <I18nextProvider i18n={options.i18n}>{tree}</I18nextProvider>
+  ) : (
+    tree
   )
 }
 
@@ -727,5 +749,171 @@ describe('CookModePage — COMP-2 component grouping', () => {
     expect(
       screen.queryByTestId('cook-step-component-chip'),
     ).not.toBeInTheDocument()
+  })
+})
+
+// ── LANG-2-FU-1 — Cook-Now honors the active translation ─────────────
+//
+// Audit-finding from LANG-2-Verification: the Cook-Now mode used to
+// fetch its own RecipeDetailDto via `useRecipe(recipeId)` and ignored
+// any per-recipe translation the user had toggled on the detail page.
+// Result: user toggles "Auf Englisch anzeigen" → clicks Jetzt kochen
+// → suddenly stares at the German original. Per LANG-2 design-doc Q5-B
+// "view-respecting", Cook-Now should match the active display.
+//
+// Strategy (Option B, design-doc): read the `useCachedTranslation`
+// entry for `(recipeId, i18n.language)` and, if the recipe's
+// sourceLanguage differs from the active UI language AND a cached
+// translation exists, merge it via `applyTranslation` before
+// rendering. Deep-link friendly because the cache lookup defaults on
+// the current UI lang — no Route-State coupling required.
+describe('CookModePage — LANG-2-FU-1 view-respecting translation', () => {
+  // The CookModePage test fixtures pre-date LANG-2, so add the
+  // sourceLanguage ('de') explicitly so the (sourceLanguage !== uiLang)
+  // gate fires for an EN-pinned UI.
+  const germanRecipe: RecipeDetailDto = {
+    ...recipe,
+    sourceLanguage: 'de',
+  }
+
+  const englishTranslationPayload = {
+    title: 'Spaetzle',
+    description: 'Cheese-baked Swabian noodles.',
+    components: [
+      {
+        id: 'c1',
+        position: 0,
+        label: null,
+        ingredients: [
+          { position: 0, name: 'Flour', unit: 'g', note: null },
+          { position: 1, name: 'Eggs', unit: 'pcs', note: null },
+        ],
+        steps: [
+          { position: 0, content: 'Place flour in a bowl.' },
+          { position: 1, content: 'Add the eggs.' },
+          { position: 2, content: 'Mix everything together.' },
+        ],
+      },
+    ],
+    tags: [],
+  }
+
+  function buildCachedTranslationResponse(
+    overrides: Partial<RecipeTranslationResponse> = {},
+  ): RecipeTranslationResponse {
+    return {
+      recipeId: 'r1',
+      language: 'en',
+      translatedPayload: JSON.stringify(englishTranslationPayload),
+      isStale: false,
+      cacheHit: true,
+      updatedAt: '2026-04-22T00:00:00Z',
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    server.use(
+      http.get('/api/recipes/r1', () => HttpResponse.json(germanRecipe)),
+    )
+  })
+
+  it('renders the cached EN translation when UI lang is EN and a translation is cached', async () => {
+    const i18n = await createI18n({ initialLng: 'en' })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    client.setQueryData(
+      recipeQueryKeys.translation('r1', 'en'),
+      buildCachedTranslationResponse(),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook', { client, i18n }))
+
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    // Translated ingredient names render on the mise-en-place pane.
+    expect(screen.getByText('Flour')).toBeInTheDocument()
+    expect(screen.getByText('Eggs')).toBeInTheDocument()
+    // Original DE names must NOT leak through.
+    expect(screen.queryByText('Mehl')).not.toBeInTheDocument()
+    expect(screen.queryByText('Eier')).not.toBeInTheDocument()
+
+    // Translated step content surfaces on step 1.
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await screen.findByTestId('cook-step-card')
+    expect(screen.getByTestId('cook-step-content')).toHaveTextContent(
+      'Place flour in a bowl.',
+    )
+  })
+
+  it('falls back to the original DE recipe when no translation is cached for the active UI lang', async () => {
+    // No translation seeded — Cook-Now must render the original recipe
+    // verbatim (no fallback-loading-loop, no broken UI).
+    const i18n = await createI18n({ initialLng: 'en' })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook', { client, i18n }))
+
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    // Original DE names render — there's nothing to translate against.
+    expect(screen.getByText('Mehl')).toBeInTheDocument()
+    expect(screen.getByText('Eier')).toBeInTheDocument()
+  })
+
+  it('keeps the original recipe when sourceLanguage matches the active UI lang (no cache lookup)', async () => {
+    // UI lang is DE, recipe sourceLanguage is DE — Cook-Now must NOT
+    // consult the translation cache at all and renders the original
+    // even if a stale EN entry happens to be cached.
+    const i18n = await createI18n({ initialLng: 'de' })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    client.setQueryData(
+      recipeQueryKeys.translation('r1', 'en'),
+      buildCachedTranslationResponse(),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook', { client, i18n }))
+
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    expect(screen.getByText('Mehl')).toBeInTheDocument()
+    expect(screen.queryByText('Flour')).not.toBeInTheDocument()
+  })
+
+  it('surfaces a stale-translation hint when the cached translation is flagged stale', async () => {
+    const i18n = await createI18n({ initialLng: 'en' })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    client.setQueryData(
+      recipeQueryKeys.translation('r1', 'en'),
+      buildCachedTranslationResponse({ isStale: true }),
+    )
+
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1/cook', { client, i18n }))
+
+    await screen.findByRole('heading', { name: /Für wie viele Portionen/i })
+    await user.click(screen.getByRole('button', { name: /^Weiter$/i }))
+    await screen.findByTestId('cook-mise-en-place')
+
+    // A small inline hint informs the cook the translation may be
+    // outdated (no refresh-action — the design-doc keeps the refresh
+    // CTA on the detail page).
+    expect(screen.getByTestId('cook-translation-stale-hint')).toBeInTheDocument()
   })
 })
