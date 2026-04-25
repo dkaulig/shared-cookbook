@@ -91,8 +91,8 @@ public class SharedCookbookWebApplicationFactory : WebApplicationFactory<Program
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("Jwt:SigningKey", "integration-test-signing-key-definitely-long-enough-32chars!");
-        builder.UseSetting("Jwt:Issuer", "familien-kochbuch-test");
-        builder.UseSetting("Jwt:Audience", "familien-kochbuch-web-test");
+        builder.UseSetting("Jwt:Issuer", "shared-cookbook-test");
+        builder.UseSetting("Jwt:Audience", "shared-cookbook-web-test");
         builder.UseSetting("Jwt:AccessTokenLifetimeMinutes", "15");
         builder.UseSetting("Jwt:RefreshTokenLifetimeDays", "30");
         builder.UseSetting("App:FrontendBaseUrl", "http://localhost");

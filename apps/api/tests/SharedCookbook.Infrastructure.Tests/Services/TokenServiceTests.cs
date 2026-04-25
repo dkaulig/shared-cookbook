@@ -31,8 +31,8 @@ public class TokenServiceTests : IAsyncLifetime
     private static readonly JwtOptions Jwt = new()
     {
         SigningKey = "test-jwt-signing-key-that-is-definitely-long-enough-32chars!!",
-        Issuer = "familien-kochbuch-test",
-        Audience = "familien-kochbuch-web-test",
+        Issuer = "shared-cookbook-test",
+        Audience = "shared-cookbook-web-test",
         AccessTokenLifetimeMinutes = 15,
         RefreshTokenLifetimeDays = 30,
     };
