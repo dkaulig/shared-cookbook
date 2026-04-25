@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "extractor"
+name = "shared-cookbook-extractor"
 version = "0.1.0"
-description = "Familien-Kochbuch Python recipe-extraction microservice (FastAPI)."
+description = "shared-cookbook Python recipe-extraction microservice (FastAPI)."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = { text = "Proprietary" }
