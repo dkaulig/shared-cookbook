@@ -62,9 +62,9 @@ const COOK_LANDSCAPE_QUERY =
  *         0 → MiseEnPlaceList
  *     1..N → CookStepCard per recipe step
  *       N+1 → CookFinishCard
- *   - `checkedIngredientIds` — Set of row-keys abgehakt auf der
- *     Mise-en-Place-Liste. Überlebt Step-Navigation und Portions-Picker-
- *     Reopen, wird nur beim Verlassen des Kochmodus verworfen.
+ *   - `checkedIngredientIds` — set of row-keys ticked off on the
+ *     mise-en-place list. Survives step navigation and portions-picker
+ *     reopen, and is only discarded when the user leaves cook mode.
  *
  * Scope guards: no wake-lock (COOK-1), no timer chips (COOK-1), no
  * ingredient-highlight chips in step text (COOK-2). These land in later

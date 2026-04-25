@@ -297,7 +297,7 @@ describe('<ProfilePage />', () => {
 
   // ── Passwort ändern card ─────────────────────────────────────────
 
-  describe('Passwort ändern', () => {
+  describe('Password change card', () => {
     function passwordCard() {
       const heading = screen.getByRole('heading', { name: /passwort ändern/i })
       const card = heading.closest('[class*="card" i]') ?? heading.parentElement!.parentElement!
