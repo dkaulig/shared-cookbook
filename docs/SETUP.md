@@ -442,9 +442,13 @@ under [`docs/plans/`](plans).
   could affect other operators.
 - **Bug history** — [`docs/bugs-backlog.md`](bugs-backlog.md)
   tracks user-reported bugs with their fix-history.
-- **Operating rules / contribution conventions** —
+- **Contribution guide** —
+  [`CONTRIBUTING.md`](../CONTRIBUTING.md) covers tiered PR
+  expectations, AI-assisted contributions, locale translations,
+  and the quick test-command reference for outside contributors.
+- **Internal operating rules** —
   [`CLAUDE.md`](../CLAUDE.md) describes the 4-stage review flow,
   TDD discipline, conventional-commit style, and the design-doc
-  requirement for non-trivial slices. Treat it as the
-  contributor handbook until a dedicated `CONTRIBUTING.md`
-  lands.
+  requirement for non-trivial slices. This is the maintainer's
+  workflow handbook; community contributors should start with
+  `CONTRIBUTING.md` instead.

@@ -181,6 +181,7 @@ stack.
 | Doc | What it covers |
 |---|---|
 | [`docs/SETUP.md`](docs/SETUP.md) | Full runbook — env vars, the three deploy paths (Minimal / Azure / Ollama), PWA install, troubleshooting. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute — tiered PR expectations, AI-assisted contributions, locale translations, test commands. |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Private-disclosure channel for security findings. |
 | [`docs/SECURITY-AUDIT-2026-04.md`](docs/SECURITY-AUDIT-2026-04.md) | The OWASP Top-10 audit done before going public. |
 | [`CLAUDE.md`](CLAUDE.md) | How the codebase is maintained — 4-stage flow, TDD, sub-agent dispatch. |
