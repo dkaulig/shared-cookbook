@@ -1,4 +1,4 @@
-# Claude operating guide — Familien-Kochbuch
+# Claude operating guide — shared-cookbook
 
 This file is loaded on every Claude session in this repo. It documents
 how we work together, not what the code does.
