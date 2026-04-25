@@ -1,3 +1,25 @@
+# POLISH-1 — AI activation contract.
+#
+# AI capabilities (URL/photo/video imports that call out to an LLM)
+# are activated via env vars in `.env`, NOT a docker-compose profile:
+#
+#   AI_ENABLED=true
+#   LLM_PROVIDER=azure | ollama
+#
+# There is NO `ai` profile. Older docs called for `--profile ai`; the
+# implementation in REL-7 settled on env-only activation so the API +
+# extractor containers stay on the default startup path and can flip
+# AI on/off via `.env` without changing the compose invocation.
+#
+# The `ollama` profile only controls whether the optional self-hosted
+# Ollama container is started. Use it together with LLM_PROVIDER=ollama
+# in `.env`:
+#
+#   docker compose --profile ollama up -d
+#
+# AI off (default): `docker compose up -d` — extractor serves /health,
+# AI endpoints return 503 ai_disabled via the DisabledProvider.
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -53,10 +75,11 @@ services:
       ConnectionStrings__Redis: "redis:6379"
       # REL-7 — AI feature-gate flags consumed by /api/meta/features,
       # which drives the frontend's useFeatures() hook. Defaults to
-      # "AI off" so a no-profile `docker compose up -d` on a fresh
-      # install boots without Azure / Ollama credentials; operators
-      # flip AI_ENABLED=true + LLM_PROVIDER=azure|ollama in .env when
-      # running with --profile ai. The two keys must stay in lockstep
+      # "AI off" so `docker compose up -d` on a fresh install boots
+      # without Azure / Ollama credentials. Operators flip
+      # AI_ENABLED=true + LLM_PROVIDER=azure|ollama in `.env` to turn
+      # AI on — there is no compose profile for this (see the
+      # top-of-file comment block). The two keys must stay in lockstep
       # with the python-extractor's equivalents — they're the same
       # operator-facing switch, surfaced to both containers.
       Ai__Enabled: "${AI_ENABLED:-false}"
@@ -148,13 +171,14 @@ services:
     container_name: shared-cookbook-python-extractor
     environment:
       # REL-7 — master AI switch + backend selector. Defaults to "AI
-      # off" so a no-profile `docker compose up -d` boots without any
-      # credentials and the extractor still serves /health (plus the
-      # JSON-LD blog-import branch added in REL-8). Operators running
-      # --profile ai set AI_ENABLED=true + LLM_PROVIDER=azure|ollama
-      # in .env. LLM_PROVIDER=disabled (or AI_ENABLED=false) routes
-      # every AI endpoint through the DisabledProvider which returns a
-      # clean 503 ai_disabled.
+      # off" so `docker compose up -d` boots without any credentials
+      # and the extractor still serves /health (plus the JSON-LD
+      # blog-import branch added in REL-8). Operators set
+      # AI_ENABLED=true + LLM_PROVIDER=azure|ollama in `.env` to turn
+      # AI on — there is no compose profile for this (see the
+      # top-of-file comment block). LLM_PROVIDER=disabled (or
+      # AI_ENABLED=false) routes every AI endpoint through the
+      # DisabledProvider which returns a clean 503 ai_disabled.
       AI_ENABLED: "${AI_ENABLED:-false}"
       LLM_PROVIDER: "${LLM_PROVIDER:-disabled}"
       # REL-7 — Ollama backend settings. Reachable only over the
@@ -233,8 +257,8 @@ services:
     restart: unless-stopped
 
   # REL-7 — self-hosted LLM backend. Only started when the operator
-  # passes `--profile ollama` (usually together with `--profile ai`
-  # and LLM_PROVIDER=ollama in .env). Runs as a peer to Azure, so the
+  # passes `--profile ollama` (together with AI_ENABLED=true +
+  # LLM_PROVIDER=ollama in `.env`). Runs as a peer to Azure, so the
   # extractor's OllamaProvider talks to it over the internal docker
   # network on the default Ollama port.
   #
