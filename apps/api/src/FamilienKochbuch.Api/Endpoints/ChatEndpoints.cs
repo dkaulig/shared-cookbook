@@ -436,9 +436,18 @@ public static class ChatEndpoints
             .Select(m => new { m.Role, m.Content })
             .ToList();
 
+        // LANG-1b — capture the caller's UI language from
+        // Accept-Language. Used for both the chat-turn system prompt
+        // (this scope) and the fire-and-forget auto-title task below
+        // — the title task runs in a fresh DI scope without the
+        // originating HttpContext, so we copy the value into the
+        // closure rather than re-reading the header from a stale ctx.
+        var requestedLanguage = LanguageNormalizer.Normalise(
+            ctx.Request.Headers.AcceptLanguage.ToString());
+
         var llmMessages = new List<ChatCompletionMessage>(history.Count + 1)
         {
-            new("system", ChatSystemPrompt.Build()),
+            new("system", ChatSystemPrompt.Build(requestedLanguage)),
         };
         foreach (var m in history)
             llmMessages.Add(new ChatCompletionMessage(RoleToString(m.Role), m.Content));
@@ -576,6 +585,10 @@ public static class ChatEndpoints
         if (!clientDisconnected && firstError is null && session.Title is null)
         {
             var sessionIdForTitle = session.Id;
+            // LANG-1b — close over the already-normalised language so
+            // the background task uses the originating turn's locale,
+            // not whatever the next request happens to carry.
+            var languageForTitle = requestedLanguage;
             backgroundTasks.Run(async () =>
             {
                 using var scope = scopeFactory.CreateScope();
@@ -585,7 +598,8 @@ public static class ChatEndpoints
                     .CreateLogger("FamilienKochbuch.Api.Chat.Title");
                 try
                 {
-                    await titleSvc.GenerateAsync(sessionIdForTitle, CancellationToken.None);
+                    await titleSvc.GenerateAsync(
+                        sessionIdForTitle, languageForTitle, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
