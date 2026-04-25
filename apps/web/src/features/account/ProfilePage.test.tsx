@@ -7,7 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/msw/server'
 import { useAuthStore } from '@/features/auth/authStore'
-import { ProfilStub } from './ProfilStub'
+import { ProfilePage } from './ProfilePage'
 
 function renderPage() {
   const client = new QueryClient({
@@ -25,10 +25,10 @@ function renderPage() {
       </QueryClientProvider>
     )
   }
-  return render(<ProfilStub />, { wrapper: Wrapper })
+  return render(<ProfilePage />, { wrapper: Wrapper })
 }
 
-describe('<ProfilStub />', () => {
+describe('<ProfilePage />', () => {
   // REL-3e — i18n is bootstrapped globally in `src/test/setup.ts`
   // (pinned to `de`), so no per-file init is needed.
 
@@ -376,14 +376,14 @@ describe('<ProfilStub />', () => {
     })
 
     it('wrong-current 401 surfaces as an inline fallback banner (not success)', async () => {
-      // REL-5d: 401 responses go through `classifyMutationError` which
-      // routes them to the `forbidden` toast copy (generic i18n'd
-      // "Fehlende Berechtigung …"). The form still shows the fallback
-      // banner (fieldName is null — server didn't attribute to a
-      // field) so the user sees SOME error even if the toast is
-      // missed. The specific-password distinction is lost at this
-      // surface — intentional, since 401 on change-password should
-      // normally trigger the apiClient refresh path before we get here.
+      // SMALL-1b: 401 responses go through `classifyMutationError` which
+      // now prefers the `errors:<code>` translation over the generic
+      // forbidden copy when the backend tagged a known code. For
+      // `invalid_credentials` that's "E-Mail oder Passwort ist nicht
+      // korrekt." — same surface (banner / toast), more useful copy.
+      // The form still shows the fallback banner (fieldName is null —
+      // server didn't attribute to a field) so the user sees SOME
+      // error even if the toast is missed.
       server.use(
         http.post('/api/account/change-password', () =>
           HttpResponse.json(
@@ -405,9 +405,9 @@ describe('<ProfilStub />', () => {
       await user.type(card.getByLabelText(/neues passwort bestätigen/i), 'NeuesPasswort1!')
       await user.click(card.getByRole('button', { name: /passwort ändern/i }))
 
-      // Fallback banner present with the translated "forbidden" copy.
+      // Fallback banner shows the localised invalid_credentials copy.
       const alert = await card.findByRole('alert')
-      expect(alert).toHaveTextContent(/Fehlende Berechtigung/i)
+      expect(alert).toHaveTextContent(/E-Mail oder Passwort ist nicht korrekt/i)
       expect(card.queryByText(/Passwort aktualisiert/i)).not.toBeInTheDocument()
     })
 

@@ -6,7 +6,7 @@ import { classifyMutationError } from './errorSurface'
 /**
  * REL-5g — shared primitives for inline-field-error rendering + focus
  * routing. Consolidates the boilerplate that REL-5d/e/f/4c/4d sprinkled
- * across ProfilStub, SignupPage, RecipeFormPage + the Sortable rows:
+ * across ProfilePage, SignupPage, RecipeFormPage + the Sortable rows:
  *
  *   1. a ref-map keyed by the backend-emitted `fieldName`;
  *   2. a `{fieldName, message}` state slice;
@@ -25,7 +25,7 @@ import { classifyMutationError } from './errorSurface'
  *     shape — they keep their own state, re-use our aria contract.
  *
  *   - `useFieldErrorFocus<T>()` — hook for forms with one flat
- *     fieldname → input mapping (ProfilStub's two sections + Signup):
+ *     fieldname → input mapping (ProfilePage's two sections + Signup):
  *       · `registerRef(fieldName)` — RefCallback that stashes the
  *         element under the given key.
  *       · `fieldError` — `{fieldName, message}` or null.

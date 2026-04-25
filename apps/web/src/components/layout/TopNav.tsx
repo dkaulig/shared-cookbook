@@ -106,7 +106,7 @@ export function TopNav() {
           <Search className="h-5 w-5" aria-hidden="true" />
         </Link>
         {/* REL-3h — the language switcher moved from TopNav into the
-            ProfilStub settings section so casual users don't stumble
+            ProfilePage settings section so casual users don't stumble
             onto it mid-navigation. Persistence still lives in
             localStorage (`i18nextLng`) via i18next-browser-languagedetector. */}
         <Link

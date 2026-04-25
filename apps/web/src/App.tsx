@@ -28,7 +28,7 @@ import { MealPlanSlotDetailPage } from '@/features/mealplanning/MealPlanSlotDeta
 import { ShoppingListPage } from '@/features/shoppinglist/ShoppingListPage'
 import { SearchPage } from '@/features/search/SearchPage'
 import { WochenplanStub } from '@/features/stubs/WochenplanStub'
-import { ProfilStub } from '@/features/stubs/ProfilStub'
+import { ProfilePage } from '@/features/account/ProfilePage'
 import { AiUsagePage } from '@/features/admin/AiUsagePage'
 import { ExtractorConfigPage } from '@/features/admin/ExtractorConfigPage'
 import { ShareTargetPage } from '@/features/share/ShareTargetPage'
@@ -155,7 +155,7 @@ export default function App() {
             </Route>
             <Route path="/suche" element={<SearchPage />} />
             <Route path="/wochenplan" element={<WochenplanStub />} />
-            <Route path="/profil" element={<ProfilStub />} />
+            <Route path="/profil" element={<ProfilePage />} />
           </Route>
 
           {/*

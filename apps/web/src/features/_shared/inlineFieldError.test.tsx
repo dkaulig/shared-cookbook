@@ -6,7 +6,7 @@
  *   - `<InlineFieldError>` — renders a `<p role="alert" aria-live>` with
  *     a stable id so the companion input's `aria-describedby` resolves.
  *     The component is a thin view; its job is to keep the aria wiring
- *     consistent across all forms (ProfilStub / Signup / RecipeFormPage
+ *     consistent across all forms (ProfilePage / Signup / RecipeFormPage
  *     / Sortable rows), not to manage state.
  *
  *   - `useFieldErrorFocus()` — manages (a) a ref-map keyed by

@@ -16,7 +16,7 @@ interface NutritionSectionProps {
  *
  * Renders four rows — Energie / Eiweiß / Kohlenhydrate / Fett — each
  * with an inline-edit pencil. Click-to-edit mirrors the AP1
- * displayname-edit pattern in `ProfilStub` for consistency.
+ * displayname-edit pattern in `ProfilePage` for consistency.
  *
  * When `nutrition` is `null` and the viewer can't edit, nothing
  * renders — the caller hides the whole section. When `null` but the

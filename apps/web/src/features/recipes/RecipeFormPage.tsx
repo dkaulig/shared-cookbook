@@ -718,7 +718,7 @@ function RecipeFormInner({
   } | null>(null)
   // Ref-map keyed by the backend-emitted fieldName so adding a new
   // field stays a one-liner on both the ref-assignment + onError
-  // lookup side (see ProfilStub REL-5d blueprint). Stored as
+  // lookup side (see ProfilePage REL-5d blueprint). Stored as
   // HTMLElement because the tag-picker + candidate-grid targets are
   // <div>s, not <input>s.
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
