@@ -281,6 +281,64 @@ public class RecipeTests
         Assert.Null(recipe.SourceUrl);
     }
 
+    [Fact]
+    public void Constructor_Defaults_SourceLanguage_To_De_When_Omitted()
+    {
+        var recipe = NewRecipe();
+
+        Assert.Equal("de", recipe.SourceLanguage);
+    }
+
+    [Theory]
+    [InlineData("de", "de")]
+    [InlineData("en", "en")]
+    [InlineData("DE", "de")]
+    [InlineData(" en ", "en")]
+    public void Constructor_Normalises_SourceLanguage_When_In_Whitelist(
+        string raw, string expected)
+    {
+        var recipe = new Recipe(
+            groupId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid(),
+            title: "Spätzle",
+            description: null,
+            defaultServings: 4,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: null,
+            sourceType: RecipeSourceType.Manual,
+            forkOfRecipeId: null,
+            createdAt: DateTimeOffset.UtcNow,
+            sourceLanguage: raw);
+
+        // The domain validator normalises whitespace + case but does NOT
+        // strip region suffixes ("de-CH" is rejected) — that's the
+        // LanguageNormalizer's job at the API edge.
+        Assert.Equal(expected, recipe.SourceLanguage);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("xx")]
+    [InlineData("fr")] // not in LANG-1 whitelist yet
+    public void Constructor_Rejects_Invalid_SourceLanguage(string invalid)
+    {
+        Assert.Throws<ArgumentException>(() => new Recipe(
+            groupId: Guid.NewGuid(),
+            createdByUserId: Guid.NewGuid(),
+            title: "Spätzle",
+            description: null,
+            defaultServings: 4,
+            prepTimeMinutes: null,
+            difficulty: 1,
+            sourceUrl: null,
+            sourceType: RecipeSourceType.Manual,
+            forkOfRecipeId: null,
+            createdAt: DateTimeOffset.UtcNow,
+            sourceLanguage: invalid));
+    }
+
     [Theory]
     [InlineData("file:///etc/passwd")]
     [InlineData("gopher://127.0.0.1:25/xSMTP%20HELO%20attacker.example")]
