@@ -532,6 +532,89 @@ public class AuthEndpointsTests : IClassFixture<FamilienKochbuchWebApplicationFa
     }
 
     [Fact]
+    public async Task Signup_With_Blank_DisplayName_Returns_400_With_DisplayName_FieldName()
+    {
+        // SMALL-1c — Domain.User.SetDisplayName throws ArgumentException
+        // (paramName = "value") on blank or oversize input. The endpoint
+        // must distinguish that path from SetEmail's failure and pin
+        // fieldName to "displayName" so SignupPage can focus the right
+        // input.
+        var invite = await CreateInviteAsync();
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/auth/signup?token={invite.Token}",
+            new AuthEndpoints.SignupRequest("ok@example.com", "Passwort123!", "   "));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("displayname_invalid", body!.Code);
+        Assert.Equal("displayName", body.FieldName);
+    }
+
+    [Fact]
+    public async Task Signup_With_Oversize_DisplayName_Returns_400_With_DisplayName_FieldName()
+    {
+        var invite = await CreateInviteAsync();
+        // User.DisplayNameMaxLength is private; the value is 80 (see Domain.User).
+        var oversize = new string('x', 81);
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/auth/signup?token={invite.Token}",
+            new AuthEndpoints.SignupRequest("ok2@example.com", "Passwort123!", oversize));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("displayname_invalid", body!.Code);
+        Assert.Equal("displayName", body.FieldName);
+    }
+
+    [Fact]
+    public async Task Signup_With_Malformed_Email_Returns_400_With_Email_FieldName()
+    {
+        // SMALL-1c — Domain.User.SetEmail throws ArgumentException on
+        // malformed email format. Distinct path from displayName so
+        // fieldName must be "email", not the legacy generic null.
+        var invite = await CreateInviteAsync();
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/auth/signup?token={invite.Token}",
+            new AuthEndpoints.SignupRequest("not-an-email", "Passwort123!", "Nutzer"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_input", body!.Code);
+        Assert.Equal("email", body.FieldName);
+    }
+
+    [Fact]
+    public async Task PasswordReset_With_Valid_Token_But_Weak_Password_Returns_400_With_NewPassword_FieldName()
+    {
+        // SMALL-1c — when Identity rejects ONLY because the new password
+        // fails the policy (token still valid), the fieldName must point
+        // to "newPassword" so the reset page focuses the password input
+        // instead of suggesting the user re-request a new link.
+        await SeedUserAsync("policy@example.com", "AltesPasswort1!");
+        await _client.PostAsJsonAsync(
+            "/api/auth/password-reset-request",
+            new AuthEndpoints.PasswordResetRequestBody("policy@example.com"));
+        var resetMessage = _factory.Email.Last!;
+        var token = System.Web.HttpUtility.ParseQueryString(new Uri(resetMessage.ResetUrl).Query)["token"]!;
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/auth/password-reset",
+            new AuthEndpoints.PasswordResetBody(token, "x"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("password_rejected", body!.Code);
+        Assert.Equal("newPassword", body.FieldName);
+    }
+
+    [Fact]
     public async Task PasswordReset_With_Captured_Token_Updates_Password()
     {
         await SeedUserAsync("reset2@example.com", "AltesPasswort1!");

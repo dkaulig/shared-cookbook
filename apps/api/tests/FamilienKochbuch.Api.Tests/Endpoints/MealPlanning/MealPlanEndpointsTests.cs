@@ -365,6 +365,12 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
                 Meal: MealSlot.Mittag, Servings: 0));
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        // SMALL-1c — pinpoint the offending field so AddSlotDialog can
+        // surface the error directly under the servings input.
+        var body = await res.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_value", body!.Code);
+        Assert.Equal("servings", body.FieldName);
     }
 
     [Fact]
@@ -383,6 +389,37 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
                 Meal: MealSlot.Mittag, Servings: 2));
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        // SMALL-1c — pin "date" so the calendar input gets the focus
+        // hint, not a generic banner.
+        var body = await res.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_value", body!.Code);
+        Assert.Equal("date", body.FieldName);
+    }
+
+    [Fact]
+    public async Task AddSlot_Rejects_Oversize_Label_With_Label_FieldName()
+    {
+        // SMALL-1c — Domain MealPlanSlot enforces a 120-char Label limit.
+        // The endpoint must surface the violation with fieldName "label"
+        // so the free-title input on AddSlotDialog gets the hint.
+        var (_, token) = await SignupAndLoginAsync("label@ex.com", "L");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var oversize = new string('x', 121);
+
+        var res = await _client.PostAsJsonAsync(
+            $"/api/mealplans/{plan.Id}/slots",
+            new MealPlanEndpoints.AddSlotRequest(
+                RecipeId: null, Label: oversize, Date: CurrentMonday,
+                Meal: MealSlot.Mittag, Servings: 2));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_value", body!.Code);
+        Assert.Equal("label", body.FieldName);
     }
 
     [Fact]
@@ -705,6 +742,12 @@ public class MealPlanEndpointsTests : IClassFixture<FamilienKochbuchWebApplicati
             new StringContent("""{"servings": 99}""", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        // SMALL-1c — same pinpointing on the patch path: EditSlotDialog
+        // can focus the servings stepper.
+        var body = await res.Content.ReadFromJsonAsync<FamilienKochbuch.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_value", body!.Code);
+        Assert.Equal("servings", body.FieldName);
     }
 
     [Fact]

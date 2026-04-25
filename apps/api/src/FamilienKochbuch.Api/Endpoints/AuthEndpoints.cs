@@ -74,24 +74,57 @@ public static class AuthEndpoints
                 "Invite expired or already used.",
                 fieldName: "inviteToken");
 
-        if (string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.Password) || string.IsNullOrWhiteSpace(body.DisplayName))
+        // SMALL-1c — pinpoint blank fields onto their input. The legacy
+        // catch-all `MissingFields` path stayed hard to focus from the
+        // frontend; splitting also keeps the per-field invariant (blank
+        // display-name = `displayname_invalid` + fieldName "displayName")
+        // consistent whether the client sends "   " (caught here) or a
+        // value that fails the trim/length guard inside Domain.User
+        // (caught below via the SetDisplayName exception path).
+        if (string.IsNullOrWhiteSpace(body.Email))
             return FamilienResults.BadRequest(
-                ErrorCodes.MissingFields, "Email, password, and display name are required.");
+                ErrorCodes.MissingField, "Email is required.", fieldName: "email");
+        if (string.IsNullOrWhiteSpace(body.Password))
+            return FamilienResults.BadRequest(
+                ErrorCodes.MissingField, "Password is required.", fieldName: "newPassword");
+        if (string.IsNullOrWhiteSpace(body.DisplayName))
+            return FamilienResults.BadRequest(
+                ErrorCodes.DisplayNameInvalid,
+                "Display name is invalid.",
+                fieldName: "displayName");
 
         User user;
+        // SMALL-1c — split the two domain validators so the offending
+        // field gets pinned. Domain.User uses `nameof(value)` as the
+        // ParamName for both setters, so we rely on the call order
+        // (Email first, then DisplayName) to attribute the failure
+        // instead of inspecting the exception text. Display-name
+        // failures emit `displayname_invalid` per ErrorCodes catalogue
+        // (length / blank). Generic email-format failures stay on
+        // `invalid_input` so we don't conflate them with the duplicate-
+        // email path below (which carries `email_taken`).
         try
         {
             user = new User();
             user.SetEmail(body.Email);
+        }
+        catch (ArgumentException)
+        {
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput,
+                "Invalid signup payload.",
+                fieldName: "email");
+        }
+        try
+        {
             user.SetDisplayName(body.DisplayName);
         }
         catch (ArgumentException)
         {
-            // Do NOT echo the domain exception text — its message may
-            // reference internal entity state. Keep the response generic
-            // and rely on the code for branch logic.
             return FamilienResults.BadRequest(
-                ErrorCodes.InvalidInput, "Invalid signup payload.");
+                ErrorCodes.DisplayNameInvalid,
+                "Display name is invalid.",
+                fieldName: "displayName");
         }
         user.EmailConfirmed = true; // invite flow pre-confirms
 
@@ -281,16 +314,35 @@ public static class AuthEndpoints
         var result = await users.ResetPasswordAsync(user, parts[1], body.NewPassword);
         if (!result.Succeeded)
         {
-            // Same rationale as SignupAsync: don't forward Identity's
-            // localized error descriptions — pin a stable English
-            // message + rely on the code for branching.
+            // SMALL-1c — Identity's failure mode here used to lump
+            // "bad token" and "password policy" together under
+            // `reset_failed` + fieldName "resetToken". Inspecting the
+            // IdentityResult error codes lets us split the two so a
+            // pure password-policy failure (token still valid) emits
+            // `password_rejected` + fieldName "newPassword" instead —
+            // the reset page can then focus the password input rather
+            // than telling the user to request a new link.
             //
-            // REL-4b — pin fieldName to "resetToken". Identity's failure
-            // mode here lumps "bad token" and "password policy" together;
-            // in practice an expired / already-consumed link is the most
-            // common cause and the user's only recovery lever is to
-            // request a new reset email, so the reset-token field is the
-            // right focus target.
+            // Identity emits `InvalidToken` for token failures and
+            // `PasswordTooShort`, `PasswordRequiresDigit`, etc. for
+            // policy violations. If ALL errors are policy codes, the
+            // token must be valid → blame the password.
+            var errorCodes = result.Errors.Select(e => e.Code).ToArray();
+            var allPolicy = errorCodes.Length > 0
+                && errorCodes.All(c => c.StartsWith("Password", StringComparison.Ordinal));
+            if (allPolicy)
+            {
+                return FamilienResults.BadRequest(
+                    ErrorCodes.PasswordRejected,
+                    "Password does not meet the policy.",
+                    fieldName: "newPassword");
+            }
+
+            // Token-side failure (or mixed). Same rationale as
+            // SignupAsync: don't forward Identity's localized error
+            // descriptions — pin a stable English message + rely on the
+            // code. The user's only lever is to request a new reset
+            // link, so the reset-token field stays the focus target.
             return FamilienResults.BadRequest(
                 ErrorCodes.ResetFailed,
                 "Password reset failed. The link may be expired or the password rejected.",

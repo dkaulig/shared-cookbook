@@ -489,15 +489,15 @@ public static class MealPlanEndpoints
                 sortOrder: sortOrder,
                 createdAt: now);
         }
-        catch (ArgumentOutOfRangeException)
+        catch (ArgumentException ex) when (ex is ArgumentOutOfRangeException or ArgumentException)
         {
-            return FamilienResults.BadRequest(
-                ErrorCodes.InvalidInput, "Invalid slot payload.");
-        }
-        catch (ArgumentException)
-        {
-            return FamilienResults.BadRequest(
-                ErrorCodes.InvalidInput, "Invalid slot payload.");
+            // SMALL-1c — Domain.MealPlanSlot uses `nameof(...)` as the
+            // ParamName for each invariant violation (`servings`, `date`,
+            // `label`). Mapping the ParamName onto the wire `fieldName`
+            // lets AddSlotDialog focus the correct input. We fall through
+            // to the generic `invalid_input` only for the catch-all path
+            // where ParamName isn't one of the request fields.
+            return MapSlotConstructorFailure(ex);
         }
 
         if (body.ParentSlotId is { } parentId)
@@ -551,6 +551,40 @@ public static class MealPlanEndpoints
             weekStart: weekStart,
             action: planAction,
             ct: ct);
+    }
+
+    /// <summary>
+    /// SMALL-1c — translates a Domain `ArgumentException` from
+    /// MealPlanSlot construction or mutation into a 400 with a
+    /// `fieldName` hint. The Domain layer uses `nameof(value)` as the
+    /// ParamName, so we whitelist the names that map cleanly to a
+    /// request-body field; anything else falls through to the generic
+    /// `invalid_input` reply (no leak of internal state).
+    /// </summary>
+    private static IResult MapSlotConstructorFailure(ArgumentException ex)
+    {
+        // Domain.MealPlanSlot's validators throw with paramName ∈
+        // { "servings", "date", "label", "recipeId", "mealPlanId" }.
+        // The wire body exposes "servings", "date", "label",
+        // "recipeId" — keep this set tight so we never echo a
+        // surprise param like "mealPlanId" (server-internal).
+        var fieldName = ex.ParamName switch
+        {
+            "servings" => "servings",
+            "date" => "date",
+            "label" => "label",
+            "recipeId" => "recipeId",
+            _ => null,
+        };
+        if (fieldName is null)
+        {
+            return FamilienResults.BadRequest(
+                ErrorCodes.InvalidInput, "Invalid slot payload.");
+        }
+        return FamilienResults.BadRequest(
+            ErrorCodes.InvalidValue,
+            "Invalid slot payload.",
+            fieldName: fieldName);
     }
 
     private static async Task<int> NextSortOrderAsync(
@@ -650,15 +684,10 @@ public static class MealPlanEndpoints
             return FamilienResults.BadRequest(
                 ErrorCodes.InvalidInput, "Invalid slot payload.");
         }
-        catch (ArgumentOutOfRangeException)
+        catch (ArgumentException ex) when (ex is ArgumentOutOfRangeException or ArgumentException)
         {
-            return FamilienResults.BadRequest(
-                ErrorCodes.InvalidInput, "Invalid slot payload.");
-        }
-        catch (ArgumentException)
-        {
-            return FamilienResults.BadRequest(
-                ErrorCodes.InvalidInput, "Invalid meal plan payload.");
+            // SMALL-1c — same ParamName→fieldName mapping as AddSlot.
+            return MapSlotConstructorFailure(ex);
         }
         catch (InvalidOperationException)
         {
