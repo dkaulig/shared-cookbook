@@ -6,8 +6,7 @@ namespace SharedCookbook.Domain.Entities;
 /// A collaborative recipe collection. Members join via <see cref="GroupMembership"/>.
 /// Every user owns exactly one reserved <c>Private Sammlung</c> group
 /// (<see cref="IsPrivateCollection"/> = true) which must never be deletable
-/// (PRD §4.4 — "Private Sammlung: implizite Ein-Personen-Gruppe, automatisch
-/// für jeden User angelegt").
+/// (PRD §4.4 — implicit one-person group, auto-created per user).
 ///
 /// OFF3: implements <see cref="IVersionedEntity"/> so every metadata edit
 /// (name, description, default-servings, cover) bumps a monotonically
