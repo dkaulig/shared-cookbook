@@ -68,6 +68,20 @@ def _chat_payload(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Class-level capability flags
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_ollama_provider_opts_into_redundant_language_directive() -> None:
+    """POLISH-1 — Ollama's local 4-12B-class models follow
+    long-prompt instructions less reliably than Azure's frontier
+    models. The class advertises that the pipeline should set the
+    language directive BOTH before AND after the system-prompt body
+    so the model sees the rule at both boundaries."""
+    assert OllamaProvider.requires_redundant_language_directive is True
+
+
+# ─────────────────────────────────────────────────────────────────────
 # extract_structured
 # ─────────────────────────────────────────────────────────────────────
 

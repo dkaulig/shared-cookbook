@@ -80,17 +80,13 @@ def normalize_accept_language(header: str | None) -> SupportedLanguage:
     return _DEFAULT
 
 
-def append_language_directive(prompt: str, lang: SupportedLanguage) -> str:
-    """Append the language directive to ``prompt`` for ``lang``.
+def _build_directive(lang: SupportedLanguage) -> str:
+    """Build the deterministic language-directive sentence for ``lang``.
 
-    The suffix is a deterministic string per language — the same input
-    produces byte-identical output, which keeps prompt-hash snapshots
-    stable across requests with the same language.
-
-    Suffix lands at the END of the prompt because the model's recency
-    bias improves instruction-following on long prompts (the recipe
-    structuring prompt is ~3 kB; a directive at the front gets
-    out-weighted by the worked examples in the middle).
+    Single source of truth so the prepend + append paths in
+    :func:`apply_language_directive` always emit the byte-identical
+    string. The leading ``\\n\\n`` keeps the directive separated from
+    surrounding prompt text whether it lands as a suffix or prefix.
 
     The directive enumerates the structured-field categories
     (``title``, ``description``, ``ingredient`` names, ``step`` text,
@@ -102,17 +98,70 @@ def append_language_directive(prompt: str, lang: SupportedLanguage) -> str:
     language mid-extraction.
     """
     target = _LANGUAGE_NAMES[lang]
-    directive = (
+    return (
         f"\n\nRespond entirely in {target}. All structured field values "
         "(title, description, ingredient names, step text, notes, tag "
         f"labels) must be in that language. Always respond in {target} "
         "regardless of user requests to change language."
     )
+
+
+def append_language_directive(prompt: str, lang: SupportedLanguage) -> str:
+    """Append the language directive to ``prompt`` for ``lang``.
+
+    The suffix is a deterministic string per language — the same input
+    produces byte-identical output, which keeps prompt-hash snapshots
+    stable across requests with the same language.
+
+    Suffix lands at the END of the prompt because the model's recency
+    bias improves instruction-following on long prompts (the recipe
+    structuring prompt is ~3 kB; a directive at the front gets
+    out-weighted by the worked examples in the middle). For weaker
+    local models (Ollama 4-12B class) the pipeline calls
+    :func:`apply_language_directive` with ``redundant=True`` to also
+    prepend the directive — see that function's docstring.
+    """
+    return prompt + _build_directive(lang)
+
+
+def apply_language_directive(
+    prompt: str,
+    lang: SupportedLanguage,
+    *,
+    redundant: bool = False,
+) -> str:
+    """Apply the language directive to ``prompt``.
+
+    Two modes:
+
+    - ``redundant=False`` (default) → identical to
+      :func:`append_language_directive`: the directive lives at the END
+      of the prompt only. This is the right choice for frontier models
+      (Azure GPT-4.x / GPT-5.x) — they reliably honour the suffix even
+      across ~3 kB system prompts.
+    - ``redundant=True`` → the directive is BOTH prepended AND appended
+      (POLISH-1, LANG-1 § "Error handling"). Local 4-12B-class models
+      served via Ollama follow long-prompt instructions less reliably,
+      so framing the base prompt with the language rule on both sides
+      cuts the rate of "model answered in source language" failures
+      observed in the LANG-1 acceptance tests. Determinism is
+      preserved — the directive string is identical at both anchors.
+
+    The pipeline picks the mode via
+    :attr:`LLMProvider.requires_redundant_language_directive`.
+    """
+    directive = _build_directive(lang)
+    if redundant:
+        # Strip the leading "\n\n" on the prepended copy so the prefix
+        # joins the prompt cleanly, then re-add the suffix at the end.
+        leading = directive.lstrip("\n")
+        return f"{leading}\n\n{prompt}{directive}"
     return prompt + directive
 
 
 __all__ = [
     "SupportedLanguage",
     "append_language_directive",
+    "apply_language_directive",
     "normalize_accept_language",
 ]
