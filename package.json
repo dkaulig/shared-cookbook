@@ -1,10 +1,10 @@
 {
-  "name": "familien-kochbuch",
+  "name": "shared-cookbook",
   "private": true,
   "version": "0.0.0",
-  "description": "Familien-Kochbuch — a private, invite-only family recipe collection",
+  "description": "shared-cookbook — self-hosted family recipe-book PWA with optional AI-assisted import",
   "scripts": {
-    "dev": "pnpm --filter @familien-kochbuch/web dev",
+    "dev": "pnpm --filter web dev",
     "build": "pnpm -r --parallel run build",
     "test": "pnpm -r run test",
     "lint": "pnpm -r run lint",

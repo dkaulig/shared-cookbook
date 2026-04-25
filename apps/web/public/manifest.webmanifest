@@ -1,7 +1,7 @@
 {
-  "name": "Familien-Kochbuch",
+  "name": "shared-cookbook",
   "short_name": "Kochbuch",
-  "description": "Private Rezept-Sammlung für Familie und Freunde.",
+  "description": "Self-hosted family recipe-book PWA with optional AI-assisted import.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
