@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Images } from 'lucide-react'
+import { Images, Languages } from 'lucide-react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,6 +10,7 @@ import type {
   RecipeDetailDto,
   RecipeSnapshot,
   RecipeStepDto,
+  RecipeTranslationPayload,
 } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -19,13 +20,16 @@ import { RatingWidget } from '@/features/ratings/RatingWidget'
 import { useRatings } from '@/features/ratings/hooks'
 import { useGroup } from '@/features/groups/hooks'
 import { useAuth } from '@/features/auth/useAuth'
+import { useFeatures } from '@/features/_shared/useFeatures'
 import { useImportCandidates } from '@/features/imports/hooks'
 import {
+  useCachedTranslation,
   useDeleteRecipe,
   useMarkAsCooked,
   useRecipe,
   useRecipeOriginImport,
   useReimportRecipe,
+  useTranslateRecipe,
 } from './hooks'
 import { ChangeCoverDialog } from './ChangeCoverDialog'
 import { recipeQueryKeys } from './queryKeys'
@@ -37,6 +41,8 @@ import { NutritionSection } from './NutritionSection'
 import { RecipeHistoryPanel } from './RecipeHistoryPanel'
 import { RecipeActionBar } from './RecipeActionBar'
 import { ForkRecipeDialog } from './ForkRecipeDialog'
+import { TranslationBanner } from './TranslationBanner'
+import { applyTranslation } from './applyTranslation'
 import { useBottomZoneSlot } from '@/components/layout/bottomZone'
 
 /**
@@ -60,7 +66,7 @@ export function RecipeDetailPage() {
   const params = useParams<{ groupId: string; recipeId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const recipeId = params.recipeId ?? ''
   const groupId = params.groupId ?? ''
 
@@ -72,6 +78,34 @@ export function RecipeDetailPage() {
   const reimportMutation = useReimportRecipe(recipeId)
   const queryClient = useQueryClient()
   const { user } = useAuth()
+  const features = useFeatures()
+
+  // LANG-2 — translate-button gating + viewState. The button only
+  // appears when (a) the recipe's source language differs from the
+  // active UI language AND (b) AI features are enabled (REL-7 OSS
+  // profile hides it). The active UI language collapses to "de"/"en"
+  // (everything else falls back per the LANG-1 whitelist).
+  const uiLang = i18n.language?.startsWith('de') ? 'de' : 'en'
+  const sourceLanguage = detail.data?.sourceLanguage ?? 'de'
+  const canTranslate =
+    !!detail.data && features.ai.enabled && sourceLanguage !== uiLang
+
+  const [viewState, setViewState] = useState<'original' | 'translated'>('original')
+  const translateMutation = useTranslateRecipe(recipeId, uiLang)
+  const cachedTranslation = useCachedTranslation(recipeId, uiLang)
+  const [translationError, setTranslationError] = useState<string | null>(null)
+
+  // Reset viewState + translationError when the user navigates from one
+  // recipe to another inside the SPA shell (the component instance is
+  // re-used). Derived during render rather than via a useEffect to keep
+  // the state-after-deps path eager (React's recommended pattern,
+  // 2024+).
+  const [trackedRecipeId, setTrackedRecipeId] = useState(recipeId)
+  if (trackedRecipeId !== recipeId) {
+    setTrackedRecipeId(recipeId)
+    setViewState('original')
+    setTranslationError(null)
+  }
 
   const [servings, setServings] = useState<number | null>(null)
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
@@ -131,6 +165,25 @@ export function RecipeDetailPage() {
     () => (detail.data ? toSnapshot(detail.data) : null),
     [detail.data],
   )
+
+  // LANG-2 — translated payload + recipe-with-translation. Live up
+  // here BEFORE the early-return guards so the hook order stays stable
+  // across the loading / error / success transitions. Returns null /
+  // the bare detail when no translation is active.
+  const translatedPayload = useMemo<RecipeTranslationPayload | null>(() => {
+    if (viewState !== 'translated' || !cachedTranslation) return null
+    try {
+      return JSON.parse(cachedTranslation.translatedPayload) as RecipeTranslationPayload
+    } catch {
+      return null
+    }
+  }, [viewState, cachedTranslation])
+
+  const recipe = useMemo<RecipeDetailDto | null>(() => {
+    if (!detail.data) return null
+    if (translatedPayload) return applyTranslation(detail.data, translatedPayload)
+    return detail.data
+  }, [detail.data, translatedPayload])
 
   // BUG-036 — push the contextual "In Wochenplan" + "Jetzt gekocht"
   // row into the unified Bottom-Zone slot. Previously the action bar
@@ -195,7 +248,45 @@ export function RecipeDetailPage() {
     )
   }
 
-  const recipe = detail.data
+  // After the early-return: `recipe` is non-null. We narrow the
+  // useMemo's nullable return for the body's render code.
+  if (!recipe) return null
+  const isShowingTranslation = viewState === 'translated' && translatedPayload != null
+  const isStaleTranslation = !!cachedTranslation?.isStale
+
+  async function handleTranslateClick() {
+    setTranslationError(null)
+    try {
+      await translateMutation.mutateAsync()
+      setViewState('translated')
+    } catch (err) {
+      const apiErr = err as ApiError
+      const code = apiErr?.code
+      const messageKey =
+        code === 'already_in_language'
+          ? 'recipes.translation.errorAlreadyInLanguage'
+          : code === 'ai_disabled'
+            ? 'recipes.translation.errorAiDisabled'
+            : 'recipes.translation.errorUnavailable'
+      setTranslationError(t(messageKey, { defaultValue: 'Übersetzung gerade nicht möglich.' }))
+    }
+  }
+
+  async function handleRefreshTranslationClick() {
+    setTranslationError(null)
+    try {
+      await translateMutation.mutateAsync({ force: true })
+    } catch (err) {
+      const apiErr = err as ApiError
+      const code = apiErr?.code
+      const messageKey =
+        code === 'ai_disabled'
+          ? 'recipes.translation.errorAiDisabled'
+          : 'recipes.translation.errorUnavailable'
+      setTranslationError(t(messageKey, { defaultValue: 'Übersetzung gerade nicht möglich.' }))
+    }
+  }
+
   const groupDefaultServings = group.data?.defaultServings ?? recipe.defaultServings
   const groupName =
     group.data?.name ?? t('recipes.detail.group', { defaultValue: 'Gruppe' })
@@ -327,6 +418,52 @@ export function RecipeDetailPage() {
        * to scroll against.
        */}
       <main className="mx-auto max-w-3xl px-5 pb-32 md:max-w-[1200px] md:px-8">
+        {/* LANG-2 — Translate button (visible only when source != UI lang AND
+            AI is enabled AND we're currently showing the original). */}
+        {canTranslate && !isShowingTranslation && (
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              data-testid="recipe-translate-button"
+              disabled={translateMutation.isPending}
+              onClick={handleTranslateClick}
+            >
+              <Languages className="h-4 w-4" aria-hidden="true" />
+              {translateMutation.isPending
+                ? t('recipes.translation.translatingPending', {
+                    defaultValue: 'Übersetze…',
+                  })
+                : uiLang === 'en'
+                  ? t('recipes.translation.translateToEn', {
+                      defaultValue: 'Auf Englisch anzeigen',
+                    })
+                  : t('recipes.translation.translateToDe', {
+                      defaultValue: 'Auf Deutsch anzeigen',
+                    })}
+            </Button>
+          </div>
+        )}
+
+        {translationError && (
+          <p
+            role="alert"
+            className="mt-4 rounded-[12px] bg-[hsl(var(--destructive)/0.1)] px-3 py-2 text-sm text-[hsl(var(--destructive))] ring-1 ring-[hsl(var(--destructive)/0.25)]"
+          >
+            {translationError}
+          </p>
+        )}
+
+        {isShowingTranslation && (
+          <TranslationBanner
+            sourceLanguage={sourceLanguage}
+            isStale={isStaleTranslation}
+            onShowOriginal={() => setViewState('original')}
+            onRefresh={isStaleTranslation ? handleRefreshTranslationClick : undefined}
+            refreshPending={translateMutation.isPending}
+          />
+        )}
+
         {deleteError && (
           <p
             role="alert"

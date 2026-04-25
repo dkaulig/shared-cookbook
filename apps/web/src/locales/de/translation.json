@@ -222,6 +222,19 @@
         "errorFailed": "Reimport konnte nicht gestartet werden."
       }
     },
+    "translation": {
+      "translateToDe": "Auf Deutsch anzeigen",
+      "translateToEn": "Auf Englisch anzeigen",
+      "translatingPending": "Übersetze…",
+      "showOriginal": "Original anzeigen",
+      "translatedFromDe": "Automatisch aus dem Deutschen übersetzt.",
+      "translatedFromEn": "Automatisch aus dem Englischen übersetzt.",
+      "staleHint": "Das Rezept wurde geändert; die Übersetzung könnte veraltet sein.",
+      "refreshCta": "Aktualisieren",
+      "errorAlreadyInLanguage": "Das Rezept ist bereits in der gewählten Sprache.",
+      "errorUnavailable": "Übersetzung gerade nicht möglich, bitte später erneut versuchen.",
+      "errorAiDisabled": "KI-Funktionen sind derzeit deaktiviert."
+    },
     "form": {
       "titleLabel": "Titel",
       "titlePlaceholder": "z.B. Mamas Apfelkuchen",

@@ -38,5 +38,15 @@ export const recipeQueryKeys = {
   revisions: (id: string) => [...recipeQueryKeys.all, 'revisions', id] as const,
   revision: (id: string, revisionId: string) =>
     [...recipeQueryKeys.all, 'revisions', id, revisionId] as const,
+  /**
+   * LANG-2 — cache key for the cached translation payload of a recipe
+   * into a target UI language. The TanStack-Query mutation deduplicates
+   * concurrent translate clicks via this key (re-clicking while in
+   * flight returns the in-flight promise rather than firing a second
+   * LLM call). Per-(recipe, language) granularity so toggling the UI
+   * language mid-session keeps both translations cached locally.
+   */
+  translation: (id: string, lang: string) =>
+    [...recipeQueryKeys.all, 'translation', id, lang] as const,
   tagsForGroup: (groupId: string) => ['tags', 'group', groupId] as const,
 }

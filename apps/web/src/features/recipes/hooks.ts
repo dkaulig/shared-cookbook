@@ -10,6 +10,7 @@ import type {
   RecipeRevisionDetail,
   RecipeRevisionSummary,
   RecipeSummaryListDto,
+  RecipeTranslationResponse,
   TagDto,
   UpdateRecipeRequest,
   UploadPhotoResponse,
@@ -28,6 +29,7 @@ import {
   patchRecipeNutrition,
   reimportRecipe,
   swapRecipeCover,
+  translateRecipe,
   updateRecipe,
   uploadRecipePhoto,
 } from './recipesApi'
@@ -345,4 +347,50 @@ export function useRecipeRevision(
     queryFn: () => fetchRecipeRevision(recipeId!, revisionId!),
     enabled: !!(recipeId && revisionId),
   })
+}
+
+// ── LANG-2: Translate a recipe on demand ───────────────────────────────
+
+/**
+ * LANG-2 — `POST /api/recipes/:id/translate?lang=de|en[&force=true]`.
+ *
+ * The hook is a TanStack-Query `useMutation` keyed by
+ * `recipeQueryKeys.translation(recipeId, lang)`. The mutation argument
+ * carries the `force` flag so the same hook drives both the initial
+ * translate click and the "Aktualisieren" link on the stale-banner.
+ *
+ * Server caches by `(recipeId, language)`; the success handler primes
+ * the local query cache so the next render reads the payload directly
+ * via `queryClient.getQueryData(translationKey)` without an extra
+ * round-trip. Toggling back to original on the detail page never
+ * unloads this cache entry, so a subsequent toggle-to-translated is
+ * instant.
+ */
+export function useTranslateRecipe(recipeId: string, lang: string) {
+  const client = useQueryClient()
+  return useMutation<RecipeTranslationResponse, Error, { force?: boolean } | void>({
+    mutationKey: recipeQueryKeys.translation(recipeId, lang),
+    mutationFn: (variables) =>
+      translateRecipe(recipeId, lang, { force: variables?.force ?? false }),
+    onSuccess: (response) => {
+      client.setQueryData(
+        recipeQueryKeys.translation(recipeId, lang),
+        response,
+      )
+    },
+  })
+}
+
+/**
+ * Read-only accessor for an already-translated recipe payload. Returns
+ * `undefined` until the corresponding `useTranslateRecipe` mutation has
+ * resolved at least once for this `(recipeId, lang)` pair. Used by
+ * `RecipeDetailPage` to avoid re-firing the mutation on a remount when
+ * the translation is already cached this session.
+ */
+export function useCachedTranslation(recipeId: string, lang: string) {
+  const client = useQueryClient()
+  return client.getQueryData<RecipeTranslationResponse>(
+    recipeQueryKeys.translation(recipeId, lang),
+  )
 }
