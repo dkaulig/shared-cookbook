@@ -1,9 +1,25 @@
 name: Deploy
 
-# Runs on every push to main. Builds the API + web images, pushes them
-# to GHCR tagged with both `:latest` and `:${{ github.sha }}`, then
-# (eventually) deploys to the production VPS. Until that VPS exists
-# the `deploy` job is stubbed out — see the commented-out step below.
+# NOTE FOR FORKS / EXTERNAL CONTRIBUTORS
+# --------------------------------------
+# This workflow deploys to the maintainer's VPS via tag-only triggers.
+# It will not work for you out-of-the-box: it expects org-scoped GHCR
+# images (`kay-solutions/familien-kochbuch-*`) and three repo secrets
+# (`VPS_HOST`, `VPS_SSH_KEY`, `PROD_ENV`) that only the maintainer can
+# set. A push to a fork will fail at the SSH step.
+#
+# If you fork this project to self-host: redirect the GHCR image paths
+# in `env.IMAGE_PREFIX` and the matrix in the `prune-ghcr` job to your
+# own GHCR namespace, then set your own `VPS_HOST` / `VPS_SSH_KEY` /
+# `PROD_ENV` secrets. See README.md for the no-CI path (running
+# everything via `docker compose` locally).
+#
+# Triggers: tag push (`v*`) or manual dispatch only — fork PRs cannot
+# run this workflow, so secrets stay isolated by GitHub default.
+#
+# Builds the API, web, and python-extractor images, pushes them to
+# GHCR tagged with both `:latest` and the commit SHA, then rsyncs the
+# compose file + env to the VPS and pulls + restarts.
 
 on:
   # Tag-based release: push a `vMAJOR.MINOR.PATCH` tag to cut a release.
@@ -15,6 +31,8 @@ on:
   # off any branch. Useful for hotfixes and first-time setup.
   workflow_dispatch:
 
+# Least-privilege at the workflow level: read source, write to GHCR.
+# The `prune-ghcr` job re-asserts `packages: write` for clarity.
 permissions:
   contents: read
   packages: write
