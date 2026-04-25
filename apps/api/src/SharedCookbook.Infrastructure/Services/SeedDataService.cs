@@ -19,7 +19,7 @@ public class SeedDataService(
     IConfiguration config,
     ILogger<SeedDataService> logger)
 {
-    internal const string DefaultAdminEmail = "admin@familien-kochbuch.local";
+    internal const string DefaultAdminEmail = "admin@shared-cookbook.local";
     internal const string DefaultAdminPassword = "ChangeMe!Admin2026";
     // BF1 #2 — the previous default ("Admin") was the role label, which
     // surfaced in revision history as if the role were the author's name.
