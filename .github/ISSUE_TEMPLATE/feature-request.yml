@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest a new feature or behaviour change.
+title: "[Feature] "
+labels:
+  - feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. The roadmap is intentionally narrow
+        (driven by what the maintainer's family needs), so not every
+        request lands — but a clear use-case helps a lot.
+
+        For larger features, please discuss the use case here **before
+        opening a PR**. See
+        [CONTRIBUTING.md → Tiered PR expectations](https://github.com/dKaulig/shared-cookbook/blob/main/CONTRIBUTING.md#tiered-pr-expectations).
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Use case
+      description: |
+        What user problem are you trying to solve? Describe the
+        situation, not the solution.
+      placeholder: |
+        When I cook with my partner, we both want to scale the
+        servings independently on our own devices.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How might this work? Optional — sketches welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about and discarded.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope estimate
+      description: Roughly how big does this feel?
+      options:
+        - Small (single file / locale string / small UI tweak)
+        - Medium (one feature area, a few files)
+        - Large (cross-service, schema change, new dependency)
+    validations:
+      required: true
