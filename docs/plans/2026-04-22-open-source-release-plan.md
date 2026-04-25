@@ -228,9 +228,14 @@ Tagline candidates:
 
 4. **Rebrand.** Search-and-replace `EXAMPLE_HOST` and personal
    email addresses; replace with `EXAMPLE_HOST` / `admin@example.com`
-   in public-visible config. Keep project name "Familien-Kochbuch" if
-   it's already in SEO; otherwise rename to something neutral like
-   "open-cookbook".
+   in public-visible config. Public project name is `shared-cookbook`
+   — connotes the multi-user / groups feature without pinning a
+   specific demographic ("family"), and the slug is clean across
+   GitHub, npm, PyPI, crates.io, and the major TLDs (verified
+   2026-04-25). Internal German UI label "Familien-Kochbuch" can
+   stay as a localised label inside the app if desired, but every
+   public-facing surface (repo, README title, image names, package
+   names) uses `shared-cookbook`.
 
 5. **`.github/workflows/` clean-up.** The `deploy.yml` references
    private Dockerfiles pushed to `ghcr.io/kay-solutions/...` — that
@@ -406,10 +411,12 @@ real stable-api promise.
 
 ## Open questions — LOCKED 2026-04-22
 
-- **Repo name:** `kay-solutions/open-cookbook` (the `open-cookbook`
-  GitHub org is taken, but the repo slug under the existing
-  `kay-solutions` org is free). Local package name + docker-image
-  names migrate to `open-cookbook-*` over time but not blocking.
+- **Repo name:** `kay-solutions/shared-cookbook` (revised
+  2026-04-25; previous candidate `open-cookbook` was rejected as too
+  generic and didn't capture the multi-user / groups angle). Slug
+  verified clean across GitHub, npm, PyPI, crates.io, and major
+  TLDs. Local package name + docker-image names migrate to
+  `shared-cookbook-*` over time but not blocking.
 - **Release version:** not pre-committed — whatever tag-number we
   land on at release time. **Stays `v0.x`** to signal "beta,
   iterating, no SemVer commitment". `v1.0.0` is reserved for when
