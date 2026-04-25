@@ -141,10 +141,10 @@ export async function deleteSlot(planId: string, slotId: string): Promise<void> 
  *
  * Failures surface as {@link MealPlanApiError} with codes the UI
  * already maps to specific German banners:
- *   - 404 `source.not_found` — kein Plan in der Quellwoche.
- *   - 400 `copy.same_plan` — source = target (kann in der UI nicht
- *     auftreten, weil wir immer "letzte Woche" kopieren).
- *   - 403 — Non-member.
+ *   - 404 `source.not_found` — no plan exists for the source week.
+ *   - 400 `copy.same_plan` — source = target (cannot happen via the
+ *     UI because we always copy "letzte Woche").
+ *   - 403 — non-member.
  */
 export async function copyFromWeek(
   planId: string,
