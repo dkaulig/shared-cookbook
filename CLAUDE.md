@@ -128,6 +128,25 @@ pnpm --filter web run build
 dotnet build apps/api/SharedCookbook.sln
 ```
 
+### `pnpm install --force` after workspace renames
+
+If a workspace `package.json` `name` field changes (e.g. RENAME-2
+went from `@familien-kochbuch/web` → `@shared-cookbook/web`), a plain
+`pnpm install` is a no-op: the lockfile is already up to date and
+pnpm doesn't refresh the `node_modules/<old-scope>/*` symlinks. Tests
+then fail with `Failed to resolve import "@shared-cookbook/..."`
+because vitest is still looking at the stale symlinks.
+
+After every workspace package-name change, run:
+
+```bash
+pnpm install --force
+```
+
+`--force` forces pnpm to re-link `node_modules` against the current
+workspace layout. It's a one-time cost per rename — not needed for
+content changes inside an unchanged workspace.
+
 ### Pre-tag checklist
 
 A `v*` tag push burns CI minutes AND is the slowest feedback loop in
