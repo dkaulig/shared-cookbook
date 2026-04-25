@@ -62,7 +62,7 @@ from extractor.progress import NullProgressReporter, ProgressReporter
 from extractor.prompts.language import SupportedLanguage, normalize_accept_language
 from extractor.security import HmacVerificationMiddleware
 
-_PACKAGE_NAME: Final[str] = "extractor"
+_PACKAGE_NAME: Final[str] = "shared-cookbook-extractor"
 
 # Response-header names for token-usage propagation. The .NET side
 # reads these off the Python response and persists them on
@@ -135,7 +135,9 @@ class HealthResponse(BaseModel):
     """
 
     status: str = Field(description="Literal 'ok' when the service is up.")
-    service: str = Field(description="Service identifier - always 'extractor' here.")
+    service: str = Field(
+        description="Service identifier - always 'shared-cookbook-extractor' here.",
+    )
     version: str = Field(description="Package version from installed metadata.")
 
     model_config = {"extra": "forbid"}

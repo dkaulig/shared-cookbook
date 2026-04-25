@@ -33,14 +33,14 @@ def test_health_payload_identifies_service(client: TestClient) -> None:
     """`service` pins the service identity so ops/monitoring can distinguish
     this container from api/web in a shared log stream."""
     payload = client.get("/health").json()
-    assert payload["service"] == "extractor"
+    assert payload["service"] == "shared-cookbook-extractor"
 
 
 def test_health_payload_exposes_package_version(client: TestClient) -> None:
     """`version` reads from the installed package metadata — not a hardcoded
     constant — so a mismatched deploy can't silently ship the wrong image."""
     payload = client.get("/health").json()
-    expected = pkg_version("extractor")
+    expected = pkg_version("shared-cookbook-extractor")
     assert payload["version"] == expected
     assert isinstance(payload["version"], str)
     assert len(payload["version"]) > 0
