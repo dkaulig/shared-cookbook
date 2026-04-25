@@ -7,6 +7,12 @@
 #
 # For local prod-mode sanity testing, set CADDY_DOMAIN=localhost and
 # disable TLS in the Caddyfile (see comment inline there).
+#
+# Note: existing pre-2026-04-25 self-host installs that renamed their
+# directory from `familien-kochbuch` to `shared-cookbook` should set
+# `COMPOSE_PROJECT_NAME=familien-kochbuch` in `.env` to keep their
+# existing Docker volumes attached. New self-hosts: skip this — fresh
+# stacks naturally use `shared-cookbook_*` volume prefix.
 services:
   postgres:
     image: postgres:17-alpine
