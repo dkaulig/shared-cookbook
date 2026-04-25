@@ -2,8 +2,6 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import i18n from '@/i18n'
-import type { ApiError } from '@familien-kochbuch/shared'
 import { Button } from '@/components/ui/button'
 import { classifyMutationError } from '@/features/_shared/errorSurface'
 import {
@@ -106,28 +104,16 @@ export function LoginPage() {
       await login(email.trim(), password)
       navigate(safeNextPath(searchParams.get('next')), { replace: true })
     } catch (err) {
-      // REL-3f — login has a bespoke 4xx path: the classifier routes
-      // 401/403 to a generic "Fehlende Berechtigung …" toast-copy that
-      // makes no sense during a failed login attempt (we want the user
-      // to SEE "invalid credentials", not "please log in again"). So we
-      // read the `errors:<code>` translation directly for 400/401 bodies
-      // that carry a known code, and fall back to `classifyMutationError`
-      // for 5xx / network so stack traces never leak.
-      const apiErr = err as Partial<ApiError>
-      const code = typeof apiErr.code === 'string' ? apiErr.code : null
-      const status = typeof apiErr.status === 'number' ? apiErr.status : undefined
-      const isClientErr = typeof status === 'number' && status >= 400 && status < 500
-      if (code && isClientErr) {
-        const localised = i18n.t(code, { ns: 'errors', defaultValue: '' })
-        setError(
-          localised ||
-            t('auth.login.errors.failed', {
-              defaultValue: 'Anmeldung fehlgeschlagen.',
-            }),
-        )
-      } else {
-        setError(classifyMutationError(err).message)
-      }
+      // SMALL-1b — `classifyMutationError` now prefers the
+      // `errors:<code>` translation over the generic 401/403 forbidden
+      // copy when the backend tagged the failure with a known code
+      // (`invalid_credentials` etc.). The previously-bespoke 4xx
+      // fall-through is no longer needed — the shared classifier
+      // already returns the localised "E-Mail oder Passwort ist nicht
+      // korrekt." string for a 401 + invalid_credentials body, and
+      // 5xx still drops the raw backend message so stack traces never
+      // leak.
+      setError(classifyMutationError(err).message)
     } finally {
       setSubmitting(false)
     }
