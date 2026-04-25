@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup help
+    url: https://github.com/dKaulig/shared-cookbook/blob/main/docs/SETUP.md
+    about: Stuck on installation or environment? Check the SETUP guide first.
+  - name: Security issue
+    url: https://github.com/dKaulig/shared-cookbook/security/advisories/new
+    about: Report security vulnerabilities privately via GitHub Security Advisories.

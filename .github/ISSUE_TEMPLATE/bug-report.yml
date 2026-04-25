@@ -1,0 +1,80 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill
+        out as much detail as you can — the easier it is to reproduce,
+        the faster it gets fixed.
+
+        **Do not include credentials, tokens, or `.env` contents in
+        this issue.** For security-sensitive findings, see
+        [SECURITY.md](https://github.com/dKaulig/shared-cookbook/blob/main/docs/SECURITY.md).
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Short, one-line description of the bug.
+      placeholder: e.g. Importing a YouTube short crashes the extractor.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Numbered steps that take you from a fresh load to the bug.
+        Include the URL/recipe/photo if the bug is content-specific.
+      placeholder: |
+        1. Open the web app
+        2. Click "Importieren"
+        3. Paste this URL: …
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen?
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What actually happened?
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      description: Which part of the stack is involved?
+      options:
+        - Web (browser / PWA)
+        - API (.NET backend)
+        - Extractor (Python / yt-dlp / Whisper)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser + OS, or stack version (e.g. v0.12.3).
+      placeholder: e.g. Chrome 138 on macOS 15.1, app v0.12.3
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console / log output
+      description: |
+        Browser console output or relevant server logs. Wrap in code
+        fences. Strip any tokens, credentials, or personal data
+        before pasting.
+      render: shell
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag-and-drop screenshots if they help. Optional.
