@@ -550,23 +550,20 @@ function useInitialSharedFiles(location: ReturnType<typeof useLocation>) {
     }
     // Non-hook fallback: the lazy initializer runs outside the React
     // render tree, so useTranslation() isn't available. Use the i18n
-    // singleton (initialised at app bootstrap) when it's ready; fall
-    // through to the DE defaultValue otherwise. The REL-3 `bootstrap.ts`
-    // init is async, so in very rare cases the Share-Target handoff
-    // fires before `isInitialized` flips — the DE fallback keeps the
-    // toast readable. REL-3e globalised the test-setup i18n bootstrap,
-    // so vitest runs always see `isInitialized === true`.
+    // singleton — REL-3's `bootstrap.ts` initialises it synchronously
+    // before `main.tsx` mounts the React tree (resources are inline,
+    // so i18next's `init()` resolves on the same tick). REL-3e wired
+    // the same bootstrap into vitest's `setup.ts`. By the time this
+    // initializer runs the singleton is always ready.
     const germanFallback = `Format nicht unterstützt — ${droppedCount} Bild${
       droppedCount === 1 ? '' : 'er'
     } übersprungen.`
     const toast =
       droppedCount > 0
-        ? i18n.isInitialized
-          ? i18n.t('imports.photoPage.errors.sharedSkipped', {
-              count: droppedCount,
-              defaultValue: germanFallback,
-            })
-          : germanFallback
+        ? i18n.t('imports.photoPage.errors.sharedSkipped', {
+            count: droppedCount,
+            defaultValue: germanFallback,
+          })
         : null
     return [accepted, toast]
   })[0]
