@@ -564,9 +564,11 @@ function FlagsSection(props: {
             return (
               <li key={key} className="flex flex-wrap items-center gap-3 py-3">
                 <label htmlFor={key} className="flex-1 min-w-[200px] cursor-pointer">
-                  <span className="block text-sm font-medium">{key}</span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block text-sm font-medium">
                     {t(`admin.extractor.flagLabels.${key}`)}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {key}
                   </span>
                 </label>
                 <SavedIndicator savedAt={savedAt[key]} />

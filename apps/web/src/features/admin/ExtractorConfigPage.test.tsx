@@ -470,6 +470,34 @@ describe('<ExtractorConfigPage />', () => {
     expect(sent.value).toEqual(['tinyurl.com'])
   })
 
+  it('flag list: friendly label is the primary text, raw key is the muted subtitle', async () => {
+    server.use(
+      http.get('/api/admin/extractor-config/', () =>
+        HttpResponse.json(defaultPayload()),
+      ),
+    )
+
+    renderPage()
+
+    // Wait for the list query to resolve.
+    await screen.findByLabelText(/Strukturierter System-Prompt/i)
+
+    // The friendly translation belongs to the primary label slot
+    // (font-medium); the raw dotted key belongs to the muted subtitle
+    // slot (text-muted-foreground / text-xs). The video-import flag is
+    // a representative example — every flag follows the same layout.
+    const friendly = screen.getByText('Aktivieren des Video-Imports')
+    expect(friendly).toHaveClass('font-medium')
+    // Sanity check the friendly label is NOT the muted subtitle.
+    expect(friendly).not.toHaveClass('text-muted-foreground')
+
+    const rawKey = screen.getByText('feature.video_import_enabled')
+    expect(rawKey).toHaveClass('text-muted-foreground')
+    expect(rawKey).toHaveClass('text-xs')
+    // And the raw key is NOT the bold primary label.
+    expect(rawKey).not.toHaveClass('font-medium')
+  })
+
   it('"Gespeichert vor X Sekunden" label ticks forward as time passes', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
