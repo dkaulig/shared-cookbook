@@ -13,6 +13,13 @@ orchestrator branch on the classification:
 - ``ai_disabled``          — REL-7: operator-set ``LLM_PROVIDER=disabled``.
   Distinct from ``not_configured`` so the caller can map it to a 503 with
   a user-visible "läuft ohne AI" message instead of a 500 "misconfigured".
+- ``truncated_response``   — Azure returned 200 with ``status: "incomplete"``
+  and ``incomplete_details.reason: "max_output_tokens"``. The body's
+  ``output_text`` is a partial string that almost always fails JSON parsing.
+  Distinct from ``schema_mismatch`` so the operator log reads the actual
+  cause (cap too low) instead of "bad JSON". Do NOT retry — the next
+  attempt with the same cap will truncate at the same spot. Bumping
+  ``llm.structured.max_completion_tokens`` is the operator action.
 
 The set of codes is part of the public API; adding / removing one is a
 breaking change. ``LLM_ERROR_CODES`` + the ``LLMErrorCode`` literal keep
@@ -31,6 +38,7 @@ LLMErrorCode = Literal[
     "auth_failure",
     "not_configured",
     "ai_disabled",
+    "truncated_response",
 ]
 
 # Runtime-accessible tuple of every valid code. Tests pin this to catch

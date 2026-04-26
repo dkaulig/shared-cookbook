@@ -62,7 +62,15 @@ _DEFAULT_RETRY_WAIT_SECONDS: float = 2.0
 # ships the same values in its fallback path so the pipeline is a no-op
 # until the admin UI flips a value.
 _DEFAULT_STRUCTURED_TEMPERATURE: float = 0.0
-_DEFAULT_STRUCTURED_MAX_COMPLETION_TOKENS: int = 2048
+# Production import fbbf192b-3c51-4932-867d-f7395b436fed (FB reel
+# https://www.facebook.com/share/r/1963bBySqX/) reproducibly hit the
+# previous 2048 cap on a 3-component recipe translated to German. The
+# response came back ``status: "incomplete"`` + ``reason:
+# "max_output_tokens"`` and the truncated JSON failed downstream
+# parsing as a misleading ``schema_mismatch``. Bumped to 4096 — still
+# safely inside the gpt-4.1-mini ceiling of 8192. Admins can override
+# per-deployment via ``llm.structured.max_completion_tokens`` (CFG-1).
+_DEFAULT_STRUCTURED_MAX_COMPLETION_TOKENS: int = 4096
 _DEFAULT_CHAT_MAX_COMPLETION_TOKENS: int = 2048
 _DEFAULT_VISION_TEMPERATURE: float = 0.0
 _DEFAULT_VISION_MAX_COMPLETION_TOKENS: int = 2048
@@ -230,6 +238,7 @@ class AzureOpenAIProvider(LLMProvider):
             max_completion_tokens=max_completion_tokens,
         )
         response_body = await self._post_with_retries(body)
+        _raise_if_truncated(response_body)
         text = self._extract_output_text(response_body)
         try:
             parsed = json.loads(text)
@@ -266,6 +275,7 @@ class AzureOpenAIProvider(LLMProvider):
             max_completion_tokens=max_completion_tokens,
         )
         response_body = await self._post_with_retries(body)
+        _raise_if_truncated(response_body)
         text = self._extract_output_text(response_body)
         usage = self._extract_usage(response_body, fallback_model=effective_deployment)
         return text, usage
@@ -306,6 +316,7 @@ class AzureOpenAIProvider(LLMProvider):
             max_completion_tokens=max_completion_tokens,
         )
         response_body = await self._post_with_retries(body)
+        _raise_if_truncated(response_body)
         text = self._extract_output_text(response_body)
         try:
             parsed = json.loads(text)
@@ -611,6 +622,35 @@ def _safe_int(source: Any, key: str) -> int:
             return 0
         return n if n >= 0 else 0
     return 0
+
+
+def _raise_if_truncated(response_body: dict[str, Any]) -> None:
+    """Raise ``truncated_response`` when Azure capped the output mid-string.
+
+    Azure Responses API returns HTTP 200 even when the model exhausted its
+    output budget — the body carries ``status: "incomplete"`` with
+    ``incomplete_details.reason: "max_output_tokens"``. The partial
+    ``output_text`` is almost always a half-finished JSON value that fails
+    ``json.loads`` downstream as ``schema_mismatch``, masking the real
+    cause. Detecting the flag here gives operators an actionable code
+    pointing at the cap (CFG-1: ``llm.structured.max_completion_tokens``).
+
+    Reproduced live against production import
+    ``fbbf192b-3c51-4932-867d-f7395b436fed`` (FB reel
+    ``https://www.facebook.com/share/r/1963bBySqX/``).
+    """
+    if response_body.get("status") != "incomplete":
+        return
+    details = response_body.get("incomplete_details")
+    if not isinstance(details, dict):
+        return
+    if details.get("reason") != "max_output_tokens":
+        return
+    raise LLMProviderError(
+        "Azure response was truncated at max_output_tokens — bump "
+        "llm.structured.max_completion_tokens or shorten the input",
+        code="truncated_response",
+    )
 
 
 def _decode_json_or_raise(response: httpx.Response) -> dict[str, Any]:

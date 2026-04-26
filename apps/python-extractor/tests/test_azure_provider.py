@@ -23,7 +23,10 @@ import pytest
 import respx
 
 from extractor.llm import LLMProviderError
-from extractor.llm.azure_openai import AzureOpenAIProvider
+from extractor.llm.azure_openai import (
+    _DEFAULT_STRUCTURED_MAX_COMPLETION_TOKENS,
+    AzureOpenAIProvider,
+)
 
 _ENDPOINT = "https://fake.openai.azure.com"
 _API_KEY = "fake-api-key"
@@ -732,3 +735,118 @@ async def test_api_key_never_appears_in_logs(
     for record in caplog.records:
         assert _API_KEY not in record.getMessage()
         assert _API_KEY not in str(record.args)
+
+
+# ---------- truncated_response detection (incomplete + max_output_tokens) ----------
+
+
+def test_default_structured_max_completion_tokens_is_4096() -> None:
+    """Regression guard for the production-import truncation fix.
+
+    Production import ``fbbf192b-3c51-4932-867d-f7395b436fed`` against
+    ``https://www.facebook.com/share/r/1963bBySqX/`` returned HTTP 200
+    with ``status: "incomplete"`` + ``incomplete_details.reason:
+    "max_output_tokens"`` because the previous 2048 cap was tight for
+    a 3-component recipe translated to German. Bumped to 4096 — still
+    safely inside the gpt-4.1-mini ceiling of 8192. CFG-1 admins can
+    override per-deployment via ``llm.structured.max_completion_tokens``.
+    """
+    assert _DEFAULT_STRUCTURED_MAX_COMPLETION_TOKENS == 4096
+
+
+def _truncated_payload(text: str) -> dict[str, Any]:
+    """Responses-API body shaped exactly like Azure's truncation case.
+
+    Azure returns HTTP 200 with ``status: "incomplete"`` +
+    ``incomplete_details.reason: "max_output_tokens"`` and a partial
+    ``output_text`` that almost always fails ``json.loads``. The
+    ``output_text`` payload here is intentionally an unterminated JSON
+    string so the previous code path would surface ``schema_mismatch``
+    on the failed parse — the new path must detect the truncation
+    flag first and raise ``truncated_response`` instead.
+    """
+    return {
+        "id": "resp_truncated",
+        "model": _DEPLOYMENT_STRUCT,
+        "status": "incomplete",
+        "incomplete_details": {"reason": "max_output_tokens"},
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": text}],
+            }
+        ],
+        "usage": {
+            "input_tokens": 1000,
+            "output_tokens": 2048,
+            "input_tokens_details": {"cached_tokens": 0},
+        },
+    }
+
+
+@respx.mock
+async def test_extract_structured_raises_truncated_response_on_max_output_tokens(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """Truncation path must surface ``truncated_response``, not ``schema_mismatch``.
+
+    Diagnosed against production import
+    ``fbbf192b-3c51-4932-867d-f7395b436fed`` — the operator log read
+    ``schema_mismatch`` even though the real cause was the model
+    hitting ``max_output_tokens``. Renaming the failure makes future
+    debugging self-explanatory.
+    """
+    respx.post(_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=_truncated_payload('{"title": "Honey Chipotle Quesadilla", "des'),
+        )
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        await provider.extract_structured(
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "x"}],
+            json_schema={"type": "object"},
+        )
+    assert exc_info.value.code == "truncated_response"
+
+
+@respx.mock
+async def test_chat_raises_truncated_response_on_max_output_tokens(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """Same truncation contract for the ``chat`` call site."""
+    respx.post(_URL).mock(
+        return_value=httpx.Response(200, json=_truncated_payload("partial reply..."))
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        await provider.chat(
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "x"}],
+        )
+    assert exc_info.value.code == "truncated_response"
+
+
+@respx.mock
+async def test_vision_extract_raises_truncated_response_on_max_output_tokens(
+    provider: AzureOpenAIProvider,
+) -> None:
+    """Same truncation contract for the ``vision_extract`` call site."""
+    respx.post(_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=_truncated_payload('{"title": "Brot", "components": [{"label": null'),
+        )
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        await provider.vision_extract(
+            system_prompt="sys",
+            images=[{"image_url": "https://cdn.test/a.jpg", "detail": "auto"}],
+            instruction="x",
+            json_schema={"type": "object"},
+        )
+    assert exc_info.value.code == "truncated_response"

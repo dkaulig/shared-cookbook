@@ -800,6 +800,32 @@ def test_system_prompt_forbids_generic_placeholder_labels() -> None:
         )
 
 
+def test_system_prompt_instructs_empty_source_url() -> None:
+    """Production import ``fbbf192b-3c51-4932-867d-f7395b436fed`` against
+    a Facebook reel had the LLM emit a ~700-char FB CDN URL into
+    ``source_url``. The backend ``post_process`` overwrites the field
+    with the original URL anyway, so the LLM's URL spend is pure waste
+    — and on a 3-component recipe it pushes the response over the
+    Azure ``max_output_tokens`` cap, causing a truncation. The system
+    prompt must instruct the LLM to leave ``source_url`` empty so the
+    server-side overwrite is the sole source of truth."""
+    assert "source_url" in SYSTEM_PROMPT_DE, (
+        "the prompt must name the `source_url` field so the LLM knows the directive applies to it"
+    )
+    # The directive: leave source_url empty / server overwrites.
+    lowered = SYSTEM_PROMPT_DE.lower()
+    assert "leeren string" in lowered or 'leeren ""' in lowered or "leerer string" in lowered, (
+        "the prompt must tell the LLM to leave `source_url` as an empty "
+        "string — the server-side ``post_process`` overwrites the field "
+        "anyway and a long FB CDN URL pushes the response over the "
+        "max_output_tokens budget"
+    )
+    assert "serverseitig" in lowered or "überschrieb" in lowered, (
+        "the prompt must explain why source_url stays empty (server "
+        "overwrites) so the LLM doesn't silently re-introduce the URL"
+    )
+
+
 def test_system_prompt_shows_concrete_split_example() -> None:
     """COMP-FIX: prompt carries a concrete mini-example demonstrating
     the Quesadilla-style split. Few-shot anchoring fights stochasticity

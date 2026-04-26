@@ -48,6 +48,12 @@ def test_error_code_enumeration_is_complete() -> None:
         # "not_configured" so the FastAPI layer can map it to a 503
         # instead of a 500.
         "ai_disabled",
+        # Production import fbbf192b-3c51-4932-867d-f7395b436fed —
+        # Azure returned status="incomplete" with reason
+        # "max_output_tokens" and a partial JSON body. Distinct from
+        # "schema_mismatch" so the operator log reads the actual
+        # cause (cap too low) instead of a misleading "bad JSON".
+        "truncated_response",
     }
 
 
