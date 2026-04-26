@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     # on prompts (shorter TTL → faster feedback loop).
     extractor_config_ttl_seconds: float = 60.0
 
+    # CFG-1b: master switch for the one-shot prompt-seed at startup.
+    # On boot the extractor POSTs the three real DE system prompts to
+    # ``/api/internal/extractor-config/seed-prompts`` so the .NET DB
+    # rows seeded with literal ``PLACEHOLDER_*_PROMPT`` strings get
+    # replaced with usable text the admin UI can show. The .NET
+    # endpoint is idempotent + admin-edit-safe, so leaving this on by
+    # default is harmless. Disable in local dev when you actively want
+    # the placeholder text in the DB (e.g. testing the CFG-0 fallback
+    # path manually) — set ``EXTRACTOR_PROMPT_SEED_ENABLED=false`` in
+    # the .env.
+    extractor_prompt_seed_enabled: bool = True
+
     # COVER-0 fix: on-disk root for ffmpeg-extracted video frames. The
     # pipeline writes one UUID-keyed subdir per extraction and serves
     # the files via GET /extractor/frames/{dir_id}/{filename} so the

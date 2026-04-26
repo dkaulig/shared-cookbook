@@ -59,6 +59,7 @@ from extractor.pipeline.video import (
     VideoDownloader,
 )
 from extractor.progress import NullProgressReporter, ProgressReporter
+from extractor.prompt_seed import seed_prompts
 from extractor.prompts.language import SupportedLanguage, normalize_accept_language
 from extractor.security import HmacVerificationMiddleware
 
@@ -605,24 +606,65 @@ async def _prefetch_whisper_model() -> None:
     logger.info("whisper prefetch completed")
 
 
+async def _seed_prompts_at_startup() -> None:
+    """CFG-1b — one-shot POST of the three real DE prompts to the .NET
+    seed endpoint.
+
+    Honours :attr:`Settings.extractor_prompt_seed_enabled` (default on)
+    so a local dev run with intentionally-placeholder DB rows can opt
+    out via the env var. Skipped under pytest: integration tests own
+    their own DB and don't need a live POST; the dedicated
+    :mod:`tests.test_prompt_seed` exercises the module directly.
+
+    Reuses the same httpx client the :class:`ExtractorConfig` loader
+    uses (or builds a transient one if the loader is disabled) so we
+    pay one TCP/TLS handshake instead of two.
+    """
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    settings = _get_settings()
+    if not settings.extractor_prompt_seed_enabled:
+        logger.info("prompt_seed skipped: EXTRACTOR_PROMPT_SEED_ENABLED=false")
+        return
+    base = settings.extractor_config_api_base.strip()
+    if not base:
+        logger.info("prompt_seed skipped: EXTRACTOR_CONFIG_API_BASE empty — no .NET API to seed.")
+        return
+    # Make sure the loader's singleton client is built so we share the
+    # connection pool. ``get_extractor_config`` is idempotent.
+    get_extractor_config()
+    client = _extractor_config_client
+    if client is None:
+        # Fallback: loader is disabled but we still want to seed. Build
+        # a transient client just for this call.
+        async with httpx.AsyncClient(base_url=base) as transient:
+            await seed_prompts(transient)
+        return
+    await seed_prompts(client)
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """FastAPI lifespan: kick off the Whisper model prefetch.
+    """FastAPI lifespan: kick off the Whisper model prefetch + the
+    CFG-1b prompt seed.
 
-    The prefetch runs as a fire-and-forget background task — startup
-    never blocks on it. The task reference is stashed on the app state
-    so garbage collection can't reap it mid-download; the task is
-    cancelled cleanly on shutdown if the download hasn't finished yet.
+    Both run as fire-and-forget background tasks — startup never blocks
+    on them. The task references are stashed on the app state so
+    garbage collection can't reap them mid-flight; tasks are cancelled
+    cleanly on shutdown if they haven't finished yet.
     """
-    task = asyncio.create_task(_prefetch_whisper_model(), name="whisper-prefetch")
-    _app.state.whisper_prefetch_task = task
+    whisper_task = asyncio.create_task(_prefetch_whisper_model(), name="whisper-prefetch")
+    _app.state.whisper_prefetch_task = whisper_task
+    seed_task = asyncio.create_task(_seed_prompts_at_startup(), name="prompt-seed")
+    _app.state.prompt_seed_task = seed_task
     try:
         yield
     finally:
-        if not task.done():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        for task in (whisper_task, seed_task):
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
 
 
 def _resolve_version() -> str:

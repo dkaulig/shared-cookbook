@@ -25,12 +25,15 @@ namespace SharedCookbook.Domain.Entities;
 ///
 /// <para>
 /// <b>Prompt placeholders.</b> For the three <c>*.system_prompt</c>
-/// keys the default here is a short German placeholder — the CFG-1
-/// Python slice owns the authoritative prompt text and will overwrite
-/// these rows via a one-time startup-sync the first time the extractor
-/// comes up against a DB that still shows the placeholder value. This
-/// keeps the backend migration from bundling a multi-kilobyte prompt
-/// copy that would have to be kept in lockstep with the Python source.
+/// keys the default here is the literal sentinel string
+/// <c>"PLACEHOLDER_*_PROMPT"</c>. The python-extractor's startup hook
+/// (<c>apps/python-extractor/src/extractor/prompt_seed.py</c>) posts
+/// the real DE prompts to <c>POST /api/internal/extractor-config/seed-prompts</c>
+/// (see <see cref="SharedCookbook.Api.Endpoints.InternalExtractorConfigEndpoints"/>);
+/// the endpoint replaces any row that still carries a
+/// <c>PLACEHOLDER_</c> value while preserving admin edits. This keeps
+/// the backend migration from bundling a multi-kilobyte prompt copy
+/// that would have to be kept in lockstep with the Python source.
 /// </para>
 /// </summary>
 public static class ExtractorConfigDefaults
@@ -53,10 +56,12 @@ public static class ExtractorConfigDefaults
     public static IReadOnlyList<Entry> All { get; } = new Entry[]
     {
         // ── Structured extraction (gpt-4.1 Responses API) ──────────
-        // CFG-1 seed: placeholder. The Python one-time startup-sync
-        // overwrites this with SYSTEM_PROMPT_DE from
-        // apps/python-extractor/src/extractor/prompts/recipe_extraction.py
-        // the first time the extractor sees the placeholder.
+        // CFG-1b: placeholder string. The python-extractor's startup
+        // hook (apps/python-extractor/src/extractor/prompt_seed.py)
+        // POSTs SYSTEM_PROMPT_DE from prompts/recipe_extraction.py to
+        // /api/internal/extractor-config/seed-prompts; the endpoint
+        // replaces this row idempotently while preserving any later
+        // admin edit.
         //
         // COMP-2 (2026-04-23): default bumped from gpt-4.1-mini to
         // gpt-4.1. The mini model collapsed multi-block recipe captions
@@ -82,18 +87,23 @@ public static class ExtractorConfigDefaults
         new("llm.structured.deployment", ExtractorConfigValueType.String, "\"gpt-4.1\""),
 
         // ── Chat (gpt-5.1-chat) ──
-        // CFG-1 seed: placeholder; Python overwrites with
-        // CHAT_SYSTEM_PROMPT_DE from
-        // apps/python-extractor/src/extractor/prompts/chat.py.
+        // CFG-1b: placeholder string. The python-extractor's startup
+        // hook posts TO_RECIPE_SYSTEM_PROMPT_DE from prompts/chat.py
+        // here; the conversational chat-turn prompt itself now lives
+        // in .NET (Services/ChatSystemPrompt.BasePrompt) post-CR5, and
+        // this admin-UI row is informational only — kept so admins can
+        // see + tune the to-recipe prompt the chat-to-recipe pipeline
+        // consumes.
         new("llm.chat.system_prompt", ExtractorConfigValueType.String,
             "\"PLACEHOLDER_CHAT_PROMPT\""),
         new("llm.chat.max_completion_tokens", ExtractorConfigValueType.Int, "4096"),
         new("llm.chat.deployment", ExtractorConfigValueType.String, "\"gpt-5.1-chat\""),
 
         // ── Vision (photo import) ──
-        // CFG-1 seed: placeholder; Python overwrites with the photo
-        // vision prompt from apps/python-extractor/src/extractor/prompts/
-        // photo_recipe.py on first startup.
+        // CFG-1b: placeholder string. The python-extractor's startup
+        // hook posts SYSTEM_PROMPT_DE from prompts/photo_recipe.py to
+        // /api/internal/extractor-config/seed-prompts; same idempotent
+        // contract as the structured row.
         new("llm.vision.system_prompt", ExtractorConfigValueType.String,
             "\"PLACEHOLDER_VISION_PROMPT\""),
         new("llm.vision.temperature", ExtractorConfigValueType.Float, "0"),
