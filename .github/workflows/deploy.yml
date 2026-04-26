@@ -151,9 +151,24 @@ jobs:
         with:
           context: ./apps/api
           push: true
+          # Tag triple per build:
+          #   :latest      — moving pointer, the most recent successful build
+          #   :<commit-sha> — immutable, ties image to the exact source commit
+          #   :<git-tag>   — only on tag-push (v*), e.g. :v0.13.0; lets users
+          #                  pin to a release. The conditional emits an empty
+          #                  line on workflow_dispatch / branch builds, which
+          #                  build-push-action ignores cleanly.
           tags: |
             ${{ env.IMAGE_PREFIX }}-api:latest
             ${{ env.IMAGE_PREFIX }}-api:${{ github.sha }}
+            ${{ startsWith(github.ref, 'refs/tags/') && format('{0}-api:{1}', env.IMAGE_PREFIX, github.ref_name) || '' }}
+          # SLSA provenance + SBOM attestations: tamper-proof metadata
+          # ("built by THIS workflow on THIS commit") and a per-layer
+          # bill-of-materials. Verifiable post-pull via:
+          #   docker buildx imagetools inspect <image> --format '{{ json .Provenance }}'
+          #   cosign tree <image>
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -182,6 +197,9 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}-web:latest
             ${{ env.IMAGE_PREFIX }}-web:${{ github.sha }}
+            ${{ startsWith(github.ref, 'refs/tags/') && format('{0}-web:{1}', env.IMAGE_PREFIX, github.ref_name) || '' }}
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -209,6 +227,9 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}-python-extractor:latest
             ${{ env.IMAGE_PREFIX }}-python-extractor:${{ github.sha }}
+            ${{ startsWith(github.ref, 'refs/tags/') && format('{0}-python-extractor:{1}', env.IMAGE_PREFIX, github.ref_name) || '' }}
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

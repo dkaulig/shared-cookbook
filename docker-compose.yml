@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
 
   seaweedfs:
-    image: chrislusf/seaweedfs:latest
+    image: chrislusf/seaweedfs:4.21
     container_name: shared-cookbook-seaweedfs
     # Master + volume + filer, no S3 gateway. The filer speaks plain
     # HTTP on port 8333 (PUT/GET/DELETE against raw paths). We talk to
@@ -273,7 +273,7 @@ services:
   ollama:
     profiles:
       - ollama
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.21.2
     container_name: shared-cookbook-ollama
     volumes:
       # Persist pulled model weights across container restarts so

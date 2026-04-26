@@ -45,7 +45,7 @@ services:
     restart: unless-stopped
 
   seaweedfs:
-    image: chrislusf/seaweedfs:latest
+    image: chrislusf/seaweedfs:4.21
     container_name: shared-cookbook-seaweedfs
     command: server -filer -dir=/data -filer.port=8333
     volumes:
