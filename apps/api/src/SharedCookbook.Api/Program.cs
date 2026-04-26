@@ -341,6 +341,22 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 
+// ── HTTP JSON options ─────────────────────────────────────────────────
+// Serialise / deserialise enums as strings on the wire so .NET enums
+// round-trip with the shared TypeScript string-union types in
+// packages/shared/src/types/* without a per-property JsonConverter
+// attribute. Without this, STJ defaults to integer enum values: the
+// FE sends "Mittag", STJ rejects it, and the endpoint returns 400 with
+// an empty body — meal-planning was silently broken in production
+// since it shipped (zero user-created MealPlanSlots in prod confirmed
+// the regression). The converter accepts both string and integer
+// inputs, so any older client that still sent ints keeps working.
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(
+        new System.Text.Json.Serialization.JsonStringEnumConverter());
+});
+
 // ── P3-8: SignalR + live-sync publisher ───────────────────────────────
 // Camel-case JSON names on the wire so the shared TypeScript DTOs in
 // packages/shared/src/types/liveSync.ts map 1:1 without

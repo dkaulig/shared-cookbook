@@ -54,21 +54,21 @@ public class LiveSyncEndpointIntegrationTests
         var adminLogin = await adminClient.PostAsJsonAsync("/api/auth/login",
             new AuthEndpoints.LoginRequest("admin@test.local", "AdminPassword123!"));
         adminLogin.EnsureSuccessStatusCode();
-        var adminBody = (await adminLogin.Content.ReadFromJsonAsync<AuthEndpoints.AuthResponse>())!;
+        var adminBody = (await adminLogin.Content.ReadDtoAsync<AuthEndpoints.AuthResponse>())!;
 
         using var inviteReq = new HttpRequestMessage(HttpMethod.Post, "/api/invites/app/");
         inviteReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminBody.AccessToken);
         inviteReq.Content = JsonContent.Create(new { });
         var inviteRes = await adminClient.SendAsync(inviteReq);
         inviteRes.EnsureSuccessStatusCode();
-        var invite = (await inviteRes.Content.ReadFromJsonAsync<InviteEndpoints.CreateInviteResponse>())!;
+        var invite = (await inviteRes.Content.ReadDtoAsync<InviteEndpoints.CreateInviteResponse>())!;
 
         using var fresh = _factory.CreateRateLimitBypassingClient();
         var signup = await fresh.PostAsJsonAsync(
             $"/api/auth/signup?token={invite.Token}",
             new AuthEndpoints.SignupRequest(email, "Passwort123!", "Test"));
         signup.EnsureSuccessStatusCode();
-        var body = (await signup.Content.ReadFromJsonAsync<AuthEndpoints.AuthResponse>())!;
+        var body = (await signup.Content.ReadDtoAsync<AuthEndpoints.AuthResponse>())!;
         return (body.User.Id, body.AccessToken);
     }
 
@@ -77,7 +77,7 @@ public class LiveSyncEndpointIntegrationTests
         var res = await _client.PostAsJsonAsync("/api/groups",
             new GroupEndpoints.CreateGroupRequest("LiveGrp", null, null));
         res.EnsureSuccessStatusCode();
-        var body = (await res.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+        var body = (await res.Content.ReadDtoAsync<GroupEndpoints.GroupSummaryDto>())!;
         return body.Id;
     }
 
@@ -111,7 +111,7 @@ public class LiveSyncEndpointIntegrationTests
         var plan = (await (await _client.PostAsJsonAsync(
             $"/api/groups/{groupId}/mealplans",
             new MealPlanEndpoints.CreateMealPlanRequest(CurrentMonday)))
-            .Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+            .Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
 
         _factory.RecordingPublisher.Reset();
 
@@ -142,13 +142,13 @@ public class LiveSyncEndpointIntegrationTests
         var plan = (await (await _client.PostAsJsonAsync(
             $"/api/groups/{groupId}/mealplans",
             new MealPlanEndpoints.CreateMealPlanRequest(CurrentMonday)))
-            .Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+            .Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
         var slot = (await (await _client.PostAsJsonAsync(
             $"/api/mealplans/{plan.Id}/slots",
             new MealPlanEndpoints.AddSlotRequest(
                 RecipeId: null, Label: "Tbd", Date: CurrentMonday,
                 Meal: MealSlot.Mittag, Servings: 2)))
-            .Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+            .Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
 
         _factory.RecordingPublisher.Reset();
 
@@ -169,13 +169,13 @@ public class LiveSyncEndpointIntegrationTests
         var plan = (await (await _client.PostAsJsonAsync(
             $"/api/groups/{groupId}/mealplans",
             new MealPlanEndpoints.CreateMealPlanRequest(CurrentMonday)))
-            .Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+            .Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
         var slot = (await (await _client.PostAsJsonAsync(
             $"/api/mealplans/{plan.Id}/slots",
             new MealPlanEndpoints.AddSlotRequest(
                 RecipeId: null, Label: "Tbd", Date: CurrentMonday,
                 Meal: MealSlot.Mittag, Servings: 2)))
-            .Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+            .Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
 
         _factory.RecordingPublisher.Reset();
 

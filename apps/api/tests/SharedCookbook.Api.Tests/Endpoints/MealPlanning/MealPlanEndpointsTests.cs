@@ -89,7 +89,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         req.Content = JsonContent.Create(new { });
         var inviteRes = await _client.SendAsync(req);
         inviteRes.EnsureSuccessStatusCode();
-        var invite = await inviteRes.Content.ReadFromJsonAsync<InviteEndpoints.CreateInviteResponse>();
+        var invite = await inviteRes.Content.ReadDtoAsync<InviteEndpoints.CreateInviteResponse>();
 
         using var freshClient = _factory.CreateRateLimitBypassingClient(
             new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { HandleCookies = true });
@@ -97,7 +97,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             $"/api/auth/signup?token={invite!.Token}",
             new AuthEndpoints.SignupRequest(email, "Passwort123!", displayName));
         signup.EnsureSuccessStatusCode();
-        var body = await signup.Content.ReadFromJsonAsync<AuthEndpoints.AuthResponse>();
+        var body = await signup.Content.ReadDtoAsync<AuthEndpoints.AuthResponse>();
         return (body!.User.Id, body.AccessToken);
     }
 
@@ -108,7 +108,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         var response = await client.PostAsJsonAsync("/api/auth/login",
             new AuthEndpoints.LoginRequest(email, password));
         response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<AuthEndpoints.AuthResponse>())!;
+        return (await response.Content.ReadDtoAsync<AuthEndpoints.AuthResponse>())!;
     }
 
     private static void AuthorizeClient(HttpClient client, string accessToken) =>
@@ -120,7 +120,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             "/api/groups",
             new GroupEndpoints.CreateGroupRequest(name, null, null));
         create.EnsureSuccessStatusCode();
-        var body = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+        var body = (await create.Content.ReadDtoAsync<GroupEndpoints.GroupSummaryDto>())!;
         return body.Id;
     }
 
@@ -151,7 +151,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             $"/api/groups/{groupId}/mealplans",
             new MealPlanEndpoints.CreateMealPlanRequest(weekStart));
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
-        return (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        return (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
     }
 
     // ── GET /api/groups/{groupId}/mealplans/{weekStart} ──────────────
@@ -173,7 +173,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             $"/api/groups/{groupId}/mealplans/{CurrentMonday:yyyy-MM-dd}");
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
         Assert.Equal(plan.Id, body.Id);
         Assert.Single(body.Slots);
         Assert.Equal(recipeId, body.Slots[0].RecipeId);
@@ -258,7 +258,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             new MealPlanEndpoints.CreateMealPlanRequest(CurrentMonday));
 
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
         Assert.Equal(groupId, body.GroupId);
         Assert.Equal(CurrentMonday, body.WeekStart);
         Assert.Empty(body.Slots);
@@ -277,7 +277,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             new MealPlanEndpoints.CreateMealPlanRequest(CurrentMonday));
 
         Assert.Equal(HttpStatusCode.OK, second.StatusCode);
-        var body = (await second.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        var body = (await second.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
         Assert.Equal(first.Id, body.Id);
     }
 
@@ -342,11 +342,81 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
                 Meal: MealSlot.Abend, Servings: 3));
 
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
         Assert.Equal(recipeId, body.RecipeId);
         Assert.Equal(3, body.Servings);
         Assert.Equal(MealSlot.Abend, body.Meal);
         Assert.False(body.IsCooked);
+    }
+
+    [Fact]
+    public async Task AddSlot_Accepts_Meal_As_String_To_Match_Shared_Ts_Type()
+    {
+        // BUG: the shared TypeScript DTO types `meal` as a string union
+        // ('Frühstück' | 'Mittag' | 'Abend' | 'Snack') and the React form
+        // sends the literal name on the wire. Without a global
+        // JsonStringEnumConverter, .NET STJ rejects string enums and
+        // returns 400 with an empty body — the entire AddSlot flow has
+        // been silently broken in production since meal-planning
+        // shipped (verified against Prod DB: zero user-created slots).
+        // Existing tests pass because PostAsJsonAsync(AddSlotRequest)
+        // serialises the C# enum as an integer, so the wire-format drift
+        // is invisible to the .NET-only round-trip. This regression test
+        // posts raw JSON in the exact shape the React client sends.
+        var (userId, token) = await SignupAndLoginAsync("strenum@ex.com", "S");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+
+        var json = $$"""
+            {
+              "recipeId": "{{recipeId}}",
+              "label": null,
+              "date": "{{CurrentMonday:yyyy-MM-dd}}",
+              "meal": "Mittag",
+              "servings": 2
+            }
+            """;
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var res = await _client.PostAsync(
+            $"/api/mealplans/{plan.Id}/slots", content);
+
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+        // Assert on raw JSON so we don't rely on the test-side serializer
+        // (which doesn't share the API's converter registration).
+        var rawJson = await res.Content.ReadAsStringAsync();
+        Assert.Contains("\"meal\":\"Mittag\"", rawJson);
+        Assert.Contains($"\"recipeId\":\"{recipeId}\"", rawJson);
+    }
+
+    [Fact]
+    public async Task GetMealPlan_Serialises_Meal_As_String_For_Ts_Clients()
+    {
+        // Companion to AddSlot_Accepts_Meal_As_String_…: the wire format
+        // must round-trip in BOTH directions so the FE's
+        // `MEAL_SLOT_LABELS[slot.meal]` lookup (keyed by the same string
+        // union) returns the right label. With STJ defaults, `meal`
+        // serialises as an integer (0..3) and the FE renders undefined
+        // labels. This test reads the raw JSON to assert on the wire
+        // shape, not the DTO's typed projection.
+        var (userId, token) = await SignupAndLoginAsync("strenum-get@ex.com", "G");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        await _client.PostAsJsonAsync(
+            $"/api/mealplans/{plan.Id}/slots",
+            new MealPlanEndpoints.AddSlotRequest(
+                RecipeId: recipeId, Label: null, Date: CurrentMonday,
+                Meal: MealSlot.Abend, Servings: 2));
+
+        var res = await _client.GetAsync(
+            $"/api/groups/{groupId}/mealplans/{CurrentMonday:yyyy-MM-dd}");
+        var rawJson = await res.Content.ReadAsStringAsync();
+
+        Assert.Contains("\"meal\":\"Abend\"", rawJson);
+        Assert.DoesNotContain("\"meal\":2", rawJson);
     }
 
     [Fact]
@@ -367,7 +437,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         // SMALL-1c — pinpoint the offending field so AddSlotDialog can
         // surface the error directly under the servings input.
-        var body = await res.Content.ReadFromJsonAsync<SharedCookbook.Api.Services.ErrorResponse>();
+        var body = await res.Content.ReadDtoAsync<SharedCookbook.Api.Services.ErrorResponse>();
         Assert.NotNull(body);
         Assert.Equal("invalid_value", body!.Code);
         Assert.Equal("servings", body.FieldName);
@@ -391,7 +461,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         // SMALL-1c — pin "date" so the calendar input gets the focus
         // hint, not a generic banner.
-        var body = await res.Content.ReadFromJsonAsync<SharedCookbook.Api.Services.ErrorResponse>();
+        var body = await res.Content.ReadDtoAsync<SharedCookbook.Api.Services.ErrorResponse>();
         Assert.NotNull(body);
         Assert.Equal("invalid_value", body!.Code);
         Assert.Equal("date", body.FieldName);
@@ -416,7 +486,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
                 Meal: MealSlot.Mittag, Servings: 2));
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
-        var body = await res.Content.ReadFromJsonAsync<SharedCookbook.Api.Services.ErrorResponse>();
+        var body = await res.Content.ReadDtoAsync<SharedCookbook.Api.Services.ErrorResponse>();
         Assert.NotNull(body);
         Assert.Equal("invalid_value", body!.Code);
         Assert.Equal("label", body.FieldName);
@@ -462,7 +532,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             new MealPlanEndpoints.AddSlotRequest(
                 RecipeId: recipeId, Label: null, Date: PreviousMonday,
                 Meal: MealSlot.Mittag, Servings: 4));
-        var parent = (await parentRes.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var parent = (await parentRes.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
 
         var res = await _client.PostAsJsonAsync(
             $"/api/mealplans/{planCurrent.Id}/slots",
@@ -508,12 +578,12 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         var first = await _client.PostAsJsonAsync(
             $"/api/mealplans/{plan.Id}/slots",
             new MealPlanEndpoints.AddSlotRequest(recipeId, null, CurrentMonday, MealSlot.Mittag, 2));
-        var firstBody = (await first.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var firstBody = (await first.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
 
         var second = await _client.PostAsJsonAsync(
             $"/api/mealplans/{plan.Id}/slots",
             new MealPlanEndpoints.AddSlotRequest(recipeId, null, CurrentMonday, MealSlot.Mittag, 2));
-        var secondBody = (await second.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var secondBody = (await second.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
 
         Assert.Equal(0, firstBody.SortOrder);
         Assert.Equal(1, secondBody.SortOrder);
@@ -538,7 +608,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         var res = await _client.PatchAsync($"/api/mealplans/{plan.Id}/slots/{slot.Id}", patch);
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
         Assert.Equal(5, body.Servings);
         Assert.Equal("Hauptgericht", body.Label);
         Assert.Equal(recipeId, body.RecipeId);
@@ -559,7 +629,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             new StringContent("""{"label": null}""", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
         Assert.Null(body.Label);
     }
 
@@ -596,7 +666,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             new StringContent("""{"isCooked": true}""", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
         Assert.True(body.IsCooked);
     }
 
@@ -635,7 +705,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             new StringContent($$"""{"parentSlotId": "{{parent.Id}}"}""", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
         Assert.Equal(parent.Id, body.ParentSlotId);
     }
 
@@ -658,7 +728,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             new StringContent("""{"parentSlotId": null}""", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
         Assert.Null(body.ParentSlotId);
     }
 
@@ -689,7 +759,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             $"/api/mealplans/{plan.Id}/slots/{b.Id}",
             new StringContent($$"""{"parentSlotId": "{{a.Id}}"}""", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.BadRequest, step2.StatusCode);
-        var err = await step2.Content.ReadFromJsonAsync<ErrorResponseDto>();
+        var err = await step2.Content.ReadDtoAsync<ErrorResponseDto>();
         Assert.Equal("parent_cycle", err!.Code);
     }
 
@@ -744,7 +814,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         // SMALL-1c — same pinpointing on the patch path: EditSlotDialog
         // can focus the servings stepper.
-        var body = await res.Content.ReadFromJsonAsync<SharedCookbook.Api.Services.ErrorResponse>();
+        var body = await res.Content.ReadDtoAsync<SharedCookbook.Api.Services.ErrorResponse>();
         Assert.NotNull(body);
         Assert.Equal("invalid_value", body!.Code);
         Assert.Equal("servings", body.FieldName);
@@ -843,7 +913,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
 
         Assert.Equal(HttpStatusCode.NoContent, res.StatusCode);
         var get = await _client.GetAsync($"/api/groups/{groupId}/mealplans/{CurrentMonday:yyyy-MM-dd}");
-        var body = (await get.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        var body = (await get.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
         Assert.Single(body.Slots); // parent gone
         Assert.Null(body.Slots[0].ParentSlotId); // child's ref was cleared
     }
@@ -885,7 +955,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             $"/api/mealplans/{target.Id}/copy-from/{PreviousMonday:yyyy-MM-dd}", null);
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
         Assert.Equal(2, body.Slots.Length);
         // Dates shifted to current week
         Assert.All(body.Slots, s => Assert.InRange(s.Date, CurrentMonday, CurrentMonday.AddDays(6)));
@@ -911,7 +981,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         var res = await _client.PostAsync(
             $"/api/mealplans/{target.Id}/copy-from/{PreviousMonday:yyyy-MM-dd}", null);
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
 
         var newChild = body.Slots.Single(s => s.ParentSlotId is not null);
         var newParent = body.Slots.Single(s => s.ParentSlotId is null && s.Label == "Meal Prep");
@@ -1002,7 +1072,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             $"/api/mealplans/{target.Id}/copy-from/{PreviousMonday:yyyy-MM-dd}", null);
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        var body = (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
         Assert.All(body.Slots, s => Assert.False(s.IsCooked));
     }
 
@@ -1127,7 +1197,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
             $"/api/mealplans/{target.Id}/copy-from/{PreviousMonday:yyyy-MM-dd}", null);
 
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
-        var body = await res.Content.ReadFromJsonAsync<ErrorResponseDto>();
+        var body = await res.Content.ReadDtoAsync<ErrorResponseDto>();
         Assert.NotNull(body);
         Assert.Equal("copy_target_not_empty", body!.Code);
     }
@@ -1206,7 +1276,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
-        var body = await res.Content.ReadFromJsonAsync<ConflictBodyDto>();
+        var body = await res.Content.ReadDtoAsync<ConflictBodyDto>();
         Assert.NotNull(body);
         Assert.Equal("version_mismatch", body!.Code);
         Assert.NotNull(body.Current);
@@ -1265,7 +1335,7 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
         var res = await client.GetAsync(
             $"/api/groups/{groupId}/mealplans/{weekStart:yyyy-MM-dd}");
         res.EnsureSuccessStatusCode();
-        return (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        return (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
     }
 
     private async Task<MealPlanEndpoints.MealPlanSlotDto> AddHappySlotAsync(
@@ -1279,6 +1349,6 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
                 RecipeId: recipeId, Label: label, Date: date,
                 Meal: meal, Servings: servings));
         res.EnsureSuccessStatusCode();
-        return (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        return (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
     }
 }

@@ -83,7 +83,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
         req.Content = JsonContent.Create(new { });
         var inviteRes = await _client.SendAsync(req);
         inviteRes.EnsureSuccessStatusCode();
-        var invite = await inviteRes.Content.ReadFromJsonAsync<InviteEndpoints.CreateInviteResponse>();
+        var invite = await inviteRes.Content.ReadDtoAsync<InviteEndpoints.CreateInviteResponse>();
 
         using var freshClient = _factory.CreateRateLimitBypassingClient(
             new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { HandleCookies = true });
@@ -91,7 +91,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
             $"/api/auth/signup?token={invite!.Token}",
             new AuthEndpoints.SignupRequest(email, "Passwort123!", displayName));
         signup.EnsureSuccessStatusCode();
-        var body = await signup.Content.ReadFromJsonAsync<AuthEndpoints.AuthResponse>();
+        var body = await signup.Content.ReadDtoAsync<AuthEndpoints.AuthResponse>();
         return (body!.User.Id, body.AccessToken);
     }
 
@@ -102,7 +102,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
         var response = await client.PostAsJsonAsync("/api/auth/login",
             new AuthEndpoints.LoginRequest(email, password));
         response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<AuthEndpoints.AuthResponse>())!;
+        return (await response.Content.ReadDtoAsync<AuthEndpoints.AuthResponse>())!;
     }
 
     private static void AuthorizeClient(HttpClient client, string accessToken) =>
@@ -114,7 +114,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
             "/api/groups",
             new GroupEndpoints.CreateGroupRequest(name, null, null));
         create.EnsureSuccessStatusCode();
-        var body = (await create.Content.ReadFromJsonAsync<GroupEndpoints.GroupSummaryDto>())!;
+        var body = (await create.Content.ReadDtoAsync<GroupEndpoints.GroupSummaryDto>())!;
         return body.Id;
     }
 
@@ -168,7 +168,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
             $"/api/groups/{groupId}/mealplans",
             new MealPlanEndpoints.CreateMealPlanRequest(weekStart));
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
-        return (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanDto>())!;
+        return (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanDto>())!;
     }
 
     private async Task<MealPlanEndpoints.MealPlanSlotDto> AddSlotAsync(
@@ -179,14 +179,14 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
             new MealPlanEndpoints.AddSlotRequest(
                 RecipeId: recipeId, Label: label, Date: date, Meal: meal, Servings: servings));
         res.EnsureSuccessStatusCode();
-        return (await res.Content.ReadFromJsonAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
+        return (await res.Content.ReadDtoAsync<MealPlanEndpoints.MealPlanSlotDto>())!;
     }
 
     private async Task<ShoppingListEndpoints.ShoppingListDto> GenerateAsync(Guid planId)
     {
         var res = await _client.PostAsync($"/api/mealplans/{planId}/shopping-list/generate", null);
         res.EnsureSuccessStatusCode();
-        return (await res.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListDto>())!;
+        return (await res.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListDto>())!;
     }
 
     // ── GET /api/mealplans/{planId}/shopping-list ───────────────────
@@ -218,7 +218,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
         var res = await _client.GetAsync($"/api/mealplans/{plan.Id}/shopping-list");
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListDto>())!;
+        var body = (await res.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListDto>())!;
         Assert.Single(body.Items);
         Assert.Equal("Spaghetti", body.Items[0].Name);
     }
@@ -272,7 +272,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
         var res = await _client.PostAsync($"/api/mealplans/{plan.Id}/shopping-list/generate", null);
 
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListDto>())!;
+        var body = (await res.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListDto>())!;
         Assert.Equal(2, body.Items.Length);
         Assert.Contains(body.Items, i => i.Name == "Linsen" && i.Quantity == "200");
         Assert.Contains(body.Items, i => i.Name == "Zwiebel" && i.Quantity == "4");
@@ -394,7 +394,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
         var regen = await _client.PostAsync(
             $"/api/mealplans/{plan.Id}/shopping-list/generate", null);
         Assert.Equal(HttpStatusCode.OK, regen.StatusCode);
-        var body = (await regen.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListDto>())!;
+        var body = (await regen.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListDto>())!;
         var again = body.Items.Single(i => i.Name == "Mehl");
         Assert.True(again.IsChecked);
     }
@@ -419,7 +419,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
 
         var regen = await _client.PostAsync(
             $"/api/mealplans/{plan.Id}/shopping-list/generate", null);
-        var body = (await regen.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListDto>())!;
+        var body = (await regen.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListDto>())!;
         Assert.Equal("200", body.Items.Single(i => i.Name == "Mehl").Quantity);
     }
 
@@ -442,7 +442,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
 
         var regen = await _client.PostAsync(
             $"/api/mealplans/{plan.Id}/shopping-list/generate", null);
-        var body = (await regen.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListDto>())!;
+        var body = (await regen.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListDto>())!;
         Assert.Contains(body.Items, i => i.Name == "Klopapier"
             && i.Source == ShoppingListItemSource.Manual);
     }
@@ -482,7 +482,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
         // still unchecked on last week's list.
         var regen = await _client.PostAsync(
             $"/api/mealplans/{plan.Id}/shopping-list/generate", null);
-        var body = (await regen.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListDto>())!;
+        var body = (await regen.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListDto>())!;
         Assert.DoesNotContain(body.Items, i => i.Name == "Kohl");
     }
 
@@ -533,7 +533,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
             new StringContent("""{"isChecked": true}""", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListItemDto>())!;
+        var body = (await res.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListItemDto>())!;
         Assert.True(body.IsChecked);
     }
 
@@ -554,7 +554,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
             new StringContent("""{"note": "bio wenn möglich"}""", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListItemDto>())!;
+        var body = (await res.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListItemDto>())!;
         Assert.Equal("bio wenn möglich", body.Note);
     }
 
@@ -592,7 +592,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
         slotRes.EnsureSuccessStatusCode();
         var genRes = await a.PostAsync($"/api/mealplans/{plan.Id}/shopping-list/generate", null);
         genRes.EnsureSuccessStatusCode();
-        var list = (await genRes.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListDto>())!;
+        var list = (await genRes.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListDto>())!;
         var item = list.Items.Single();
 
         using var b = _factory.CreateRateLimitBypassingClient();
@@ -622,7 +622,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
             new ShoppingListEndpoints.AddItemRequest("Toilettenpapier", "1", "Packung", Note: "großer Rollen"));
 
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
-        var body = (await res.Content.ReadFromJsonAsync<ShoppingListEndpoints.ShoppingListItemDto>())!;
+        var body = (await res.Content.ReadDtoAsync<ShoppingListEndpoints.ShoppingListItemDto>())!;
         Assert.Equal("Toilettenpapier", body.Name);
         Assert.Equal(ShoppingListItemSource.Manual, body.Source);
         Assert.False(body.IsChecked);
@@ -797,7 +797,7 @@ public class ShoppingListEndpointsTests : IClassFixture<SharedCookbookWebApplica
         var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
-        var body = await res.Content.ReadFromJsonAsync<OFF3ConflictBodyDto>();
+        var body = await res.Content.ReadDtoAsync<OFF3ConflictBodyDto>();
         Assert.NotNull(body);
         Assert.Equal("version_mismatch", body!.Code);
         Assert.NotNull(body.Current);
