@@ -53,11 +53,15 @@ async def seed_prompts(client: httpx.AsyncClient) -> None:
 
     Notes
     -----
-    The chat key (``llm.chat.system_prompt``) is shown in the admin UI
-    for parity with the structured + vision prompts, but the runtime
-    chat turn now lives in .NET (``ChatSystemPrompt.BasePrompt`` post
-    CR5). The closest in-Python equivalent — and the prompt the
-    chat-to-recipe pipeline still ships with — is
+    The wire field name stays ``"chat"`` for backwards compatibility,
+    but the row is keyed under
+    ``llm.chat_to_recipe.system_prompt`` on the .NET side — the
+    rename in :class:`ExtractorConfigDefaults` reflects the row's actual
+    audience: the chat-to-recipe extraction pipeline (Whisper transcript
+    → structured recipe). The conversational chat-turn prompt now lives
+    in .NET (``ChatSystemPrompt.BasePrompt`` post CR5) and does NOT
+    consume CFG-1. The closest in-Python equivalent — and the prompt
+    the chat-to-recipe pipeline still ships with — is
     :data:`TO_RECIPE_SYSTEM_PROMPT_DE`. We post that so the admin sees
     a real, German, recipe-oriented system prompt rather than the
     placeholder text. An admin edit on the row is preserved by the

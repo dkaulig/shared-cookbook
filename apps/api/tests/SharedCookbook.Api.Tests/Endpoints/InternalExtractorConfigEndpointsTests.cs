@@ -194,7 +194,7 @@ public class InternalExtractorConfigEndpointsTests
         Assert.Equal(
             chatPrompt,
             JsonSerializer.Deserialize<string>(
-                await GetValueJsonAsync("llm.chat.system_prompt")));
+                await GetValueJsonAsync("llm.chat_to_recipe.system_prompt")));
         Assert.Equal(
             visionPrompt,
             JsonSerializer.Deserialize<string>(
@@ -275,7 +275,7 @@ public class InternalExtractorConfigEndpointsTests
         res.EnsureSuccessStatusCode();
 
         Assert.Equal(1, await GetVersionAsync("llm.structured.system_prompt"));
-        Assert.Equal(1, await GetVersionAsync("llm.chat.system_prompt"));
+        Assert.Equal(1, await GetVersionAsync("llm.chat_to_recipe.system_prompt"));
         Assert.Equal(1, await GetVersionAsync("llm.vision.system_prompt"));
     }
 

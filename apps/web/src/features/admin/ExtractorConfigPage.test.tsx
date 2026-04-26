@@ -51,7 +51,7 @@ function defaultPayload(): ExtractorConfigListResponse {
         'string',
       ),
       makeItem(
-        'llm.chat.system_prompt',
+        'llm.chat_to_recipe.system_prompt',
         'Du bist ein Chat-Assistent.',
         'string',
       ),

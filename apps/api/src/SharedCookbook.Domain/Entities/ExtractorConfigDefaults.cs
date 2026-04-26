@@ -89,12 +89,13 @@ public static class ExtractorConfigDefaults
         // ── Chat (gpt-5.1-chat) ──
         // CFG-1b: placeholder string. The python-extractor's startup
         // hook posts TO_RECIPE_SYSTEM_PROMPT_DE from prompts/chat.py
-        // here; the conversational chat-turn prompt itself now lives
-        // in .NET (Services/ChatSystemPrompt.BasePrompt) post-CR5, and
-        // this admin-UI row is informational only — kept so admins can
-        // see + tune the to-recipe prompt the chat-to-recipe pipeline
-        // consumes.
-        new("llm.chat.system_prompt", ExtractorConfigValueType.String,
+        // here. The conversational chat-turn prompt itself lives in
+        // .NET (Services/ChatSystemPrompt.BasePrompt) post-CR5 and is
+        // NOT consumed from this registry — so the row is named after
+        // its actual audience: the chat-to-recipe extraction pipeline
+        // (Whisper transcript → structured recipe). Editing this row
+        // through /admin/extractor never affected the chat assistant.
+        new("llm.chat_to_recipe.system_prompt", ExtractorConfigValueType.String,
             "\"PLACEHOLDER_CHAT_PROMPT\""),
         new("llm.chat.max_completion_tokens", ExtractorConfigValueType.Int, "4096"),
         new("llm.chat.deployment", ExtractorConfigValueType.String, "\"gpt-5.1-chat\""),

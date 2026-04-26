@@ -130,7 +130,12 @@ public static class InternalExtractorConfigEndpoints
     /// prompt rows that ship as PLACEHOLDER_*".
     /// </summary>
     private const string StructuredKey = "llm.structured.system_prompt";
-    private const string ChatKey = "llm.chat.system_prompt";
+    // Wire field stays "chat" — Python posts that name and the user-
+    // facing seed contract is unchanged. Internally the registry row
+    // is keyed under the renamed dotted path that reflects the actual
+    // consumer (chat-to-recipe extraction, not the chat assistant
+    // whose prompt lives in C#).
+    private const string ChatKey = "llm.chat_to_recipe.system_prompt";
     private const string VisionKey = "llm.vision.system_prompt";
 
     private static async Task<IResult> SeedPromptsAsync(

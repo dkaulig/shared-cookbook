@@ -62,7 +62,7 @@ public class ConfigKeyValidatorTests
     public void Prompt_Exactly_Min_Chars_Passes()
     {
         var prompt = new string('a', ConfigKeyValidator.MinPromptChars);
-        var result = _validator.Validate("llm.chat.system_prompt", Json(prompt));
+        var result = _validator.Validate("llm.chat_to_recipe.system_prompt", Json(prompt));
         Assert.True(result.IsValid);
     }
 
@@ -70,7 +70,7 @@ public class ConfigKeyValidatorTests
     public void Prompt_Below_Min_Fails()
     {
         var prompt = new string('a', ConfigKeyValidator.MinPromptChars - 1);
-        var result = _validator.Validate("llm.chat.system_prompt", Json(prompt));
+        var result = _validator.Validate("llm.chat_to_recipe.system_prompt", Json(prompt));
         Assert.False(result.IsValid);
     }
 
@@ -78,7 +78,7 @@ public class ConfigKeyValidatorTests
     public void Prompt_Above_Max_Fails()
     {
         var prompt = new string('a', ConfigKeyValidator.MaxPromptChars + 1);
-        var result = _validator.Validate("llm.chat.system_prompt", Json(prompt));
+        var result = _validator.Validate("llm.chat_to_recipe.system_prompt", Json(prompt));
         Assert.False(result.IsValid);
     }
 

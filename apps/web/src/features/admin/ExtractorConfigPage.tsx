@@ -42,7 +42,7 @@ import {
 
 const PROMPT_KEYS = [
   'llm.structured.system_prompt',
-  'llm.chat.system_prompt',
+  'llm.chat_to_recipe.system_prompt',
   'llm.vision.system_prompt',
 ] as const
 

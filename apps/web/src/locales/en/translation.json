@@ -1128,7 +1128,7 @@
       },
       "keyLabels": {
         "llm.structured.system_prompt": "Structured: System Prompt",
-        "llm.chat.system_prompt": "Chat: System Prompt",
+        "llm.chat_to_recipe.system_prompt": "Chat-to-Recipe System Prompt",
         "llm.vision.system_prompt": "Vision: System Prompt",
         "llm.structured.deployment": "Structured: Deployment Name",
         "llm.structured.temperature": "Structured: Temperature",
