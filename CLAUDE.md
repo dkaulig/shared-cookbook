@@ -183,6 +183,18 @@ the shared in-memory SQLite connection.
   release gate.
 - When bundling, write the tag annotation as a changelog: what
   features + bugs are in this release. Example: look at `git show v0.9.3`.
+- **Always create a GitHub Release alongside every `v*` tag.** A
+  raw tag without a Release object leaves the README's release-
+  badge stuck on "no releases found" and gives consumers no
+  human-readable changelog page on GitHub. After
+  `git push origin v<x.y.z>`, immediately run:
+  ```
+  gh release create v<x.y.z> \
+    --title "v<x.y.z> — <one-line summary>" \
+    --notes-file <annotation-file>
+  ```
+  Reuse the same annotation file you fed to `git tag -a -F`. Don't
+  let "I'll add the release later" sit — it never gets done.
 
 ## Commits
 
