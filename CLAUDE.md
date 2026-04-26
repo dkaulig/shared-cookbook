@@ -231,14 +231,32 @@ in parens matches the feature area:
 
 ## Brainstorming + design docs
 
-When the user wants a non-trivial new feature:
+For any feature change bigger than a 2-3 line edit, the orchestrator
+MUST run this sequence before touching code:
 
-1. Run the brainstorming skill — **one question at a time**, multiple
-   choice when possible.
-2. Once decisions are locked, write a design doc to
+1. Invoke the **`superpowers:brainstorming`** skill — one question at a
+   time, multiple choice when possible. The skill's whole point is to
+   surface the implicit decisions that "obvious" feature requests
+   actually contain. Skipping it produces a half-thought design and
+   rework.
+2. Once decisions are locked, invoke the **`superpowers:writing-plans`**
+   skill to produce the design doc at
    `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit it.
-3. Dispatch implementation sub-agents with the design doc as the
-   authoritative reference.
+3. Dispatch implementation sub-agents (per the **Sub-agents in
+   background** section above — usually via the
+   `superpowers:subagent-driven-development` skill) with the design doc
+   as the authoritative reference.
+
+These skills are not optional shortcuts — they are the canonical
+workflows for this repo. The orchestrator does not free-style its way
+through brainstorming with ad-hoc questions or write design docs from
+memory; it invokes the skill, follows it exactly, and only then moves
+on. The skills exist precisely because past sessions have skipped them
+and produced churn.
+
+The 2-3 line threshold is deliberate: a typo fix or a config tweak
+needs no plan. A new component, a new endpoint, a behaviour change in
+existing code, a multi-file refactor — all need this sequence.
 
 Existing design docs live in `docs/plans/` — skim them before
 proposing anything that overlaps with an in-flight initiative.
