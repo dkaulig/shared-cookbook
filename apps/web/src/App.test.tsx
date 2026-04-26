@@ -36,10 +36,12 @@ describe('<App />', () => {
     })
     // DS2 restyle: the h1 is the hero headline; the "Anmelden" label
     // lives on the card title + submit button.
+    // findByRole (not getByRole) — URL flips before the LoginPage
+    // children commit, so the h1/button must be awaited.
     expect(
-      screen.getByRole('heading', { level: 1, name: /was kochen wir heute\?/i }),
+      await screen.findByRole('heading', { level: 1, name: /was kochen wir heute\?/i }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^anmelden$/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^anmelden$/i })).toBeInTheDocument()
   })
 
   it('renders the Familien-Kochbuch home when silent refresh succeeds', async () => {

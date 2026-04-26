@@ -64,7 +64,7 @@ public class UserTests
     {
         var user = new User();
 
-        user.SetEmail("  David.Kaulig@Example.Com  ");
+        user.SetEmail("  Maintainer@Example.Com  ");
 
         Assert.Equal("maintainer@example.com", user.Email);
     }
