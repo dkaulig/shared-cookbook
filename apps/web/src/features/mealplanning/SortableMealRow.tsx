@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   DndContext,
   KeyboardSensor,
@@ -16,7 +17,13 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { CheckCircle2, GripVertical, MoreHorizontal, Repeat } from 'lucide-react'
+import {
+  CheckCircle2,
+  ExternalLink,
+  GripVertical,
+  MoreHorizontal,
+  Repeat,
+} from 'lucide-react'
 import type { MealPlanSlotDto } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
 
@@ -60,6 +67,7 @@ export const MEALPLAN_POINTER_ACTIVATION = {
  * rows for simplicity, but the spacing is in place.
  */
 export function SortableMealRow({
+  groupId,
   slots,
   onReorder,
   onEdit,
@@ -67,6 +75,12 @@ export function SortableMealRow({
   onToggleCooked,
   getParentLabel,
 }: {
+  /**
+   * Owning group ID — used to build the open-recipe link target
+   * (`/groups/{groupId}/recipes/{recipeId}`). Threaded down from
+   * MealPlanPage which already has it from the route.
+   */
+  groupId: string
   slots: readonly MealPlanSlotDto[]
   /**
    * Called when the user drops a slot into a new position. Receives
@@ -127,6 +141,7 @@ export function SortableMealRow({
           {slots.map((slot) => (
             <li key={slot.id}>
               <SortableSlotCard
+                groupId={groupId}
                 slot={slot}
                 parentLabel={getParentLabel?.(slot) ?? null}
                 onEdit={() => onEdit(slot)}
@@ -150,18 +165,21 @@ export function SortableMealRow({
  * reason.
  */
 function SortableSlotCard({
+  groupId,
   slot,
   parentLabel,
   onEdit,
   onDelete,
   onToggleCooked,
 }: {
+  groupId: string
   slot: MealPlanSlotDto
   parentLabel: string | null
   onEdit: () => void
   onDelete: () => void
   onToggleCooked: (next: boolean) => void
 }) {
+  const navigate = useNavigate()
   const {
     attributes,
     listeners,
@@ -171,8 +189,17 @@ function SortableSlotCard({
     isDragging,
   } = useSortable({ id: slot.id })
 
+  // v0.15.0 Bug 1 — title fallback chain: explicit user label wins,
+  // then the resolved recipe title from the BE (RecipeTitle on the
+  // DTO), then the literal "Rezept" placeholder for slots that link
+  // a soft-deleted recipe, finally "Unbenanntes Gericht" for fully
+  // empty slots (defence-in-depth — the BE rejects creating such a
+  // slot, but the FE renders something rather than blank if state
+  // ever lands like this).
   const title =
-    slot.label?.trim() || (slot.recipeId ? 'Rezept' : 'Unbenanntes Gericht')
+    slot.label?.trim() ||
+    slot.recipeTitle ||
+    (slot.recipeId ? 'Rezept' : 'Unbenanntes Gericht')
   const servingsLabel = slot.servings === 1 ? 'Portion' : 'Portionen'
 
   const style = {
@@ -281,6 +308,33 @@ function SortableSlotCard({
           >
             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
           </span>
+        )}
+
+        {/*
+          v0.15.0 Bug 3 — explicit "go to recipe" affordance. Renders
+          only when a recipe is linked. Clicking the card body still
+          opens the edit dialog (consistent with the existing UX users
+          learned); this icon is the explicit navigate path. Same
+          ≥44 × 44 hit-target convention as the overflow-menu trigger.
+        */}
+        {slot.recipeId !== null && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/groups/${groupId}/recipes/${slot.recipeId}`)
+            }}
+            aria-label={`Rezept öffnen: ${title}`}
+            data-testid={`mealplan-slot-open-recipe-${slot.id}`}
+            className="grid min-h-[44px] min-w-[44px] place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+          >
+            <span
+              aria-hidden="true"
+              className="grid h-7 w-7 place-items-center"
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            </span>
+          </button>
         )}
 
         <div ref={menuRef} className="relative">

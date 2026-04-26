@@ -605,6 +605,7 @@ export function MealPlanPage() {
         {plan && buckets && (
           isMobile ? (
             <MobileDayStack
+              groupId={groupId}
               weekStart={weekStart}
               bucketsByDay={buckets}
               onAdd={(date, meal) => setOpenCell({ date, meal })}
@@ -635,6 +636,7 @@ export function MealPlanPage() {
                 return (
                   <DayColumn
                     key={dateKey}
+                    groupId={groupId}
                     date={dateKey}
                     weekdayLabel={weekday}
                     buckets={dayBuckets}
@@ -772,6 +774,7 @@ export function MealPlanPage() {
 }
 
 function DayColumn({
+  groupId,
   date,
   weekdayLabel,
   buckets,
@@ -782,6 +785,7 @@ function DayColumn({
   onToggleCooked,
   getParentLabel,
 }: {
+  groupId: string
   date: string
   weekdayLabel: string
   buckets: Record<MealSlot, MealPlanSlotDto[]>
@@ -814,6 +818,7 @@ function DayColumn({
         {MEAL_SLOTS.map((meal) => (
           <MealCell
             key={meal}
+            groupId={groupId}
             date={date}
             meal={meal}
             slots={buckets[meal]}
@@ -831,6 +836,7 @@ function DayColumn({
 }
 
 function MealCell({
+  groupId,
   date,
   meal,
   slots,
@@ -841,6 +847,7 @@ function MealCell({
   onToggleCooked,
   getParentLabel,
 }: {
+  groupId: string
   date: string
   meal: MealSlot
   slots: MealPlanSlotDto[]
@@ -883,6 +890,7 @@ function MealCell({
         </button>
       ) : (
         <SortableMealRow
+          groupId={groupId}
           slots={slots}
           onEdit={onEdit}
           onDelete={onDelete}

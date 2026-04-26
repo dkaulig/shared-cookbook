@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { MealPlanSlotDto } from '@shared-cookbook/shared'
 import { MEALPLAN_POINTER_ACTIVATION, SortableMealRow } from './SortableMealRow'
 import { SORT_ORDER_STEP } from './constants'
 
 const PLAN_ID = '11111111-1111-1111-1111-111111111111'
+const GROUP_ID = '22222222-2222-2222-2222-222222222222'
 
 function makeSlot(
   id: string,
@@ -31,10 +33,27 @@ function makeSlot(
 
 function noop() {}
 
+/**
+ * SortableSlotCard uses `useNavigate` for the open-recipe icon button
+ * (Bug 3 in v0.15.0), so every render needs a Router context. The
+ * `MemoryRouter` wrapper here is the lightest possible thing that
+ * satisfies that — child rendering inside the `Routes` is still the
+ * SortableMealRow itself, untouched.
+ */
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
+
+function PathProbe() {
+  const location = useLocation()
+  return <div data-testid="current-path">{location.pathname}</div>
+}
+
 describe('<SortableMealRow />', () => {
   it('renders slots in the given order with drag handles', () => {
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[
           makeSlot('a', { label: 'Alpha', sortOrder: 0 }),
           makeSlot('b', { label: 'Bravo', sortOrder: 10 }),
@@ -57,8 +76,9 @@ describe('<SortableMealRow />', () => {
   })
 
   it('renders nothing when slots is empty', () => {
-    const { container } = render(
+    const { container } = renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[]}
         onReorder={noop}
         onEdit={noop}
@@ -66,6 +86,8 @@ describe('<SortableMealRow />', () => {
         onToggleCooked={noop}
       />,
     )
+    // MemoryRouter renders nothing at the DOM layer when its child
+    // returns null, so container is still empty.
     expect(container.firstChild).toBeNull()
   })
 
@@ -73,8 +95,9 @@ describe('<SortableMealRow />', () => {
     const onEdit = vi.fn()
     const user = userEvent.setup()
     const slot = makeSlot('s1', { label: 'Linsencurry' })
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[slot]}
         onReorder={noop}
         onEdit={onEdit}
@@ -91,8 +114,9 @@ describe('<SortableMealRow />', () => {
     const onToggleCooked = vi.fn()
     const user = userEvent.setup()
     const slot = makeSlot('s1', { isCooked: false })
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[slot]}
         onReorder={noop}
         onEdit={noop}
@@ -109,8 +133,9 @@ describe('<SortableMealRow />', () => {
     const onDelete = vi.fn()
     const user = userEvent.setup()
     const slot = makeSlot('s1', { label: 'Alpha' })
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[slot]}
         onReorder={noop}
         onEdit={noop}
@@ -130,8 +155,9 @@ describe('<SortableMealRow />', () => {
     const onEdit = vi.fn()
     const user = userEvent.setup()
     const slot = makeSlot('s1', { label: 'Alpha' })
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[slot]}
         onReorder={noop}
         onEdit={onEdit}
@@ -148,8 +174,9 @@ describe('<SortableMealRow />', () => {
   })
 
   it('renders the cooked slot with a strikethrough title when isCooked is true', () => {
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[makeSlot('s1', { label: 'Linsencurry', isCooked: true })]}
         onReorder={noop}
         onEdit={noop}
@@ -176,8 +203,9 @@ describe('<SortableMealRow />', () => {
       label: 'Rest vom Sonntag',
       parentSlotId: 'parent-slot',
     })
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[slot]}
         onReorder={noop}
         onEdit={noop}
@@ -193,8 +221,9 @@ describe('<SortableMealRow />', () => {
   })
 
   it('omits the parent badge when the slot has no parent reference', () => {
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[makeSlot('s1', { parentSlotId: null })]}
         onReorder={noop}
         onEdit={noop}
@@ -223,8 +252,9 @@ describe('<SortableMealRow />', () => {
   })
 
   it('renders the overflow-menu trigger with a ≥44-px tap target on mobile', () => {
-    render(
+    renderWithRouter(
       <SortableMealRow
+        groupId={GROUP_ID}
         slots={[makeSlot('s1', { label: 'Spaghetti' })]}
         onReorder={noop}
         onEdit={noop}
@@ -239,5 +269,138 @@ describe('<SortableMealRow />', () => {
     // doesn't silently shrink the tap area below the WCAG threshold).
     expect(menuButton.className).toMatch(/min-h-\[44px\]/)
     expect(menuButton.className).toMatch(/min-w-\[44px\]/)
+  })
+
+  // ── v0.15.0 Bug 1: recipe title fallback ─────────────────────────
+
+  it('renders slot.recipeTitle when label is empty and a recipe is linked', () => {
+    // Pre-v0.15.0 the card showed the literal string "Rezept" because
+    // the recipe title was never resolved. Now the BE includes
+    // `recipeTitle` in the DTO; the card prefers it over the literal.
+    renderWithRouter(
+      <SortableMealRow
+        groupId={GROUP_ID}
+        slots={[
+          makeSlot('s1', {
+            label: null,
+            recipeId: 'recipe-uuid',
+            recipeTitle: 'Pasta Bolognese',
+          }),
+        ]}
+        onReorder={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onToggleCooked={noop}
+      />,
+    )
+
+    expect(screen.getByText('Pasta Bolognese')).toBeInTheDocument()
+    expect(screen.queryByText('Rezept')).not.toBeInTheDocument()
+  })
+
+  it('still falls back to "Rezept" when a recipe is linked but recipeTitle is null (e.g. soft-deleted)', () => {
+    renderWithRouter(
+      <SortableMealRow
+        groupId={GROUP_ID}
+        slots={[
+          makeSlot('s1', {
+            label: null,
+            recipeId: 'recipe-uuid',
+            recipeTitle: null,
+          }),
+        ]}
+        onReorder={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onToggleCooked={noop}
+      />,
+    )
+
+    expect(screen.getByText('Rezept')).toBeInTheDocument()
+  })
+
+  // ── v0.15.0 Bug 3: open-recipe icon button ───────────────────────
+
+  it('renders an open-recipe icon button when slot.recipeId is set', () => {
+    renderWithRouter(
+      <SortableMealRow
+        groupId={GROUP_ID}
+        slots={[
+          makeSlot('s1', {
+            label: 'Pasta',
+            recipeId: 'recipe-uuid',
+            recipeTitle: 'Pasta Bolognese',
+          }),
+        ]}
+        onReorder={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onToggleCooked={noop}
+      />,
+    )
+
+    // Icon button discoverable by aria-label per design doc 2026-04-26.
+    const button = screen.getByRole('button', {
+      name: /Rezept öffnen/i,
+    })
+    expect(button).toBeInTheDocument()
+  })
+
+  it('does not render the open-recipe icon when slot.recipeId is null', () => {
+    renderWithRouter(
+      <SortableMealRow
+        groupId={GROUP_ID}
+        slots={[
+          makeSlot('s1', {
+            label: 'Restaurant',
+            recipeId: null,
+            recipeTitle: null,
+          }),
+        ]}
+        onReorder={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onToggleCooked={noop}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('button', { name: /Rezept öffnen/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('navigates to /groups/{groupId}/recipes/{recipeId} when the open-recipe icon is clicked', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/start']}>
+        <Routes>
+          <Route
+            path="/start"
+            element={
+              <SortableMealRow
+                groupId={GROUP_ID}
+                slots={[
+                  makeSlot('s1', {
+                    label: 'Pasta',
+                    recipeId: 'recipe-uuid',
+                    recipeTitle: 'Pasta Bolognese',
+                  }),
+                ]}
+                onReorder={noop}
+                onEdit={noop}
+                onDelete={noop}
+                onToggleCooked={noop}
+              />
+            }
+          />
+          <Route path="*" element={<PathProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /Rezept öffnen/i }))
+    expect(screen.getByTestId('current-path')).toHaveTextContent(
+      `/groups/${GROUP_ID}/recipes/recipe-uuid`,
+    )
   })
 })

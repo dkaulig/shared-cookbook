@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import type { MealPlanSlotDto, MealSlot } from '@shared-cookbook/shared'
 import { MobileDayStack } from './MobileDayStack'
 import { defaultOpenDays } from './mobileDayStackHelpers'
@@ -58,10 +59,21 @@ function bucketsForOneDay(slots: MealPlanSlotDto[]): Record<MealSlot, MealPlanSl
 
 function noop() {}
 
+/**
+ * SortableSlotCard inside SortableMealRow (rendered via the
+ * MobileMealCell branch with non-empty slots) calls `useNavigate` for
+ * the open-recipe icon. Wrap every render in a MemoryRouter so that
+ * hook resolves; the existing assertions don't change.
+ */
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
+
 describe('<MobileDayStack />', () => {
   it('renders a section per day in the week', () => {
-    render(
+    renderWithRouter(
       <MobileDayStack
+        groupId="g1"
         weekStart={WEEK_START}
         bucketsByDay={{}}
         onAdd={noop}
@@ -82,8 +94,9 @@ describe('<MobileDayStack />', () => {
     // [2026-04-20..2026-04-26]. `defaultOpenDays` falls back to Monday,
     // so Monday's slot is visible and Tuesday stays collapsed.
     const slots = [makeSlot('s1', { label: 'Spaghetti' })]
-    render(
+    renderWithRouter(
       <MobileDayStack
+        groupId="g1"
         weekStart={WEEK_START}
         bucketsByDay={{ [WEEK_START]: bucketsForOneDay(slots) }}
         onAdd={noop}
@@ -107,8 +120,9 @@ describe('<MobileDayStack />', () => {
       date: '2026-04-21',
       label: 'Linsencurry',
     })
-    render(
+    renderWithRouter(
       <MobileDayStack
+        groupId="g1"
         weekStart={WEEK_START}
         bucketsByDay={{ '2026-04-21': bucketsForOneDay([tuesdaySlot]) }}
         onAdd={noop}
@@ -134,8 +148,9 @@ describe('<MobileDayStack />', () => {
   })
 
   it('renders the German weekday label and ISO short-date in the header', () => {
-    render(
+    renderWithRouter(
       <MobileDayStack
+        groupId="g1"
         weekStart={WEEK_START}
         bucketsByDay={{}}
         onAdd={noop}
@@ -154,8 +169,9 @@ describe('<MobileDayStack />', () => {
   it('fires onAdd with the meal-slot when an empty cell add-button is tapped', async () => {
     const onAdd = vi.fn()
     const user = userEvent.setup()
-    render(
+    renderWithRouter(
       <MobileDayStack
+        groupId="g1"
         weekStart={WEEK_START}
         bucketsByDay={{}}
         onAdd={onAdd}
@@ -182,8 +198,9 @@ describe('<MobileDayStack />', () => {
       makeSlot('s1', { date: WEEK_START, meal: 'Mittag' }),
       makeSlot('s2', { date: WEEK_START, meal: 'Abend' }),
     ]
-    render(
+    renderWithRouter(
       <MobileDayStack
+        groupId="g1"
         weekStart={WEEK_START}
         bucketsByDay={{ [WEEK_START]: bucketsForOneDay(monSlots) }}
         onAdd={noop}

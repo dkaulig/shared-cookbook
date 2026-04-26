@@ -32,6 +32,7 @@ import { defaultOpenDays } from './mobileDayStackHelpers'
  * `min-h-[44px]` constraint.
  */
 export function MobileDayStack({
+  groupId,
   weekStart,
   bucketsByDay,
   onAdd,
@@ -41,6 +42,7 @@ export function MobileDayStack({
   onToggleCooked,
   getParentLabel,
 }: {
+  groupId: string
   weekStart: string
   bucketsByDay: Record<string, Record<MealSlot, MealPlanSlotDto[]>>
   onAdd: (date: string, meal: MealSlot) => void
@@ -143,6 +145,7 @@ export function MobileDayStack({
                 {MEAL_SLOTS.map((meal) => (
                   <MobileMealCell
                     key={meal}
+                    groupId={groupId}
                     date={date}
                     meal={meal}
                     slots={buckets[meal]}
@@ -170,6 +173,7 @@ function slotCountLabel(count: number): string {
 }
 
 function MobileMealCell({
+  groupId,
   date,
   meal,
   slots,
@@ -180,6 +184,7 @@ function MobileMealCell({
   onToggleCooked,
   getParentLabel,
 }: {
+  groupId: string
   date: string
   meal: MealSlot
   slots: MealPlanSlotDto[]
@@ -215,6 +220,7 @@ function MobileMealCell({
         </button>
       ) : (
         <SortableMealRow
+          groupId={groupId}
           slots={slots}
           onEdit={onEdit}
           onDelete={onDelete}
