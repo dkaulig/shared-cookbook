@@ -201,6 +201,12 @@ the shared in-memory SQLite connection.
 Conventional-commit style with one-line subject + optional body. Scope
 in parens matches the feature area:
 
+- **All commit messages in English** — subject AND body. Same for
+  tag annotations and GitHub Release notes. Older commits (pre-
+  2026-04-26) are mixed German/English; don't rewrite history,
+  just hold the line going forward. (User-facing UI copy stays
+  German per the German-UI section below — this rule only
+  governs git/release artefacts.)
 - `feat(web)` / `feat(api)` / `fix(reimport)` / `docs(plans)` etc.
 - Body explains the "why" when non-obvious. Reference bug / slice IDs
   (BUG-047, TABLET-3, PAGE-0) when relevant.
