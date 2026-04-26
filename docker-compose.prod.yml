@@ -61,6 +61,14 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-familien_kochbuch};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD}"
       ConnectionStrings__Redis: "redis:6379"
+      # REL-7 — operator-facing AI master switch + provider selector.
+      # Default off so a fresh prod boot survives without any LLM creds;
+      # operators flip AI_ENABLED=true + LLM_PROVIDER=azure (or ollama)
+      # in PROD_ENV to enable. Mirrors the dev compose mapping; the
+      # absence of this block was the cause of v0.14.x prod-AI-off
+      # despite valid Azure credentials being present.
+      Ai__Enabled: "${AI_ENABLED:-false}"
+      Ai__Provider: "${LLM_PROVIDER:-disabled}"
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       ADMIN_DISPLAY_NAME: ${ADMIN_DISPLAY_NAME:-Familienkoch}
@@ -127,6 +135,17 @@ services:
     image: ghcr.io/${IMAGE_REGISTRY_OWNER:-dkaulig}/shared-cookbook-python-extractor:latest
     container_name: shared-cookbook-python-extractor
     environment:
+      # REL-7 — same operator switch as the api service. Without these
+      # the extractor defaults to AI=off and every endpoint returns a
+      # 503 ai_disabled, regardless of credentials. Mirror of the dev
+      # compose mapping.
+      AI_ENABLED: "${AI_ENABLED:-false}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-disabled}"
+      # Ollama is dev-only in this stack but we forward the env so an
+      # operator could swap providers without editing the compose file.
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma3:12b}"
+      OLLAMA_VISION_MODEL: "${OLLAMA_VISION_MODEL:-gemma3:12b}"
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
       AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}
