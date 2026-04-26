@@ -147,6 +147,29 @@ public sealed class MealPlanSlot
         UpdatedAt = at;
     }
 
+    /// <summary>
+    /// Cross-cell move: places the slot into a different
+    /// <c>(date, meal)</c> bucket at <paramref name="sortOrder"/>.
+    /// Validates that the new <paramref name="date"/> still lies in
+    /// <c>[weekStart, weekStart+6]</c>; <see cref="ParentSlotId"/> is
+    /// intentionally untouched (per design doc 2026-04-26 — the parent
+    /// reference survives moves; a stranded relationship is fixed via
+    /// the edit dialog).
+    /// </summary>
+    public void MoveTo(
+        DateOnly date,
+        MealSlot meal,
+        int sortOrder,
+        DateOnly weekStart,
+        DateTimeOffset at)
+    {
+        ValidateDateWithinWeek(date, weekStart);
+        Date = date;
+        Meal = meal;
+        SortOrder = sortOrder;
+        UpdatedAt = at;
+    }
+
     /// <summary>Replaces the servings count. Throws outside 1..20.</summary>
     public void UpdateServings(int servings, DateTimeOffset at)
     {

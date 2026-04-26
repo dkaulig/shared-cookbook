@@ -85,7 +85,12 @@ public static class MealPlanEndpoints
         JsonElement? Servings,
         JsonElement? SortOrder,
         JsonElement? IsCooked,
-        JsonElement? ParentSlotId)
+        JsonElement? ParentSlotId,
+        // v0.15.0 — cross-cell drag carries a new (date, meal) target in
+        // a single PATCH so the optimistic client splice + server move
+        // are one round-trip.
+        JsonElement? Date,
+        JsonElement? Meal)
     {
         public static async Task<SlotPatchRequest> ReadAsync(HttpRequest request, CancellationToken ct)
         {
@@ -95,7 +100,8 @@ public static class MealPlanEndpoints
                 throw new JsonException("Body must be a JSON object.");
 
             JsonElement? recipeId = null, label = null, servings = null,
-                sortOrder = null, isCooked = null, parentSlotId = null;
+                sortOrder = null, isCooked = null, parentSlotId = null,
+                date = null, meal = null;
             foreach (var prop in root.EnumerateObject())
             {
                 // Clone() is required so the JsonElement outlives the
@@ -108,12 +114,15 @@ public static class MealPlanEndpoints
                     case "sortOrder": sortOrder = prop.Value.Clone(); break;
                     case "isCooked": isCooked = prop.Value.Clone(); break;
                     case "parentSlotId": parentSlotId = prop.Value.Clone(); break;
+                    case "date": date = prop.Value.Clone(); break;
+                    case "meal": meal = prop.Value.Clone(); break;
                     // Unknown properties are ignored (forward-compat):
                     // newer clients hitting older servers degrade to a
                     // no-op rather than 400.
                 }
             }
-            return new SlotPatchRequest(recipeId, label, servings, sortOrder, isCooked, parentSlotId);
+            return new SlotPatchRequest(
+                recipeId, label, servings, sortOrder, isCooked, parentSlotId, date, meal);
         }
     }
 
@@ -721,8 +730,37 @@ public static class MealPlanEndpoints
             if (IsSet(patch.Servings) && ReadNullableInt(patch.Servings!.Value, "servings") is { } srv)
                 slot.UpdateServings(srv, now);
 
-            if (IsSet(patch.SortOrder) && ReadNullableInt(patch.SortOrder!.Value, "sortOrder") is { } so)
+            // v0.15.0 — cross-cell drag: when date OR meal is supplied,
+            // route through MealPlanSlot.MoveTo so the week-bounds
+            // invariant is enforced in Domain. SortOrder defaults to
+            // "next free in target bucket" when the client doesn't
+            // specify one. Same-cell reorders (sortOrder only) keep
+            // the existing Reorder fallback below.
+            var crossCellMove = IsSet(patch.Date) || IsSet(patch.Meal);
+            if (crossCellMove)
+            {
+                var newDate = IsSet(patch.Date)
+                    ? ReadDate(patch.Date!.Value, "date")
+                    : slot.Date;
+                var newMeal = IsSet(patch.Meal)
+                    ? ReadMeal(patch.Meal!.Value, "meal")
+                    : slot.Meal;
+                int newSortOrder;
+                if (IsSet(patch.SortOrder)
+                    && ReadNullableInt(patch.SortOrder!.Value, "sortOrder") is { } explicitSo)
+                {
+                    newSortOrder = explicitSo;
+                }
+                else
+                {
+                    newSortOrder = await NextSortOrderAsync(db, plan!.Id, newDate, newMeal, ct);
+                }
+                slot.MoveTo(newDate, newMeal, newSortOrder, plan!.WeekStart, now);
+            }
+            else if (IsSet(patch.SortOrder) && ReadNullableInt(patch.SortOrder!.Value, "sortOrder") is { } so)
+            {
                 slot.Reorder(so, now);
+            }
 
             if (IsSet(patch.IsCooked) && ReadNullableBool(patch.IsCooked!.Value, "isCooked") is { } cooked)
                 slot.SetCooked(cooked, now);
@@ -1035,5 +1073,40 @@ public static class MealPlanEndpoints
         if (e.ValueKind == JsonValueKind.True) return true;
         if (e.ValueKind == JsonValueKind.False) return false;
         throw new JsonException($"Feld '{name}' muss true, false oder null sein.");
+    }
+
+    /// <summary>
+    /// Reads a non-null ISO <c>YYYY-MM-DD</c> date for the cross-cell
+    /// move PATCH. Differs from the nullable readers above because
+    /// "date":null is meaningless on a slot — the wire contract only
+    /// supports a present-with-string-value form.
+    /// </summary>
+    private static DateOnly ReadDate(JsonElement e, string name)
+    {
+        if (e.ValueKind != JsonValueKind.String)
+            throw new JsonException($"Feld '{name}' muss ein ISO-Datum (YYYY-MM-DD) sein.");
+        var raw = e.GetString();
+        if (string.IsNullOrEmpty(raw)
+            || !DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var date))
+        {
+            throw new JsonException($"Feld '{name}' muss ein ISO-Datum (YYYY-MM-DD) sein.");
+        }
+        return date;
+    }
+
+    /// <summary>
+    /// Reads a non-null <see cref="MealSlot"/> identifier for the
+    /// cross-cell move PATCH. Same wire shape as the GET serialiser
+    /// (string enum) so the FE can echo the value verbatim.
+    /// </summary>
+    private static MealSlot ReadMeal(JsonElement e, string name)
+    {
+        if (e.ValueKind != JsonValueKind.String
+            || !Enum.TryParse<MealSlot>(e.GetString(), ignoreCase: false, out var meal))
+        {
+            throw new JsonException($"Feld '{name}' muss eine gültige Mahlzeit sein.");
+        }
+        return meal;
     }
 }

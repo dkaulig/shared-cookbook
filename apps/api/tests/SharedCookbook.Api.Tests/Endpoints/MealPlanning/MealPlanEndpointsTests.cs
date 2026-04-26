@@ -810,6 +810,60 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
     private sealed record ErrorResponseDto(string Code, string Message);
 
     [Fact]
+    public async Task PatchSlot_Moves_Across_Cells_Updating_Date_And_Meal()
+    {
+        // v0.15.0 — drag a slot from (Monday, Mittag) to (Wednesday, Abend).
+        // PATCH expresses the move atomically via the new date + meal fields.
+        var (userId, token) = await SignupAndLoginAsync("crosscell@ex.com", "X");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var slot = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+        var newDate = CurrentMonday.AddDays(2); // Wednesday
+
+        var res = await _client.PatchAsync(
+            $"/api/mealplans/{plan.Id}/slots/{slot.Id}",
+            new StringContent(
+                $$"""{"date": "{{newDate:yyyy-MM-dd}}", "meal": "Abend"}""",
+                Encoding.UTF8,
+                "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        // Assert on raw JSON so we don't rely on the test-side serializer
+        // accidentally accepting a numeric meal — the wire shape must be
+        // ISO date + string meal to match the shared TS type.
+        var rawJson = await res.Content.ReadAsStringAsync();
+        Assert.Contains($"\"date\":\"{newDate:yyyy-MM-dd}\"", rawJson);
+        Assert.Contains("\"meal\":\"Abend\"", rawJson);
+    }
+
+    [Fact]
+    public async Task PatchSlot_Cross_Cell_Move_Outside_Week_Returns_400()
+    {
+        var (userId, token) = await SignupAndLoginAsync("crosscellbad@ex.com", "X");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+        var slot = await AddHappySlotAsync(plan.Id, recipeId, CurrentMonday, MealSlot.Mittag, 2, null);
+        var outsideWeek = CurrentMonday.AddDays(8);
+
+        var res = await _client.PatchAsync(
+            $"/api/mealplans/{plan.Id}/slots/{slot.Id}",
+            new StringContent(
+                $$"""{"date": "{{outsideWeek:yyyy-MM-dd}}"}""",
+                Encoding.UTF8,
+                "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var body = await res.Content.ReadDtoAsync<SharedCookbook.Api.Services.ErrorResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("invalid_value", body!.Code);
+        Assert.Equal("date", body.FieldName);
+    }
+
+    [Fact]
     public async Task PatchSlot_Rejects_Self_Parent_Cycle()
     {
         var (userId, token) = await SignupAndLoginAsync("self@ex.com", "S");

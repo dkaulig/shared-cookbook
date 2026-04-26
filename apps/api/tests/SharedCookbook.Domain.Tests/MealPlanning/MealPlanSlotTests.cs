@@ -368,4 +368,49 @@ public class MealPlanSlotTests
         Assert.Throws<ArgumentException>(() =>
             slot.SetLabel(tooLong, DateTimeOffset.UtcNow));
     }
+
+    // ── v0.15.0 cross-cell move (MoveTo) ─────────────────────────────
+
+    [Fact]
+    public void MoveTo_Updates_Date_Meal_SortOrder_And_UpdatedAt()
+    {
+        var slot = NewSlot();
+        var later = DateTimeOffset.UtcNow.AddHours(1);
+        var newDate = Monday.AddDays(2); // Wednesday
+        const MealSlot newMeal = MealSlot.Abend;
+        const int newSortOrder = 3;
+
+        slot.MoveTo(newDate, newMeal, newSortOrder, Monday, later);
+
+        Assert.Equal(newDate, slot.Date);
+        Assert.Equal(newMeal, slot.Meal);
+        Assert.Equal(newSortOrder, slot.SortOrder);
+        Assert.Equal(later, slot.UpdatedAt);
+    }
+
+    [Fact]
+    public void MoveTo_Throws_When_Date_Outside_Week()
+    {
+        var slot = NewSlot();
+
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            slot.MoveTo(NextMonday, MealSlot.Mittag, 0, Monday, DateTimeOffset.UtcNow));
+        Assert.Equal("date", ex.ParamName);
+    }
+
+    [Fact]
+    public void MoveTo_Preserves_ParentSlotId()
+    {
+        // Per design doc: cross-cell move keeps the meal-prep parent
+        // reference; the user fixes a stranded relationship via the
+        // edit dialog if needed.
+        var plan = Guid.NewGuid();
+        var child = NewSlot(plan);
+        var parent = NewSlot(plan);
+        child.SetParent(parent, DateTimeOffset.UtcNow);
+
+        child.MoveTo(Monday.AddDays(1), MealSlot.Abend, 0, Monday, DateTimeOffset.UtcNow);
+
+        Assert.Equal(parent.Id, child.ParentSlotId);
+    }
 }
