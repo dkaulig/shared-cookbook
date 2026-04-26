@@ -170,11 +170,23 @@ export function AddSlotDialog({
               <Label htmlFor="add-slot-date">
                 {t('mealplan.addDialog.dateLabel', { defaultValue: 'Datum' })}
               </Label>
+              {/*
+                iOS Safari renders <input type=date> taller than `h-11` and
+                misaligned vs the sibling <select>: the native control
+                injects a `::-webkit-date-and-time-value` inner element with
+                its own min-height + auto margin, and `-webkit-appearance`
+                adds extra chrome. Stripping the appearance + zeroing the
+                inner element's geometry brings the date input back in line
+                with the meal Select so the two-column grid renders flush.
+                The native picker still triggers on tap; only the visual
+                chrome is removed.
+              */}
               <Input
                 id="add-slot-date"
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                className="appearance-none [&::-webkit-date-and-time-value]:m-0 [&::-webkit-date-and-time-value]:p-0 [&::-webkit-date-and-time-value]:text-left"
               />
             </div>
             <div className="space-y-1.5">
