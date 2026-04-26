@@ -43,6 +43,11 @@ public static class MealPlanEndpoints
         Guid Id,
         Guid MealPlanId,
         Guid? RecipeId,
+        // Title of the linked recipe at read-time; null when no recipe
+        // is linked or the recipe has been soft-deleted. Lets the FE
+        // slot card render the real name without a separate recipe
+        // fetch keyed on RecipeId.
+        string? RecipeTitle,
         string? Label,
         DateOnly Date,
         MealSlot Meal,
@@ -170,10 +175,11 @@ public static class MealPlanEndpoints
 
     private static bool IsMonday(DateOnly d) => d.DayOfWeek == DayOfWeek.Monday;
 
-    private static MealPlanSlotDto ToDto(MealPlanSlot s) => new(
+    private static MealPlanSlotDto ToDto(MealPlanSlot s, string? recipeTitle) => new(
         s.Id,
         s.MealPlanId,
         s.RecipeId,
+        recipeTitle,
         s.Label,
         s.Date,
         s.Meal,
@@ -184,17 +190,60 @@ public static class MealPlanEndpoints
         s.CreatedAt,
         s.UpdatedAt);
 
-    private static MealPlanDto ToDto(MealPlan plan, IReadOnlyList<MealPlanSlot> slots)
+    private static MealPlanDto ToDto(
+        MealPlan plan,
+        IReadOnlyList<MealPlanSlot> slots,
+        IReadOnlyDictionary<Guid, string> recipeTitles)
     {
         var ordered = slots
             .OrderBy(s => s.Date)
             .ThenBy(s => s.Meal)
             .ThenBy(s => s.SortOrder)
-            .Select(ToDto)
+            .Select(s => ToDto(s, ResolveTitle(s.RecipeId, recipeTitles)))
             .ToArray();
         return new MealPlanDto(
             plan.Id, plan.GroupId, plan.WeekStart, plan.Version,
             plan.CreatedAt, plan.UpdatedAt, ordered);
+    }
+
+    private static string? ResolveTitle(
+        Guid? recipeId,
+        IReadOnlyDictionary<Guid, string> recipeTitles)
+        => recipeId is { } id && recipeTitles.TryGetValue(id, out var t) ? t : null;
+
+    /// <summary>
+    /// One-shot fetch of recipe titles for the slot list. Returns an
+    /// empty dictionary when no slot has a recipe link (skipping the
+    /// query). Soft-deleted recipes are excluded so a stale
+    /// <c>RecipeId</c> on a slot surfaces as <c>RecipeTitle = null</c>
+    /// — the FE renders that as the same fallback as "no recipe", which
+    /// is the right behaviour when the underlying recipe is gone.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<Guid, string>> LoadRecipeTitlesAsync(
+        AppDbContext db,
+        IEnumerable<MealPlanSlot> slots,
+        CancellationToken ct)
+    {
+        var ids = slots
+            .Where(s => s.RecipeId is not null)
+            .Select(s => s.RecipeId!.Value)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0) return new Dictionary<Guid, string>();
+        return await db.Recipes
+            .Where(r => ids.Contains(r.Id) && r.DeletedAt == null)
+            .Select(r => new { r.Id, r.Title })
+            .ToDictionaryAsync(x => x.Id, x => x.Title, ct);
+    }
+
+    private static async Task<string?> LoadSingleRecipeTitleAsync(
+        AppDbContext db, Guid? recipeId, CancellationToken ct)
+    {
+        if (recipeId is not { } id) return null;
+        return await db.Recipes
+            .Where(r => r.Id == id && r.DeletedAt == null)
+            .Select(r => r.Title)
+            .FirstOrDefaultAsync(ct);
     }
 
     private static async Task<(MealPlan? Plan, IResult? Error)> LoadPlanWithMembershipAsync(
@@ -233,10 +282,11 @@ public static class MealPlanEndpoints
         var slots = await db.MealPlanSlots
             .Where(s => s.MealPlanId == plan.Id)
             .ToListAsync(ct);
+        var titles = await LoadRecipeTitlesAsync(db, slots, ct);
         return FamilienResults.Conflict(
             ErrorCodes.VersionMismatch,
             "Version mismatch; reload and retry.",
-            (object?)ToDto(plan, slots));
+            (object?)ToDto(plan, slots, titles));
     }
 
     /// <summary>
@@ -368,7 +418,8 @@ public static class MealPlanEndpoints
         var slots = await db.MealPlanSlots
             .Where(s => s.MealPlanId == plan.Id)
             .ToListAsync(ct);
-        return ETagHelper.Ok(ToDto(plan, slots), plan.Id, plan.Version);
+        var titles = await LoadRecipeTitlesAsync(db, slots, ct);
+        return ETagHelper.Ok(ToDto(plan, slots, titles), plan.Id, plan.Version);
     }
 
     // ── POST /api/groups/{groupId}/mealplans ────────────────────────
@@ -404,7 +455,8 @@ public static class MealPlanEndpoints
             var slots = await db.MealPlanSlots
                 .Where(s => s.MealPlanId == existing.Id)
                 .ToListAsync(ct);
-            return Results.Ok(ToDto(existing, slots));
+            var titles = await LoadRecipeTitlesAsync(db, slots, ct);
+            return Results.Ok(ToDto(existing, slots, titles));
         }
 
         var now = clock.GetUtcNow();
@@ -430,7 +482,7 @@ public static class MealPlanEndpoints
 
         return Results.Created(
             $"/api/groups/{groupId}/mealplans/{plan.WeekStart:yyyy-MM-dd}",
-            ToDto(plan, Array.Empty<MealPlanSlot>()));
+            ToDto(plan, Array.Empty<MealPlanSlot>(), new Dictionary<Guid, string>()));
     }
 
     /// <summary>Canonical ISO YYYY-MM-DD for the wire payload — kept
@@ -520,7 +572,10 @@ public static class MealPlanEndpoints
         await PublishSlotAndPlanChangedAsync(
             liveSync, plan, slot.Id, LiveSyncAction.Created, LiveSyncAction.Updated, ct);
 
-        return Results.Created($"/api/mealplans/{plan.Id}/slots/{slot.Id}", ToDto(slot));
+        var recipeTitle = await LoadSingleRecipeTitleAsync(db, slot.RecipeId, ct);
+        return Results.Created(
+            $"/api/mealplans/{plan.Id}/slots/{slot.Id}",
+            ToDto(slot, recipeTitle));
     }
 
     /// <summary>
@@ -711,7 +766,8 @@ public static class MealPlanEndpoints
         await PublishSlotAndPlanChangedAsync(
             liveSync, plan, slot.Id, LiveSyncAction.Updated, LiveSyncAction.Updated, ct);
 
-        return Results.Ok(ToDto(slot));
+        var recipeTitle = await LoadSingleRecipeTitleAsync(db, slot.RecipeId, ct);
+        return Results.Ok(ToDto(slot, recipeTitle));
     }
 
     // ── DELETE /api/mealplans/{planId}/slots/{slotId} ───────────────
@@ -898,7 +954,8 @@ public static class MealPlanEndpoints
         var refreshed = await db.MealPlanSlots
             .Where(s => s.MealPlanId == targetPlan.Id)
             .ToListAsync(ct);
-        return Results.Ok(ToDto(targetPlan, refreshed));
+        var titles = await LoadRecipeTitlesAsync(db, refreshed, ct);
+        return Results.Ok(ToDto(targetPlan, refreshed, titles));
     }
 
     /// <summary>
@@ -924,14 +981,15 @@ public static class MealPlanEndpoints
             // Extremely unlikely — the plan was deleted between the read
             // and the concurrency exception. Fall back to the stale
             // in-memory entity so the client still sees *something*.
-            currentDto = ToDto(plan, Array.Empty<MealPlanSlot>());
+            currentDto = ToDto(plan, Array.Empty<MealPlanSlot>(), new Dictionary<Guid, string>());
         }
         else
         {
             var slots = await db.MealPlanSlots.AsNoTracking()
                 .Where(s => s.MealPlanId == fresh.Id)
                 .ToListAsync(ct);
-            currentDto = ToDto(fresh, slots);
+            var titles = await LoadRecipeTitlesAsync(db, slots, ct);
+            currentDto = ToDto(fresh, slots, titles);
         }
         return FamilienResults.Conflict(
             ErrorCodes.VersionMismatch,

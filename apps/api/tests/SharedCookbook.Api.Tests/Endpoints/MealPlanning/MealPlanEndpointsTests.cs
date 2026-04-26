@@ -391,6 +391,50 @@ public class MealPlanEndpointsTests : IClassFixture<SharedCookbookWebApplication
     }
 
     [Fact]
+    public async Task AddSlot_Returns_RecipeTitle_For_Linked_Recipe()
+    {
+        // The slot card on the FE renders a hardcoded "Rezept" fallback
+        // whenever a slot has a recipe link but no free-text label,
+        // because the DTO carried `recipeId` only — no title. Enrich
+        // the wire shape with `recipeTitle` so the card can show the
+        // real name without a separate FE fetch.
+        var (userId, token) = await SignupAndLoginAsync("title@ex.com", "T");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var recipeId = await SeedRecipeAsync(groupId, userId);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+
+        var res = await _client.PostAsJsonAsync(
+            $"/api/mealplans/{plan.Id}/slots",
+            new MealPlanEndpoints.AddSlotRequest(
+                RecipeId: recipeId, Label: null, Date: CurrentMonday,
+                Meal: MealSlot.Mittag, Servings: 2));
+        var rawJson = await res.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+        Assert.Contains("\"recipeTitle\":\"", rawJson);
+    }
+
+    [Fact]
+    public async Task AddSlot_RecipeTitle_Is_Null_For_Free_Text_Slot()
+    {
+        var (_, token) = await SignupAndLoginAsync("freetext@ex.com", "F");
+        AuthorizeClient(_client, token);
+        var groupId = await CreateGroupAsync(_client);
+        var plan = await CreatePlanAsync(_client, groupId, CurrentMonday);
+
+        var res = await _client.PostAsJsonAsync(
+            $"/api/mealplans/{plan.Id}/slots",
+            new MealPlanEndpoints.AddSlotRequest(
+                RecipeId: null, Label: "Reste", Date: CurrentMonday,
+                Meal: MealSlot.Abend, Servings: 2));
+        var rawJson = await res.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+        Assert.Contains("\"recipeTitle\":null", rawJson);
+    }
+
+    [Fact]
     public async Task GetMealPlan_Serialises_Meal_As_String_For_Ts_Clients()
     {
         // Companion to AddSlot_Accepts_Meal_As_String_…: the wire format
