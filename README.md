@@ -196,6 +196,13 @@ stack.
 
 MIT — see [`LICENSE`](LICENSE).
 
+`shared-cookbook` ships alongside a number of third-party
+open-source components. The non-trivial ones (Hangfire under LGPL,
+Redis 7.4+ under RSALv2/SSPL, plus the broader tally per stack) are
+documented in [`NOTICES.md`](NOTICES.md). Nothing in there blocks
+self-hosting; the Redis license note is only relevant if you intend
+to redistribute `shared-cookbook` as a managed multi-tenant service.
+
 ---
 
 ## Disclaimer — third-party content

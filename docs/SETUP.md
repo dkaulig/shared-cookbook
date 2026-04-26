@@ -36,7 +36,7 @@ infrastructure:
 | `api`                | .NET 10 Minimal API + EF Core 10 + Postgres 17 | REST + auth + recipe persistence + Hangfire jobs        |
 | `web`                | React 19 + Vite 6 + Tailwind 4 + shadcn/ui     | PWA (offline-first), German UI                          |
 | `python-extractor`   | Python 3.13 + FastAPI + yt-dlp + faster-whisper | Video / photo / blog → structured recipe pipeline      |
-| `postgres`, `redis`, `seaweedfs`, `caddy` | Postgres 17, Redis 7, SeaweedFS, Caddy 2 | Data, jobs, photos, edge proxy            |
+| `postgres`, `redis`, `seaweedfs`, `caddy` | Postgres 17, Redis 7.4 (RSALv2 — see [NOTICES.md](../NOTICES.md)), SeaweedFS 4.21, Caddy 2 | Data, jobs, photos, edge proxy            |
 | `ollama` (optional)  | `ollama/ollama:latest`                         | Self-hosted LLM backend (Path 3 only)                   |
 
 The three boot paths in section 3 differ only in which AI backend
