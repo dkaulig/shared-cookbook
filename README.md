@@ -5,7 +5,7 @@
 > AI-orchestrated development.
 
 <p align="center">
-  <img src="docs/screenshots/hero.png" alt="shared-cookbook — Was kochen wir heute? Two mobile screenshots showing the home dashboard and a recipe-detail page in the warm amber palette." width="900" />
+  <img src="docs/screenshots/hero.png" alt="shared-cookbook — What are we cooking today? Two mobile screenshots showing the home dashboard and a recipe-detail page in the warm amber palette." width="900" />
 </p>
 
 [![CI](https://github.com/dKaulig/shared-cookbook/actions/workflows/ci.yml/badge.svg)](https://github.com/dKaulig/shared-cookbook/actions/workflows/ci.yml)
