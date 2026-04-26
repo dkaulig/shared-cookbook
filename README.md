@@ -4,6 +4,10 @@
 > from social-video + recipe blogs. Built end-to-end with
 > AI-orchestrated development.
 
+<p align="center">
+  <img src="docs/screenshots/hero.png" alt="shared-cookbook — Was kochen wir heute? Two mobile screenshots showing the home dashboard and a recipe-detail page in the warm amber palette." width="900" />
+</p>
+
 [![CI](https://github.com/dKaulig/shared-cookbook/actions/workflows/ci.yml/badge.svg)](https://github.com/dKaulig/shared-cookbook/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/dKaulig/shared-cookbook?display_name=tag)](https://github.com/dKaulig/shared-cookbook/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
