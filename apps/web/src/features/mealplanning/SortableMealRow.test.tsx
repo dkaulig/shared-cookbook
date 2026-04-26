@@ -59,7 +59,6 @@ describe('<SortableMealRow />', () => {
           makeSlot('b', { label: 'Bravo', sortOrder: 10 }),
           makeSlot('c', { label: 'Charlie', sortOrder: 20 }),
         ]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -80,7 +79,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -99,7 +97,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[slot]}
-        onReorder={noop}
         onEdit={onEdit}
         onDelete={noop}
         onToggleCooked={noop}
@@ -118,7 +115,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[slot]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={onToggleCooked}
@@ -137,7 +133,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[slot]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={onDelete}
         onToggleCooked={noop}
@@ -159,7 +154,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[slot]}
-        onReorder={noop}
         onEdit={onEdit}
         onDelete={noop}
         onToggleCooked={noop}
@@ -178,7 +172,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[makeSlot('s1', { label: 'Linsencurry', isCooked: true })]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -207,7 +200,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[slot]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -225,7 +217,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[makeSlot('s1', { parentSlotId: null })]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -256,7 +247,6 @@ describe('<SortableMealRow />', () => {
       <SortableMealRow
         groupId={GROUP_ID}
         slots={[makeSlot('s1', { label: 'Spaghetti' })]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -287,7 +277,6 @@ describe('<SortableMealRow />', () => {
             recipeTitle: 'Pasta Bolognese',
           }),
         ]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -309,7 +298,6 @@ describe('<SortableMealRow />', () => {
             recipeTitle: null,
           }),
         ]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -332,7 +320,6 @@ describe('<SortableMealRow />', () => {
             recipeTitle: 'Pasta Bolognese',
           }),
         ]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -357,7 +344,6 @@ describe('<SortableMealRow />', () => {
             recipeTitle: null,
           }),
         ]}
-        onReorder={noop}
         onEdit={noop}
         onDelete={noop}
         onToggleCooked={noop}
@@ -386,7 +372,6 @@ describe('<SortableMealRow />', () => {
                     recipeTitle: 'Pasta Bolognese',
                   }),
                 ]}
-                onReorder={noop}
                 onEdit={noop}
                 onDelete={noop}
                 onToggleCooked={noop}

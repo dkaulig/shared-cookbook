@@ -120,6 +120,99 @@ describe('usePatchSlot', () => {
     )
     expect(state?.isInvalidated).toBe(true)
   })
+
+  it('cross-cell move splices the slot into the new (date, meal) bucket optimistically', async () => {
+    // v0.15.0 — a cross-cell drag PATCHes { date, meal, sortOrder }.
+    // The optimistic splice is the default `{...s, ...patch}` spread in
+    // `usePatchSlot.onMutate`, so the cached slot's date + meal change
+    // BEFORE the network resolves. Re-bucketing happens at render time
+    // via `slotsByDayMeal`; this test asserts the cache half of the
+    // contract.
+    let resolveResponse: () => void = () => {}
+    const responseGate = new Promise<void>((resolve) => {
+      resolveResponse = resolve
+    })
+    server.use(
+      http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, async () => {
+        await responseGate
+        return HttpResponse.json(
+          makeSlot({ date: '2026-04-22', meal: 'Abend', sortOrder: 0 }),
+        )
+      }),
+    )
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    client.setQueryData(
+      mealPlanQueryKeys.forWeek(GROUP_ID, WEEK_START),
+      makePlan([makeSlot({ date: WEEK_START, meal: 'Mittag' })]),
+    )
+
+    const { result } = renderHook(
+      () => usePatchSlot(GROUP_ID, WEEK_START, PLAN_ID),
+      { wrapper: withClient(client) },
+    )
+
+    result.current.mutate({
+      slotId: SLOT_ID,
+      patch: { date: '2026-04-22', meal: 'Abend', sortOrder: 0 },
+    })
+
+    // While the response is in flight, the cache already reflects the
+    // new bucket — that's the optimistic splice.
+    await waitFor(() => {
+      const cached = client.getQueryData<MealPlanDto>(
+        mealPlanQueryKeys.forWeek(GROUP_ID, WEEK_START),
+      )
+      expect(cached?.slots[0]?.date).toBe('2026-04-22')
+      expect(cached?.slots[0]?.meal).toBe('Abend')
+    })
+
+    resolveResponse()
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  })
+
+  it('cross-cell move rolls back the cache when the PATCH fails', async () => {
+    // PATCH 409 / 500 / network error → onError restores the previous
+    // cache snapshot (from onMutate's context). This is the same
+    // rollback path same-cell reorder already relies on.
+    server.use(
+      http.patch(`/api/mealplans/${PLAN_ID}/slots/${SLOT_ID}`, () =>
+        HttpResponse.json(
+          { code: 'version_mismatch', message: 'stale' },
+          { status: 409 },
+        ),
+      ),
+    )
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    client.setQueryData(
+      mealPlanQueryKeys.forWeek(GROUP_ID, WEEK_START),
+      makePlan([makeSlot({ date: WEEK_START, meal: 'Mittag' })]),
+    )
+
+    const { result } = renderHook(
+      () => usePatchSlot(GROUP_ID, WEEK_START, PLAN_ID),
+      { wrapper: withClient(client) },
+    )
+
+    result.current.mutate({
+      slotId: SLOT_ID,
+      patch: { date: '2026-04-22', meal: 'Abend', sortOrder: 0 },
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    // Cache returned to its pre-drag state.
+    const cached = client.getQueryData<MealPlanDto>(
+      mealPlanQueryKeys.forWeek(GROUP_ID, WEEK_START),
+    )
+    expect(cached?.slots[0]?.date).toBe(WEEK_START)
+    expect(cached?.slots[0]?.meal).toBe('Mittag')
+  })
 })
 
 describe('useDeleteSlot', () => {

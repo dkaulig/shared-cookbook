@@ -79,7 +79,6 @@ describe('<MobileDayStack />', () => {
         onAdd={noop}
         onEdit={noop}
         onDelete={noop}
-        onReorder={noop}
         onToggleCooked={noop}
       />,
     )
@@ -102,7 +101,6 @@ describe('<MobileDayStack />', () => {
         onAdd={noop}
         onEdit={noop}
         onDelete={noop}
-        onReorder={noop}
         onToggleCooked={noop}
       />,
     )
@@ -128,7 +126,6 @@ describe('<MobileDayStack />', () => {
         onAdd={noop}
         onEdit={noop}
         onDelete={noop}
-        onReorder={noop}
         onToggleCooked={noop}
       />,
     )
@@ -156,7 +153,6 @@ describe('<MobileDayStack />', () => {
         onAdd={noop}
         onEdit={noop}
         onDelete={noop}
-        onReorder={noop}
         onToggleCooked={noop}
       />,
     )
@@ -177,7 +173,6 @@ describe('<MobileDayStack />', () => {
         onAdd={onAdd}
         onEdit={noop}
         onDelete={noop}
-        onReorder={noop}
         onToggleCooked={noop}
       />,
     )
@@ -206,7 +201,6 @@ describe('<MobileDayStack />', () => {
         onAdd={noop}
         onEdit={noop}
         onDelete={noop}
-        onReorder={noop}
         onToggleCooked={noop}
       />,
     )

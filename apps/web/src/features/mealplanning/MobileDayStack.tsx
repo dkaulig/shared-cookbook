@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, Plus } from 'lucide-react'
 import type { MealPlanSlotDto, MealSlot } from '@shared-cookbook/shared'
 import { cn } from '@/lib/utils'
+import { EmptyCellDrop } from './MealPlanDndProvider'
 import { SortableMealRow } from './SortableMealRow'
 import {
   MEAL_SLOTS,
@@ -38,7 +39,6 @@ export function MobileDayStack({
   onAdd,
   onEdit,
   onDelete,
-  onReorder,
   onToggleCooked,
   getParentLabel,
 }: {
@@ -48,7 +48,6 @@ export function MobileDayStack({
   onAdd: (date: string, meal: MealSlot) => void
   onEdit: (slot: MealPlanSlotDto) => void
   onDelete: (slot: MealPlanSlotDto) => void
-  onReorder: (orderedIds: readonly string[]) => void
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
   getParentLabel?: (slot: MealPlanSlotDto) => string | null
 }) {
@@ -152,7 +151,6 @@ export function MobileDayStack({
                     onAdd={() => onAdd(date, meal)}
                     onEdit={onEdit}
                     onDelete={onDelete}
-                    onReorder={onReorder}
                     onToggleCooked={onToggleCooked}
                     getParentLabel={getParentLabel}
                   />
@@ -180,7 +178,6 @@ function MobileMealCell({
   onAdd,
   onEdit,
   onDelete,
-  onReorder,
   onToggleCooked,
   getParentLabel,
 }: {
@@ -191,7 +188,6 @@ function MobileMealCell({
   onAdd: () => void
   onEdit: (slot: MealPlanSlotDto) => void
   onDelete: (slot: MealPlanSlotDto) => void
-  onReorder: (orderedIds: readonly string[]) => void
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
   getParentLabel?: (slot: MealPlanSlotDto) => string | null
 }) {
@@ -211,20 +207,21 @@ function MobileMealCell({
         </button>
       </div>
       {slots.length === 0 ? (
-        <button
-          type="button"
-          onClick={onAdd}
-          className="block w-full rounded-md border border-dashed border-input bg-background/60 px-3 py-3 text-left text-[12px] italic text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
-        >
-          Noch keine Gerichte für diesen Tag
-        </button>
+        <EmptyCellDrop date={date} meal={meal}>
+          <button
+            type="button"
+            onClick={onAdd}
+            className="block w-full rounded-md border border-dashed border-input bg-background/60 px-3 py-3 text-left text-[12px] italic text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
+          >
+            Noch keine Gerichte für diesen Tag
+          </button>
+        </EmptyCellDrop>
       ) : (
         <SortableMealRow
           groupId={groupId}
           slots={slots}
           onEdit={onEdit}
           onDelete={onDelete}
-          onReorder={onReorder}
           onToggleCooked={onToggleCooked}
           getParentLabel={getParentLabel}
         />

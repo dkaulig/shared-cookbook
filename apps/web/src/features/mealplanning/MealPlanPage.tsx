@@ -34,6 +34,7 @@ import { toastMutationError } from '@/features/_shared/errorSurface'
 import { AddSlotDialog } from './AddSlotDialog'
 import { DeleteSlotDialog } from './DeleteSlotDialog'
 import { EditSlotDialog } from './EditSlotDialog'
+import { MealPlanDndProvider, EmptyCellDrop } from './MealPlanDndProvider'
 import { MobileDayStack } from './MobileDayStack'
 import { SortableMealRow } from './SortableMealRow'
 import { SlotConflictBody } from './SlotConflictBody'
@@ -202,20 +203,18 @@ export function MealPlanPage() {
     return childrenOf(deleteSlotState.id, planSlots).length
   }, [deleteSlotState, planSlots])
 
-  // Reorder handler — receives the final ordered slot IDs for one
-  // (date, meal) bucket and ships one PATCH per slot whose position
-  // changed. Using a step of `SORT_ORDER_STEP` (10) leaves room for
-  // future "drop between existing neighbours" insertions without a
-  // full reindex — see P3-10 mobile polish in the master plan. Kept
-  // above the early returns so the hook-order stays stable.
+  // Same-cell reorder handler — receives the final ordered slot IDs
+  // for one (date, meal) bucket and ships one PATCH per slot whose
+  // position changed. Using a step of `SORT_ORDER_STEP` (10) leaves
+  // room for between-slot insertions without a global reindex.
   //
   // Resilience: we apply ONE optimistic cache update for the whole
   // bucket (so the UI flips atomically), then ship PATCH calls in
   // parallel via `Promise.allSettled` — any rejection surfaces a
   // German-language banner + refetches server truth so the user isn't
   // left looking at a half-saved order.
-  const handleReorder = useCallback(
-    (orderedIds: readonly string[]) => {
+  const handleSameCellReorder = useCallback(
+    (_date: string, _meal: MealSlot, orderedIds: readonly string[]) => {
       if (!plan || !planId || !weekStart) return
       const byId = new Map(plan.slots.map((s) => [s.id, s]))
       const updates: Array<{ slotId: string; sortOrder: number }> = []
@@ -270,6 +269,48 @@ export function MealPlanPage() {
       })
     },
     [plan, planId, weekStart, groupId, queryClient, t],
+  )
+
+  // Cross-cell move handler — one PATCH that atomically updates
+  // `(date, meal, sortOrder)`. Routes through `usePatchSlot` so the
+  // existing optimistic-spread + 409 conflict path applies for free
+  // (the cached slot's date + meal change, slotsByDayMeal re-buckets
+  // on the next render, and the OFF4 conflict resolver picks up the
+  // server's authoritative version on rollback).
+  const handleCrossCellMove = useCallback(
+    (slotId: string, date: string, meal: MealSlot, sortOrder: number) => {
+      if (!plan || !planId || !weekStart) return
+      const slot = plan.slots.find((s) => s.id === slotId)
+      if (!slot) return
+      const patch: PatchSlotRequest = { date, meal, sortOrder }
+      const localProjection: MealPlanSlotDto = { ...slot, ...patch }
+      pendingPatchRef.current = {
+        slotId,
+        patch,
+        local: localProjection,
+      }
+      patchMutation.mutate(
+        { slotId, patch },
+        {
+          onError: (err) => {
+            if (err instanceof VersionMismatchError) {
+              const planErr = err.current as
+                | { version: number; slots: MealPlanSlotDto[] }
+                | null
+              const serverSlot = planErr?.slots?.find((s) => s.id === slotId)
+              if (!planErr || !serverSlot) return
+              conflict.captureFrom409(
+                { ...localProjection, version: planErr.version },
+                { current: { ...serverSlot, version: planErr.version } },
+              )
+              return
+            }
+            toastMutationError(err)
+          },
+        },
+      )
+    },
+    [plan, planId, weekStart, patchMutation, conflict],
   )
 
   // BUG-007 hand-off: once the plan resolves, open AddSlotDialog with
@@ -603,54 +644,58 @@ export function MealPlanPage() {
         )}
 
         {plan && buckets && (
-          isMobile ? (
-            <MobileDayStack
-              groupId={groupId}
-              weekStart={weekStart}
-              bucketsByDay={buckets}
-              onAdd={(date, meal) => setOpenCell({ date, meal })}
-              onEdit={setEditSlot}
-              onDelete={setDeleteSlotState}
-              onReorder={handleReorder}
-              onToggleCooked={handleToggleCooked}
-              getParentLabel={getParentLabel}
-            />
-          ) : (
-            <div
-              data-testid="mealplan-desktop-grid"
-              className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7"
-            >
-              {dayKeys(weekStart).map((dateKey, index) => {
-                // `buckets` is guaranteed to have every day-key by
-                // construction in `slotsByDayMeal`, but
-                // `noUncheckedIndexedAccess` doesn't know that. Default
-                // to an empty bucket rather than narrowing so a broken
-                // invariant still renders something useful.
-                const dayBuckets = buckets[dateKey] ?? {
-                  Frühstück: [],
-                  Mittag: [],
-                  Abend: [],
-                  Snack: [],
-                }
-                const weekday = WEEKDAY_LABELS[index] ?? ''
-                return (
-                  <DayColumn
-                    key={dateKey}
-                    groupId={groupId}
-                    date={dateKey}
-                    weekdayLabel={weekday}
-                    buckets={dayBuckets}
-                    onAdd={(meal) => setOpenCell({ date: dateKey, meal })}
-                    onEdit={setEditSlot}
-                    onDelete={setDeleteSlotState}
-                    onReorder={handleReorder}
-                    onToggleCooked={handleToggleCooked}
-                    getParentLabel={getParentLabel}
-                  />
-                )
-              })}
-            </div>
-          )
+          <MealPlanDndProvider
+            slots={plan.slots}
+            onSameCellReorder={handleSameCellReorder}
+            onCrossCellMove={handleCrossCellMove}
+          >
+            {isMobile ? (
+              <MobileDayStack
+                groupId={groupId}
+                weekStart={weekStart}
+                bucketsByDay={buckets}
+                onAdd={(date, meal) => setOpenCell({ date, meal })}
+                onEdit={setEditSlot}
+                onDelete={setDeleteSlotState}
+                onToggleCooked={handleToggleCooked}
+                getParentLabel={getParentLabel}
+              />
+            ) : (
+              <div
+                data-testid="mealplan-desktop-grid"
+                className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7"
+              >
+                {dayKeys(weekStart).map((dateKey, index) => {
+                  // `buckets` is guaranteed to have every day-key by
+                  // construction in `slotsByDayMeal`, but
+                  // `noUncheckedIndexedAccess` doesn't know that. Default
+                  // to an empty bucket rather than narrowing so a broken
+                  // invariant still renders something useful.
+                  const dayBuckets = buckets[dateKey] ?? {
+                    Frühstück: [],
+                    Mittag: [],
+                    Abend: [],
+                    Snack: [],
+                  }
+                  const weekday = WEEKDAY_LABELS[index] ?? ''
+                  return (
+                    <DayColumn
+                      key={dateKey}
+                      groupId={groupId}
+                      date={dateKey}
+                      weekdayLabel={weekday}
+                      buckets={dayBuckets}
+                      onAdd={(meal) => setOpenCell({ date: dateKey, meal })}
+                      onEdit={setEditSlot}
+                      onDelete={setDeleteSlotState}
+                      onToggleCooked={handleToggleCooked}
+                      getParentLabel={getParentLabel}
+                    />
+                  )
+                })}
+              </div>
+            )}
+          </MealPlanDndProvider>
         )}
       </main>
     </div>
@@ -781,7 +826,6 @@ function DayColumn({
   onAdd,
   onEdit,
   onDelete,
-  onReorder,
   onToggleCooked,
   getParentLabel,
 }: {
@@ -792,7 +836,6 @@ function DayColumn({
   onAdd: (meal: MealSlot) => void
   onEdit: (slot: MealPlanSlotDto) => void
   onDelete: (slot: MealPlanSlotDto) => void
-  onReorder: (orderedIds: readonly string[]) => void
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
   getParentLabel: (slot: MealPlanSlotDto) => string | null
 }) {
@@ -825,7 +868,6 @@ function DayColumn({
             onAdd={() => onAdd(meal)}
             onEdit={onEdit}
             onDelete={onDelete}
-            onReorder={onReorder}
             onToggleCooked={onToggleCooked}
             getParentLabel={getParentLabel}
           />
@@ -843,7 +885,6 @@ function MealCell({
   onAdd,
   onEdit,
   onDelete,
-  onReorder,
   onToggleCooked,
   getParentLabel,
 }: {
@@ -854,7 +895,6 @@ function MealCell({
   onAdd: () => void
   onEdit: (slot: MealPlanSlotDto) => void
   onDelete: (slot: MealPlanSlotDto) => void
-  onReorder: (orderedIds: readonly string[]) => void
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
   getParentLabel: (slot: MealPlanSlotDto) => string | null
 }) {
@@ -879,22 +919,23 @@ function MealCell({
         </button>
       </div>
       {slots.length === 0 ? (
-        <button
-          type="button"
-          onClick={onAdd}
-          className="block w-full rounded-md border border-dashed border-input bg-background/60 px-2 py-3 text-left text-[12px] italic text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
-        >
-          {t('mealplan.page.noDishesForDay', {
-            defaultValue: 'Noch keine Gerichte für diesen Tag',
-          })}
-        </button>
+        <EmptyCellDrop date={date} meal={meal}>
+          <button
+            type="button"
+            onClick={onAdd}
+            className="block w-full rounded-md border border-dashed border-input bg-background/60 px-2 py-3 text-left text-[12px] italic text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
+          >
+            {t('mealplan.page.noDishesForDay', {
+              defaultValue: 'Noch keine Gerichte für diesen Tag',
+            })}
+          </button>
+        </EmptyCellDrop>
       ) : (
         <SortableMealRow
           groupId={groupId}
           slots={slots}
           onEdit={onEdit}
           onDelete={onDelete}
-          onReorder={onReorder}
           onToggleCooked={onToggleCooked}
           getParentLabel={getParentLabel}
         />

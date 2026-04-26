@@ -1,18 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core'
-import type { DragEndEvent } from '@dnd-kit/core'
-import {
   SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
@@ -50,26 +39,21 @@ export const MEALPLAN_POINTER_ACTIVATION = {
 } as const
 
 /**
- * Drag-reorder wrapper for all slots within a single (date, meal)
- * cell. Keeps the @dnd-kit wiring in one place so `MealPlanPage`
- * can stay focused on data fetching + top-level layout.
- *
- * We deliberately scope the DndContext **per cell** (not at the whole
- * page level) because cross-cell drag is out of scope for P3-3 —
- * the master plan defers moves between day/meal buckets to P3-10.
- * One DndContext per cell keeps the item-id space narrow and makes
- * it impossible to accidentally drop a Monday-Mittag slot into a
- * Tuesday-Abend cell today.
+ * Renders all slots within a single `(date, meal)` cell as a sortable
+ * list. As of v0.15.0 the `DndContext` lives one level up at the
+ * meal-plan page (see `MealPlanDndProvider`) so a single drag can
+ * cross between cells — this component keeps just the per-cell
+ * `SortableContext` + the slot cards.
  *
  * The reorder scheme steps by `SORT_ORDER_STEP` (see `constants.ts`) so
  * later phases can insert a slot between two existing ones without
- * a global reindex. P3-3 always reindexes the full list of affected
- * rows for simplicity, but the spacing is in place.
+ * a global reindex. The page-level `handleDragEnd` always reindexes
+ * the affected bucket via `arrayMove`, but the spacing leaves room
+ * for between-slot insertion to land cheaply later.
  */
 export function SortableMealRow({
   groupId,
   slots,
-  onReorder,
   onEdit,
   onDelete,
   onToggleCooked,
@@ -82,13 +66,6 @@ export function SortableMealRow({
    */
   groupId: string
   slots: readonly MealPlanSlotDto[]
-  /**
-   * Called when the user drops a slot into a new position. Receives
-   * the final ordered list of slot IDs (first = sortOrder 0, second =
-   * sortOrder {@link SORT_ORDER_STEP}, etc.) — the parent translates
-   * that into one or more PATCH calls.
-   */
-  onReorder: (orderedIds: readonly string[]) => void
   onEdit: (slot: MealPlanSlotDto) => void
   onDelete: (slot: MealPlanSlotDto) => void
   onToggleCooked: (slot: MealPlanSlotDto, nextCooked: boolean) => void
@@ -104,55 +81,28 @@ export function SortableMealRow({
    */
   getParentLabel?: (slot: MealPlanSlotDto) => string | null
 }) {
-  // PointerSensor activation tuned for mobile (see MEALPLAN_POINTER_ACTIVATION
-  // for rationale). The KeyboardSensor keeps reorder accessible for
-  // non-mouse users (Space → ArrowUp/Down).
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: MEALPLAN_POINTER_ACTIVATION }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over) return
-    const activeId = String(active.id)
-    const overId = String(over.id)
-    if (activeId === overId) return
-    const ids = slots.map((s) => s.id)
-    const oldIndex = ids.indexOf(activeId)
-    const newIndex = ids.indexOf(overId)
-    if (oldIndex < 0 || newIndex < 0) return
-    onReorder(arrayMove(ids, oldIndex, newIndex))
-  }
-
   if (slots.length === 0) return null
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={handleDragEnd}
+    <SortableContext
+      items={slots.map((s) => s.id)}
+      strategy={verticalListSortingStrategy}
     >
-      <SortableContext
-        items={slots.map((s) => s.id)}
-        strategy={verticalListSortingStrategy}
-      >
-        <ul className="space-y-1.5">
-          {slots.map((slot) => (
-            <li key={slot.id}>
-              <SortableSlotCard
-                groupId={groupId}
-                slot={slot}
-                parentLabel={getParentLabel?.(slot) ?? null}
-                onEdit={() => onEdit(slot)}
-                onDelete={() => onDelete(slot)}
-                onToggleCooked={(next) => onToggleCooked(slot, next)}
-              />
-            </li>
-          ))}
-        </ul>
-      </SortableContext>
-    </DndContext>
+      <ul className="space-y-1.5">
+        {slots.map((slot) => (
+          <li key={slot.id}>
+            <SortableSlotCard
+              groupId={groupId}
+              slot={slot}
+              parentLabel={getParentLabel?.(slot) ?? null}
+              onEdit={() => onEdit(slot)}
+              onDelete={() => onDelete(slot)}
+              onToggleCooked={(next) => onToggleCooked(slot, next)}
+            />
+          </li>
+        ))}
+      </ul>
+    </SortableContext>
   )
 }
 
