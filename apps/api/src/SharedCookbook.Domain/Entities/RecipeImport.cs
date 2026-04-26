@@ -498,6 +498,57 @@ public sealed class RecipeImport
     }
 
     /// <summary>
+    /// Slice 3 — user-initiated retry of a previously-failed import.
+    /// Resets the row back to the same shape it had immediately after
+    /// <see cref="RecipeImport(Guid, Guid, ImportSource, string?, DateTimeOffset, Guid?, string?)"/>:
+    /// <see cref="Status"/> back to <see cref="ImportStatus.Queued"/>,
+    /// <see cref="Phase"/> to <see cref="RecipeImportPhase.Queued"/>,
+    /// <see cref="AttemptNumber"/> to 1, all transit telemetry
+    /// (<see cref="BytesDownloaded"/> / <see cref="BytesTotal"/> /
+    /// <see cref="SegmentsDone"/> / <see cref="SegmentsTotal"/>) cleared,
+    /// <see cref="ErrorMessage"/> + <see cref="ProgressLabel"/> +
+    /// <see cref="CompletedAt"/> nulled. Identity (<see cref="Id"/>,
+    /// <see cref="UserId"/>, <see cref="GroupId"/>, <see cref="Source"/>,
+    /// <see cref="SourceUrl"/>, <see cref="CreatedAt"/>) survives so the
+    /// row remains the same persistent unit the user is staring at.
+    /// <see cref="LastProgressAt"/> is bumped to <paramref name="at"/> so
+    /// the stale-progress UI banner re-arms cleanly.
+    ///
+    /// <para>Distinct from <see cref="StartAttempt"/>: that path is the
+    /// Hangfire AutomaticRetry hook (which bumps <see cref="AttemptNumber"/>
+    /// and is only legal on a non-terminal row); <c>RetryFromFailed</c> is
+    /// the user-initiated reset from the <c>Failed</c> terminal state and
+    /// drops back to attempt 1.</para>
+    ///
+    /// <para>Throws <see cref="InvalidOperationException"/> when called
+    /// on a row whose <see cref="Status"/> isn't <see cref="ImportStatus.Error"/>.
+    /// The endpoint layer translates the throw into a 409 / <c>import_not_failed</c>
+    /// response; the throw itself is defence-in-depth so a future caller
+    /// that bypasses the endpoint can't move a Pending / Running / Done
+    /// row back to Queued.</para>
+    /// </summary>
+    public void RetryFromFailed(DateTimeOffset at)
+    {
+        if (Status != ImportStatus.Error)
+            throw new InvalidOperationException(
+                $"RetryFromFailed is only legal from Error; current status is {Status}.");
+
+        Status = ImportStatus.Queued;
+        Phase = RecipeImportPhase.Queued;
+        Progress = 0;
+        PhaseProgress = 0;
+        AttemptNumber = 1;
+        ErrorMessage = null;
+        ProgressLabel = null;
+        BytesDownloaded = null;
+        BytesTotal = null;
+        SegmentsDone = null;
+        SegmentsTotal = null;
+        CompletedAt = null;
+        LastProgressAt = at;
+    }
+
+    /// <summary>
     /// Marks the beginning of a fresh Hangfire attempt. Used when the
     /// <c>[AutomaticRetry]</c> supervisor re-runs a failed extraction:
     /// the attempt counter is bumped, phase resets to <c>Queued</c>,

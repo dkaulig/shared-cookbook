@@ -351,6 +351,16 @@ public static class ErrorCodes
     /// <summary>Copy-from target plan is not empty. HTTP 409.</summary>
     public const string CopyTargetNotEmpty = "copy_target_not_empty";
 
+    /// <summary>
+    /// Slice 3 — caller tried to retry an import that isn't in the
+    /// <c>Failed</c> terminal state. HTTP 409. The retry endpoint is the
+    /// only legal way to push a Failed import back to Queued; calling it
+    /// against a Pending / Running / Done row is a no-op-or-worse, so we
+    /// reject with this distinct code instead of a generic 400 so the
+    /// frontend can pick a precise error message.
+    /// </summary>
+    public const string ImportNotFailed = "import_not_failed";
+
     // ── Gone (410) ───────────────────────────────────────────────────
 
     /// <summary>Import candidates were reaped by the 7-day sweep.

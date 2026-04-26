@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ImportCandidate,
   ImportEnqueueResponse,
@@ -13,6 +13,7 @@ import {
   fetchImport,
   fetchImportCandidates,
   fetchMyImports,
+  retryImport,
 } from './importsApi'
 import { readImportLiveEventAt } from './liveEventTimestamp'
 
@@ -179,6 +180,51 @@ export function useImportCandidates(
     // load; the user can refresh the page. Not worth a background
     // poll loop for this low-traffic surface.
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Slice 3 — mutation wrapper around `POST /api/imports/{importId}/retry`.
+ *
+ * The endpoint returns the standard ImportStatusResponse shape with the
+ * row already reset back to Queued / AttemptNumber 1 / no error. We
+ * write the response into both
+ *   - the per-id status cache (so an open ImportProgressPage flips
+ *     visually without a poll round-trip), and
+ *   - the mine-list caches (so the row's status chip on the
+ *     ImportListPage flips immediately).
+ * The mine-list update is patched in place rather than invalidated to
+ * avoid a flash of "loading…" while the next poll refreshes.
+ */
+export function useRetryImport() {
+  const queryClient = useQueryClient()
+  return useMutation<RecipeImportDto, Error, string>({
+    mutationFn: (importId) => retryImport(importId),
+    onSuccess: (data) => {
+      // Per-id cache write so the progress page picks up the reset.
+      queryClient.setQueryData(importQueryKeys.status(data.id), data)
+      // Patch every cached mine-list (different limits / queries) in
+      // place so the ImportListPage row's chip flips immediately.
+      queryClient.setQueriesData<ImportSummaryDto[]>(
+        { queryKey: importQueryKeys.all },
+        (current) => {
+          if (!Array.isArray(current)) return current
+          return current.map((row) =>
+            row.id === data.id
+              ? {
+                  ...row,
+                  status: data.status,
+                  progress: data.progress,
+                  phase: data.phase ?? row.phase,
+                  progressLabel: data.progressLabel ?? null,
+                  errorMessage: data.errorMessage,
+                  completedAt: data.completedAt,
+                }
+              : row,
+          )
+        },
+      )
+    },
   })
 }
 

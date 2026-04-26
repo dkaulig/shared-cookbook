@@ -305,3 +305,21 @@ export async function fetchMyImports(
   )
   return wire.map(mapImportSummary)
 }
+
+/**
+ * Slice 3 — POST /api/imports/{importId}/retry. Resets a Failed import
+ * back to Queued (AttemptNumber 1, error message cleared) and re-enqueues
+ * the matching Hangfire job. The endpoint returns the standard
+ * `ImportStatusResponse` shape with the post-reset row so the FE can
+ * drop the payload straight into its TanStack-Query cache and flip the
+ * UI without a second GET. 409 / `import_not_failed` if the row isn't
+ * Failed; 403 if the caller isn't the owner or no longer a member of
+ * the group; 404 if the import doesn't exist.
+ */
+export async function retryImport(importId: string): Promise<RecipeImportDto> {
+  const wire = await request<ImportStatusResponseWire>(
+    `/api/imports/${encodeURIComponent(importId)}/retry`,
+    { method: 'POST' },
+  )
+  return mapStatusResponse(wire)
+}

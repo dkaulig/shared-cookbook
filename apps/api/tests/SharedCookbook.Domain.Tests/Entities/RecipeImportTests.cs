@@ -432,4 +432,88 @@ public class RecipeImportTests
             requestedLanguage: tooLong));
         Assert.Contains("requestedLanguage", ex.ParamName ?? string.Empty);
     }
+
+    // ── RetryFromFailed (slice 3) ───────────────────────────────────
+
+    [Fact]
+    public void RetryFromFailed_Resets_State_To_Initial_Queued_Defaults()
+    {
+        // Setup: drive the import all the way into Error so RetryFromFailed
+        // has something to roll back. Half the point of this method is to
+        // wipe transit + telemetry state that's now misleading: the bytes
+        // / segments counters from the failed attempt, the ProgressLabel,
+        // the ErrorMessage. Identity (Id, UserId, GroupId, Source,
+        // SourceUrl, CreatedAt) survives.
+        var createdAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var import = new RecipeImport(
+            userId: Guid.NewGuid(),
+            groupId: Guid.NewGuid(),
+            source: ImportSource.Url,
+            sourceUrl: "https://example.com/r",
+            createdAt: createdAt);
+        var preservedId = import.Id;
+        var preservedUserId = import.UserId;
+        var preservedGroupId = import.GroupId;
+        var preservedSourceUrl = import.SourceUrl;
+        import.UpdateProgress(
+            phase: RecipeImportPhase.Downloading,
+            phaseProgress: 60,
+            bytesDownloaded: 4_000_000L,
+            bytesTotal: 8_000_000L,
+            segmentsDone: null,
+            segmentsTotal: null,
+            attempt: 1,
+            now: createdAt.AddSeconds(5));
+        import.MarkError("Video nicht erreichbar.", createdAt.AddSeconds(10));
+
+        var retryAt = DateTimeOffset.UtcNow;
+        import.RetryFromFailed(retryAt);
+
+        // Identity preserved.
+        Assert.Equal(preservedId, import.Id);
+        Assert.Equal(preservedUserId, import.UserId);
+        Assert.Equal(preservedGroupId, import.GroupId);
+        Assert.Equal(preservedSourceUrl, import.SourceUrl);
+        Assert.Equal(createdAt, import.CreatedAt);
+
+        // State reset to fresh-import shape.
+        Assert.Equal(ImportStatus.Queued, import.Status);
+        Assert.Equal(RecipeImportPhase.Queued, import.Phase);
+        Assert.Equal(0, import.Progress);
+        Assert.Equal(0, import.PhaseProgress);
+        Assert.Equal(1, import.AttemptNumber);
+        Assert.Null(import.ErrorMessage);
+        Assert.Null(import.ProgressLabel);
+        Assert.Null(import.BytesDownloaded);
+        Assert.Null(import.BytesTotal);
+        Assert.Null(import.SegmentsDone);
+        Assert.Null(import.SegmentsTotal);
+        Assert.Null(import.CompletedAt);
+        Assert.Equal(retryAt, import.LastProgressAt);
+    }
+
+    [Fact]
+    public void RetryFromFailed_Throws_When_Status_Not_Failed()
+    {
+        // Domain invariant: retry is only legal from Error. The endpoint
+        // layer turns this into a 409 / import_not_failed; the throw
+        // here is defence-in-depth so a future caller that skipped the
+        // endpoint guard still can't corrupt the row.
+        var inProgress = NewImport();
+        inProgress.MarkRunning(50);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            inProgress.RetryFromFailed(DateTimeOffset.UtcNow));
+
+        var done = NewImport();
+        done.MarkRunning(50);
+        done.MarkDone("{\"recipe\":{\"title\":\"x\"}}", DateTimeOffset.UtcNow);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            done.RetryFromFailed(DateTimeOffset.UtcNow));
+
+        var queued = NewImport();
+        Assert.Throws<InvalidOperationException>(() =>
+            queued.RetryFromFailed(DateTimeOffset.UtcNow));
+    }
 }

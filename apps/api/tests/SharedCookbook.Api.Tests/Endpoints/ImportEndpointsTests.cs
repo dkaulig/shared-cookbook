@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using SharedCookbook.Api.Endpoints;
 using SharedCookbook.Api.Jobs;
+using SharedCookbook.Api.Services;
 using SharedCookbook.Api.Tests.Infrastructure;
 using SharedCookbook.Domain.Entities;
 using SharedCookbook.Domain.Enums;
@@ -942,5 +943,160 @@ public class ImportEndpointsTests : IClassFixture<SharedCookbookWebApplicationFa
         var import = await db.RecipeImports.AsNoTracking()
             .SingleAsync(i => i.Id == body.ImportId);
         Assert.Equal(expectedStored, import.RequestedLanguage);
+    }
+
+    // ── POST /api/imports/{importId}/retry (slice 3) ────────────────
+
+    /// <summary>
+    /// Drives a brand-new RecipeImport into the Failed terminal state
+    /// (the only legal pre-condition for the retry endpoint) and returns
+    /// its id. The caller is the import owner AND a member of the group.
+    /// </summary>
+    private async Task<Guid> SeedFailedImportAsync(Guid userId, Guid groupId, ImportSource source = ImportSource.Url)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = new RecipeImport(
+            userId: userId,
+            groupId: groupId,
+            source: source,
+            sourceUrl: source == ImportSource.Url ? "https://example.com/rezept" : null,
+            createdAt: DateTimeOffset.UtcNow);
+        if (source == ImportSource.Photos)
+        {
+            import.StageTransitPayload("[\"https://example.com/photo.jpg\"]");
+        }
+        import.MarkRunning(40);
+        import.MarkError("Video nicht erreichbar.", DateTimeOffset.UtcNow);
+        db.RecipeImports.Add(import);
+        await db.SaveChangesAsync();
+        return import.Id;
+    }
+
+    [Fact]
+    public async Task RetryImport_Returns_202_For_Failed_Import_And_Resets_State()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+        var importId = await SeedFailedImportAsync(userId, groupId);
+        _factory.Jobs.Reset();
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/imports/{importId}/retry");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+        Assert.Equal(importId, body.Id);
+        Assert.Equal("Queued", body.Status);
+        Assert.Equal(1, body.AttemptNumber);
+        Assert.Null(body.Error);
+        // The URL-source job is enqueued (single Hangfire client call).
+        var captured = Assert.Single(_factory.Jobs.Created);
+        Assert.Equal(typeof(ExtractRecipeFromUrlJob), captured.Job.Type);
+    }
+
+    [Fact]
+    public async Task RetryImport_Returns_409_When_Status_Not_Failed()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+        // Seed a Running (non-terminal) import — retry must refuse.
+        Guid importId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var import = new RecipeImport(
+                userId: userId,
+                groupId: groupId,
+                source: ImportSource.Url,
+                sourceUrl: "https://example.com/r",
+                createdAt: DateTimeOffset.UtcNow);
+            import.MarkRunning(40);
+            db.RecipeImports.Add(import);
+            await db.SaveChangesAsync();
+            importId = import.Id;
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/imports/{importId}/retry");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+        Assert.NotNull(error);
+        Assert.Equal("import_not_failed", error!.Code);
+    }
+
+    [Fact]
+    public async Task RetryImport_Returns_403_When_Not_Owner()
+    {
+        var (ownerId, _) = await SignupAsync("alice@ex.com", "Alice");
+        var (_, intruderToken) = await SignupAsync("mallory@ex.com", "Mallory");
+        var groupId = await CreateOwnedGroupAsync(ownerId);
+        var importId = await SeedFailedImportAsync(ownerId, groupId);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/imports/{importId}/retry");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", intruderToken);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RetryImport_Returns_404_When_Import_Missing()
+    {
+        var (_, token) = await SignupAsync("alice@ex.com", "Alice");
+
+        using var req = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/imports/{Guid.NewGuid()}/retry");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RetryImport_Returns_403_When_Owner_No_Longer_Member_Of_Group()
+    {
+        // Defence-in-depth: a user who imported into a group but was
+        // later removed from that group should not be able to re-trigger
+        // the extractor against the group's resources. UserId match alone
+        // is not sufficient.
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+        var importId = await SeedFailedImportAsync(userId, groupId);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var membership = await db.GroupMemberships
+                .SingleAsync(m => m.GroupId == groupId && m.UserId == userId);
+            db.GroupMemberships.Remove(membership);
+            await db.SaveChangesAsync();
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/imports/{importId}/retry");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RetryImport_Photos_Source_Enqueues_Photos_Job()
+    {
+        var (userId, token) = await SignupAsync("alice@ex.com", "Alice");
+        var groupId = await CreateOwnedGroupAsync(userId);
+        var importId = await SeedFailedImportAsync(userId, groupId, ImportSource.Photos);
+        _factory.Jobs.Reset();
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/imports/{importId}/retry");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var captured = Assert.Single(_factory.Jobs.Created);
+        Assert.Equal(typeof(ExtractRecipeFromPhotosJob), captured.Job.Type);
     }
 }

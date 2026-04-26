@@ -7,12 +7,13 @@ import {
   Image as ImageIcon,
   Loader2,
   MessageSquare,
+  RotateCcw,
   Sparkles,
   Video,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useMyImports } from './hooks'
+import { useMyImports, useRetryImport } from './hooks'
 import { formatRelativeTime } from './relativeTime'
 
 /**
@@ -203,6 +204,7 @@ interface ImportListRowProps {
 
 function ImportListRow({ row }: ImportListRowProps) {
   const navigate = useNavigate()
+  const retry = useRetryImport()
   const isTerminal = row.status === 'done' || row.status === 'error'
   const showProgress = !isTerminal
 
@@ -228,55 +230,86 @@ function ImportListRow({ row }: ImportListRowProps) {
         ? 'Fehlgeschlagen'
         : 'Wird verarbeitet')
 
+  function handleRetry(event: React.MouseEvent<HTMLButtonElement>) {
+    // The retry button lives inside the row-level <button>, so a click
+    // would otherwise bubble up to handleClick and trigger a route push.
+    // Stop propagation so the user stays on the list while the mutation
+    // resolves.
+    event.stopPropagation()
+    retry.mutate(row.id)
+  }
+
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      data-testid={`import-row-${row.id}`}
-      data-status={row.status}
-      className="flex w-full flex-col gap-2 rounded-[14px] border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-    >
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary)/0.1)] text-primary"
-        >
-          <SourceGlyph source={row.source} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusChip status={row.status} />
-            <span className="text-[12px] text-[hsl(var(--muted-foreground))]">
-              {formatRelativeTime(row.createdAt)}
-            </span>
+    <div className="relative">
+      <button
+        type="button"
+        onClick={handleClick}
+        data-testid={`import-row-${row.id}`}
+        data-status={row.status}
+        className="flex w-full flex-col gap-2 rounded-[14px] border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary)/0.1)] text-primary"
+          >
+            <SourceGlyph source={row.source} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusChip status={row.status} />
+              <span className="text-[12px] text-[hsl(var(--muted-foreground))]">
+                {formatRelativeTime(row.createdAt)}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-[14px] font-medium text-foreground">
+              {shortenSource(row.sourceUrl, row.source)}
+            </p>
+            <p className="text-[12.5px] text-[hsl(var(--muted-foreground))]">
+              {label}
+            </p>
           </div>
-          <p className="mt-1 truncate text-[14px] font-medium text-foreground">
-            {shortenSource(row.sourceUrl, row.source)}
-          </p>
-          <p className="text-[12.5px] text-[hsl(var(--muted-foreground))]">
-            {label}
-          </p>
         </div>
-      </div>
-      {showProgress && (
-        <div
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.max(0, Math.min(100, Math.round(row.progress)))}
-          aria-label="Import-Fortschritt"
-          data-testid={`import-row-progress-${row.id}`}
-          className="h-1.5 w-full overflow-hidden rounded-full bg-[hsl(var(--muted))]"
-        >
+        {showProgress && (
           <div
-            className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
-            style={{
-              width: `${Math.max(0, Math.min(100, Math.round(row.progress)))}%`,
-            }}
-          />
-        </div>
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.max(0, Math.min(100, Math.round(row.progress)))}
+            aria-label="Import-Fortschritt"
+            data-testid={`import-row-progress-${row.id}`}
+            className="h-1.5 w-full overflow-hidden rounded-full bg-[hsl(var(--muted))]"
+          >
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+              style={{
+                width: `${Math.max(0, Math.min(100, Math.round(row.progress)))}%`,
+              }}
+            />
+          </div>
+        )}
+      </button>
+      {/*
+       * Retry button is rendered as an absolute-positioned sibling of
+       * the row-level button so we keep the row clickable as one unit
+       * (BUG-010 navigation contract) without violating the no-nested-
+       * buttons HTML rule. Only visible on Failed rows; click triggers
+       * the in-place retry mutation and onSuccess patches the cache so
+       * the row's status chip flips to Queued without a page reload.
+       */}
+      {row.status === 'error' && (
+        <button
+          type="button"
+          onClick={handleRetry}
+          disabled={retry.isPending}
+          data-testid={`import-row-retry-${row.id}`}
+          className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-[10px] border border-border bg-background px-3 py-1.5 text-[12.5px] font-medium text-foreground transition-colors hover:border-primary hover:bg-[hsl(var(--primary)/0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+          Erneut versuchen
+        </button>
       )}
-    </button>
+    </div>
   )
 }
 

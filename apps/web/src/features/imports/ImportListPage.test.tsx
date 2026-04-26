@@ -281,6 +281,89 @@ describe('<ImportListPage />', () => {
       expect(screen.getByTestId('import-list-error')).toBeInTheDocument(),
     )
   })
+
+  it('renders an "Erneut versuchen" button on a Failed row that fires the retry mutation', async () => {
+    const user = userEvent.setup()
+    let retryCalls = 0
+    server.use(
+      http.get('/api/imports', () =>
+        HttpResponse.json([
+          wire({
+            id: 'imp-fail',
+            groupId: 'g-fail',
+            status: 'Error',
+            progress: 30,
+            phase: 'error',
+            error: 'Video privat',
+          }),
+        ]),
+      ),
+      http.post('/api/imports/imp-fail/retry', () => {
+        retryCalls += 1
+        // Return the standard ImportStatusResponse shape, but with the
+        // row already reset back to Queued / AttemptNumber 1 / no error
+        // — the FE drops this straight into its TanStack-Query cache to
+        // flip the row visually without a second GET.
+        return HttpResponse.json(
+          {
+            id: 'imp-fail',
+            groupId: 'g-fail',
+            source: 'Url',
+            status: 'Queued',
+            progress: 0,
+            sourceUrl: 'https://example.com/rezept-url',
+            result: null,
+            error: null,
+            createdAt: new Date().toISOString(),
+            completedAt: null,
+            phase: 'queued',
+            phaseProgress: 0,
+            progressLabel: null,
+            attemptNumber: 1,
+            bytesDownloaded: null,
+            bytesTotal: null,
+            segmentsDone: null,
+            segmentsTotal: null,
+            lastProgressAt: new Date().toISOString(),
+            candidateStagedPhotoIds: [],
+            targetRecipeId: null,
+          },
+          { status: 202 },
+        )
+      }),
+    )
+    renderList()
+
+    const button = await screen.findByTestId('import-row-retry-imp-fail')
+    expect(button).toHaveTextContent(/erneut versuchen/i)
+    await user.click(button)
+
+    await waitFor(() => expect(retryCalls).toBe(1))
+
+    // The row's status chip should now reflect Queued (post-retry) so
+    // the user sees the row recover without a manual reload.
+    await waitFor(() =>
+      expect(screen.getByTestId('import-status-chip-queued')).toBeInTheDocument(),
+    )
+  })
+
+  it('does NOT render an "Erneut versuchen" button on a non-Error row', async () => {
+    server.use(
+      http.get('/api/imports', () =>
+        HttpResponse.json([
+          wire({ id: 'imp-running-2', status: 'Running', progress: 50, phase: 'transcribing' }),
+          wire({ id: 'imp-done-2', status: 'Done', progress: 100, phase: 'done' }),
+        ]),
+      ),
+    )
+    renderList()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('import-row-imp-running-2')).toBeInTheDocument(),
+    )
+    expect(screen.queryByTestId('import-row-retry-imp-running-2')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('import-row-retry-imp-done-2')).not.toBeInTheDocument()
+  })
 })
 
 describe('formatRelativeTime (pure helper)', () => {

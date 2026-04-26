@@ -207,6 +207,14 @@ public static class ImportEndpoints
         // per-id GET; Minimal-APIs route-matches by template before
         // hitting the `mine` query, so they coexist cleanly.
         group.MapGet("", ListMineImportsAsync).RequireAuthorization();
+        // Slice 3 — user-initiated retry of a Failed import. The same
+        // RecipeImport row is reset back to Queued/AttemptNumber=1; the
+        // matching Hangfire job is re-enqueued. Shares the import
+        // rate-limit bucket with the enqueue endpoints so a hostile
+        // caller can't bypass the per-user budget by spamming retries.
+        group.MapPost("/{importId:guid}/retry", RetryImportAsync)
+            .RequireAuthorization()
+            .RequireRateLimiting(RateLimitPolicies.Import);
 
         // P2-6 step 1 + 2 — user-facing enqueue endpoints under
         // /api/recipes/import. Mounted separately from /api/imports
@@ -446,6 +454,123 @@ public static class ImportEndpoints
             .ToList();
 
         return Results.Ok(summaries);
+    }
+
+    // ── POST /api/imports/{importId}/retry (slice 3) ────────────────
+
+    /// <summary>
+    /// Slice 3 — user-initiated retry of a Failed import.
+    ///
+    /// <para>Authz model:
+    /// <list type="bullet">
+    /// <item>Caller must own the import (UserId match) — admin does NOT
+    /// bypass; this surface mirrors the import-candidates endpoint.</item>
+    /// <item>Caller must currently be a member of <see cref="RecipeImport.GroupId"/>.
+    /// Without this guard a user removed from a group could still
+    /// re-invoke the extractor against the group's resources, leaking
+    /// LLM cost back into a tenancy they no longer belong to.</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>Pre-conditions: the import must be in
+    /// <see cref="ImportStatus.Error"/>. Pending / Running / Done rows
+    /// yield 409 + <see cref="ErrorCodes.ImportNotFailed"/> so the FE
+    /// can render a precise message.</para>
+    ///
+    /// <para>On success we reset the row in place via
+    /// <see cref="RecipeImport.RetryFromFailed"/>, re-enqueue the
+    /// matching Hangfire job (URL or Photos by <see cref="RecipeImport.Source"/>),
+    /// and return 202 with the standard
+    /// <see cref="ImportStatusResponse"/> shape so the FE can drop the
+    /// payload straight into its TanStack-Query cache without an extra
+    /// round-trip through GET <c>/api/imports/{id}</c>.</para>
+    /// </summary>
+    private static async Task<IResult> RetryImportAsync(
+        Guid importId,
+        HttpContext ctx,
+        AppDbContext db,
+        IBackgroundJobClient jobs,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (!TryGetCallerId(ctx, out var callerId))
+            return Results.Unauthorized();
+
+        var import = await db.RecipeImports
+            .SingleOrDefaultAsync(i => i.Id == importId, ct);
+        if (import is null)
+            return FamilienResults.NotFound(
+                ErrorCodes.ImportNotFound, "Import not found.");
+
+        if (import.UserId != callerId)
+            return FamilienResults.Forbidden(
+                ErrorCodes.Forbidden, "This import does not belong to you.");
+
+        var isMember = await db.GroupMemberships
+            .AnyAsync(m => m.GroupId == import.GroupId && m.UserId == callerId, ct);
+        if (!isMember)
+            return FamilienResults.Forbidden(
+                ErrorCodes.NotAMember, "You are not a member of this group.");
+
+        if (import.Status != ImportStatus.Error)
+            return FamilienResults.Conflict(
+                ErrorCodes.ImportNotFailed,
+                $"Import is in state {import.Status}; only Failed imports can be retried.");
+
+        // Domain-method-driven reset. RetryFromFailed throws
+        // InvalidOperationException if the row isn't Failed at call
+        // time — the explicit guard above turns that into the precise
+        // 409, but the throw stays as defence-in-depth so a future
+        // caller that bypasses the endpoint can't corrupt the row.
+        import.RetryFromFailed(clock.GetUtcNow());
+        await db.SaveChangesAsync(ct);
+
+        // Re-enqueue the matching job. Source is immutable on the row
+        // so we branch off the persisted value, not user input.
+        switch (import.Source)
+        {
+            case ImportSource.Url:
+                jobs.Enqueue<ExtractRecipeFromUrlJob>(j =>
+                    j.ExecuteAsync(import.Id, CancellationToken.None));
+                break;
+            case ImportSource.Photos:
+                jobs.Enqueue<ExtractRecipeFromPhotosJob>(j =>
+                    j.ExecuteAsync(import.Id, CancellationToken.None));
+                break;
+            default:
+                // Chat imports don't have a long-running Hangfire job —
+                // the chat → recipe pipeline is a synchronous endpoint.
+                // A Failed Chat import has no retry pathway from this
+                // surface; reject so the FE can hide the button.
+                return FamilienResults.Conflict(
+                    ErrorCodes.ImportNotFailed,
+                    "Chat imports cannot be retried via this endpoint.");
+        }
+
+        return Results.Accepted(
+            $"/api/imports/{import.Id}",
+            new ImportStatusResponse(
+                Id: import.Id,
+                GroupId: import.GroupId,
+                Source: import.Source.ToString(),
+                Status: import.Status.ToString(),
+                Progress: import.Progress,
+                SourceUrl: import.SourceUrl,
+                Result: null,
+                Error: import.ErrorMessage,
+                CreatedAt: import.CreatedAt,
+                CompletedAt: import.CompletedAt,
+                Phase: RecipeImportPhaseWire.ToWire(import.Phase),
+                PhaseProgress: import.PhaseProgress,
+                ProgressLabel: import.ProgressLabel,
+                AttemptNumber: import.AttemptNumber,
+                BytesDownloaded: import.BytesDownloaded,
+                BytesTotal: import.BytesTotal,
+                SegmentsDone: import.SegmentsDone,
+                SegmentsTotal: import.SegmentsTotal,
+                LastProgressAt: import.LastProgressAt,
+                CandidateStagedPhotoIds: import.CandidateStagedPhotoIds,
+                TargetRecipeId: import.TargetRecipeId));
     }
 
     // ── POST /api/recipes/import/url ─────────────────────────────────
