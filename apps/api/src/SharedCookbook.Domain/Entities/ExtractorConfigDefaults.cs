@@ -70,7 +70,15 @@ public static class ExtractorConfigDefaults
         new("llm.structured.system_prompt", ExtractorConfigValueType.String,
             "\"PLACEHOLDER_STRUCTURED_PROMPT\""),
         new("llm.structured.temperature", ExtractorConfigValueType.Float, "0"),
-        new("llm.structured.max_completion_tokens", ExtractorConfigValueType.Int, "2048"),
+        // CFG-1 (2026-04-26): default bumped from 2048 → 4096 after the
+        // production truncation bug (v0.15.2): a 3-component German
+        // recipe ran a few hundred tokens over the 2048 cap, Azure
+        // returned status="incomplete" / reason="max_output_tokens",
+        // the partial JSON failed to parse, and the operator log read
+        // the misleading "schema_mismatch". 4096 stays comfortably
+        // inside the gpt-4.1-mini ceiling of 8192 and admins can still
+        // override per deployment via this same key (CFG-1).
+        new("llm.structured.max_completion_tokens", ExtractorConfigValueType.Int, "4096"),
         new("llm.structured.deployment", ExtractorConfigValueType.String, "\"gpt-4.1\""),
 
         // ── Chat (gpt-5.1-chat) ──
@@ -79,7 +87,7 @@ public static class ExtractorConfigDefaults
         // apps/python-extractor/src/extractor/prompts/chat.py.
         new("llm.chat.system_prompt", ExtractorConfigValueType.String,
             "\"PLACEHOLDER_CHAT_PROMPT\""),
-        new("llm.chat.max_completion_tokens", ExtractorConfigValueType.Int, "2048"),
+        new("llm.chat.max_completion_tokens", ExtractorConfigValueType.Int, "4096"),
         new("llm.chat.deployment", ExtractorConfigValueType.String, "\"gpt-5.1-chat\""),
 
         // ── Vision (photo import) ──
@@ -90,7 +98,7 @@ public static class ExtractorConfigDefaults
             "\"PLACEHOLDER_VISION_PROMPT\""),
         new("llm.vision.temperature", ExtractorConfigValueType.Float, "0"),
         new("llm.vision.deployment", ExtractorConfigValueType.String, "\"gpt-4.1-mini\""),
-        new("llm.vision.max_completion_tokens", ExtractorConfigValueType.Int, "2048"),
+        new("llm.vision.max_completion_tokens", ExtractorConfigValueType.Int, "4096"),
 
         // ── Feature flags (kill switches) ──
         new("feature.video_import_enabled", ExtractorConfigValueType.Bool, "true"),
