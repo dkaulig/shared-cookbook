@@ -136,4 +136,51 @@ describe('<PhaseDetailCard />', () => {
       screen.getByText(/bitte versuche es später erneut/i),
     ).toBeInTheDocument()
   })
+
+  it('substitutes a user-actionable message when errorMessage carries the truncated_response code', () => {
+    // The Python extractor emits a `truncated_response: ...` prefix on
+    // ``RecipeImport.ErrorMessage`` whenever Azure caps the output at
+    // ``max_output_tokens``. The FE substring-matches the code and
+    // renders a sentence that tells the user what to do, instead of
+    // either the raw "truncated_response: ..." prefix or the generic
+    // "Bitte versuche es später erneut" fallback.
+    render(
+      <PhaseDetailCard
+        phase="error"
+        payload={{
+          ...EMPTY,
+          errorMessage:
+            'truncated_response: Antwort zu lang — das Video oder Rezept ist sehr komplex. Versuche eine kürzere Quelle oder eine direkte Rezept-URL.',
+        }}
+      />,
+    )
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(/antwort zu lang/i)
+    expect(alert).toHaveTextContent(
+      /kürzere quelle.*direkte rezept-url/i,
+    )
+    // The raw `truncated_response:` code prefix must NOT leak into the
+    // rendered DOM — it's wire-shape, not user-visible copy.
+    expect(alert).not.toHaveTextContent(/truncated_response:/)
+  })
+
+  it('substitutes the truncated_response copy on legacy server messages without the prefix', () => {
+    // Defence-in-depth: a legacy row from before the Python mapper
+    // rolled out (or a third-party caller) might surface the bare
+    // generic "Interner Fehler bei der KI-Verarbeitung" copy with the
+    // code somewhere in the message. We still want the friendlier
+    // German copy whenever the substring shows up. This locks the
+    // substring-based detection path independently of the BE prefix.
+    render(
+      <PhaseDetailCard
+        phase="error"
+        payload={{
+          ...EMPTY,
+          errorMessage:
+            'Python extractor returned HTTP 500. truncated_response was raised.',
+        }}
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(/antwort zu lang/i)
+  })
 })

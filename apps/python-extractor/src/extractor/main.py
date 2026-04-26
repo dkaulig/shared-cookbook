@@ -468,6 +468,27 @@ def _http_from_llm_error(exc: LLMProviderError) -> HTTPException:
         # internal message from the caller.
         logger.error("LLM provider not configured: %s", exc)
         return HTTPException(status_code=500, detail="KI-Service ist nicht konfiguriert.")
+    if code == "truncated_response":
+        # Azure capped output mid-string (status: "incomplete" +
+        # incomplete_details.reason: "max_output_tokens"). The body is
+        # JSON-broken; a generic 500 hides the real cause from the user.
+        # 422 because the failure is shaped by the user's input (the
+        # source video / recipe is too complex for the current cap), not
+        # an internal bug. The ``truncated_response:`` prefix is part of
+        # the wire contract so the FE can substring-match the code on
+        # the persisted ``RecipeImport.ErrorMessage`` and render a
+        # friendlier message even on legacy rows. Operator action when
+        # the error becomes common: bump
+        # ``llm.structured.max_completion_tokens``.
+        logger.warning("LLM provider error code=%s msg=%s", code, exc)
+        return HTTPException(
+            status_code=422,
+            detail=(
+                "truncated_response: Antwort zu lang — das Video oder Rezept "
+                "ist sehr komplex. Versuche eine kürzere Quelle oder eine "
+                "direkte Rezept-URL."
+            ),
+        )
     # auth_failure / invalid_request / schema_mismatch — all service bugs
     # from the caller's perspective. Generic 500 + log.
     logger.error("LLM provider error code=%s msg=%s", code, exc)

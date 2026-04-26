@@ -158,10 +158,36 @@ function renderContent(
         ),
         primary: 'Import fehlgeschlagen',
         sub:
-          payload.errorMessage ??
+          mapErrorMessage(payload.errorMessage) ??
           'Der Import ist fehlgeschlagen. Bitte versuche es später erneut.',
       }
   }
+}
+
+/**
+ * Maps a server-supplied <c>errorMessage</c> to the German user-facing
+ * copy the Error card should render. Today the only structured detection
+ * is the Python extractor's <c>truncated_response</c> code (Azure capped
+ * the LLM output at <c>max_output_tokens</c>); future codes get an
+ * additional branch here.
+ *
+ * Detection is substring-based on the wire string instead of a separate
+ * code field so legacy <see cref="RecipeImport.ErrorMessage"/> rows from
+ * before the Python <c>_http_from_llm_error</c> mapping landed are still
+ * rewritten — anything containing <c>truncated_response</c> gets the
+ * actionable copy. The accompanying Python-side test
+ * (test_http_from_llm_error.py) locks the BE wire prefix so this
+ * substring detection can't silently drift.
+ */
+function mapErrorMessage(rawErrorMessage: string | null | undefined): string | null {
+  if (rawErrorMessage == null || rawErrorMessage.trim().length === 0) return null
+  if (rawErrorMessage.includes('truncated_response')) {
+    return (
+      'Antwort zu lang — das Video oder Rezept ist sehr komplex. '
+      + 'Versuche eine kürzere Quelle oder eine direkte Rezept-URL.'
+    )
+  }
+  return rawErrorMessage
 }
 
 function bytesSubLine(
