@@ -57,11 +57,23 @@ TDD. When in doubt: write the test first.
 
 ### Sub-agents in background
 
-When the orchestrator (the main Claude session) dispatches
-implementation work, it uses `run_in_background: true` by default. The
-orchestrator stays reactive to the user while sub-agents churn. Don't
-spawn foreground sub-agents unless the result blocks the very next
-decision.
+**The orchestrator does not type code.** Any non-trivial implementation
+work — anything bigger than a 1-2 line edit, a config tweak, or a docs
+sweep — MUST be dispatched to a sub-agent (`run_in_background: true`).
+The orchestrator's job is to brief sub-agents, review their output,
+and stay reactive to the user; it is not to grind through code in the
+main channel where every keystroke costs context and blocks the user.
+
+When there is a written design doc or multi-slice implementation plan,
+invoke the **`superpowers:subagent-driven-development`** skill — that's
+the canonical workflow for plan-driven implementation in the current
+session. It enforces TDD discipline, the 4-stage review flow per slice,
+and clear orchestrator / sub-agent boundaries. Don't reinvent it inline.
+
+Foreground sub-agents are only justified when the result blocks the
+very next decision in the conversation (e.g., a one-shot research
+lookup whose answer determines the next prompt). Implementation work
+is always background.
 
 ### Autonomous mandate
 
