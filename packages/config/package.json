@@ -13,11 +13,11 @@
     "lint": "echo 'no lint target' && exit 0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
-    "eslint": "^10.2.0",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "globals": "^17.4.0",
-    "typescript": "~5.9.0",
-    "typescript-eslint": "^8.48.0"
+    "@eslint/js": "^9.39.4",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.5.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.59.0"
   }
 }
