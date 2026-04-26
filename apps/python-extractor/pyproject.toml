@@ -16,9 +16,9 @@ authors = [{ name = "Familien-Kochbuch" }]
 # deliberately in dedicated dependency-update slices.
 dependencies = [
   "fastapi==0.136.1",
-  "uvicorn[standard]==0.44.0",
+  "uvicorn[standard]==0.46.0",
   "pydantic==2.13.3",
-  "pydantic-settings==2.13.1",
+  "pydantic-settings==2.14.0",
   # P2-1: real HTTP against the Azure OpenAI Responses API. httpx was
   # dev-only in P2-0 (TestClient); promoted to runtime here because
   # `AzureOpenAIProvider` uses `httpx.AsyncClient` directly.
@@ -53,10 +53,10 @@ dev = [
   "mypy==1.20.2",
   # P2-1: stub the Azure Responses API in always-on tests. MSW-style
   # route matching on httpx calls; no real network.
-  "respx==0.22.0",
+  "respx==0.23.1",
   # P2-2: validate the RECIPE_SCHEMA JSON Schema at test time so a typo
   # in the schema fails the suite rather than at runtime against Azure.
-  "jsonschema==4.25.1",
+  "jsonschema==4.26.0",
   "types-jsonschema==4.26.0.20260408",
 ]
 
