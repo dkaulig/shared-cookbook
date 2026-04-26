@@ -6,6 +6,7 @@ using SharedCookbook.Api.Tests.Infrastructure;
 using SharedCookbook.Domain.Entities;
 using SharedCookbook.Domain.Enums;
 using SharedCookbook.Infrastructure.Persistence;
+using Hangfire;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -346,5 +347,18 @@ public class ExtractRecipeFromPhotosJobTests : IAsyncLifetime
         Assert.False(_progressTokens.TryVerify(
             token, otherId, _clock.GetUtcNow(), out var failure));
         Assert.Equal(ImportTokenValidationFailure.WrongImport, failure);
+    }
+
+    [Fact]
+    public void AutomaticRetry_Caps_Retries_At_Two_So_Total_Attempts_Match_Frontend_Display()
+    {
+        // Mirrors the URL-job invariant. Hangfire's Attempts = N permits
+        // N retries on top of the initial run, so 2 + 1 = 3 total runs,
+        // matching the FE RetryIndicator's hardcoded maxAttempts = 3.
+        var attribute = typeof(ExtractRecipeFromPhotosJob)
+            .GetCustomAttributes(typeof(AutomaticRetryAttribute), inherit: false)
+            .Cast<AutomaticRetryAttribute>()
+            .Single();
+        Assert.Equal(2, attribute.Attempts);
     }
 }

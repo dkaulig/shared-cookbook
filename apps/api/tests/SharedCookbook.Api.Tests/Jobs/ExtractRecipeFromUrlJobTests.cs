@@ -6,6 +6,7 @@ using SharedCookbook.Api.Tests.Infrastructure;
 using SharedCookbook.Domain.Entities;
 using SharedCookbook.Domain.Enums;
 using SharedCookbook.Infrastructure.Persistence;
+using Hangfire;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -1457,5 +1458,22 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         var req = Assert.Single(_handler.Requests);
         Assert.True(req.Headers.TryGetValue("Accept-Language", out var headerValue));
         Assert.Equal("en", headerValue);
+    }
+
+    [Fact]
+    public void AutomaticRetry_Caps_Retries_At_Two_So_Total_Attempts_Match_Frontend_Display()
+    {
+        // The FE RetryIndicator hardcodes maxAttempts=3. Hangfire's
+        // [AutomaticRetry(Attempts = N)] permits N RETRIES on top of the
+        // initial run, so Attempts = 2 means 1 initial + 2 retries = 3
+        // total attempts. Setting Attempts = 3 (the previous value) would
+        // allow 4 total attempts and the user would see a confusing
+        // "Erneuter Versuch 4/3" pill (production import
+        // fbbf192b-3c51-4932-867d-f7395b436fed).
+        var attribute = typeof(ExtractRecipeFromUrlJob)
+            .GetCustomAttributes(typeof(AutomaticRetryAttribute), inherit: false)
+            .Cast<AutomaticRetryAttribute>()
+            .Single();
+        Assert.Equal(2, attribute.Attempts);
     }
 }

@@ -24,12 +24,14 @@ namespace SharedCookbook.Api.Jobs;
 /// </list>
 ///
 /// Transport + progress + retry live on <see cref="PythonExtractorRunner"/>.
-/// The <c>[AutomaticRetry]</c> attribute with <c>Attempts = 3</c> covers
+/// The <c>[AutomaticRetry]</c> attribute with <c>Attempts = 2</c> covers
 /// transient 5xx + network errors only; terminal 4xx errors throw with
 /// <see cref="PythonExtractorException.IsTerminal"/>=true so Hangfire
-/// stops retrying.
+/// stops retrying. Hangfire counts <c>Attempts</c> as RETRIES on top of
+/// the initial run, so 2 = 1 initial + 2 retries = 3 total runs, which
+/// matches the FE <c>RetryIndicator</c>'s hardcoded <c>maxAttempts = 3</c>.
 /// </summary>
-[AutomaticRetry(Attempts = 3)]
+[AutomaticRetry(Attempts = 2)]
 public class ExtractRecipeFromUrlJob
 {
     /// <summary>Named HttpClient registered against the Python service.</summary>

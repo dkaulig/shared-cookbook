@@ -22,8 +22,12 @@ namespace SharedCookbook.Api.Jobs;
 /// <c>ResultJson</c> as a JSON array of strings. That contract is
 /// private — only the enqueue endpoint writes it. The job rejects
 /// missing / malformed input loudly.
+///
+/// <c>[AutomaticRetry(Attempts = 2)]</c> matches <see cref="ExtractRecipeFromUrlJob"/>:
+/// 2 retries on top of the initial run = 3 total attempts, matching the
+/// FE <c>RetryIndicator</c>'s hardcoded <c>maxAttempts = 3</c>.
 /// </summary>
-[AutomaticRetry(Attempts = 3)]
+[AutomaticRetry(Attempts = 2)]
 public class ExtractRecipeFromPhotosJob
 {
     private readonly AppDbContext _db;
