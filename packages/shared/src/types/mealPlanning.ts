@@ -27,6 +27,12 @@ export interface MealPlanSlotDto {
   id: string
   mealPlanId: string
   recipeId: string | null
+  /**
+   * Title of the linked recipe at read-time. `null` when no recipe
+   * is linked or the recipe was soft-deleted; the FE renders that
+   * same as the no-recipe case.
+   */
+  recipeTitle: string | null
   label: string | null
   /** ISO YYYY-MM-DD — must fall within [weekStart, weekStart+6]. */
   date: string
@@ -84,6 +90,13 @@ export interface AddSlotRequest {
  * untouched"; a field set to `null` means "clear" (for the nullable
  * columns: `recipeId`, `label`, `parentSlotId`). Integer fields
  * (`servings`, `sortOrder`) and `isCooked` are set when present.
+ *
+ * Cross-cell drag (v0.15.0): `date` and `meal` express a move into a
+ * different `(date, meal)` bucket. When supplied, the server validates
+ * `date` stays within `[weekStart, weekStart+6]` and assigns
+ * `sortOrder` automatically (next free in target bucket) unless the
+ * client supplies one explicitly. `null` is not meaningful for these
+ * fields — omit them to leave the slot's bucket untouched.
  */
 export interface PatchSlotRequest {
   recipeId?: string | null
@@ -92,4 +105,8 @@ export interface PatchSlotRequest {
   sortOrder?: number
   isCooked?: boolean
   parentSlotId?: string | null
+  /** ISO YYYY-MM-DD — target date for a cross-cell move. */
+  date?: string
+  /** Target meal bucket for a cross-cell move. */
+  meal?: MealSlot
 }

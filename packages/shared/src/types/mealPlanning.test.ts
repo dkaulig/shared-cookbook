@@ -20,6 +20,7 @@ describe('mealPlanning.ts DTOs (P3-1)', () => {
       id: 'slot-1',
       mealPlanId: 'plan-1',
       recipeId: 'r-1',
+      recipeTitle: 'Pasta Bolognese',
       label: 'Hauptgericht',
       date: '2026-04-20',
       meal: 'Mittag',
@@ -33,6 +34,26 @@ describe('mealPlanning.ts DTOs (P3-1)', () => {
     expect(slot.id).toBe('slot-1')
     expect(slot.servings).toBe(2)
     expect(slot.parentSlotId).toBeNull()
+    expect(slot.recipeTitle).toBe('Pasta Bolognese')
+  })
+
+  it('MealPlanSlotDto.recipeTitle is null for free-text slots', () => {
+    const slot: MealPlanSlotDto = {
+      id: 'slot-2',
+      mealPlanId: 'plan-1',
+      recipeId: null,
+      recipeTitle: null,
+      label: 'Restaurant',
+      date: '2026-04-20',
+      meal: 'Abend',
+      servings: 2,
+      sortOrder: 0,
+      isCooked: false,
+      parentSlotId: null,
+      createdAt: '2026-04-20T10:00:00Z',
+      updatedAt: '2026-04-20T10:00:00Z',
+    }
+    expect(slot.recipeTitle).toBeNull()
   })
 
   it('MealPlanDto nests the slots array', () => {
@@ -95,5 +116,19 @@ describe('mealPlanning.ts DTOs (P3-1)', () => {
     expect(patchB.label).toBeNull()
     expect(patchC.parentSlotId).toBeNull()
     expect(patchC.isCooked).toBe(true)
+  })
+
+  it('PatchSlotRequest carries date + meal for cross-cell drag', () => {
+    // v0.15.0 — a drag from one (date, meal) bucket to another is
+    // expressed as one PATCH carrying the new date + meal (+ optional
+    // sortOrder for between-slot insertion).
+    const move: PatchSlotRequest = {
+      date: '2026-04-22',
+      meal: 'Abend',
+      sortOrder: 0,
+    }
+    expect(move.date).toBe('2026-04-22')
+    expect(move.meal).toBe('Abend')
+    expect(move.sortOrder).toBe(0)
   })
 })

@@ -22,6 +22,7 @@ function makeSlot(overrides: Partial<MealPlanSlotDto> = {}): MealPlanSlotDto {
     id: SLOT_ID,
     mealPlanId: PLAN_ID,
     recipeId: null,
+    recipeTitle: null,
     label: 'Spaghetti',
     date: WEEK_START,
     meal: 'Mittag',

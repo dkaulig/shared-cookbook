@@ -17,6 +17,7 @@ function makeSlot(
     id,
     mealPlanId: PLAN_ID,
     recipeId: null,
+    recipeTitle: null,
     label: `Slot ${id}`,
     date: '2026-04-20',
     meal: 'Mittag' as MealSlot,

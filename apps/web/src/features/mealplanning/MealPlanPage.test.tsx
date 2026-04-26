@@ -26,6 +26,7 @@ function makeSlot(
     id,
     mealPlanId: PLAN_ID,
     recipeId: null,
+    recipeTitle: null,
     label: 'Spaghetti',
     date: WEEK_START,
     meal: 'Mittag',
