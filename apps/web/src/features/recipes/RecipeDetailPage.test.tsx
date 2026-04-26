@@ -544,6 +544,93 @@ describe('RecipeDetailPage', () => {
     })
   })
 
+  // 2026-04-26 Back-button nav-bug — v0.15.0 introduced an
+  // ExternalLink on meal-plan slots that deep-links into the recipe-
+  // detail. Tapping Back on the detail page used to hardcode-navigate
+  // to `/groups/:g`, eating the meal-plan entry the user came from.
+  // Fix: pop the history stack via `navigate(-1)` when there IS
+  // history, fall back to the group page only on a cold deep-link.
+  it('Back-button: pops history when navigated in from another route (e.g. meal plan)', async () => {
+    const user = userEvent.setup()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function LocationProbe() {
+      const loc = useLocation()
+      return <div data-testid="location">{loc.pathname}</div>
+    }
+    const tree = (
+      <QueryClientProvider client={client}>
+        <MemoryRouter
+          initialEntries={[
+            '/groups/g1/mealplan/2026-04-20',
+            '/groups/g1/recipes/r1',
+          ]}
+          initialIndex={1}
+        >
+          <BottomZoneProvider>
+            <LocationProbe />
+            <Routes>
+              <Route path="/groups/:groupId" element={<div>group-list</div>} />
+              <Route
+                path="/groups/:groupId/mealplan/:weekStart"
+                element={<div data-testid="mealplan-page">mealplan</div>}
+              />
+              <Route
+                path="/groups/:groupId/recipes/:recipeId"
+                element={<RecipeDetailPage />}
+              />
+            </Routes>
+            <BottomNav />
+          </BottomZoneProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    render(tree)
+
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Zurück/i }))
+
+    await screen.findByTestId('mealplan-page')
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/groups/g1/mealplan/2026-04-20',
+    )
+  })
+
+  it('Back-button: falls back to the group page on a cold deep-link (no history)', async () => {
+    const user = userEvent.setup()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function LocationProbe() {
+      const loc = useLocation()
+      return <div data-testid="location">{loc.pathname}</div>
+    }
+    const tree = (
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/groups/g1/recipes/r1']}>
+          <BottomZoneProvider>
+            <LocationProbe />
+            <Routes>
+              <Route
+                path="/groups/:groupId"
+                element={<div data-testid="group-page">group</div>}
+              />
+              <Route
+                path="/groups/:groupId/recipes/:recipeId"
+                element={<RecipeDetailPage />}
+              />
+            </Routes>
+            <BottomNav />
+          </BottomZoneProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    render(tree)
+
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Zurück/i }))
+
+    await screen.findByTestId('group-page')
+    expect(screen.getByTestId('location').textContent).toBe('/groups/g1')
+  })
+
   it('REIMPORT-1: surfaces a 409 version_mismatch as an inline error without navigating', async () => {
     const user = userEvent.setup()
     server.use(

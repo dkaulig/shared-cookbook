@@ -387,7 +387,18 @@ export function RecipeDetailPage() {
         ratingCount={aggregate?.count ?? 0}
         sourceGroupName={null}
         canReimport={canReimport}
-        onBack={() => navigate(`/groups/${groupId}`)}
+        onBack={() =>
+          // Reproduce the browser-back behaviour: pop the last route
+          // when there is router history (e.g. user came in from the
+          // meal plan), and fall back to the group's recipe list only
+          // on a cold deep-link where no history exists (shared URL,
+          // PWA cold start). React Router 6 marks the initial-entry
+          // route with `location.key === 'default'` — any other key
+          // means we navigated here.
+          location.key !== 'default'
+            ? navigate(-1)
+            : navigate(`/groups/${groupId}`)
+        }
         onFork={() => setForkDialogOpen(true)}
         onEdit={() => navigate(`/groups/${groupId}/recipes/${recipe.id}/edit`)}
         onDelete={() => setDeleteOpen(true)}
