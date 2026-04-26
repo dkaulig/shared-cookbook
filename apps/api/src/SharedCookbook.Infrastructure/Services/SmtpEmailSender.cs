@@ -107,17 +107,22 @@ public sealed class SmtpEmailSender : IEmailSender
             await client.SendAsync(message, ct);
             await client.DisconnectAsync(quit: true, ct);
 
-            // Subject + recipient only — never body content.
+            // Subject + recipient only — never body content. Recipient
+            // masked via EmailMasking so even forwarded logs (Sentry,
+            // chat-pasted `docker logs`) leak only the first chars.
             _logger.LogInformation(
                 "Sent email: subject={Subject} to={Recipient}",
-                subject, toEmail);
+                subject, EmailMasking.Mask(toEmail));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(
                 ex,
                 "SMTP send failed: subject={Subject} to={Recipient}",
-                subject, toEmail);
+                subject, EmailMasking.Mask(toEmail));
+            // The exception message is part of the developer-facing
+            // EmailSendException, not the log — full address stays
+            // available to in-process callers.
             throw new EmailSendException(
                 $"Failed to send email to {toEmail}: {ex.Message}", ex);
         }

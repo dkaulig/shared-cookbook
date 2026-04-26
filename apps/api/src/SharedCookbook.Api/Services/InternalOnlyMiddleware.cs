@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using SharedCookbook.Infrastructure.Services;
 
 namespace SharedCookbook.Api.Services;
 
@@ -155,10 +156,14 @@ public sealed class InternalOnlyMiddleware
 
     private async Task Deny(HttpContext context, string reason)
     {
+        // SEC-1: Method + Path are user-controlled. Sanitize to neuter
+        // any embedded \r\n that would otherwise inject fake adjacent
+        // log lines into a tail/cat'd console output. Reason is hard-
+        // coded by callers in this file, so it doesn't need sanitizing.
         _logger.LogWarning(
             "InternalOnlyMiddleware rejected request {Method} {Path} from {Remote} (reason={Reason}).",
-            context.Request.Method,
-            context.Request.Path.Value,
+            LogSanitizer.ForLog(context.Request.Method),
+            LogSanitizer.ForLog(context.Request.Path.Value),
             context.Connection.RemoteIpAddress,
             reason);
         context.Response.StatusCode = StatusCodes.Status404NotFound;

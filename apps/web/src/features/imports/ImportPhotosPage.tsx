@@ -580,6 +580,17 @@ interface FilledSlotProps {
   disabled: boolean
 }
 
+/**
+ * Defence-in-depth scheme guard: only blob: (FileReader-issued) and
+ * https: (server-hosted previews) ever reach an `<img src>` from this
+ * component. Modern browsers already refuse to execute `javascript:`
+ * URLs in `<img src>`, but the explicit allow-list also satisfies
+ * CodeQL's `js/xss-through-dom` analysis (SEC-1).
+ */
+function safeImgSrc(url: string): string {
+  return url.startsWith('blob:') || url.startsWith('https:') ? url : ''
+}
+
 function FilledSlot({
   url,
   index,
@@ -596,7 +607,7 @@ function FilledSlot({
   return (
     <div className="relative aspect-square overflow-hidden rounded-[12px] bg-[hsl(var(--muted))]">
       <img
-        src={url}
+        src={safeImgSrc(url)}
         alt={t('imports.photoPage.photoAlt', {
           n,
           defaultValue: `Foto ${n}`,

@@ -125,7 +125,7 @@ public class SeedDataService(
                 "!! SEED WARNING !! No ADMIN_EMAIL / ADMIN_PASSWORD env vars set — " +
                 "falling back to development defaults (email={Email}). " +
                 "Override via environment variables before shipping to production.",
-                email);
+                EmailMasking.Mask(email));
         }
 
         var admin = new User { Role = UserRole.Admin };
@@ -142,7 +142,7 @@ public class SeedDataService(
 
         await privateCollections.EnsurePrivateCollectionAsync(admin.Id, ct);
 
-        logger.LogInformation("Seeded initial Admin user {Email}", email);
+        logger.LogInformation("Seeded initial Admin user {Email}", EmailMasking.Mask(email));
     }
 
     /// <summary>
@@ -190,8 +190,10 @@ public class SeedDataService(
         await privateCollections.EnsurePrivateCollectionAsync(bot.Id, ct);
 
         // Do NOT log the password or the env var value — deliberately
-        // only the email (the service identity) makes it into the log.
-        logger.LogInformation("Seeded orchestrator bot user {Email}", OrchestratorEmail);
+        // only the email (the service identity) makes it into the log,
+        // and the email is masked so even forwarded logs leak only the
+        // first chars + domain.
+        logger.LogInformation("Seeded orchestrator bot user {Email}", EmailMasking.Mask(OrchestratorEmail));
     }
 
     /// <summary>

@@ -20,9 +20,14 @@ public class NoOpEmailSender(ILogger<NoOpEmailSender> logger) : IEmailSender
         string resetUrl,
         CancellationToken ct = default)
     {
+        // Email masked. URL stays intact: this is the dev-only sender
+        // whose entire purpose is to surface the reset link in the API
+        // container logs so devs can copy + paste it without an SMTP
+        // server. Production never reaches this branch (SmtpEmailSender
+        // is wired up when SMTP host is configured).
         logger.LogInformation(
             "[DEV EMAIL] Password reset requested for {Email} ({DisplayName}): {ResetUrl}",
-            toEmail, displayName, resetUrl);
+            EmailMasking.Mask(toEmail), displayName, resetUrl);
         return Task.CompletedTask;
     }
 
@@ -35,7 +40,7 @@ public class NoOpEmailSender(ILogger<NoOpEmailSender> logger) : IEmailSender
     {
         logger.LogInformation(
             "[DEV EMAIL] App invite from {Inviter} to {Email} (subject: Einladung zum Familien-Kochbuch)",
-            inviterDisplayName, toEmail);
+            inviterDisplayName, EmailMasking.Mask(toEmail));
         return Task.CompletedTask;
     }
 
@@ -48,7 +53,7 @@ public class NoOpEmailSender(ILogger<NoOpEmailSender> logger) : IEmailSender
     {
         logger.LogInformation(
             "[DEV EMAIL] Group invite from {Inviter} to {Email} for group {GroupName} (subject: Einladung zur Gruppe)",
-            inviterDisplayName, toEmail, groupName);
+            inviterDisplayName, EmailMasking.Mask(toEmail), groupName);
         return Task.CompletedTask;
     }
 }

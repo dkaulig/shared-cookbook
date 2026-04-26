@@ -285,6 +285,24 @@ async def _assert_safe_http_target(
             raise SsrfBlockedError(f"blocked address: {host} -> {ip}")
 
 
+async def _validated_url(url: str, *, allowed_private_host: str | None = None) -> str:
+    """Returns ``url`` after running it through :func:`_assert_safe_http_target`.
+
+    Pure pass-through: the assertion either raises (URL is unsafe) or
+    returns the same string. Exists so callers can express the
+    sanitization in the same expression that produces the value used
+    downstream:
+
+        current_url = await _validated_url(next_url)
+
+    rather than the looser two-line shape (``await assert(...); use(url)``)
+    where a static analyser cannot tell that the second line is gated by
+    the first. Same runtime semantics as ``_assert_safe_http_target``.
+    """
+    await _assert_safe_http_target(url, allowed_private_host=allowed_private_host)
+    return url
+
+
 def _safe_host(url: str) -> str:
     """Return the URL's lowercased hostname, or ``""`` on parse failure.
 
@@ -1269,10 +1287,14 @@ async def _fetch_blog(url: str) -> tuple[str, str | None]:
     :data:`_BLOG_MAX_REDIRECTS` 3xx hops manually, re-running
     :func:`_assert_safe_http_target` on every new ``Location``.
     """
-    await _assert_safe_http_target(url)
+    # SEC-1: every URL that reaches `client.stream` below comes from
+    # `_validated_url`, so the SSRF guard is structurally inseparable
+    # from the request. Same semantics as the previous two-line
+    # `await _assert_safe_http_target(url); use(url)` shape — but now
+    # both human readers and static analysers can see the gating.
+    current_url = await _validated_url(url)
 
     headers = {"user-agent": _BLOG_USER_AGENT, "accept": "text/html"}
-    current_url = url
     async with httpx.AsyncClient(
         follow_redirects=False,
         timeout=_BLOG_TIMEOUT_SECONDS,
@@ -1285,8 +1307,7 @@ async def _fetch_blog(url: str) -> tuple[str, str | None]:
                     if hop >= _BLOG_MAX_REDIRECTS:
                         raise SsrfBlockedError("too many redirects")
                     next_url = urljoin(current_url, response.headers["location"])
-                    await _assert_safe_http_target(next_url)
-                    current_url = next_url
+                    current_url = await _validated_url(next_url)
                     continue
 
                 response.raise_for_status()

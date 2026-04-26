@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using SharedCookbook.Infrastructure.Services;
 
 namespace SharedCookbook.Api.Services;
 
@@ -21,7 +22,11 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
         Exception exception,
         CancellationToken cancellationToken)
     {
-        logger.LogError(exception, "Unhandled exception on {Path}", httpContext.Request.Path);
+        // SEC-1: sanitize the user-influenced path before logging to
+        // mitigate CRLF / log-forging where a crafted URL with embedded
+        // \r\n could fabricate adjacent log lines.
+        logger.LogError(exception, "Unhandled exception on {Path}",
+            LogSanitizer.ForLog(httpContext.Request.Path.Value));
 
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
         httpContext.Response.ContentType = "application/json; charset=utf-8";

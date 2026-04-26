@@ -20,7 +20,7 @@ public class NoOpEmailSenderTests
     }
 
     [Fact]
-    public async Task SendPasswordResetAsync_Logs_Info_With_Email_And_Url()
+    public async Task SendPasswordResetAsync_Logs_Info_With_Masked_Email_And_Url()
     {
         var (sender, logger) = Create();
 
@@ -29,10 +29,14 @@ public class NoOpEmailSenderTests
             displayName: "Max",
             resetUrl: "https://app.local/reset-password?token=abc");
 
+        // SEC-1: address is masked via EmailMasking.Mask before logging.
+        // Reset URL stays intact — this dev-only sender's whole purpose
+        // is making the link copy-pasteable from container logs.
         logger.Received(1).Log(
             LogLevel.Information,
             Arg.Any<EventId>(),
-            Arg.Is<object>(o => o.ToString()!.Contains("user@example.com")
+            Arg.Is<object>(o => o.ToString()!.Contains("us***@example.com")
+                                && !o.ToString()!.Contains("user@example.com")
                                 && o.ToString()!.Contains("Max")
                                 && o.ToString()!.Contains("https://app.local/reset-password?token=abc")),
             null,
@@ -40,7 +44,7 @@ public class NoOpEmailSenderTests
     }
 
     [Fact]
-    public async Task SendAppInviteAsync_Logs_Info_With_Recipient_And_Subject_But_No_Url()
+    public async Task SendAppInviteAsync_Logs_Info_With_Masked_Recipient_And_Subject_But_No_Url()
     {
         var (sender, logger) = Create();
 
@@ -54,7 +58,9 @@ public class NoOpEmailSenderTests
             LogLevel.Information,
             Arg.Any<EventId>(),
             Arg.Is<object>(o =>
-                o.ToString()!.Contains("newbie@example.com")
+                // SEC-1: masked recipient, full address must not appear.
+                o.ToString()!.Contains("ne***@example.com")
+                && !o.ToString()!.Contains("newbie@example.com")
                 && o.ToString()!.Contains("Anna")
                 && o.ToString()!.Contains("Einladung")
                 // Accept URL carries the token — must NOT leak into the log.
@@ -66,7 +72,7 @@ public class NoOpEmailSenderTests
     }
 
     [Fact]
-    public async Task SendGroupInviteAsync_Logs_Info_With_Recipient_GroupName_And_Inviter()
+    public async Task SendGroupInviteAsync_Logs_Info_With_Masked_Recipient_GroupName_And_Inviter()
     {
         var (sender, logger) = Create();
 
@@ -80,7 +86,9 @@ public class NoOpEmailSenderTests
             LogLevel.Information,
             Arg.Any<EventId>(),
             Arg.Is<object>(o =>
-                o.ToString()!.Contains("member@example.com")
+                // SEC-1: masked recipient, full address must not appear.
+                o.ToString()!.Contains("me***@example.com")
+                && !o.ToString()!.Contains("member@example.com")
                 && o.ToString()!.Contains("Bernd")
                 && o.ToString()!.Contains("Familie Mustermann")
                 // Accept URL must NOT leak into the log.
