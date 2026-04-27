@@ -888,44 +888,19 @@ async def extract_from_url(
         deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1")
 
         # AI-normalize toggle (2026-04-27) — soft-fallback. When
-        # ``force_llm=True`` and we have a JSON-LD-direct result already
-        # in scope (``jsonld_llm_output``), wrap the LLM call so any
-        # ``LLMProviderError`` or ``json.JSONDecodeError`` (the latter
-        # is normally pre-wrapped by the Azure provider into
-        # ``LLMProviderError(code=schema_mismatch)``, kept here as
-        # defence-in-depth for non-Azure providers) degrades gracefully
-        # to the direct-mapping result + a German user-visible note. We
-        # still stamp ``ai_normalize_active=True`` on the snapshot below
+        # ``force_llm=True`` AND we have a JSON-LD-direct result already
+        # in scope (``jsonld_llm_output``), an ``LLMProviderError`` or
+        # ``json.JSONDecodeError`` from the LLM call degrades gracefully
+        # to the direct-mapping result + a German user-visible note;
+        # ``ai_normalize_active=True`` still lands on the snapshot below
         # so the audit trail shows the user *requested* normalisation
-        # even when it fell back. When ``force_llm=False`` the
-        # try/except is bypassed entirely so the existing happy-path
-        # behaviour (LLM errors propagate to the HTTP layer) is
-        # untouched.
+        # even when it fell back. Outside that condition the exception
+        # re-raises and the HTTP layer maps it to 503 / 500 as before.
+        # ``json.JSONDecodeError`` is defence-in-depth for non-Azure
+        # providers — the Azure provider already wraps it into
+        # ``LLMProviderError(code=schema_mismatch)``.
         usage: TokenUsage | None
-        if force_llm and jsonld_llm_output is not None:
-            try:
-                llm_output, usage = await _run_llm_structuring(
-                    provider=provider,
-                    transcript=transcript,
-                    caption=caption,
-                    blog_text=blog_text,
-                    thumbnail_url=thumbnail_url,
-                    blog_text_untrusted=blog_text_untrusted,
-                    system_prompt=system_prompt,
-                    temperature=temperature,
-                    max_completion_tokens=max_completion_tokens,
-                    deployment=deployment,
-                )
-            except (LLMProviderError, json.JSONDecodeError) as exc:
-                logger.warning(
-                    "ai_normalize_fallback host=%s err=%s",
-                    _redact_host(url),
-                    type(exc).__name__,
-                )
-                notes.append("KI-Verfeinerung fehlgeschlagen — Originaldaten verwendet")
-                llm_output = jsonld_llm_output
-                usage = None  # JSON-LD-direct path did not consume tokens
-        else:
+        try:
             llm_output, usage = await _run_llm_structuring(
                 provider=provider,
                 transcript=transcript,
@@ -938,6 +913,17 @@ async def extract_from_url(
                 max_completion_tokens=max_completion_tokens,
                 deployment=deployment,
             )
+        except (LLMProviderError, json.JSONDecodeError) as exc:
+            if not (force_llm and jsonld_llm_output is not None):
+                raise
+            logger.warning(
+                "ai_normalize_fallback host=%s err=%s",
+                _redact_host(url),
+                type(exc).__name__,
+            )
+            notes.append("KI-Verfeinerung fehlgeschlagen — Originaldaten verwendet")
+            llm_output = jsonld_llm_output
+            usage = None  # JSON-LD-direct path did not consume tokens
 
         await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
         signals: ExtractionSignals = {
