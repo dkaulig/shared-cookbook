@@ -210,24 +210,13 @@ public sealed class RecipeImport
 
     /// <summary>
     /// AI-Normalize toggle (2026-04-27 design). Mirrors the python-extractor's
-    /// <c>config_snapshot.ai_normalize_active</c> flag and records that the
-    /// caller opted into LLM-based JSON-LD normalisation for a blog import.
-    ///
-    /// <para>Semantics per the python-extractor's audit contract: the flag
-    /// captures USER INTENT for a blog import where the LLM-normalize path
-    /// COULD apply. Stays <c>false</c> on:
-    /// <list type="bullet">
-    /// <item>Imports submitted with the toggle off (default).</item>
-    /// <item>Video / photo / chat imports — the toggle has no effect there.</item>
-    /// <item>Blog imports lacking JSON-LD — the python pipeline skips the
-    /// LLM-normalize branch and reports <c>ai_normalize_active=false</c>
-    /// even when <c>force_llm=true</c> was sent.</item>
-    /// </list></para>
-    ///
-    /// <para>Defaults to <c>false</c>. The job stamps it via
-    /// <see cref="RecordAiNormalizeActive"/> after reading the python
-    /// extractor's response. The reimport-dialog reads it back so the
-    /// toggle pre-fills with the last import's intent.</para>
+    /// <c>config_snapshot.ai_normalize_active</c> flag — true precisely when
+    /// the caller passed <c>force_llm=true</c> AND the resolved import kind
+    /// is <c>"blog"</c>; false on videos, photos, chat-imports, and on the
+    /// toggle-off default. This captures user INTENT, not outcome: a blog
+    /// without JSON-LD where the user opted in still records <c>true</c>
+    /// even though the strict-normalize prompt did not actually run on that
+    /// path. Read back by the reimport dialog to pre-fill the toggle.
     /// </summary>
     public bool AiNormalizeActive { get; private set; }
 
@@ -378,13 +367,10 @@ public sealed class RecipeImport
     /// <summary>
     /// AI-Normalize toggle (2026-04-27 design). Records the
     /// <c>config_snapshot.ai_normalize_active</c> flag the python extractor
-    /// returned. Idempotent on a Hangfire retry that re-applies the same
-    /// value. Distinct from <see cref="RecordUsage"/> in that it has no
-    /// pre-condition on <see cref="ImportStatus"/>: the runner stamps the
-    /// flag right after the HTTP success path returns and BEFORE the
-    /// terminal <see cref="MarkDone"/> transition, but a reimport job's
-    /// terminal-state writer may also call this once during the in-place
-    /// recipe-update path.
+    /// returned. Has NO pre-condition on <see cref="ImportStatus"/> (unlike
+    /// <see cref="RecordUsage"/>) because the runner stamps it both before
+    /// the terminal <see cref="MarkDone"/> transition and during the
+    /// reimport in-place recipe-update path.
     /// </summary>
     public void RecordAiNormalizeActive(bool active)
     {

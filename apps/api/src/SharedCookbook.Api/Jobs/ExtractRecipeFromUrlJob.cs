@@ -198,26 +198,43 @@ public class ExtractRecipeFromUrlJob
     /// <paramref name="active"/> and <c>false</c> as the method result
     /// when the snapshot is absent or the field is missing — callers
     /// should treat that as "no audit signal, leave the row untouched".
+    /// Malformed JSON is caught and treated the same way: the upstream
+    /// <c>PythonExtractorRunner.ValidateJsonOrThrow</c> already pre-
+    /// validates <c>ResultJson</c>, but the helper carries its own
+    /// guard so the documented graceful-failure contract holds even if
+    /// a future caller bypasses that pre-validation.
     /// </summary>
     internal static bool TryReadAiNormalizeActive(string resultJson, out bool active)
     {
         active = false;
         if (string.IsNullOrWhiteSpace(resultJson)) return false;
 
-        using var doc = JsonDocument.Parse(resultJson);
-        if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
-        if (!doc.RootElement.TryGetProperty("config_snapshot", out var snapshot)
-            || snapshot.ValueKind != JsonValueKind.Object)
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(resultJson);
+        }
+        catch (JsonException)
         {
             return false;
         }
-        if (!snapshot.TryGetProperty("ai_normalize_active", out var flag)) return false;
-        if (flag.ValueKind != JsonValueKind.True && flag.ValueKind != JsonValueKind.False)
+
+        using (doc)
         {
-            return false;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            if (!doc.RootElement.TryGetProperty("config_snapshot", out var snapshot)
+                || snapshot.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+            if (!snapshot.TryGetProperty("ai_normalize_active", out var flag)) return false;
+            if (flag.ValueKind != JsonValueKind.True && flag.ValueKind != JsonValueKind.False)
+            {
+                return false;
+            }
+            active = flag.GetBoolean();
+            return true;
         }
-        active = flag.GetBoolean();
-        return true;
     }
 
     /// <summary>
