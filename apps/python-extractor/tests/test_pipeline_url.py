@@ -1593,14 +1593,20 @@ class _CapturingMock(LLMProvider):
 
 
 class _FailingProvider(LLMProvider):
-    """Always raises the supplied error."""
+    """Always raises the supplied error; counts ``extract_structured`` calls.
+
+    The ``calls`` counter lets soft-fallback tests pin that the LLM was
+    actually attempted (and failed), as opposed to silently bypassed.
+    """
 
     def __init__(self, error: LLMProviderError) -> None:
         self._error = error
+        self.calls = 0
 
     async def extract_structured(
         self, system_prompt: str, messages: Any, json_schema: dict[str, Any]
     ) -> tuple[dict[str, Any], TokenUsage]:
+        self.calls += 1
         raise self._error
 
     async def chat(self, system_prompt: str, messages: Any) -> tuple[str, TokenUsage]:
@@ -1789,11 +1795,13 @@ class _CapturingPromptMock(LLMProvider):
     def __init__(self, response: dict[str, Any]) -> None:
         self._response = response
         self.last_system_prompt: str | None = None
+        self.last_messages: list[dict[str, Any]] | None = None
 
     async def extract_structured(
         self, system_prompt: str, messages: Any, json_schema: dict[str, Any]
     ) -> tuple[dict[str, Any], TokenUsage]:
         self.last_system_prompt = system_prompt
+        self.last_messages = list(messages)
         return dict(self._response), _stub_usage()
 
     async def chat(self, system_prompt: str, messages: Any) -> tuple[str, TokenUsage]:
@@ -1862,14 +1870,20 @@ async def test_force_llm_skips_jsonld_pre_llm_branch(
 
     Two assertions matter:
 
-    1. The LLM IS called — proven by ``calls == 1`` AND by the recipe
-       title coming back as the LLM-scripted ``"Testrezept"`` (the
-       JSON-LD-direct branch would have returned ``"Spaghetti Carbonara"``
-       from the fixture's ``name`` field).
+    1. The LLM IS called — proven by the recipe title coming back as the
+       LLM-scripted ``"Testrezept"`` (the JSON-LD-direct branch would have
+       returned ``"Spaghetti Carbonara"`` from the fixture's ``name``
+       field).
     2. The LLM call carried the JSON-LD-rendered ``blog_text`` (labelled
        ``Titel: ...``, ``Zutaten: ...``) so the LLM has the same
        structured source the pre-LLM branch would have mapped directly.
-    3. The result's ``config_snapshot.ai_normalize_active`` is True so
+    3. The strict-normalize prompt variant is the one that ran — pinned
+       by a phrase that appears only in
+       :data:`SYSTEM_PROMPT_DE_NORMALIZE_ONLY` and not in the canonical
+       :data:`SYSTEM_PROMPT_DE`. Guards against a future refactor that
+       would route force_llm through the canonical prompt and silently
+       lose the "don't invent ingredients" half of the contract.
+    4. The result's ``config_snapshot.ai_normalize_active`` is True so
        the .NET side sees the user's opt-in for audit.
     """
     fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
@@ -1883,7 +1897,7 @@ async def test_force_llm_skips_jsonld_pre_llm_branch(
         )
     )
 
-    mock = _CapturingMock(_canonical_llm_response())
+    mock = _CapturingPromptMock(_canonical_llm_response())
     result = await extract_from_url(
         "https://example.com/spaghetti",
         provider=mock,
@@ -1896,6 +1910,13 @@ async def test_force_llm_skips_jsonld_pre_llm_branch(
     # Sanity: the rendered JSON-LD made it into the user message.
     assert "Titel: Spaghetti Carbonara" in user_message
     assert "Zutaten:" in user_message
+    # The system prompt is the strict-normalize variant — phrase below
+    # appears in SYSTEM_PROMPT_DE_NORMALIZE_ONLY but not in the canonical
+    # SYSTEM_PROMPT_DE.
+    captured_prompt = mock.last_system_prompt
+    assert captured_prompt is not None
+    assert "bereits-strukturierte Rezept-Quelle" in captured_prompt
+    assert "bereits-strukturierte Rezept-Quelle" not in SYSTEM_PROMPT_DE
     # The recipe title is from the LLM script, not from the JSON-LD's
     # ``name`` field — proves the direct branch did NOT execute.
     assert result["recipe"]["title"] == "Testrezept"
@@ -1912,13 +1933,16 @@ async def test_force_llm_soft_fallback_on_llm_error(
     """When ``force_llm=True`` but the LLM raises ``LLMProviderError``,
     the pipeline soft-falls back to the JSON-LD-direct mapping.
 
-    Three assertions:
+    Four assertions:
 
-    1. The result is the JSON-LD-direct shape — the fixture's title
+    1. The LLM call was actually attempted — proven by ``provider.calls
+       == 1``. A bug that silently bypassed the LLM and returned
+       JSON-LD-direct + the note would still pass without this counter.
+    2. The result is the JSON-LD-direct shape — the fixture's title
        ``"Spaghetti Carbonara"`` survives, NOT the LLM-scripted one
        (the LLM was attempted, then errored).
-    2. ``confidence.notes`` carries the German user-visible note.
-    3. ``config_snapshot.ai_normalize_active is True`` — even though we
+    3. ``confidence.notes`` carries the German user-visible note.
+    4. ``config_snapshot.ai_normalize_active is True`` — even though we
        fell back, the user *requested* normalisation, and the audit
        trail must show that.
     """
@@ -1940,6 +1964,9 @@ async def test_force_llm_soft_fallback_on_llm_error(
         force_llm=True,
     )
 
+    # The LLM was attempted exactly once — proves the soft-fallback
+    # didn't accidentally bypass the call entirely.
+    assert provider.calls == 1
     # The recipe is the JSON-LD-direct mapping — title from fixture.
     assert result["recipe"]["title"] == "Spaghetti Carbonara"
     # German user-visible note is appended.
@@ -2027,6 +2054,118 @@ async def test_force_llm_false_keeps_rel8_pre_llm_branch(
     # only appears when the LLM ran or when the force_llm soft-fallback
     # triggered).
     assert "config_snapshot" not in result
+
+
+async def test_force_llm_on_video_with_llm_error_raises_provider_error_not_unbound_local(
+    tmp_path: Path,
+) -> None:
+    """C1 regression — ``force_llm=True`` on a VIDEO URL whose LLM call
+    raises ``LLMProviderError`` must propagate the provider error to the
+    HTTP layer (which maps it to 503), NOT crash with
+    ``UnboundLocalError`` on the local ``jsonld_llm_output`` reference
+    in the soft-fallback ``except`` block.
+
+    The local was only ever bound inside the blog branch; on the video
+    branch it stays unbound, so the soft-fallback condition that reads
+    it raises ``UnboundLocalError`` instead of letting the
+    ``LLMProviderError`` propagate.
+    """
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="t",
+            description="d",
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(transcript="Mehl.")
+    provider = _FailingProvider(LLMProviderError("Azure 503", code="provider_unavailable"))
+
+    with pytest.raises(LLMProviderError):
+        await extract_from_url(
+            "https://youtu.be/abc",
+            provider=provider,
+            downloader=downloader,
+            transcriber=transcriber,
+            force_llm=True,
+        )
+
+
+async def test_force_llm_on_video_records_ai_normalize_active_false(
+    tmp_path: Path,
+) -> None:
+    """I1 — ``force_llm=True`` on a VIDEO URL is a no-op on the prompt
+    path (the strict-normalize prompt was deliberately skipped because
+    the inputs are transcript + caption, not pre-rendered JSON-LD).
+
+    The ``ConfigSnapshot.ai_normalize_active`` flag therefore must be
+    ``False`` so the audit trail describes what actually happened, not
+    the user's raw input. The flag's docstring stamps it ``True`` only
+    "for a blog import" — recording ``True`` here would lie about the
+    prompt that ran.
+    """
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="t",
+            description="d",
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(transcript="Mehl.")
+    mock = _AnyCallMock(_canonical_llm_response())
+    result = await extract_from_url(
+        "https://youtu.be/abc",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+        force_llm=True,
+    )
+    snapshot = result.get("config_snapshot")
+    assert snapshot is not None
+    assert snapshot["ai_normalize_active"] is False
+
+
+@respx.mock
+async def test_force_llm_on_blog_without_jsonld_uses_canonical_prompt(
+    _fake_public_dns: None,
+) -> None:
+    """M1 — when ``force_llm=True`` lands on a blog with NO JSON-LD,
+    the strict-normalize prompt does not apply (its instructions assume
+    a pre-rendered JSON-LD block as input). The canonical
+    ``SYSTEM_PROMPT_DE`` must run instead.
+
+    Pinning this guards against a future refactor that drops the
+    ``jsonld_llm_output is not None`` half of the prompt-swap predicate
+    — that change would only fail at runtime against real Azure.
+    """
+    html_no_jsonld = (
+        "<!DOCTYPE html><html><head>"
+        '<meta property="og:image" content="https://cdn.example/og.jpg">'
+        "</head><body>Recipe text without JSON-LD.</body></html>"
+    )
+    respx.get("https://example.com/no-jsonld").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text=html_no_jsonld,
+        )
+    )
+
+    mock = _CapturingPromptMock(_canonical_llm_response())
+    await extract_from_url(
+        "https://example.com/no-jsonld",
+        provider=mock,
+        force_llm=True,
+    )
+    captured = mock.last_system_prompt
+    assert captured is not None
+    # Canonical prompt opener — distinct from the normalize variant.
+    assert captured.startswith(SYSTEM_PROMPT_DE)
 
 
 async def test_url_pipeline_default_language_is_english(tmp_path: Path) -> None:

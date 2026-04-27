@@ -656,6 +656,13 @@ async def extract_from_url(
     candidate_thumbnails: list[str] = []
     notes: list[str] = []
     blog_text_untrusted: bool = False
+    # AI-normalize toggle (2026-04-27): hoisted out of the blog branch so
+    # both video and blog paths share the binding. The blog branch
+    # overwrites it with the JSON-LD-direct result when present; the
+    # video branch leaves it as ``None``. The soft-fallback ``except``
+    # block reads it later and used to UnboundLocalError on the video
+    # path before this hoist landed.
+    jsonld_llm_output: dict[str, Any] | None = None
     # BUG-034 — observability of the three source signals. Flipped at
     # the points where each signal becomes non-empty and later threaded
     # into ``post_process`` for the empty-reason classifier + the
@@ -771,7 +778,6 @@ async def extract_from_url(
             # the LLM nothing but the URL itself; the empty-reason
             # classifier + signal-aware copy explains the situation to
             # the user.
-            jsonld_llm_output: dict[str, Any] | None = None
             if blog_follow_enabled:
                 (
                     blog_text,
@@ -956,9 +962,15 @@ async def extract_from_url(
         # whichever prompt actually ran (canonical vs strict-normalize)
         # via ``prompt_version_key`` and stamps ``ai_normalize_active``
         # so the .NET side can persist user intent. The flag is True
-        # whenever the user opted in, even if the LLM call fell back
-        # to JSON-LD-direct (``llm_fell_back``) — the audit trail
-        # describes intent, not outcome.
+        # whenever the user opted in for a blog import (the only path
+        # where the strict-normalize prompt actually applies), even if
+        # the LLM call fell back to JSON-LD-direct — the audit trail
+        # describes intent on the contract the toggle was designed for.
+        # Video URLs with ``force_llm=True`` ran the canonical prompt
+        # (the strict-normalize variant assumes a pre-rendered JSON-LD
+        # input, which the video path never produces), so recording
+        # ``True`` there would lie about what the prompt actually did;
+        # gate on ``kind == "blog"`` to keep intent + outcome aligned.
         snapshot = _build_config_snapshot(
             config=config,
             system_prompt=system_prompt_base,
@@ -966,7 +978,7 @@ async def extract_from_url(
             max_completion_tokens=max_completion_tokens,
             deployment=deployment,
             prompt_version_key=prompt_version_key,
-            ai_normalize_active=force_llm,
+            ai_normalize_active=force_llm and kind == "blog",
         )
         return post_process(
             llm_output,
