@@ -351,11 +351,46 @@ jobs:
           - shared-cookbook-web
           - shared-cookbook-python-extractor
     steps:
-      - name: Delete untagged versions
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: ${{ matrix.package }}
-          package-type: container
-          owner: ${{ github.repository_owner }}
-          min-versions-to-keep: 10
-          delete-only-untagged-versions: 'true'
+      # 2026-04-27 — replaced ``actions/delete-package-versions@v5`` with
+      # a ``gh`` CLI block. The action is still pinned at v5 (Jan 2024)
+      # and bundles Node 20, which GitHub-hosted runners are scheduled
+      # to remove (default switch June 2026, removal September 2026).
+      # No newer release with Node 24 exists, and several open upstream
+      # issues acknowledge the deprecation without a fix in sight. The
+      # gh-CLI replacement preserves the exact same retention policy
+      # (keep newest 10 versions overall; only delete the tail entries
+      # that have NO tag at all) without any third-party action
+      # dependency.
+      #
+      # Inputs come from trusted sources only (matrix.package is
+      # repo-controlled; github.repository_owner is the workflow's own
+      # owner), routed via env: + quoted shell expansion to avoid any
+      # injection surface even if a future change widens the inputs.
+      - name: Delete untagged versions (>10 newest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          # List all versions, sort by created_at desc, drop the 10
+          # newest, then keep only the leftover entries with no tags.
+          # Output: one numeric version-id per line.
+          ids=$(gh api \
+            --paginate \
+            "/users/${OWNER}/packages/container/${PACKAGE}/versions" \
+            --jq '[.[] | {id, tags: .metadata.container.tags, created_at}]
+                  | sort_by(.created_at) | reverse | .[10:]
+                  | map(select(.tags | length == 0))
+                  | .[].id')
+          if [ -z "$ids" ]; then
+            echo "No untagged versions to prune for ${PACKAGE}."
+            exit 0
+          fi
+          echo "Pruning untagged versions for ${PACKAGE}:"
+          echo "$ids"
+          for id in $ids; do
+            gh api -X DELETE \
+              "/users/${OWNER}/packages/container/${PACKAGE}/versions/${id}"
+            echo "Deleted ${PACKAGE} version ${id}."
+          done
