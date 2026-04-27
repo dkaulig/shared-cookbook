@@ -114,8 +114,29 @@ public class ExtractRecipeFromUrlJob
             {
                 url = i.SourceUrl,
                 hint = new { group_id = i.GroupId.ToString("D"), user_id = i.UserId.ToString("D") },
+                // AI-Normalize toggle (2026-04-27 design) — forward user
+                // intent as `force_llm` so the python extractor skips
+                // the REL-8 pre-LLM branch on a JSON-LD blog and runs
+                // the strict-normalize prompt instead.
+                force_llm = i.AiNormalizeActive,
             },
             ct);
+
+        // AI-Normalize toggle — read the python extractor's audit flag
+        // off `config_snapshot.ai_normalize_active` and persist it on the
+        // import row. Per the slice-1 contract this records "the user
+        // opted in for normalisation on a blog where it could apply",
+        // not "the normalize-only prompt definitively ran" — the python
+        // side already encodes the gating logic. Skip silently when the
+        // snapshot is absent (test stubs, error paths) so the job stays
+        // robust.
+        if (import.Status == ImportStatus.Done
+            && !string.IsNullOrWhiteSpace(import.ResultJson)
+            && TryReadAiNormalizeActive(import.ResultJson, out var aiNormalizeActive))
+        {
+            import.RecordAiNormalizeActive(aiNormalizeActive);
+            await _db.SaveChangesAsync(ct);
+        }
 
         // REIMPORT-0 — on success, apply the fresh extraction result
         // onto the existing recipe row rather than letting the PF1
@@ -168,6 +189,35 @@ public class ExtractRecipeFromUrlJob
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// AI-Normalize toggle (2026-04-27 design) — reads
+    /// <c>config_snapshot.ai_normalize_active</c> out of the python
+    /// extractor's structured response. Returns <c>false</c> via
+    /// <paramref name="active"/> and <c>false</c> as the method result
+    /// when the snapshot is absent or the field is missing — callers
+    /// should treat that as "no audit signal, leave the row untouched".
+    /// </summary>
+    internal static bool TryReadAiNormalizeActive(string resultJson, out bool active)
+    {
+        active = false;
+        if (string.IsNullOrWhiteSpace(resultJson)) return false;
+
+        using var doc = JsonDocument.Parse(resultJson);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+        if (!doc.RootElement.TryGetProperty("config_snapshot", out var snapshot)
+            || snapshot.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+        if (!snapshot.TryGetProperty("ai_normalize_active", out var flag)) return false;
+        if (flag.ValueKind != JsonValueKind.True && flag.ValueKind != JsonValueKind.False)
+        {
+            return false;
+        }
+        active = flag.GetBoolean();
+        return true;
     }
 
     /// <summary>

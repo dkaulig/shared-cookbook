@@ -319,6 +319,36 @@ public class RecipeReimportTests : IClassFixture<SharedCookbookWebApplicationFac
         Assert.Equal(body.ImportId, (Guid)captured.Job.Args[0]!);
     }
 
+    /// <summary>
+    /// AI-Normalize toggle (2026-04-27 design, slice 2). The reimport DTO
+    /// accepts <c>aiNormalize: true</c> and the endpoint must persist the
+    /// flag onto the new <see cref="RecipeImport"/> row so the job
+    /// forwards <c>force_llm</c> to the python extractor.
+    /// </summary>
+    public sealed record ReimportRequestWithAiNormalize(bool AiNormalize);
+
+    [Fact]
+    public async Task Reimport_Accepts_AiNormalize_True_And_Persists_The_Flag()
+    {
+        var (userId, token) = await SignupAsync("rein-aiNorm@ex.com", "R");
+        var (recipeId, _, _) = await SeedRecipeAsync(userId);
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/recipes/{recipeId}/reimport");
+        req.Content = JsonContent.Create(new ReimportRequestWithAiNormalize(AiNormalize: true));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportEnqueueResponse>();
+        Assert.NotNull(body);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = await db.RecipeImports.AsNoTracking().SingleAsync(i => i.Id == body!.ImportId);
+        Assert.True(import.AiNormalizeActive);
+    }
+
     [Fact]
     public async Task Reimport_With_Matching_If_Match_Succeeds()
     {

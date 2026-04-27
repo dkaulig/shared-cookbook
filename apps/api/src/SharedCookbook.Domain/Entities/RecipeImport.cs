@@ -208,6 +208,29 @@ public sealed class RecipeImport
     /// </summary>
     public string? RequestedLanguage { get; private set; }
 
+    /// <summary>
+    /// AI-Normalize toggle (2026-04-27 design). Mirrors the python-extractor's
+    /// <c>config_snapshot.ai_normalize_active</c> flag and records that the
+    /// caller opted into LLM-based JSON-LD normalisation for a blog import.
+    ///
+    /// <para>Semantics per the python-extractor's audit contract: the flag
+    /// captures USER INTENT for a blog import where the LLM-normalize path
+    /// COULD apply. Stays <c>false</c> on:
+    /// <list type="bullet">
+    /// <item>Imports submitted with the toggle off (default).</item>
+    /// <item>Video / photo / chat imports — the toggle has no effect there.</item>
+    /// <item>Blog imports lacking JSON-LD — the python pipeline skips the
+    /// LLM-normalize branch and reports <c>ai_normalize_active=false</c>
+    /// even when <c>force_llm=true</c> was sent.</item>
+    /// </list></para>
+    ///
+    /// <para>Defaults to <c>false</c>. The job stamps it via
+    /// <see cref="RecordAiNormalizeActive"/> after reading the python
+    /// extractor's response. The reimport-dialog reads it back so the
+    /// toggle pre-fills with the last import's intent.</para>
+    /// </summary>
+    public bool AiNormalizeActive { get; private set; }
+
     // ── State transitions ───────────────────────────────────────────
 
     /// <summary>
@@ -350,6 +373,22 @@ public sealed class RecipeImport
         CompletionTokens = completionTokens;
         CachedPromptTokens = cachedPromptTokens;
         ModelDeployment = Truncate(modelDeployment.Trim(), ModelDeploymentMaxLength);
+    }
+
+    /// <summary>
+    /// AI-Normalize toggle (2026-04-27 design). Records the
+    /// <c>config_snapshot.ai_normalize_active</c> flag the python extractor
+    /// returned. Idempotent on a Hangfire retry that re-applies the same
+    /// value. Distinct from <see cref="RecordUsage"/> in that it has no
+    /// pre-condition on <see cref="ImportStatus"/>: the runner stamps the
+    /// flag right after the HTTP success path returns and BEFORE the
+    /// terminal <see cref="MarkDone"/> transition, but a reimport job's
+    /// terminal-state writer may also call this once during the in-place
+    /// recipe-update path.
+    /// </summary>
+    public void RecordAiNormalizeActive(bool active)
+    {
+        AiNormalizeActive = active;
     }
 
     /// <summary>

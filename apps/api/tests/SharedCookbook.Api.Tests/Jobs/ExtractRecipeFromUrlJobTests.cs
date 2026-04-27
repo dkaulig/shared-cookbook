@@ -1460,6 +1460,87 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         Assert.Equal("en", headerValue);
     }
 
+    // ── AI-Normalize toggle (2026-04-27 design, slice 2) ─────────────
+
+    [Fact]
+    public async Task Job_Forwards_AiNormalizeActive_True_As_ForceLlm_In_Outbound_Body()
+    {
+        // The python extractor's `ExtractRequest` schema names the field
+        // `force_llm` (snake_case wire). The .NET runner must serialise
+        // the flag under that exact name so the python side picks it up
+        // and skips the REL-8 pre-LLM branch on a JSON-LD blog.
+        var import = new RecipeImport(
+            _userId, _groupId, ImportSource.Url, "https://example.com/blog",
+            _clock.GetUtcNow());
+        import.RecordAiNormalizeActive(true);
+        _db.RecipeImports.Add(import);
+        await _db.SaveChangesAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, "{\"recipe\":{\"title\":\"x\"}}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.Contains("\"force_llm\":true", req.Body);
+    }
+
+    [Fact]
+    public async Task Job_Defaults_ForceLlm_False_When_AiNormalizeActive_Not_Set()
+    {
+        // Existing behaviour: imports submitted without the toggle land
+        // with `force_llm:false` so the python pipeline runs the REL-8
+        // fast path on JSON-LD blogs (or the regular video / photo
+        // pipelines).
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, "{\"recipe\":{\"title\":\"x\"}}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.Contains("\"force_llm\":false", req.Body);
+    }
+
+    [Fact]
+    public async Task Job_Persists_AiNormalizeActive_From_Extractor_ConfigSnapshot()
+    {
+        // The python extractor returns
+        // `config_snapshot.ai_normalize_active` recording user intent for
+        // a blog-with-JSON-LD import. The job persists that boolean onto
+        // the RecipeImport row so the reimport-dialog can pre-fill the
+        // toggle from the last import.
+        var import = await SeedImportAsync();
+        var responseBody =
+            "{\"recipe\":{\"title\":\"x\"},"
+            + "\"config_snapshot\":{\"prompt_hash\":\"sha256:abc\","
+            + "\"temperature\":0,\"max_completion_tokens\":4096,"
+            + "\"deployment\":\"gpt-4.1-mini\",\"prompt_version\":1,"
+            + "\"ai_normalize_active\":true}}";
+        _handler.QueueResponse(HttpStatusCode.OK, responseBody);
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.Equal(ImportStatus.Done, reloaded.Status);
+        Assert.True(reloaded.AiNormalizeActive);
+    }
+
+    [Fact]
+    public async Task Job_Leaves_AiNormalizeActive_Unchanged_When_ConfigSnapshot_Absent()
+    {
+        // Soft-fallback path: a python extractor build that does not emit
+        // `config_snapshot` at all (test stubs, older releases) must not
+        // crash the job and must leave the row's flag at the value it had
+        // before the call (false on a fresh import).
+        var import = await SeedImportAsync();
+        _handler.QueueResponse(HttpStatusCode.OK, "{\"recipe\":{\"title\":\"x\"}}");
+
+        await _job.ExecuteAsync(import.Id, CancellationToken.None);
+
+        var reloaded = await _db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == import.Id);
+        Assert.False(reloaded.AiNormalizeActive);
+    }
+
     [Fact]
     public void AutomaticRetry_Caps_Retries_At_Two_So_Total_Attempts_Match_Frontend_Display()
     {

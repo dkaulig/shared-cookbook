@@ -433,6 +433,45 @@ public class RecipeImportTests
         Assert.Contains("requestedLanguage", ex.ParamName ?? string.Empty);
     }
 
+    // ── AI-Normalize (2026-04-27 design, slice 2) ───────────────────
+
+    [Fact]
+    public void Constructor_Defaults_AiNormalizeActive_To_False()
+    {
+        // Pre-toggle imports (the common case) carry AiNormalizeActive=false:
+        // the user did not opt into LLM-based JSON-LD normalisation.
+        var import = NewImport();
+        Assert.False(import.AiNormalizeActive);
+    }
+
+    [Fact]
+    public void RecordAiNormalizeActive_Stamps_The_Flag()
+    {
+        // The job reads `config_snapshot.ai_normalize_active` from the
+        // python-extractor response and persists it onto the row so the
+        // reimport-dialog can pre-fill the toggle.
+        var import = NewImport();
+        import.MarkRunning(50);
+
+        import.RecordAiNormalizeActive(true);
+
+        Assert.True(import.AiNormalizeActive);
+    }
+
+    [Fact]
+    public void RecordAiNormalizeActive_Is_Idempotent_Across_Multiple_Calls()
+    {
+        // Hangfire retries can replay the same response; the setter must
+        // tolerate repeated calls with the same value.
+        var import = NewImport();
+        import.MarkRunning(50);
+
+        import.RecordAiNormalizeActive(true);
+        import.RecordAiNormalizeActive(true);
+
+        Assert.True(import.AiNormalizeActive);
+    }
+
     // ── RetryFromFailed (slice 3) ───────────────────────────────────
 
     [Fact]

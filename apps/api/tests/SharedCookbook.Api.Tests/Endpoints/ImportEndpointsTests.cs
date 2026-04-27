@@ -945,6 +945,72 @@ public class ImportEndpointsTests : IClassFixture<SharedCookbookWebApplicationFa
         Assert.Equal(expectedStored, import.RequestedLanguage);
     }
 
+    // ── AI-Normalize toggle (2026-04-27 design, slice 2) ────────────
+
+    /// <summary>
+    /// Wire shape mirroring the production DTO with the new
+    /// <c>AiNormalize</c> field added. Kept as a local test record so a
+    /// rename in production fails the test loud rather than silently
+    /// passing through deserialisation tolerance.
+    /// </summary>
+    public sealed record UrlImportRequestWithAiNormalize(
+        string Url, Guid GroupId, bool AiNormalize);
+
+    [Fact]
+    public async Task Url_Import_Accepts_AiNormalize_True_And_Persists_The_Flag()
+    {
+        var (userId, token) = await SignupAsync("aiNorm@ex.com", "AiN");
+        var groupId = await CreateOwnedGroupAsync(userId);
+        _factory.Jobs.Reset();
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/url");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new UrlImportRequestWithAiNormalize(
+            "https://example.com/blog-recipe", groupId, AiNormalize: true));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+
+        var body = (await response.Content.ReadFromJsonAsync<ImportEnqueueResponse>())!;
+
+        // The endpoint maps `AiNormalize=true` onto the new
+        // RecipeImport.AiNormalizeActive property so the job picks it up
+        // and forwards it to the python extractor as `force_llm`.
+        // Persist-on-enqueue keeps the value safe across a Hangfire
+        // restart that re-runs the job hours later.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = await db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == body.ImportId);
+        Assert.True(import.AiNormalizeActive);
+    }
+
+    [Fact]
+    public async Task Url_Import_Without_AiNormalize_Field_Defaults_To_False()
+    {
+        // The legacy wire shape (no `aiNormalize` field at all) must keep
+        // working — the toggle defaults to off so existing clients see no
+        // behaviour change.
+        var (userId, token) = await SignupAsync("legacy@ex.com", "Leg");
+        var groupId = await CreateOwnedGroupAsync(userId);
+        _factory.Jobs.Reset();
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/recipes/import/url");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = JsonContent.Create(new UrlImportRequest(
+            "https://example.com/legacy-blog", groupId));
+
+        var response = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ImportEnqueueResponse>())!;
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var import = await db.RecipeImports.AsNoTracking()
+            .SingleAsync(i => i.Id == body.ImportId);
+        Assert.False(import.AiNormalizeActive);
+    }
+
     // ── POST /api/imports/{importId}/retry (slice 3) ────────────────
 
     /// <summary>

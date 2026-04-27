@@ -150,14 +150,25 @@ public static class ImportEndpoints
     /// <summary>
     /// Body of <c>POST /api/recipes/import/url</c>.
     ///
-    /// BUG-013 — <see cref="Force"/> (default <c>false</c>) is the
+    /// <para>BUG-013 — <see cref="Force"/> (default <c>false</c>) is the
     /// opt-out for the per-user 7-day import-cache: setting it to
     /// <c>true</c> skips the pre-enqueue lookup so the pipeline re-runs
     /// even when a recent successful import exists for the same URL.
     /// The frontend surfaces this as a "Neu extrahieren"-button on the
-    /// cache-hit banner.
+    /// cache-hit banner.</para>
+    ///
+    /// <para>AI-Normalize toggle (2026-04-27 design) — <see cref="AiNormalize"/>
+    /// (default <c>false</c>) is the per-import opt-in for LLM-based
+    /// JSON-LD normalisation on a blog import. Forwarded to the python
+    /// extractor as <c>force_llm</c>; the extractor honours it only on a
+    /// blog with valid JSON-LD and otherwise reports
+    /// <c>ai_normalize_active=false</c>.</para>
     /// </summary>
-    public record UrlImportRequest(string Url, Guid GroupId, bool Force = false);
+    public record UrlImportRequest(
+        string Url,
+        Guid GroupId,
+        bool Force = false,
+        bool AiNormalize = false);
 
     /// <summary>Body of <c>POST /api/recipes/import/photos</c>.</summary>
     public record PhotoImportRequest(string[] PhotoUrls, Guid GroupId);
@@ -717,6 +728,12 @@ public static class ImportEndpoints
             sourceUrl: canonicalUrl,
             createdAt: clock.GetUtcNow(),
             requestedLanguage: requestedLanguage);
+        // AI-Normalize toggle (2026-04-27 design) — capture user intent
+        // on the row so the eventual job (which may run hours later
+        // after a deploy / restart) reads the flag from the persisted
+        // RecipeImport rather than re-deriving it from the gone-by
+        // HttpContext.
+        import.RecordAiNormalizeActive(body.AiNormalize);
         db.RecipeImports.Add(import);
         await db.SaveChangesAsync(ct);
 

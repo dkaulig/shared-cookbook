@@ -2548,6 +2548,20 @@ public static class RecipeEndpoints
     // ── POST /api/recipes/{id}/reimport (REIMPORT-0) ────────────────
 
     /// <summary>
+    /// Optional body of <c>POST /api/recipes/{id}/reimport</c>. The
+    /// endpoint also accepts an empty / missing body for backwards-compat
+    /// with the original REIMPORT-0 contract — every field has a sensible
+    /// default.
+    ///
+    /// <para>AI-Normalize toggle (2026-04-27 design) — <see cref="AiNormalize"/>
+    /// (default <c>false</c>) is the per-import opt-in for LLM-based
+    /// JSON-LD normalisation. Forwarded to the python extractor as
+    /// <c>force_llm</c>; the extractor honours it only on a blog with
+    /// valid JSON-LD.</para>
+    /// </summary>
+    public record ReimportRequest(bool AiNormalize = false);
+
+    /// <summary>
     /// REIMPORT-0 — enqueues a fresh URL-extraction run against the
     /// recipe's own <see cref="Recipe.SourceUrl"/>, with a
     /// <see cref="RecipeImport.TargetRecipeId"/> back-pointer that
@@ -2583,6 +2597,7 @@ public static class RecipeEndpoints
     /// </summary>
     private static async Task<IResult> ReimportRecipeAsync(
         Guid id,
+        [FromBody] ReimportRequest? body,
         HttpRequest httpRequest,
         ClaimsPrincipal principal,
         AppDbContext db,
@@ -2668,6 +2683,12 @@ public static class RecipeEndpoints
             createdAt: clock.GetUtcNow(),
             targetRecipeId: recipe.Id,
             requestedLanguage: requestedLanguage);
+        // AI-Normalize toggle (2026-04-27 design) — capture user intent
+        // on the row so the eventual job reads the flag from the
+        // persisted RecipeImport rather than the gone-by HttpContext.
+        // A null body (legacy callers / no JSON content) defaults the
+        // flag to false, matching the pre-toggle behaviour exactly.
+        import.RecordAiNormalizeActive(body?.AiNormalize ?? false);
         db.RecipeImports.Add(import);
         await db.SaveChangesAsync(ct);
 
