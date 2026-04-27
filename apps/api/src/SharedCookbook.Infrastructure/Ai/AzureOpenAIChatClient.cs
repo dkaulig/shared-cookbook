@@ -40,15 +40,18 @@ public sealed class AzureOpenAIChatClient : IAzureOpenAIChatClient
 
     private readonly HttpClient _http;
     private readonly AzureOpenAIOptions _options;
+    private readonly IAzureChatClientSettings _settings;
     private readonly ILogger<AzureOpenAIChatClient> _logger;
 
     public AzureOpenAIChatClient(
         HttpClient http,
         IOptions<AzureOpenAIOptions> options,
+        IAzureChatClientSettings settings,
         ILogger<AzureOpenAIChatClient> logger)
     {
         _http = http;
         _options = options.Value;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -57,7 +60,14 @@ public sealed class AzureOpenAIChatClient : IAzureOpenAIChatClient
         IReadOnlyList<ChatCompletionMessage> messages,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        if (!TryBuildRequest(messages, stream: true, out var request, out var config))
+        // CFG-1 — read the admin-tunable cap once per call so an
+        // operator's update via the admin extractor-config endpoint
+        // takes effect on the very next request.
+        var maxCompletionTokens =
+            await _settings.GetMaxCompletionTokensAsync(ct).ConfigureAwait(false);
+        if (!TryBuildRequest(
+                messages, stream: true, maxCompletionTokens,
+                out var request, out var config))
         {
             yield return new ChatStreamChunk.Error(
                 "chat_not_configured",
@@ -154,7 +164,11 @@ public sealed class AzureOpenAIChatClient : IAzureOpenAIChatClient
         IReadOnlyList<ChatCompletionMessage> messages,
         CancellationToken ct)
     {
-        if (!TryBuildRequest(messages, stream: false, out var request, out var config))
+        var maxCompletionTokens =
+            await _settings.GetMaxCompletionTokensAsync(ct).ConfigureAwait(false);
+        if (!TryBuildRequest(
+                messages, stream: false, maxCompletionTokens,
+                out var request, out var config))
             throw new InvalidOperationException("Azure OpenAI ist nicht konfiguriert.");
 
         using (request)
@@ -195,6 +209,7 @@ public sealed class AzureOpenAIChatClient : IAzureOpenAIChatClient
     internal bool TryBuildRequest(
         IReadOnlyList<ChatCompletionMessage> messages,
         bool stream,
+        int maxCompletionTokens,
         out HttpRequestMessage request,
         out RequestConfig config)
     {
@@ -226,7 +241,7 @@ public sealed class AzureOpenAIChatClient : IAzureOpenAIChatClient
         var payload = new Dictionary<string, object?>
         {
             ["messages"] = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray(),
-            ["max_completion_tokens"] = 2048,
+            ["max_completion_tokens"] = maxCompletionTokens,
         };
         if (stream)
         {

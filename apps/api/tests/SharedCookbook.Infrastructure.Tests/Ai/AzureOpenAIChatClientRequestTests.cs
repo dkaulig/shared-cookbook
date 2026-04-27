@@ -18,7 +18,7 @@ namespace SharedCookbook.Infrastructure.Tests.Ai;
 /// </summary>
 public class AzureOpenAIChatClientRequestTests
 {
-    private static AzureOpenAIChatClient BuildClient()
+    private static AzureOpenAIChatClient BuildClient(int maxCompletionTokens = 4096)
     {
         var http = new HttpClient { BaseAddress = new Uri("https://unused.invalid/") };
         var options = Options.Create(new AzureOpenAIOptions
@@ -28,8 +28,17 @@ public class AzureOpenAIChatClientRequestTests
             ApiVersion = "2025-04-01-preview",
             ChatDeployment = "gpt-5.1-chat",
         });
+        var settings = new StubChatClientSettings(maxCompletionTokens);
         var logger = NullLogger<AzureOpenAIChatClient>.Instance;
-        return new AzureOpenAIChatClient(http, options, logger);
+        return new AzureOpenAIChatClient(http, options, settings, logger);
+    }
+
+    private sealed class StubChatClientSettings : IAzureChatClientSettings
+    {
+        private readonly int _max;
+        public StubChatClientSettings(int max) => _max = max;
+        public Task<int> GetMaxCompletionTokensAsync(CancellationToken ct) =>
+            Task.FromResult(_max);
     }
 
     private static async Task<JsonDocument> ReadBodyAsync(HttpRequestMessage request)
@@ -45,13 +54,15 @@ public class AzureOpenAIChatClientRequestTests
         var client = BuildClient();
         var messages = new[] { new ChatCompletionMessage("user", "hi") };
 
-        var ok = client.TryBuildRequest(messages, stream: true, out var request, out _);
+        var ok = client.TryBuildRequest(
+            messages, stream: true, maxCompletionTokens: 4096,
+            out var request, out _);
 
         Assert.True(ok);
         using var doc = await ReadBodyAsync(request);
         var root = doc.RootElement;
         Assert.True(root.TryGetProperty("max_completion_tokens", out var cap));
-        Assert.Equal(2048, cap.GetInt32());
+        Assert.Equal(4096, cap.GetInt32());
         Assert.False(root.TryGetProperty("max_tokens", out _));
     }
 
@@ -61,7 +72,9 @@ public class AzureOpenAIChatClientRequestTests
         var client = BuildClient();
         var messages = new[] { new ChatCompletionMessage("user", "hi") };
 
-        var ok = client.TryBuildRequest(messages, stream: false, out var request, out _);
+        var ok = client.TryBuildRequest(
+            messages, stream: false, maxCompletionTokens: 4096,
+            out var request, out _);
 
         Assert.True(ok);
         using var doc = await ReadBodyAsync(request);
@@ -69,5 +82,25 @@ public class AzureOpenAIChatClientRequestTests
         // temperature values with an `unsupported_value` 400. Keep it
         // out of the payload entirely.
         Assert.False(doc.RootElement.TryGetProperty("temperature", out _));
+    }
+
+    [Fact]
+    public async Task TryBuildRequest_Honors_Caller_Supplied_MaxCompletionTokens()
+    {
+        // CFG-1 — admin-set llm.chat.max_completion_tokens overrides the
+        // hardcoded fallback (post-v0.15.3 default is 4096; admin can
+        // raise to anywhere up to the 8192 hard ceiling enforced by
+        // ConfigKeyValidator).
+        var client = BuildClient();
+        var messages = new[] { new ChatCompletionMessage("user", "hi") };
+
+        var ok = client.TryBuildRequest(
+            messages, stream: true, maxCompletionTokens: 8000,
+            out var request, out _);
+
+        Assert.True(ok);
+        using var doc = await ReadBodyAsync(request);
+        Assert.True(doc.RootElement.TryGetProperty("max_completion_tokens", out var cap));
+        Assert.Equal(8000, cap.GetInt32());
     }
 }

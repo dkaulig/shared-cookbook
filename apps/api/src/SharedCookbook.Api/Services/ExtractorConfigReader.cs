@@ -49,6 +49,21 @@ public interface IExtractorConfigReader
     /// default for the key so a brand-new DB and a healthy DB behave
     /// identically.</param>
     Task<bool> GetFeatureFlagAsync(string key, bool defaultValue, CancellationToken ct);
+
+    /// <summary>
+    /// Reads the named row and parses its <c>ValueJson</c> as a JSON
+    /// integer. Returns <paramref name="defaultValue"/> when the row is
+    /// missing or the stored payload isn't a parseable Int32. Used by
+    /// the chat-client max-completion-tokens settings adapter so admin
+    /// overrides on <c>llm.chat.max_completion_tokens</c> take effect on
+    /// the very next chat request.
+    /// </summary>
+    /// <param name="key">Dotted config key, e.g.
+    /// <c>llm.chat.max_completion_tokens</c>.</param>
+    /// <param name="defaultValue">Fallback when the row is missing or the
+    /// value can't be parsed. Should match the seeded default so a
+    /// brand-new DB and a healthy DB behave identically.</param>
+    Task<int> GetIntAsync(string key, int defaultValue, CancellationToken ct);
 }
 
 /// <inheritdoc />
@@ -101,6 +116,40 @@ public sealed class ExtractorConfigReader : IExtractorConfigReader
 
         _logger.LogWarning(
             "ExtractorConfig row '{Key}' has non-bool ValueJson '{ValueJson}'; falling back to {Default}.",
+            key, valueJson, defaultValue);
+        return defaultValue;
+    }
+
+    public async Task<int> GetIntAsync(
+        string key, int defaultValue, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Key must not be blank.", nameof(key));
+
+        var valueJson = await _db.ExtractorConfigs
+            .AsNoTracking()
+            .Where(c => c.Key == key)
+            .Select(c => c.ValueJson)
+            .FirstOrDefaultAsync(ct);
+
+        if (valueJson is null) return defaultValue;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(valueJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Number
+                && doc.RootElement.TryGetInt32(out var n))
+            {
+                return n;
+            }
+        }
+        catch (JsonException)
+        {
+            // fall through to the malformed-value branch below.
+        }
+
+        _logger.LogWarning(
+            "ExtractorConfig row '{Key}' has non-int ValueJson '{ValueJson}'; falling back to {Default}.",
             key, valueJson, defaultValue);
         return defaultValue;
     }

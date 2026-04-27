@@ -271,6 +271,11 @@ builder.Services.Configure<AzureOpenAIOptions>(
 builder.Services.AddHttpClient<IAzureOpenAIChatClient, AzureOpenAIChatClient>(
     AzureOpenAIChatClient.HttpClientName,
     client => client.Timeout = TimeSpan.FromSeconds(120));
+// CFG-1 — bind the chat client's max_completion_tokens cap to the
+// admin extractor-config registry. Scoped to share the request's
+// IExtractorConfigReader (and thus AppDbContext); a fresh PK lookup
+// per chat call is fine — the cost is sub-millisecond.
+builder.Services.AddScoped<IAzureChatClientSettings, CfgAzureChatClientSettings>();
 builder.Services.AddScoped<ChatTitleService>();
 // FLAKY-1 — fire-and-forget seam for the chat auto-title Task.Run
 // call in ChatEndpoints.TurnAsync. Production no-op; integration
