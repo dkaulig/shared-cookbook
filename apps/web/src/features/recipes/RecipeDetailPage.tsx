@@ -21,7 +21,7 @@ import { useRatings } from '@/features/ratings/hooks'
 import { useGroup } from '@/features/groups/hooks'
 import { useAuth } from '@/features/auth/useAuth'
 import { useFeatures } from '@/features/_shared/useFeatures'
-import { useImportCandidates } from '@/features/imports/hooks'
+import { useImportCandidates, useImportStatus } from '@/features/imports/hooks'
 import {
   useCachedTranslation,
   useDeleteRecipe,
@@ -120,6 +120,14 @@ export function RecipeDetailPage() {
   // be a wrapper around the state triple.
   const [reimportOpen, setReimportOpen] = useState(false)
   const [reimportError, setReimportError] = useState<string | null>(null)
+  // AI-Normalize toggle (2026-04-27 design, slice 3) — local checkbox
+  // state for the reimport-dialog. Pre-filled from the most recent
+  // import's persisted `aiNormalizeActive` so the user's last opt-in
+  // survives across reimport rounds. The pre-fill happens lazily when
+  // the dialog opens (see `handleOpenReimport` below) so a stale
+  // `originImport` query doesn't lock the checkbox before the user
+  // actually clicks "Neu importieren".
+  const [reimportAiNormalize, setReimportAiNormalize] = useState(false)
   // REIMPORT-1 — success banner surfaces when the progress page
   // redirects back with `state.reimportSuccess`. Auto-hides after 4 s
   // so it doesn't linger on subsequent navigations.
@@ -150,6 +158,17 @@ export function RecipeDetailPage() {
   const coverCandidatesQuery = useImportCandidates(
     originImportId ?? undefined,
     { enabled: !!originImportId && !coverGoneForSession },
+  )
+  // AI-Normalize toggle (slice 3) — fetch the origin import's full
+  // status so the reimport-dialog can pre-fill its checkbox from the
+  // persisted `aiNormalizeActive` flag. The origin import is in a
+  // terminal state by the time we view the recipe, so `useImportStatus`
+  // returns immediately and stops polling (see hook's terminal-state
+  // guard). Only fires when an origin-import id resolves AND the user
+  // has reimport rights — there is no other read-site for the flag.
+  const originImportStatusQuery = useImportStatus(
+    originImportId ?? undefined,
+    { enabled: !!originImportId },
   )
   const canShowCoverButton =
     isOwner &&
@@ -332,7 +351,10 @@ export function RecipeDetailPage() {
     if (!recipe) return
     setReimportError(null)
     try {
-      const { importId } = await reimportMutation.mutateAsync(recipe.version)
+      const { importId } = await reimportMutation.mutateAsync({
+        version: recipe.version,
+        aiNormalize: reimportAiNormalize,
+      })
       setReimportOpen(false)
       // Navigate to the shared progress page. The detail-page group id
       // is passed as router state for the page's sessionStorage memo
@@ -404,6 +426,13 @@ export function RecipeDetailPage() {
         onDelete={() => setDeleteOpen(true)}
         onReimport={() => {
           setReimportError(null)
+          // AI-Normalize toggle (slice 3) — pre-fill from the most
+          // recent import's persisted flag so a repeated reimport
+          // reproduces the user's last opt-in. Falls back to off when
+          // the origin-import row is missing or hasn't loaded yet.
+          setReimportAiNormalize(
+            originImportStatusQuery.data?.aiNormalizeActive ?? false,
+          )
           setReimportOpen(true)
         }}
       />
@@ -711,12 +740,51 @@ export function RecipeDetailPage() {
                   'Der ursprüngliche Import wird erneut ausgeführt und überschreibt Titel, Zutaten und Schritte mit den frischen Daten. Fotos, Bewertungen und „Zuletzt gekocht"-Historie bleiben erhalten. Manuelle Änderungen am Rezept gehen verloren.',
               })}
             </p>
-            <p className="rounded-[10px] bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-[13px] leading-[1.45] text-foreground ring-1 ring-[hsl(var(--primary)/0.2)]">
+            <p className="mb-4 rounded-[10px] bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-[13px] leading-[1.45] text-foreground ring-1 ring-[hsl(var(--primary)/0.2)]">
               {t('recipes.detail.reimportDialog.linkDriftHint', {
                 defaultValue:
                   'Falls der Link zwischenzeitlich geändert wurde, kann ein komplett anderes Rezept entstehen.',
               })}
             </p>
+            {/* AI-Normalize toggle (slice 3) — opt-in for LLM-based
+                JSON-LD normalisation. Pre-filled from the origin
+                import's persisted flag. Disabled when no AI provider
+                is configured. The tooltip variant flips accordingly. */}
+            <div className="rounded-[10px] border border-dashed border-border bg-[hsl(var(--muted)/0.4)] px-3 py-2.5">
+              <label className="flex cursor-pointer items-start gap-2.5 text-foreground select-none">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-60"
+                  checked={reimportAiNormalize}
+                  disabled={!features.ai.enabled}
+                  onChange={(e) => setReimportAiNormalize(e.target.checked)}
+                  aria-describedby="reimport-ai-normalize-hint"
+                />
+                <span className="flex-1">
+                  <span className="text-[13.5px] font-medium">
+                    {t('recipes.detail.reimportDialog.aiNormalizeLabel', {
+                      defaultValue:
+                        'Mit AI verfeinern (für englische Blogs)',
+                    })}
+                  </span>
+                  <span
+                    id="reimport-ai-normalize-hint"
+                    data-testid="reimport-ai-normalize-hint"
+                    className="mt-1 block text-[12.5px] text-[hsl(var(--muted-foreground))]"
+                  >
+                    {features.ai.enabled
+                      ? t('recipes.detail.reimportDialog.aiNormalizeHintAvailable', {
+                          defaultValue:
+                            'Übersetzt das Rezept und normalisiert Mengen. Kostet AI-Tokens und dauert ~10 s länger.',
+                        })
+                      : t('recipes.detail.reimportDialog.aiNormalizeHintUnavailable', {
+                          defaultValue:
+                            'Nicht verfügbar — kein AI-Provider konfiguriert.',
+                        })}
+                  </span>
+                </span>
+              </label>
+            </div>
           </>
         }
         confirmLabel={t('recipes.detail.reimportDialog.confirmCta', {

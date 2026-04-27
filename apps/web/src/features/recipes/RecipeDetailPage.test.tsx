@@ -631,6 +631,163 @@ describe('RecipeDetailPage', () => {
     expect(screen.getByTestId('location').textContent).toBe('/groups/g1')
   })
 
+  // AI-Normalize toggle (2026-04-27 design, slice 3) — reimport dialog
+  // exposes the per-import opt-in for LLM-based JSON-LD normalisation.
+  // Pre-fills from the most recent import's persisted
+  // `aiNormalizeActive` so a repeated reimport reproduces the user's
+  // last opt-in shape.
+  it('AI-Normalize: reimport dialog renders the checkbox + tooltip text', async () => {
+    const user = userEvent.setup()
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+    await screen.findByRole('heading', { name: /Rezept neu importieren\?/i })
+
+    const checkbox = await screen.findByLabelText(
+      /Mit AI verfeinern \(für englische Blogs\)/i,
+    )
+    expect(checkbox).toBeInTheDocument()
+    expect(checkbox).not.toBeChecked()
+    const hint = await screen.findByTestId('reimport-ai-normalize-hint')
+    expect(hint).toHaveTextContent(/Übersetzt das Rezept und normalisiert Mengen/i)
+  })
+
+  it('AI-Normalize: pre-fills the checkbox from the origin import\'s aiNormalizeActive=true', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/recipes/r1/origin-import', () =>
+        HttpResponse.json({ importId: 'imp-origin' }),
+      ),
+      http.get('/api/imports/imp-origin', () =>
+        HttpResponse.json({
+          id: 'imp-origin',
+          groupId: 'g1',
+          source: 'Url',
+          status: 'Done',
+          progress: 100,
+          sourceUrl: 'https://example.com/recipe',
+          result: null,
+          error: null,
+          createdAt: '2026-04-26T00:00:00Z',
+          completedAt: '2026-04-26T00:00:42Z',
+          phase: 'done',
+          phaseProgress: 100,
+          progressLabel: null,
+          attemptNumber: 1,
+          bytesDownloaded: null,
+          bytesTotal: null,
+          segmentsDone: null,
+          segmentsTotal: null,
+          lastProgressAt: '2026-04-26T00:00:42Z',
+          candidateStagedPhotoIds: [],
+          targetRecipeId: null,
+          aiNormalizeActive: true,
+        }),
+      ),
+      http.get('/api/imports/imp-origin/candidates', () =>
+        HttpResponse.json(
+          { code: 'candidates_expired', message: 'gone' },
+          { status: 410 },
+        ),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+    const checkbox = await screen.findByLabelText(
+      /Mit AI verfeinern \(für englische Blogs\)/i,
+    )
+    await waitFor(() => expect(checkbox).toBeChecked())
+  })
+
+  it('AI-Normalize: forwards aiNormalize=true in the reimport body when the checkbox is ticked', async () => {
+    const user = userEvent.setup()
+    let capturedBody: { aiNormalize?: boolean } | null = null
+    server.use(
+      http.post('/api/recipes/r1/reimport', async ({ request }) => {
+        capturedBody = (await request.json()) as { aiNormalize?: boolean }
+        return HttpResponse.json({ importId: 'imp-99' }, { status: 202 })
+      }),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+    await screen.findByRole('heading', { name: /Rezept neu importieren\?/i })
+    const checkbox = await screen.findByLabelText(
+      /Mit AI verfeinern \(für englische Blogs\)/i,
+    )
+    await user.click(checkbox)
+    await user.click(screen.getByRole('button', { name: /Reimport starten/i }))
+
+    await waitFor(() => expect(capturedBody).not.toBeNull())
+    expect(capturedBody!.aiNormalize).toBe(true)
+  })
+
+  it('AI-Normalize: cancel does NOT fire the reimport mutation', async () => {
+    const user = userEvent.setup()
+    let posted = false
+    server.use(
+      http.post('/api/recipes/r1/reimport', () => {
+        posted = true
+        return HttpResponse.json({ importId: 'x' }, { status: 202 })
+      }),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+    await screen.findByRole('heading', { name: /Rezept neu importieren\?/i })
+    await user.click(screen.getByRole('button', { name: /Abbrechen/i }))
+    expect(posted).toBe(false)
+  })
+
+  it('AI-Normalize: disables the checkbox when no AI provider is configured', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/meta/features', () =>
+        HttpResponse.json({
+          ai: {
+            enabled: false,
+            provider: null,
+            features: {
+              urlImport: false,
+              jsonldImport: true,
+              videoImport: false,
+              photoImport: false,
+              chat: false,
+            },
+          },
+        }),
+      ),
+    )
+    render(withProviders('/groups/g1/recipes/r1'))
+    await screen.findByRole('heading', { name: /Spätzle/ })
+    await user.click(screen.getByRole('button', { name: /Mehr/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /Neu importieren/i }),
+    )
+    await screen.findByRole('heading', { name: /Rezept neu importieren\?/i })
+    const checkbox = await screen.findByLabelText(
+      /Mit AI verfeinern \(für englische Blogs\)/i,
+    )
+    await waitFor(() => expect(checkbox).toBeDisabled())
+    const hint = await screen.findByTestId('reimport-ai-normalize-hint')
+    expect(hint).toHaveTextContent(/Nicht verfügbar — kein AI-Provider konfiguriert/i)
+  })
+
   it('REIMPORT-1: surfaces a 409 version_mismatch as an inline error without navigating', async () => {
     const user = userEvent.setup()
     server.use(

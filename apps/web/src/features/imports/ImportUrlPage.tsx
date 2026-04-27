@@ -69,6 +69,18 @@ export function ImportUrlPage() {
   const [error, setError] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  // AI-Normalize toggle (slice 3) — opt-in for the LLM-based JSON-LD
+  // normalisation pass. Default off so the cost (Azure tokens + ~10 s
+  // latency) is always an explicit user choice. Disabled when the
+  // server has no LLM provider configured.
+  const [aiNormalize, setAiNormalize] = useState(false)
+  // AI-Normalize gate (slice 3) — `features.ai.enabled` reflects the
+  // server's `llm.provider != none` config. Optimistically true while
+  // the features-probe is in-flight; collapses to false on the AI-OFF
+  // fallback. Mirrors the URL-import-CTA gate already used elsewhere
+  // on this page (REL-7) so a server-off instance hides both the AI
+  // CTA and the AI-normalize toggle in a single shot.
+  const aiProviderConfigured = features.ai.enabled
   // BUG-013 — when the server reports a cache-hit we render a banner
   // with "Zum bestehenden Rezept" + "Neu extrahieren" CTAs instead of
   // auto-navigating. Cleared on the next submit + after either CTA.
@@ -118,6 +130,12 @@ export function ImportUrlPage() {
         url: trimmed,
         groupId,
         ...(options?.force ? { force: true } : {}),
+        // AI-Normalize toggle (slice 3) — only include the field when
+        // the user actually opted in AND a provider is configured. The
+        // server treats missing as `false`, matching pre-toggle wire.
+        ...(aiNormalize && aiProviderConfigured
+          ? { aiNormalize: true }
+          : {}),
       })
       // Stash groupId keyed by importId so the progress page + the
       // RecipeFormPage prefill know which group to route to, across
@@ -334,6 +352,44 @@ export function ImportUrlPage() {
             {error}
           </p>
         )}
+
+        {/* AI-Normalize toggle (2026-04-27 design, slice 3) — opt-in for
+            LLM-based JSON-LD normalisation on a blog import. Disabled
+            when no AI provider is configured. */}
+        <div className="mt-5 rounded-[12px] border border-dashed border-border bg-[hsl(var(--muted)/0.4)] px-3 py-3">
+          <label className="flex cursor-pointer items-start gap-2.5 select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-60"
+              checked={aiNormalize}
+              disabled={!aiProviderConfigured}
+              onChange={(e) => setAiNormalize(e.target.checked)}
+              aria-describedby="import-url-ai-normalize-hint"
+            />
+            <span className="flex-1">
+              <span className="text-[14px] font-medium text-foreground">
+                {t('imports.urlPage.aiNormalizeLabel', {
+                  defaultValue: 'Mit AI verfeinern (für englische Blogs)',
+                })}
+              </span>
+              <span
+                id="import-url-ai-normalize-hint"
+                data-testid="import-url-ai-normalize-hint"
+                className="mt-1 block text-[12.5px] text-[hsl(var(--muted-foreground))]"
+              >
+                {aiProviderConfigured
+                  ? t('imports.urlPage.aiNormalizeHintAvailable', {
+                      defaultValue:
+                        'Übersetzt das Rezept und normalisiert Mengen. Kostet AI-Tokens und dauert ~10 s länger.',
+                    })
+                  : t('imports.urlPage.aiNormalizeHintUnavailable', {
+                      defaultValue:
+                        'Nicht verfügbar — kein AI-Provider konfiguriert.',
+                    })}
+              </span>
+            </span>
+          </label>
+        </div>
 
         <div className="mt-6 flex items-center justify-end gap-2">
           <Button

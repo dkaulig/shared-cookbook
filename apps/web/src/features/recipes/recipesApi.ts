@@ -10,6 +10,7 @@ import type {
   RecipeOriginImportResponse,
   RecipeSummaryListDto,
   RecipeTranslationResponse,
+  ReimportRequest,
   TagDto,
   UpdateRecipeRequest,
   VersionMismatchError as VersionMismatchErrorBody,
@@ -259,22 +260,31 @@ export async function fetchRecipeOriginImport(
 
 /**
  * REIMPORT-1 — enqueue a fresh extractor run against the recipe's saved
- * `sourceUrl`. The request body is intentionally empty: the server reads
- * the URL from the DB row so a caller can't redirect the extractor at
- * another host. The caller must pass an `If-Match` header derived from
- * the cached recipe `version` so a stale write fails with 409; typed
- * `VersionMismatchError` surfaces for the conflict-resolver UX (reload
- * + retry).
+ * `sourceUrl`. The URL is read from the DB row server-side so a caller
+ * can't redirect the extractor at another host. The caller must pass an
+ * `If-Match` header derived from the cached recipe `version` so a stale
+ * write fails with 409; typed `VersionMismatchError` surfaces for the
+ * conflict-resolver UX (reload + retry).
+ *
+ * AI-Normalize toggle (2026-04-27 design, slice 3) — `body.aiNormalize`
+ * (default `false`) is the per-reimport opt-in for LLM-based JSON-LD
+ * normalisation. Forwarded to the .NET endpoint and on to the Python
+ * extractor as `force_llm`. An empty body / omitted field is legal and
+ * defaults to off, matching the pre-toggle behaviour exactly.
  */
 export async function reimportRecipe(
   id: string,
-  options?: { ifMatch?: string },
+  options?: { ifMatch?: string; body?: ReimportRequest },
 ): Promise<ImportEnqueueResponse> {
   return request<ImportEnqueueResponse>(
     `/api/recipes/${encodeURIComponent(id)}/reimport`,
     {
       method: 'POST',
       ifMatch: options?.ifMatch,
+      headers: options?.body
+        ? { 'Content-Type': 'application/json' }
+        : undefined,
+      body: options?.body ? JSON.stringify(options.body) : undefined,
     },
   )
 }

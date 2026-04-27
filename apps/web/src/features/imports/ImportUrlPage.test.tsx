@@ -495,4 +495,188 @@ describe('<ImportUrlPage />', () => {
       expect(input.className).toMatch(/\btext-base\b/)
     })
   })
+
+  // AI-Normalize toggle (2026-04-27 design, slice 3) — opt-in checkbox
+  // for LLM-based JSON-LD normalisation on a blog import. Default off,
+  // included in submit body when ticked, disabled when no AI provider
+  // is configured.
+  describe('AI-Normalize toggle', () => {
+    it('renders the checkbox with German label, off by default', async () => {
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({})]),
+        ),
+        http.get('/api/meta/features', () =>
+          HttpResponse.json({
+            ai: {
+              enabled: true,
+              provider: 'azure',
+              features: {
+                urlImport: true,
+                jsonldImport: true,
+                videoImport: true,
+                photoImport: true,
+                chat: true,
+              },
+            },
+          }),
+        ),
+      )
+      renderPage()
+      const checkbox = await screen.findByLabelText(
+        /Mit AI verfeinern \(für englische Blogs\)/i,
+      )
+      expect(checkbox).toBeInTheDocument()
+      expect(checkbox).not.toBeChecked()
+      expect(checkbox).not.toBeDisabled()
+    })
+
+    it('renders the explanatory tooltip text', async () => {
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({})]),
+        ),
+        http.get('/api/meta/features', () =>
+          HttpResponse.json({
+            ai: {
+              enabled: true,
+              provider: 'azure',
+              features: {
+                urlImport: true,
+                jsonldImport: true,
+                videoImport: true,
+                photoImport: true,
+                chat: true,
+              },
+            },
+          }),
+        ),
+      )
+      renderPage()
+      const hint = await screen.findByTestId('import-url-ai-normalize-hint')
+      expect(hint).toHaveTextContent(/Übersetzt das Rezept und normalisiert Mengen/i)
+      expect(hint).toHaveTextContent(/Kostet AI-Tokens/i)
+    })
+
+    it('submits aiNormalize=true when checked', async () => {
+      const user = userEvent.setup()
+      let capturedBody: { url: string; groupId: string; aiNormalize?: boolean } | null = null
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'only' })]),
+        ),
+        http.get('/api/meta/features', () =>
+          HttpResponse.json({
+            ai: {
+              enabled: true,
+              provider: 'azure',
+              features: {
+                urlImport: true,
+                jsonldImport: true,
+                videoImport: true,
+                photoImport: true,
+                chat: true,
+              },
+            },
+          }),
+        ),
+        http.post('/api/recipes/import/url', async ({ request }) => {
+          capturedBody = (await request.json()) as {
+            url: string
+            groupId: string
+            aiNormalize?: boolean
+          }
+          return HttpResponse.json({ importId: 'imp-ai-1' }, { status: 202 })
+        }),
+      )
+      renderPage()
+      await user.type(
+        screen.getByLabelText(/Video- oder Blog-URL/i),
+        'https://example.com/blog',
+      )
+      const checkbox = await screen.findByLabelText(
+        /Mit AI verfeinern \(für englische Blogs\)/i,
+      )
+      await user.click(checkbox)
+      expect(checkbox).toBeChecked()
+      await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
+      await waitFor(() => expect(capturedBody).not.toBeNull())
+      expect(capturedBody!.aiNormalize).toBe(true)
+    })
+
+    it('omits aiNormalize when unchecked (default state)', async () => {
+      const user = userEvent.setup()
+      let capturedBody: { url: string; groupId: string; aiNormalize?: boolean } | null = null
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({ id: 'only' })]),
+        ),
+        http.get('/api/meta/features', () =>
+          HttpResponse.json({
+            ai: {
+              enabled: true,
+              provider: 'azure',
+              features: {
+                urlImport: true,
+                jsonldImport: true,
+                videoImport: true,
+                photoImport: true,
+                chat: true,
+              },
+            },
+          }),
+        ),
+        http.post('/api/recipes/import/url', async ({ request }) => {
+          capturedBody = (await request.json()) as {
+            url: string
+            groupId: string
+            aiNormalize?: boolean
+          }
+          return HttpResponse.json({ importId: 'imp-ai-2' }, { status: 202 })
+        }),
+      )
+      renderPage()
+      await user.type(
+        screen.getByLabelText(/Video- oder Blog-URL/i),
+        'https://example.com/blog',
+      )
+      await user.click(screen.getByRole('button', { name: /Rezept importieren/i }))
+      await waitFor(() => expect(capturedBody).not.toBeNull())
+      // Either omitted or explicitly false — both are server-side equivalent.
+      expect(capturedBody!.aiNormalize ?? false).toBe(false)
+    })
+
+    it('disables the checkbox when provider=null (no AI configured)', async () => {
+      server.use(
+        http.get('/api/groups', () =>
+          HttpResponse.json<GroupSummary[]>([groupSummary({})]),
+        ),
+        http.get('/api/meta/features', () =>
+          HttpResponse.json({
+            ai: {
+              enabled: false,
+              provider: null,
+              features: {
+                urlImport: false,
+                jsonldImport: true,
+                videoImport: false,
+                photoImport: false,
+                chat: false,
+              },
+            },
+          }),
+        ),
+      )
+      renderPage()
+      const checkbox = await screen.findByLabelText(
+        /Mit AI verfeinern \(für englische Blogs\)/i,
+      )
+      // The features-probe collapses the optimistic AI-on render once
+      // the MSW handler resolves, so wait for the disabled state to
+      // settle rather than asserting on the optimistic frame.
+      await waitFor(() => expect(checkbox).toBeDisabled())
+      const hint = await screen.findByTestId('import-url-ai-normalize-hint')
+      expect(hint).toHaveTextContent(/Nicht verfügbar — kein AI-Provider konfiguriert/i)
+    })
+  })
 })

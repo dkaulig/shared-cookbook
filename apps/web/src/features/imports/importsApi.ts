@@ -109,6 +109,13 @@ export interface ImportStatusResponseWire {
    * server builds — treat absent as null.
    */
   targetRecipeId?: string | null
+  /**
+   * AI-Normalize toggle (2026-04-27 design, slice 3) — captured user
+   * intent for LLM-based JSON-LD normalisation. Mirrors the persisted
+   * `RecipeImport.AiNormalizeActive` server-side field. Absent on
+   * legacy server builds — treat absent as `false`.
+   */
+  aiNormalizeActive?: boolean
 }
 
 function normaliseStatus(raw: string): ImportStatus {
@@ -189,6 +196,10 @@ export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportD
     // builds) means this is a standard import; the progress page
     // falls through to the new-recipe-form branch on Done.
     targetRecipeId: wire.targetRecipeId ?? null,
+    // AI-Normalize toggle (slice 3) — pass through verbatim. Absent on
+    // legacy server builds normalises to `false` so the reimport-
+    // dialog's pre-fill is always a defined boolean.
+    aiNormalizeActive: wire.aiNormalizeActive ?? false,
   }
 }
 

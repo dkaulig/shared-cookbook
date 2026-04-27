@@ -304,10 +304,11 @@ export function useSwapRecipeCover(recipeId: string, importId?: string | null) {
 
 /**
  * REIMPORT-1 — fire a fresh extractor run against the recipe's saved
- * `sourceUrl`. The mutation accepts the caller's last-known `version`
- * as its `mutate` argument so the built `If-Match` header carries the
- * correct ETag (`W/"{id}-{version}"`); passing a stale version yields
- * a typed `VersionMismatchError` for the conflict-resolver UX.
+ * `sourceUrl`. The mutation accepts a `{ version, aiNormalize }`
+ * payload so the built `If-Match` header carries the correct ETag
+ * (`W/"{id}-{version}"`) and the request body forwards the AI-Normalize
+ * opt-in to the .NET endpoint. Passing a stale version yields a typed
+ * `VersionMismatchError` for the conflict-resolver UX.
  *
  * Returns `{ importId }` so the caller can navigate to
  * `/rezepte/import/{importId}` — the existing `ImportProgressPage` owns
@@ -316,11 +317,17 @@ export function useSwapRecipeCover(recipeId: string, importId?: string | null) {
  * Done, the progress page itself invalidates the recipe detail query,
  * so this hook has no post-success cache work to do.
  */
+export interface ReimportMutationInput {
+  version: number
+  aiNormalize?: boolean
+}
+
 export function useReimportRecipe(recipeId: string) {
-  return useMutation<ImportEnqueueResponse, Error, number>({
-    mutationFn: (currentVersion) =>
+  return useMutation<ImportEnqueueResponse, Error, ReimportMutationInput>({
+    mutationFn: ({ version, aiNormalize }) =>
       reimportRecipe(recipeId, {
-        ifMatch: buildIfMatch(recipeId, currentVersion),
+        ifMatch: buildIfMatch(recipeId, version),
+        body: { aiNormalize: aiNormalize ?? false },
       }),
   })
 }

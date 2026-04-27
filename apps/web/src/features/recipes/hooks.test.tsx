@@ -112,7 +112,7 @@ describe('useReimportRecipe', () => {
     const { result } = renderHook(() => useReimportRecipe('r1'), {
       wrapper: makeWrapper(),
     })
-    const response = await result.current.mutateAsync(7)
+    const response = await result.current.mutateAsync({ version: 7 })
     expect(response.importId).toBe('imp-42')
     // Weak-ETag format matches the buildIfMatch helper output.
     expect(seenIfMatch).toBe('W/"r1-7"')
@@ -135,9 +135,9 @@ describe('useReimportRecipe', () => {
     const { result } = renderHook(() => useReimportRecipe('r1'), {
       wrapper: makeWrapper(),
     })
-    await expect(result.current.mutateAsync(3)).rejects.toBeInstanceOf(
-      VersionMismatchError,
-    )
+    await expect(
+      result.current.mutateAsync({ version: 3 }),
+    ).rejects.toBeInstanceOf(VersionMismatchError)
   })
 
   it('surfaces photo_import_reimport_not_supported as a typed error on 400', async () => {
@@ -156,7 +156,9 @@ describe('useReimportRecipe', () => {
     const { result } = renderHook(() => useReimportRecipe('r1'), {
       wrapper: makeWrapper(),
     })
-    await expect(result.current.mutateAsync(0)).rejects.toMatchObject({
+    await expect(
+      result.current.mutateAsync({ version: 0 }),
+    ).rejects.toMatchObject({
       code: 'photo_import_reimport_not_supported',
     })
   })
@@ -177,9 +179,45 @@ describe('useReimportRecipe', () => {
     const { result } = renderHook(() => useReimportRecipe('r1'), {
       wrapper: makeWrapper(),
     })
-    await expect(result.current.mutateAsync(0)).rejects.toMatchObject({
+    await expect(
+      result.current.mutateAsync({ version: 0 }),
+    ).rejects.toMatchObject({
       code: 'source_url_missing',
     })
+  })
+
+  // AI-Normalize toggle (slice 3) — the reimport mutation forwards the
+  // user's checkbox state to the .NET endpoint as a JSON body. The
+  // endpoint forwards it to the Python extractor as `force_llm`. A
+  // missing `aiNormalize` defaults to false (matches pre-toggle wire).
+  it('forwards aiNormalize=true in the JSON body', async () => {
+    let capturedBody: { aiNormalize?: boolean } | null = null
+    server.use(
+      http.post('/api/recipes/r1/reimport', async ({ request }) => {
+        capturedBody = (await request.json()) as { aiNormalize?: boolean }
+        return HttpResponse.json({ importId: 'imp-ai' }, { status: 202 })
+      }),
+    )
+    const { result } = renderHook(() => useReimportRecipe('r1'), {
+      wrapper: makeWrapper(),
+    })
+    await result.current.mutateAsync({ version: 1, aiNormalize: true })
+    expect(capturedBody).toEqual({ aiNormalize: true })
+  })
+
+  it('defaults aiNormalize to false when omitted', async () => {
+    let capturedBody: { aiNormalize?: boolean } | null = null
+    server.use(
+      http.post('/api/recipes/r1/reimport', async ({ request }) => {
+        capturedBody = (await request.json()) as { aiNormalize?: boolean }
+        return HttpResponse.json({ importId: 'imp-default' }, { status: 202 })
+      }),
+    )
+    const { result } = renderHook(() => useReimportRecipe('r1'), {
+      wrapper: makeWrapper(),
+    })
+    await result.current.mutateAsync({ version: 1 })
+    expect(capturedBody).toEqual({ aiNormalize: false })
   })
 
   // ── LANG-2: Translate hook ───────────────────────────────────────
