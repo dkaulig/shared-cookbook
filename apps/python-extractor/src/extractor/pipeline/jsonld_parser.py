@@ -657,9 +657,13 @@ def _map_recipe_to_llm_output(recipe: dict[str, Any]) -> dict[str, Any] | None:
                     "name": parsed["name"],
                     "quantity": parsed["quantity"],
                     "unit": parsed["unit"],
-                    # ``note`` carries the raw source line for audit /
-                    # manual correction -- post_process caps at 500 chars.
-                    "note": parsed["raw"] if parsed["raw"] != parsed["name"] else None,
+                    # ``note`` is intentionally dropped: the structured
+                    # name+quantity+unit already encode the full line, and
+                    # post_process._translate_unit (BUG-030) rewrites
+                    # imperial -> metric, which would leave any raw note
+                    # contradicting the converted fields and surface as
+                    # duplicated ingredient text in the UI.
+                    "note": None,
                     "confidence": "high",
                 }
             )

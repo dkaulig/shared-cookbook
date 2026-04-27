@@ -584,3 +584,43 @@ def test_skips_oversize_jsonld_block() -> None:
     # The second, in-budget block still produces a recipe.
     assert result is not None
     assert result["title"] == "Small"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Ingredient ``note`` field — audit-trail handling
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_ingredient_note_is_none_when_line_parses_with_quantity() -> None:
+    """Successfully parsed ingredient lines drop the raw audit-trail.
+
+    Reproduces the pinchofyum.com duplication bug: a recipeIngredient
+    line like ``"1 pound ground chicken (could also use pork)"`` is
+    cleanly split into quantity/unit/name. Carrying the raw imperial
+    line forward as ``note`` causes downstream :func:`_translate_unit`
+    (BUG-030) to convert quantity+unit to metric ("454 g") while the
+    note still shows the original imperial text, producing duplicated
+    ingredient text in the UI. The structured fields already cover
+    everything the line conveys, so ``note`` MUST be ``None``.
+    """
+    import json as _json
+
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        "name": "Saucy Gochujang Noodles",
+        "recipeIngredient": ["1 pound ground chicken (could also use pork)"],
+        "recipeInstructions": ["Cook the noodles."],
+    }
+    html = (
+        '<html><head><script type="application/ld+json">'
+        + _json.dumps(payload)
+        + "</script></head><body></body></html>"
+    )
+    result = extract_recipe_from_html(html)
+    assert result is not None
+    ingredient = result["components"][0]["ingredients"][0]
+    assert ingredient["quantity"] == "1"
+    assert ingredient["unit"] == "pound"
+    assert ingredient["name"] == "ground chicken (could also use pork)"
+    assert ingredient["note"] is None
