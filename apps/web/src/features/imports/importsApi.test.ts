@@ -340,6 +340,29 @@ describe('importsApi — GET /api/imports/:id', () => {
     const dto = mapStatusResponse(baseWire({ id: 'imp-no-cands' }))
     expect(dto.candidateStagedPhotoIds).toEqual([])
   })
+
+  // The reimport-dialog pre-fills its checkbox from this field. Legacy
+  // server builds omit it entirely; the mapper must collapse absent
+  // and explicit `false` to the same `false` so the pre-fill is always
+  // a defined boolean.
+  it('defaults aiNormalizeActive to false when the wire omits it', () => {
+    const dto = mapStatusResponse(baseWire({ id: 'imp-ai-absent' }))
+    expect(dto.aiNormalizeActive).toBe(false)
+  })
+
+  it('passes aiNormalizeActive=true through the wire→DTO mapping', () => {
+    const dto = mapStatusResponse(
+      baseWire({ id: 'imp-ai-on', aiNormalizeActive: true }),
+    )
+    expect(dto.aiNormalizeActive).toBe(true)
+  })
+
+  it('passes aiNormalizeActive=false through the wire→DTO mapping', () => {
+    const dto = mapStatusResponse(
+      baseWire({ id: 'imp-ai-off', aiNormalizeActive: false }),
+    )
+    expect(dto.aiNormalizeActive).toBe(false)
+  })
 })
 
 // BUG-010 — `GET /api/imports?mine=true&limit=N` list endpoint.

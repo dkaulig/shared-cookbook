@@ -646,6 +646,7 @@ describe('<ImportUrlPage />', () => {
     })
 
     it('disables the checkbox when provider=null (no AI configured)', async () => {
+      const user = userEvent.setup()
       server.use(
         http.get('/api/groups', () =>
           HttpResponse.json<GroupSummary[]>([groupSummary({})]),
@@ -676,6 +677,12 @@ describe('<ImportUrlPage />', () => {
       await waitFor(() => expect(checkbox).toBeDisabled())
       const hint = await screen.findByTestId('import-url-ai-normalize-hint')
       expect(hint).toHaveTextContent(/Nicht verfügbar — kein AI-Provider konfiguriert/i)
+      // Disabled state must actually prevent toggling — guard against a
+      // future regression that swaps `disabled={!enabled}` for a
+      // CSS-only `aria-disabled` style which would let the user tick
+      // the box anyway.
+      await user.click(checkbox)
+      expect(checkbox).not.toBeChecked()
     })
   })
 })

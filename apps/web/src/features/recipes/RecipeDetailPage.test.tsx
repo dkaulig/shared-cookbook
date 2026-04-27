@@ -751,6 +751,12 @@ describe('RecipeDetailPage', () => {
     await screen.findByRole('heading', { name: /Rezept neu importieren\?/i })
     await user.click(screen.getByRole('button', { name: /Abbrechen/i }))
     expect(posted).toBe(false)
+    // Cancel must also dismiss the dialog — guards against a future
+    // regression where the mutation is suppressed but the dialog stays
+    // open, leaving the user staring at a stale UI.
+    expect(
+      screen.queryByRole('heading', { name: /Rezept neu importieren\?/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('AI-Normalize: disables the checkbox when no AI provider is configured', async () => {
@@ -785,6 +791,12 @@ describe('RecipeDetailPage', () => {
     await waitFor(() => expect(checkbox).toBeDisabled())
     const hint = await screen.findByTestId('reimport-ai-normalize-hint')
     expect(hint).toHaveTextContent(/Nicht verfügbar — kein AI-Provider konfiguriert/i)
+    // Disabled state must actually prevent toggling — guards against a
+    // future regression that swaps `disabled={!enabled}` for a
+    // CSS-only `aria-disabled` style which would let the user tick the
+    // box anyway.
+    await user.click(checkbox)
+    expect(checkbox).not.toBeChecked()
   })
 
   it('REIMPORT-1: surfaces a 409 version_mismatch as an inline error without navigating', async () => {
