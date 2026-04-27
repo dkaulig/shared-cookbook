@@ -273,7 +273,9 @@ SYSTEM_PROMPT_DE_NORMALIZE_ONLY: Final[str] = (
     "Übersetze sie in die Zielsprache und normalisiere Mengen "
     "(Imperial → Metric, Bereiche wie '1-2 cups' als '240–480 ml'). "  # noqa: RUF001 — German typography uses en-dash for ranges
     "KEINE Zutaten oder Schritte erfinden. Jede Output-Zutat muss eine "
-    "Entsprechung im Input haben. Bei qualitativen Hinweisen "
+    "Entsprechung im Input haben. Jeder Output-Schritt muss eine "
+    "Entsprechung im Input haben; Schritte nicht aufteilen, "
+    "zusammenfassen oder zusammenführen. Bei qualitativen Hinweisen "
     "('salt to taste', 'freshly ground pepper') das Original sinngemäß "
     "erhalten, ohne Mengen zu schätzen. Reihenfolge der Zutaten und "
     "Schritte bleibt erhalten. "
