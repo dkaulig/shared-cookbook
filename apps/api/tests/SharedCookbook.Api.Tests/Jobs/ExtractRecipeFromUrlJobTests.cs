@@ -1480,7 +1480,8 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         await _job.ExecuteAsync(import.Id, CancellationToken.None);
 
         var req = Assert.Single(_handler.Requests);
-        Assert.Contains("\"force_llm\":true", req.Body);
+        using var doc = JsonDocument.Parse(req.Body!);
+        Assert.True(doc.RootElement.GetProperty("force_llm").GetBoolean());
     }
 
     [Fact]
@@ -1496,7 +1497,8 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         await _job.ExecuteAsync(import.Id, CancellationToken.None);
 
         var req = Assert.Single(_handler.Requests);
-        Assert.Contains("\"force_llm\":false", req.Body);
+        using var doc = JsonDocument.Parse(req.Body!);
+        Assert.False(doc.RootElement.GetProperty("force_llm").GetBoolean());
     }
 
     [Fact]
