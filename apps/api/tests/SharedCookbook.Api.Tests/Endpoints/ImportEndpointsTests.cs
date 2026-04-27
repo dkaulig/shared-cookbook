@@ -945,7 +945,7 @@ public class ImportEndpointsTests : IClassFixture<SharedCookbookWebApplicationFa
         Assert.Equal(expectedStored, import.RequestedLanguage);
     }
 
-    // ── AI-Normalize toggle (2026-04-27 design, slice 2) ────────────
+    // ── AI-Normalize toggle ─────────────────────────────────────────
 
     /// <summary>
     /// Wire shape mirroring the production DTO with the new
@@ -1011,10 +1011,10 @@ public class ImportEndpointsTests : IClassFixture<SharedCookbookWebApplicationFa
         Assert.False(import.AiNormalizeActive);
     }
 
-    // AI-Normalize toggle (slice 3 read-side gap) — the reimport-dialog
-    // pre-fills its checkbox from the most recent import's persisted
-    // `AiNormalizeActive`. The frontend reads this via
-    // `GET /api/imports/{id}` so the wire shape MUST surface the flag.
+    // The reimport-dialog pre-fills its checkbox from the most recent
+    // import's persisted `AiNormalizeActive`. The frontend reads this
+    // via `GET /api/imports/{id}` so the wire shape MUST surface the
+    // flag.
     [Fact]
     public async Task Owner_Status_Response_Surfaces_AiNormalizeActive_When_True()
     {
@@ -1051,7 +1051,7 @@ public class ImportEndpointsTests : IClassFixture<SharedCookbookWebApplicationFa
         Assert.False(body.AiNormalizeActive);
     }
 
-    // ── POST /api/imports/{importId}/retry (slice 3) ────────────────
+    // ── POST /api/imports/{importId}/retry ──────────────────────────
 
     /// <summary>
     /// Drives a brand-new RecipeImport into the Failed terminal state

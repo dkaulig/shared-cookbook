@@ -114,10 +114,9 @@ public class ExtractRecipeFromUrlJob
             {
                 url = i.SourceUrl,
                 hint = new { group_id = i.GroupId.ToString("D"), user_id = i.UserId.ToString("D") },
-                // AI-Normalize toggle (2026-04-27 design) — forward user
-                // intent as `force_llm` so the python extractor skips
-                // the REL-8 pre-LLM branch on a JSON-LD blog and runs
-                // the strict-normalize prompt instead.
+                // Forward user intent as `force_llm` so the python
+                // extractor skips the REL-8 pre-LLM branch on a JSON-LD
+                // blog and runs the strict-normalize prompt instead.
                 force_llm = i.AiNormalizeActive,
             },
             ct);
@@ -192,8 +191,7 @@ public class ExtractRecipeFromUrlJob
     }
 
     /// <summary>
-    /// AI-Normalize toggle (2026-04-27 design) — reads
-    /// <c>config_snapshot.ai_normalize_active</c> out of the python
+    /// Reads <c>config_snapshot.ai_normalize_active</c> out of the python
     /// extractor's structured response. Returns <c>false</c> via
     /// <paramref name="active"/> and <c>false</c> as the method result
     /// when the snapshot is absent or the field is missing — callers

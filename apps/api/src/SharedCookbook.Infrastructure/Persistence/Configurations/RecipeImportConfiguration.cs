@@ -93,11 +93,11 @@ internal sealed class RecipeImportConfiguration : IEntityTypeConfiguration<Recip
         e.Property(r => r.RequestedLanguage)
             .HasMaxLength(RecipeImport.RequestedLanguageMaxLength);
 
-        // AI-Normalize toggle (2026-04-27 design). Server-side default of
-        // `false` so pre-toggle rows backfill cleanly without a data
-        // sweep — the user did not opt in for those, which matches the
-        // post-migration "false = no opt-in" semantics. CLR `bool` is
-        // already non-nullable in EF Core, so no explicit `.IsRequired()`.
+        // Server-side default of `false` so pre-toggle rows backfill
+        // cleanly without a data sweep — the user did not opt in for
+        // those, which matches the post-migration "false = no opt-in"
+        // semantics. CLR `bool` is already non-nullable in EF Core, so
+        // no explicit `.IsRequired()`.
         e.Property(r => r.AiNormalizeActive)
             .HasDefaultValue(false);
 

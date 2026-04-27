@@ -433,7 +433,7 @@ public class RecipeImportTests
         Assert.Contains("requestedLanguage", ex.ParamName ?? string.Empty);
     }
 
-    // ── AI-Normalize (2026-04-27 design, slice 2) ───────────────────
+    // ── AI-Normalize ────────────────────────────────────────────────
 
     [Fact]
     public void Constructor_Defaults_AiNormalizeActive_To_False()
@@ -472,7 +472,7 @@ public class RecipeImportTests
         Assert.True(import.AiNormalizeActive);
     }
 
-    // ── RetryFromFailed (slice 3) ───────────────────────────────────
+    // ── RetryFromFailed ─────────────────────────────────────────────
 
     [Fact]
     public void RetryFromFailed_Resets_State_To_Initial_Queued_Defaults()

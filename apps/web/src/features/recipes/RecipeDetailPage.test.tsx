@@ -631,11 +631,10 @@ describe('RecipeDetailPage', () => {
     expect(screen.getByTestId('location').textContent).toBe('/groups/g1')
   })
 
-  // AI-Normalize toggle (2026-04-27 design, slice 3) — reimport dialog
-  // exposes the per-import opt-in for LLM-based JSON-LD normalisation.
-  // Pre-fills from the most recent import's persisted
-  // `aiNormalizeActive` so a repeated reimport reproduces the user's
-  // last opt-in shape.
+  // The reimport dialog exposes the per-import opt-in for LLM-based
+  // JSON-LD normalisation. Pre-fills from the most recent import's
+  // persisted `aiNormalizeActive` so a repeated reimport reproduces
+  // the user's last opt-in shape.
   it('AI-Normalize: reimport dialog renders the checkbox + tooltip text', async () => {
     const user = userEvent.setup()
     render(withProviders('/groups/g1/recipes/r1'))

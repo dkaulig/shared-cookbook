@@ -120,13 +120,12 @@ export function RecipeDetailPage() {
   // be a wrapper around the state triple.
   const [reimportOpen, setReimportOpen] = useState(false)
   const [reimportError, setReimportError] = useState<string | null>(null)
-  // AI-Normalize toggle (2026-04-27 design, slice 3) — local checkbox
-  // state for the reimport-dialog. Pre-filled from the most recent
-  // import's persisted `aiNormalizeActive` so the user's last opt-in
-  // survives across reimport rounds. The pre-fill happens lazily when
-  // the dialog opens (see `handleOpenReimport` below) so a stale
-  // `originImport` query doesn't lock the checkbox before the user
-  // actually clicks "Neu importieren".
+  // Pre-filled from the most recent import's persisted
+  // `aiNormalizeActive` so the user's last opt-in survives across
+  // reimport rounds. The pre-fill happens lazily when the dialog opens
+  // (see `handleOpenReimport` below) so a stale `originImport` query
+  // doesn't lock the checkbox before the user actually clicks "Neu
+  // importieren".
   const [reimportAiNormalize, setReimportAiNormalize] = useState(false)
   // REIMPORT-1 — success banner surfaces when the progress page
   // redirects back with `state.reimportSuccess`. Auto-hides after 4 s
@@ -159,13 +158,13 @@ export function RecipeDetailPage() {
     originImportId ?? undefined,
     { enabled: !!originImportId && !coverGoneForSession },
   )
-  // AI-Normalize toggle (slice 3) — fetch the origin import's full
-  // status so the reimport-dialog can pre-fill its checkbox from the
-  // persisted `aiNormalizeActive` flag. The origin import is in a
-  // terminal state by the time we view the recipe, so `useImportStatus`
-  // returns immediately and stops polling (see hook's terminal-state
-  // guard). Only fires when an origin-import id resolves AND the user
-  // has reimport rights — there is no other read-site for the flag.
+  // Fetch the origin import's full status so the reimport-dialog can
+  // pre-fill its checkbox from the persisted `aiNormalizeActive` flag.
+  // The origin import is in a terminal state by the time we view the
+  // recipe, so `useImportStatus` returns immediately and stops polling
+  // (see hook's terminal-state guard). Only fires when an origin-import
+  // id resolves AND the user has reimport rights — there is no other
+  // read-site for the flag.
   const originImportStatusQuery = useImportStatus(
     originImportId ?? undefined,
     { enabled: !!originImportId },
@@ -426,10 +425,9 @@ export function RecipeDetailPage() {
         onDelete={() => setDeleteOpen(true)}
         onReimport={() => {
           setReimportError(null)
-          // AI-Normalize toggle (slice 3) — pre-fill from the most
-          // recent import's persisted flag so a repeated reimport
-          // reproduces the user's last opt-in. Falls back to off when
-          // the origin-import row is missing or hasn't loaded yet.
+          // Pre-fill races useImportStatus on PWA cold-start; falls
+          // through to false when the query hasn't resolved yet —
+          // accepted UX trade vs. blocking dialog-open.
           setReimportAiNormalize(
             originImportStatusQuery.data?.aiNormalizeActive ?? false,
           )
@@ -746,10 +744,9 @@ export function RecipeDetailPage() {
                   'Falls der Link zwischenzeitlich geändert wurde, kann ein komplett anderes Rezept entstehen.',
               })}
             </p>
-            {/* AI-Normalize toggle (slice 3) — opt-in for LLM-based
-                JSON-LD normalisation. Pre-filled from the origin
-                import's persisted flag. Disabled when no AI provider
-                is configured. The tooltip variant flips accordingly. */}
+            {/* Pre-filled from the origin import's persisted flag.
+                Disabled when no AI provider is configured; the tooltip
+                variant flips accordingly. */}
             <div className="rounded-[10px] border border-dashed border-border bg-[hsl(var(--muted)/0.4)] px-3 py-2.5">
               <label className="flex cursor-pointer items-start gap-2.5 text-foreground select-none">
                 <input

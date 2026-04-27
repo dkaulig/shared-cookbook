@@ -110,10 +110,9 @@ export interface ImportStatusResponseWire {
    */
   targetRecipeId?: string | null
   /**
-   * AI-Normalize toggle (2026-04-27 design, slice 3) — captured user
-   * intent for LLM-based JSON-LD normalisation. Mirrors the persisted
-   * `RecipeImport.AiNormalizeActive` server-side field. Absent on
-   * legacy server builds — treat absent as `false`.
+   * Captured user intent for LLM-based JSON-LD normalisation. Mirrors
+   * the persisted `RecipeImport.AiNormalizeActive` server-side field.
+   * Absent on legacy server builds — treat absent as `false`.
    */
   aiNormalizeActive?: boolean
 }
@@ -196,9 +195,8 @@ export function mapStatusResponse(wire: ImportStatusResponseWire): RecipeImportD
     // builds) means this is a standard import; the progress page
     // falls through to the new-recipe-form branch on Done.
     targetRecipeId: wire.targetRecipeId ?? null,
-    // AI-Normalize toggle (slice 3) — pass through verbatim. Absent on
-    // legacy server builds normalises to `false` so the reimport-
-    // dialog's pre-fill is always a defined boolean.
+    // Absent on legacy server builds normalises to `false` so the
+    // reimport-dialog's pre-fill is always a defined boolean.
     aiNormalizeActive: wire.aiNormalizeActive ?? false,
   }
 }
@@ -318,8 +316,8 @@ export async function fetchMyImports(
 }
 
 /**
- * Slice 3 — POST /api/imports/{importId}/retry. Resets a Failed import
- * back to Queued (AttemptNumber 1, error message cleared) and re-enqueues
+ * POST /api/imports/{importId}/retry. Resets a Failed import back to
+ * Queued (AttemptNumber 1, error message cleared) and re-enqueues
  * the matching Hangfire job. The endpoint returns the standard
  * `ImportStatusResponse` shape with the post-reset row so the FE can
  * drop the payload straight into its TanStack-Query cache and flip the

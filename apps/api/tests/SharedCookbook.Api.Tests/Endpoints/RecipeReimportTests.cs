@@ -320,10 +320,9 @@ public class RecipeReimportTests : IClassFixture<SharedCookbookWebApplicationFac
     }
 
     /// <summary>
-    /// AI-Normalize toggle (2026-04-27 design, slice 2). The reimport DTO
-    /// accepts <c>aiNormalize: true</c> and the endpoint must persist the
-    /// flag onto the new <see cref="RecipeImport"/> row so the job
-    /// forwards <c>force_llm</c> to the python extractor.
+    /// The reimport DTO accepts <c>aiNormalize: true</c> and the endpoint
+    /// must persist the flag onto the new <see cref="RecipeImport"/> row
+    /// so the job forwards <c>force_llm</c> to the python extractor.
     /// </summary>
     public sealed record ReimportRequestWithAiNormalize(bool AiNormalize);
 

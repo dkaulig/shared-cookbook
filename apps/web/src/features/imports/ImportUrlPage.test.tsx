@@ -496,10 +496,9 @@ describe('<ImportUrlPage />', () => {
     })
   })
 
-  // AI-Normalize toggle (2026-04-27 design, slice 3) — opt-in checkbox
-  // for LLM-based JSON-LD normalisation on a blog import. Default off,
-  // included in submit body when ticked, disabled when no AI provider
-  // is configured.
+  // Opt-in checkbox for LLM-based JSON-LD normalisation on a blog
+  // import. Default off, included in submit body when ticked, disabled
+  // when no AI provider is configured.
   describe('AI-Normalize toggle', () => {
     it('renders the checkbox with German label, off by default', async () => {
       server.use(

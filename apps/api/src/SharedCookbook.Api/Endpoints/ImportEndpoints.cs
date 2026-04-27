@@ -90,10 +90,9 @@ public static class ImportEndpoints
         /// </summary>
         Guid? TargetRecipeId,
         /// <summary>
-        /// AI-Normalize toggle (2026-04-27 design, slice 3) — captured
-        /// user intent for LLM-based JSON-LD normalisation. Mirrors the
-        /// persisted <see cref="RecipeImport.AiNormalizeActive"/> field
-        /// verbatim. The reimport-dialog reads this off
+        /// Captured user intent for LLM-based JSON-LD normalisation.
+        /// Mirrors the persisted <see cref="RecipeImport.AiNormalizeActive"/>
+        /// field verbatim. The reimport-dialog reads this off
         /// <c>GET /api/imports/{id}</c> to pre-fill its checkbox so the
         /// user's previous opt-in survives across reimport rounds.
         /// Defaults to <c>false</c> on legacy rows + non-blog imports.
@@ -167,12 +166,11 @@ public static class ImportEndpoints
     /// The frontend surfaces this as a "Neu extrahieren"-button on the
     /// cache-hit banner.</para>
     ///
-    /// <para>AI-Normalize toggle (2026-04-27 design) — <see cref="AiNormalize"/>
-    /// (default <c>false</c>) is the per-import opt-in for LLM-based
-    /// JSON-LD normalisation on a blog import. Forwarded to the python
-    /// extractor as <c>force_llm</c>; the extractor honours it only on a
-    /// blog with valid JSON-LD and otherwise reports
-    /// <c>ai_normalize_active=false</c>.</para>
+    /// <para><see cref="AiNormalize"/> (default <c>false</c>) is the
+    /// per-import opt-in for LLM-based JSON-LD normalisation on a blog
+    /// import. Forwarded to the python extractor as <c>force_llm</c>;
+    /// the extractor honours it only on a blog with valid JSON-LD and
+    /// otherwise reports <c>ai_normalize_active=false</c>.</para>
     /// </summary>
     public record UrlImportRequest(
         string Url,
@@ -228,11 +226,11 @@ public static class ImportEndpoints
         // per-id GET; Minimal-APIs route-matches by template before
         // hitting the `mine` query, so they coexist cleanly.
         group.MapGet("", ListMineImportsAsync).RequireAuthorization();
-        // Slice 3 — user-initiated retry of a Failed import. The same
-        // RecipeImport row is reset back to Queued/AttemptNumber=1; the
-        // matching Hangfire job is re-enqueued. Shares the import
-        // rate-limit bucket with the enqueue endpoints so a hostile
-        // caller can't bypass the per-user budget by spamming retries.
+        // User-initiated retry of a Failed import. The same RecipeImport
+        // row is reset back to Queued/AttemptNumber=1; the matching
+        // Hangfire job is re-enqueued. Shares the import rate-limit
+        // bucket with the enqueue endpoints so a hostile caller can't
+        // bypass the per-user budget by spamming retries.
         group.MapPost("/{importId:guid}/retry", RetryImportAsync)
             .RequireAuthorization()
             .RequireRateLimiting(RateLimitPolicies.Import);
@@ -314,8 +312,6 @@ public static class ImportEndpoints
             // progress page's terminal-state redirect can branch to
             // the detail page instead of the new-recipe form.
             TargetRecipeId: import.TargetRecipeId,
-            // AI-Normalize toggle (slice 3) — surface persisted user
-            // intent so the reimport-dialog can pre-fill its checkbox.
             AiNormalizeActive: import.AiNormalizeActive));
     }
 
@@ -480,10 +476,10 @@ public static class ImportEndpoints
         return Results.Ok(summaries);
     }
 
-    // ── POST /api/imports/{importId}/retry (slice 3) ────────────────
+    // ── POST /api/imports/{importId}/retry ──────────────────────────
 
     /// <summary>
-    /// Slice 3 — user-initiated retry of a Failed import.
+    /// User-initiated retry of a Failed import.
     ///
     /// <para>Authz model:
     /// <list type="bullet">
@@ -742,11 +738,10 @@ public static class ImportEndpoints
             sourceUrl: canonicalUrl,
             createdAt: clock.GetUtcNow(),
             requestedLanguage: requestedLanguage);
-        // AI-Normalize toggle (2026-04-27 design) — capture user intent
-        // on the row so the eventual job (which may run hours later
-        // after a deploy / restart) reads the flag from the persisted
-        // RecipeImport rather than re-deriving it from the gone-by
-        // HttpContext.
+        // Capture user intent on the row so the eventual job (which may
+        // run hours later after a deploy / restart) reads the flag from
+        // the persisted RecipeImport rather than re-deriving it from
+        // the gone-by HttpContext.
         import.RecordAiNormalizeActive(body.AiNormalize);
         db.RecipeImports.Add(import);
         await db.SaveChangesAsync(ct);

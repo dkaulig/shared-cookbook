@@ -69,17 +69,16 @@ export function ImportUrlPage() {
   const [error, setError] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
-  // AI-Normalize toggle (slice 3) — opt-in for the LLM-based JSON-LD
-  // normalisation pass. Default off so the cost (Azure tokens + ~10 s
-  // latency) is always an explicit user choice. Disabled when the
-  // server has no LLM provider configured.
+  // Default off so the cost (Azure tokens + ~10 s latency) is always
+  // an explicit user choice. Disabled when the server has no LLM
+  // provider configured.
   const [aiNormalize, setAiNormalize] = useState(false)
-  // AI-Normalize gate (slice 3) — `features.ai.enabled` reflects the
-  // server's `llm.provider != none` config. Optimistically true while
-  // the features-probe is in-flight; collapses to false on the AI-OFF
-  // fallback. Mirrors the URL-import-CTA gate already used elsewhere
-  // on this page (REL-7) so a server-off instance hides both the AI
-  // CTA and the AI-normalize toggle in a single shot.
+  // `features.ai.enabled` reflects the server's `llm.provider != none`
+  // config. Optimistically true while the features-probe is in-flight;
+  // collapses to false on the AI-OFF fallback. Mirrors the URL-import-
+  // CTA gate already used elsewhere on this page (REL-7) so a server-
+  // off instance hides both the AI CTA and the AI-normalize toggle in
+  // a single shot.
   const aiProviderConfigured = features.ai.enabled
   // BUG-013 — when the server reports a cache-hit we render a banner
   // with "Zum bestehenden Rezept" + "Neu extrahieren" CTAs instead of
@@ -130,9 +129,9 @@ export function ImportUrlPage() {
         url: trimmed,
         groupId,
         ...(options?.force ? { force: true } : {}),
-        // AI-Normalize toggle (slice 3) — only include the field when
-        // the user actually opted in AND a provider is configured. The
-        // server treats missing as `false`, matching pre-toggle wire.
+        // Only include the field when the user actually opted in AND
+        // a provider is configured. The server treats missing as
+        // `false`, matching pre-toggle wire.
         ...(aiNormalize && aiProviderConfigured
           ? { aiNormalize: true }
           : {}),
@@ -353,9 +352,7 @@ export function ImportUrlPage() {
           </p>
         )}
 
-        {/* AI-Normalize toggle (2026-04-27 design, slice 3) — opt-in for
-            LLM-based JSON-LD normalisation on a blog import. Disabled
-            when no AI provider is configured. */}
+        {/* Disabled when no AI provider is configured. */}
         <div className="mt-5 rounded-[12px] border border-dashed border-border bg-[hsl(var(--muted)/0.4)] px-3 py-3">
           <label className="flex cursor-pointer items-start gap-2.5 select-none">
             <input

@@ -184,7 +184,7 @@ export function useImportCandidates(
 }
 
 /**
- * Slice 3 — mutation wrapper around `POST /api/imports/{importId}/retry`.
+ * Mutation wrapper around `POST /api/imports/{importId}/retry`.
  *
  * The endpoint returns the standard ImportStatusResponse shape with the
  * row already reset back to Queued / AttemptNumber 1 / no error. We

@@ -1460,7 +1460,7 @@ public class ExtractRecipeFromUrlJobTests : IAsyncLifetime
         Assert.Equal("en", headerValue);
     }
 
-    // ── AI-Normalize toggle (2026-04-27 design, slice 2) ─────────────
+    // ── AI-Normalize toggle ─────────────────────────────────────────
 
     [Fact]
     public async Task Job_Forwards_AiNormalizeActive_True_As_ForceLlm_In_Outbound_Body()

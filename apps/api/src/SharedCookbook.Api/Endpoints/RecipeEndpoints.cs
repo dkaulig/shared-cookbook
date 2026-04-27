@@ -2553,11 +2553,10 @@ public static class RecipeEndpoints
     /// with the original REIMPORT-0 contract — every field has a sensible
     /// default.
     ///
-    /// <para>AI-Normalize toggle (2026-04-27 design) — <see cref="AiNormalize"/>
-    /// (default <c>false</c>) is the per-import opt-in for LLM-based
-    /// JSON-LD normalisation. Forwarded to the python extractor as
-    /// <c>force_llm</c>; the extractor honours it only on a blog with
-    /// valid JSON-LD.</para>
+    /// <para><see cref="AiNormalize"/> (default <c>false</c>) is the
+    /// per-import opt-in for LLM-based JSON-LD normalisation. Forwarded
+    /// to the python extractor as <c>force_llm</c>; the extractor honours
+    /// it only on a blog with valid JSON-LD.</para>
     /// </summary>
     public record ReimportRequest(bool AiNormalize = false);
 
@@ -2683,11 +2682,11 @@ public static class RecipeEndpoints
             createdAt: clock.GetUtcNow(),
             targetRecipeId: recipe.Id,
             requestedLanguage: requestedLanguage);
-        // AI-Normalize toggle (2026-04-27 design) — capture user intent
-        // on the row so the eventual job reads the flag from the
-        // persisted RecipeImport rather than the gone-by HttpContext.
-        // A null body (legacy callers / no JSON content) defaults the
-        // flag to false, matching the pre-toggle behaviour exactly.
+        // Capture user intent on the row so the eventual job reads the
+        // flag from the persisted RecipeImport rather than the gone-by
+        // HttpContext. A null body (legacy callers / no JSON content)
+        // defaults the flag to false, matching the pre-toggle behaviour
+        // exactly.
         import.RecordAiNormalizeActive(body?.AiNormalize ?? false);
         db.RecipeImports.Add(import);
         await db.SaveChangesAsync(ct);

@@ -209,7 +209,7 @@ public sealed class RecipeImport
     public string? RequestedLanguage { get; private set; }
 
     /// <summary>
-    /// AI-Normalize toggle (2026-04-27 design). Mirrors the python-extractor's
+    /// Mirrors the python-extractor's
     /// <c>config_snapshot.ai_normalize_active</c> flag — true precisely when
     /// the caller passed <c>force_llm=true</c> AND the resolved import kind
     /// is <c>"blog"</c>; false on videos, photos, chat-imports, and on the
@@ -365,12 +365,11 @@ public sealed class RecipeImport
     }
 
     /// <summary>
-    /// AI-Normalize toggle (2026-04-27 design). Records the
-    /// <c>config_snapshot.ai_normalize_active</c> flag the python extractor
-    /// returned. Has NO pre-condition on <see cref="ImportStatus"/> (unlike
-    /// <see cref="RecordUsage"/>) because the runner stamps it both before
-    /// the terminal <see cref="MarkDone"/> transition and during the
-    /// reimport in-place recipe-update path.
+    /// Records the <c>config_snapshot.ai_normalize_active</c> flag the
+    /// python extractor returned. Has NO pre-condition on
+    /// <see cref="ImportStatus"/> (unlike <see cref="RecordUsage"/>) because
+    /// the runner stamps it both before the terminal <see cref="MarkDone"/>
+    /// transition and during the reimport in-place recipe-update path.
     /// </summary>
     public void RecordAiNormalizeActive(bool active)
     {
@@ -523,7 +522,7 @@ public sealed class RecipeImport
     }
 
     /// <summary>
-    /// Slice 3 — user-initiated retry of a previously-failed import.
+    /// User-initiated retry of a previously-failed import.
     /// Resets the row back to the same shape it had immediately after
     /// <see cref="RecipeImport(Guid, Guid, ImportSource, string?, DateTimeOffset, Guid?, string?)"/>:
     /// <see cref="Status"/> back to <see cref="ImportStatus.Queued"/>,

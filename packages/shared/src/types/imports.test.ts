@@ -409,10 +409,9 @@ describe('imports.ts DTOs', () => {
     expect(body.stagedPhotoId).toBe('sp-2')
   })
 
-  // AI-Normalize toggle (2026-04-27 design, slice 3) — outbound:
-  // `aiNormalize` is the per-import opt-in for LLM-based JSON-LD
-  // normalisation. Optional + default-off so legacy callers omit the
-  // field and behaviour is unchanged.
+  // Outbound: `aiNormalize` is the per-import opt-in for LLM-based
+  // JSON-LD normalisation. Optional + default-off so legacy callers
+  // omit the field and behaviour is unchanged.
   it('AI-Normalize: ImportUrlRequest accepts optional aiNormalize boolean', () => {
     const off: ImportUrlRequest = {
       url: 'https://example.com/blog-recipe',
@@ -428,10 +427,10 @@ describe('imports.ts DTOs', () => {
     expect(on.aiNormalize).toBe(true)
   })
 
-  // AI-Normalize toggle (slice 3) — inbound: the DTO surface mirrors
-  // .NET's `ImportStatusResponse.AiNormalizeActive`. Optional with `?`
-  // so legacy server builds (pre-slice-3) that omit the field still
-  // type-check without runtime breaks.
+  // Inbound: the DTO surface mirrors .NET's
+  // `ImportStatusResponse.AiNormalizeActive`. Optional with `?` so
+  // legacy server builds that omit the field still type-check without
+  // runtime breaks.
   it('AI-Normalize: RecipeImportDto carries optional aiNormalizeActive', () => {
     const dto: RecipeImportDto = {
       id: '11111111-2222-3333-4444-555555555555',
@@ -466,10 +465,10 @@ describe('imports.ts DTOs', () => {
     expect(legacy.aiNormalizeActive).toBeUndefined()
   })
 
-  // AI-Normalize toggle (slice 3) — `ReimportRequest` is the body for
-  // `POST /api/recipes/{id}/reimport`. Empty body is legal (every
-  // field defaults), `aiNormalize` is the per-reimport opt-in. Mirrors
-  // the .NET `RecipeEndpoints.ReimportRequest` record.
+  // `ReimportRequest` is the body for `POST /api/recipes/{id}/reimport`.
+  // Empty body is legal (every field defaults), `aiNormalize` is the
+  // per-reimport opt-in. Mirrors the .NET `RecipeEndpoints.ReimportRequest`
+  // record.
   it('AI-Normalize: ReimportRequest accepts an empty body or aiNormalize flag', () => {
     const empty: ReimportRequest = {}
     expect(empty.aiNormalize).toBeUndefined()

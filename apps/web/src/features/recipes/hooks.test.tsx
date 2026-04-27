@@ -186,10 +186,10 @@ describe('useReimportRecipe', () => {
     })
   })
 
-  // AI-Normalize toggle (slice 3) — the reimport mutation forwards the
-  // user's checkbox state to the .NET endpoint as a JSON body. The
-  // endpoint forwards it to the Python extractor as `force_llm`. A
-  // missing `aiNormalize` defaults to false (matches pre-toggle wire).
+  // The reimport mutation forwards the user's checkbox state to the
+  // .NET endpoint as a JSON body. The endpoint forwards it to the
+  // Python extractor as `force_llm`. A missing `aiNormalize` defaults
+  // to false (matches pre-toggle wire).
   it('forwards aiNormalize=true in the JSON body', async () => {
     let capturedBody: { aiNormalize?: boolean } | null = null
     server.use(

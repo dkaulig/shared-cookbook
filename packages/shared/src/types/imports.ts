@@ -225,12 +225,12 @@ export interface ExtractionResult {
  * re-submits the same body with `force: true` so the pipeline reruns
  * and a fresh import is queued.
  *
- * AI-Normalize toggle (2026-04-27 design, slice 3) — `aiNormalize`
- * (default `false`) is the per-import opt-in for LLM-based JSON-LD
- * normalisation on a blog import. The .NET endpoint forwards it to the
- * Python extractor as `force_llm`; the extractor honours the flag only
- * on a blog with valid JSON-LD and reports back `ai_normalize_active`
- * so the reimport-dialog can pre-fill the same toggle next round.
+ * `aiNormalize` (default `false`) is the per-import opt-in for
+ * LLM-based JSON-LD normalisation on a blog import. The .NET endpoint
+ * forwards it to the Python extractor as `force_llm`; the extractor
+ * honours the flag only on a blog with valid JSON-LD and reports back
+ * `ai_normalize_active` so the reimport-dialog can pre-fill the same
+ * toggle next round.
  */
 export interface ImportUrlRequest {
   url: string
@@ -240,8 +240,7 @@ export interface ImportUrlRequest {
 }
 
 /**
- * AI-Normalize toggle (2026-04-27 design, slice 3) — body for
- * `POST /api/recipes/{recipeId}/reimport`.
+ * Body for `POST /api/recipes/{recipeId}/reimport`.
  *
  * Empty body is legal (every field defaults). `aiNormalize` mirrors
  * {@link ImportUrlRequest.aiNormalize}: the per-reimport opt-in for the
@@ -411,14 +410,13 @@ export interface RecipeImportDto {
    */
   targetRecipeId?: string | null
   /**
-   * AI-Normalize toggle (2026-04-27 design, slice 3) — captured user
-   * intent for LLM-based JSON-LD normalisation on this import. Mirrors
-   * the persisted `RecipeImport.AiNormalizeActive` column on the .NET
-   * side. The reimport-dialog reads this off `GET /api/imports/{id}` to
-   * pre-fill its checkbox so the user's last opt-in survives across
-   * reimport rounds. Optional with `?` so legacy server builds (pre-
-   * slice-3) that omit the field continue to type-check; the API client
-   * normalises absent → `false` at the wire mapper edge.
+   * Captured user intent for LLM-based JSON-LD normalisation on this
+   * import. Mirrors the persisted `RecipeImport.AiNormalizeActive`
+   * column on the .NET side. The reimport-dialog reads this off
+   * `GET /api/imports/{id}` to pre-fill its checkbox so the user's
+   * last opt-in survives across reimport rounds. Optional with `?` so
+   * legacy server builds that omit the field continue to type-check;
+   * the API client normalises absent → `false` at the wire mapper edge.
    */
   aiNormalizeActive?: boolean
 }

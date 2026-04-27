@@ -266,11 +266,11 @@ export async function fetchRecipeOriginImport(
  * write fails with 409; typed `VersionMismatchError` surfaces for the
  * conflict-resolver UX (reload + retry).
  *
- * AI-Normalize toggle (2026-04-27 design, slice 3) — `body.aiNormalize`
- * (default `false`) is the per-reimport opt-in for LLM-based JSON-LD
- * normalisation. Forwarded to the .NET endpoint and on to the Python
- * extractor as `force_llm`. An empty body / omitted field is legal and
- * defaults to off, matching the pre-toggle behaviour exactly.
+ * `body.aiNormalize` (default `false`) is the per-reimport opt-in for
+ * LLM-based JSON-LD normalisation. Forwarded to the .NET endpoint and
+ * on to the Python extractor as `force_llm`. An empty body / omitted
+ * field is legal and defaults to off, matching the pre-toggle behaviour
+ * exactly.
  */
 export async function reimportRecipe(
   id: string,
