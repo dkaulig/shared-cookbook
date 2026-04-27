@@ -271,3 +271,87 @@ async def test_chat_to_recipe_default_language_is_english() -> None:
 
     (system_prompt, _forwarded, _schema) = provider.extract_calls[0]
     assert "Respond entirely in English" in system_prompt
+
+
+# ─────────────────────────────────────────────────────────────────────
+# CFG-1 — chat-to-recipe reads its own dedicated prompt key
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _make_chat_config(values: dict[str, Any]) -> Any:
+    """Mini-fake :class:`ExtractorConfig` for the chat pipeline. We
+    reuse the same shape as ``_make_config`` in
+    ``test_config_integration.py`` but inline it here so this test file
+    stays self-contained."""
+    import time
+
+    import httpx
+
+    from extractor.config_loader import ExtractorConfig
+
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(500, text="should not be called")
+    )
+    client = httpx.AsyncClient(transport=transport, base_url="http://api.test")
+    cfg = ExtractorConfig(client=client, ttl_seconds=60.0)
+    cfg._cache = dict(values)
+    cfg._versions = {}
+    cfg._have_cache = True
+    cfg._cache_expires_at = time.monotonic() + 60.0
+    return cfg
+
+
+async def test_chat_to_recipe_reads_chat_to_recipe_system_prompt_key() -> None:
+    """CFG-1 — pipeline reads ``llm.chat_to_recipe.system_prompt`` (not
+    ``llm.structured.system_prompt``).
+
+    The v0.15.3 release renamed the registry row
+    ``llm.chat.system_prompt`` → ``llm.chat_to_recipe.system_prompt`` to
+    free the ``llm.chat.*`` namespace for conversational chat-turn
+    settings; the seed populated the new row with the actual
+    :data:`TO_RECIPE_SYSTEM_PROMPT_DE`. Until this slice landed, the
+    pipeline ignored the new row and still read
+    ``llm.structured.system_prompt``, conflating the URL/photo
+    structuring prompt with the chat-to-recipe prompt.
+    """
+    custom_chat_prompt = "Test chat-to-recipe prompt — must propagate to provider call."
+    config = _make_chat_config(
+        {
+            "llm.chat_to_recipe.system_prompt": custom_chat_prompt,
+            # Set the structured key to a different value so a
+            # mis-wired pipeline that still reads the wrong key would
+            # show that other value here instead.
+            "llm.structured.system_prompt": "WRONG — structured prompt leaked",
+        }
+    )
+    provider = _RecordingProvider()
+    messages: list[ChatMessage] = [{"role": "user", "content": "Rezept bitte"}]
+
+    await chat_to_recipe(messages, provider, session_id="s", config=config)
+
+    assert len(provider.extract_calls) == 1
+    (system_prompt, _forwarded, _schema) = provider.extract_calls[0]
+    assert system_prompt.startswith(custom_chat_prompt)
+    assert "WRONG" not in system_prompt
+
+
+async def test_chat_to_recipe_falls_back_to_module_default_when_placeholder() -> None:
+    """When the registry still carries the seed-time
+    ``PLACEHOLDER_*`` value (admin hasn't overwritten it via the UI
+    yet), :func:`get_str` returns the in-Python module default
+    :data:`TO_RECIPE_SYSTEM_PROMPT_DE` so chat extraction never runs
+    against a dummy string."""
+    config = _make_chat_config(
+        {
+            "llm.chat_to_recipe.system_prompt": "PLACEHOLDER_CHAT_TO_RECIPE_PROMPT",
+        }
+    )
+    provider = _RecordingProvider()
+    messages: list[ChatMessage] = [{"role": "user", "content": "Rezept bitte"}]
+
+    await chat_to_recipe(messages, provider, session_id="s", config=config)
+
+    (system_prompt, _forwarded, _schema) = provider.extract_calls[0]
+    # Module default is the to-recipe prompt; LANG-1 directive is
+    # appended afterwards.
+    assert system_prompt.startswith(TO_RECIPE_SYSTEM_PROMPT_DE)

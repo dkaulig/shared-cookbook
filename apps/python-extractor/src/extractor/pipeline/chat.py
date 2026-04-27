@@ -106,12 +106,18 @@ async def chat_to_recipe(
     _validate_messages(messages)
     logger.info("chat_to_recipe start session_id=%s turns=%d", session_id, len(messages))
 
-    # CFG-1 — the to-recipe conversion reuses the structured-extraction
-    # knob set (same deployment, same temperature pin). A dedicated
-    # ``llm.chat.*`` knob set covers conversational chat turns, but that
-    # endpoint lives on the .NET side (out of scope here).
+    # CFG-1 — the to-recipe conversion has its own admin-tunable system
+    # prompt under ``llm.chat_to_recipe.system_prompt``; the seed
+    # populates it with :data:`TO_RECIPE_SYSTEM_PROMPT_DE`. Falling back
+    # to the module constant keeps a brand-new DB (or a registry row
+    # still on the placeholder seed value) running against the prompt
+    # shipped with this extractor release.
+    #
+    # The deployment / temperature / token-cap knobs still ride on
+    # ``llm.structured.*`` because the to-recipe call reuses Azure's
+    # structured-extraction shape (json_schema, temperature pin).
     system_prompt_base = await get_str(
-        config, "llm.structured.system_prompt", TO_RECIPE_SYSTEM_PROMPT_DE
+        config, "llm.chat_to_recipe.system_prompt", TO_RECIPE_SYSTEM_PROMPT_DE
     )
     # LANG-1 — append the language directive so the chat-to-recipe
     # output (German prose dialog → structured recipe values in the
@@ -147,7 +153,9 @@ async def chat_to_recipe(
         "temperature": temperature,
         "max_completion_tokens": max_completion_tokens,
         "deployment": deployment,
-        "prompt_version": (config.version_of("llm.structured.system_prompt") if config else None),
+        "prompt_version": (
+            config.version_of("llm.chat_to_recipe.system_prompt") if config else None
+        ),
     }
     result = post_process(
         llm_output,
