@@ -1952,6 +1952,48 @@ async def test_force_llm_soft_fallback_on_llm_error(
     assert snapshot["ai_normalize_active"] is True
 
 
+async def test_force_llm_on_video_url_uses_canonical_prompt(
+    tmp_path: Path,
+) -> None:
+    """``force_llm=True`` on a video URL is a no-op: the toggle only
+    applies to JSON-LD blog imports. The canonical extraction prompt
+    runs (not the strict-normalize variant) because the video path
+    feeds the LLM transcript + caption, not pre-rendered JSON-LD.
+
+    Defensive: this also guards against a Python ``UnboundLocalError``
+    on ``jsonld_llm_output`` when ``force_llm=True`` arrives on the
+    video branch (the variable is only bound inside the blog branch;
+    the short-circuit in ``force_llm and kind == "blog" and ...`` is
+    what keeps the access safe).
+    """
+    mp4 = tmp_path / "video.mp4"
+    mp4.write_bytes(b"stub")
+    downloader = StubDownloader(
+        assets=VideoAssets(
+            mp4_path=mp4,
+            title="t",
+            description="d",
+            thumbnail_url=None,
+        )
+    )
+    transcriber = StubTranscriber(transcript="Mehl.")
+    mock = _CapturingPromptMock(_canonical_llm_response())
+
+    await extract_from_url(
+        "https://youtu.be/abc",
+        provider=mock,
+        downloader=downloader,
+        transcriber=transcriber,
+        force_llm=True,
+    )
+
+    captured = mock.last_system_prompt
+    assert captured is not None
+    # The canonical extraction prompt's distinctive opener wins on
+    # the video path even with force_llm=True.
+    assert captured.startswith(SYSTEM_PROMPT_DE)
+
+
 @respx.mock
 async def test_force_llm_false_keeps_rel8_pre_llm_branch(
     _fake_public_dns: None,

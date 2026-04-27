@@ -852,13 +852,18 @@ async def extract_from_url(
         # working, and admin-UI changes surface here on the next 60 s
         # TTL tick.
         #
-        # AI-normalize toggle (2026-04-27): when ``force_llm=True`` we
-        # swap in the strict-normalize prompt (forbids inventing
-        # ingredients/steps; targets translation + quantity
-        # normalisation only). The CFG-1 key is dedicated so the admin
-        # can tweak the normalize prompt independently of the canonical
+        # AI-normalize toggle (2026-04-27): swap in the strict-normalize
+        # prompt only when the inputs match its assumptions — namely a
+        # blog URL whose JSON-LD pre-LLM branch was deliberately skipped
+        # by ``force_llm=True``. For video URLs (transcript +
+        # caption-linked blog) and for blogs that have no JSON-LD at all
+        # the normalize-only prompt's "translate the already-structured
+        # input" instructions don't apply, so the canonical prompt
+        # stays. The CFG-1 key for the normalize prompt is dedicated so
+        # the admin can tweak it independently of the canonical
         # extraction prompt.
-        if force_llm:
+        ai_normalize_in_effect = force_llm and kind == "blog" and jsonld_llm_output is not None
+        if ai_normalize_in_effect:
             system_prompt_base = await get_str(
                 config,
                 "llm.structured.system_prompt_normalize_only",
