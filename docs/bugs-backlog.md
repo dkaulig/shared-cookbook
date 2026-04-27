@@ -2339,3 +2339,24 @@ bestehenden `PromoteStagedPhotosAsync`-Flow (CopyAsync → AddPhoto →
 MarkPromoted). Dedupe über das neue `StagedPhoto.SourceUrl`-Feld
 (Migration `AddStagedPhotoSourceUrl`) + composite Index
 `(PromotedToRecipeId, SourceUrl)`.
+
+## BUG-049 · Blog-Import dupliziert Zutaten in Notiz (JSON-LD-Pre-LLM-Pfad)
+**Reported:** 2026-04-27 (User: "es weden zum beispiel werden 454g
+grpund chicken improtiert ubd in der beschreibung steht dann nochmal
+1 pound ground chiclen. es geht un die zutaten" — Repro:
+`pinchofyum.com/saucy-gochujang-noodles-with-chicken`).
+**Status:** `[x] fixed` (2026-04-27, commit `bcebc99`).
+**Severity:** low (Anzeige-Doppelung; strukturierte Felder waren
+korrekt, nur `note` trug die imperiale Originalzeile parallel zur
+metrisch-konvertierten Hauptzeile).
+**Where:** `apps/python-extractor/src/extractor/pipeline/jsonld_parser.py:662`
+— der REL-8 JSON-LD-pre-LLM-Pfad mappte `note = parsed["raw"]` (die
+komplette Zeile `"1 pound ground chicken (could also use pork)"`),
+während `_translate_unit` (BUG-030) parallel `quantity`/`unit` zu
+Metric (`"454 g"`) rewrote. Frontend rendert Hauptzeile + `note` →
+User sieht Zutat zweimal.
+**Fix:** `note` für JSON-LD-gemappte Zutaten generell `None` setzen.
+Wenn `parse_ingredient_line` eine quantity erkennt, decken
+`name + quantity + unit` die Zeile bereits vollständig ab; wenn sie
+fehlschlägt, ist `name == raw` und `note` wäre redundant. Plus
+Regression-Test mit der exakten Pinchofyum-Zeile.
