@@ -111,6 +111,7 @@ export type {
   IngredientConfidenceLevel,
   RecipeCoverSwapRequest,
   RecipeImportDto,
+  ReimportRequest,
   StagedPhotoResponse,
   StepConfidenceLevel,
 } from './imports.ts'

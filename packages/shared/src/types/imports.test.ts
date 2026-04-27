@@ -16,6 +16,7 @@ import type {
   ImportSummaryDto,
   ImportUrlRequest,
   IngredientConfidenceLevel,
+  ReimportRequest,
   RecipeCoverSwapRequest,
   RecipeImportDto,
   StepConfidenceLevel,
@@ -406,6 +407,75 @@ describe('imports.ts DTOs', () => {
       stagedPhotoId: 'sp-2',
     }
     expect(body.stagedPhotoId).toBe('sp-2')
+  })
+
+  // AI-Normalize toggle (2026-04-27 design, slice 3) — outbound:
+  // `aiNormalize` is the per-import opt-in for LLM-based JSON-LD
+  // normalisation. Optional + default-off so legacy callers omit the
+  // field and behaviour is unchanged.
+  it('AI-Normalize: ImportUrlRequest accepts optional aiNormalize boolean', () => {
+    const off: ImportUrlRequest = {
+      url: 'https://example.com/blog-recipe',
+      groupId: '11111111-2222-3333-4444-555555555555',
+    }
+    expect(off.aiNormalize).toBeUndefined()
+
+    const on: ImportUrlRequest = {
+      url: 'https://example.com/blog-recipe',
+      groupId: '11111111-2222-3333-4444-555555555555',
+      aiNormalize: true,
+    }
+    expect(on.aiNormalize).toBe(true)
+  })
+
+  // AI-Normalize toggle (slice 3) — inbound: the DTO surface mirrors
+  // .NET's `ImportStatusResponse.AiNormalizeActive`. Optional with `?`
+  // so legacy server builds (pre-slice-3) that omit the field still
+  // type-check without runtime breaks.
+  it('AI-Normalize: RecipeImportDto carries optional aiNormalizeActive', () => {
+    const dto: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      source: 'url',
+      status: 'done',
+      progress: 100,
+      sourceUrl: 'https://example.com/blog',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-27T00:00:00Z',
+      completedAt: '2026-04-27T00:00:42Z',
+      candidateStagedPhotoIds: [],
+      aiNormalizeActive: true,
+    }
+    expect(dto.aiNormalizeActive).toBe(true)
+
+    // Absent / undefined is also valid (legacy server build).
+    const legacy: RecipeImportDto = {
+      id: '11111111-2222-3333-4444-555555555555',
+      groupId: '22222222-3333-4444-5555-666666666666',
+      source: 'url',
+      status: 'queued',
+      progress: 0,
+      sourceUrl: 'https://example.com/blog',
+      result: null,
+      errorMessage: null,
+      createdAt: '2026-04-27T00:00:00Z',
+      completedAt: null,
+      candidateStagedPhotoIds: [],
+    }
+    expect(legacy.aiNormalizeActive).toBeUndefined()
+  })
+
+  // AI-Normalize toggle (slice 3) — `ReimportRequest` is the body for
+  // `POST /api/recipes/{id}/reimport`. Empty body is legal (every
+  // field defaults), `aiNormalize` is the per-reimport opt-in. Mirrors
+  // the .NET `RecipeEndpoints.ReimportRequest` record.
+  it('AI-Normalize: ReimportRequest accepts an empty body or aiNormalize flag', () => {
+    const empty: ReimportRequest = {}
+    expect(empty.aiNormalize).toBeUndefined()
+
+    const opted: ReimportRequest = { aiNormalize: true }
+    expect(opted.aiNormalize).toBe(true)
   })
 
   // BUG-010 — compile-time regression guard on the list-DTO surface.

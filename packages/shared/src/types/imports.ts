@@ -224,11 +224,33 @@ export interface ExtractionResult {
  * "Neu extrahieren"-button on the cache-hit banner, the web layer
  * re-submits the same body with `force: true` so the pipeline reruns
  * and a fresh import is queued.
+ *
+ * AI-Normalize toggle (2026-04-27 design, slice 3) — `aiNormalize`
+ * (default `false`) is the per-import opt-in for LLM-based JSON-LD
+ * normalisation on a blog import. The .NET endpoint forwards it to the
+ * Python extractor as `force_llm`; the extractor honours the flag only
+ * on a blog with valid JSON-LD and reports back `ai_normalize_active`
+ * so the reimport-dialog can pre-fill the same toggle next round.
  */
 export interface ImportUrlRequest {
   url: string
   groupId: string
   force?: boolean
+  aiNormalize?: boolean
+}
+
+/**
+ * AI-Normalize toggle (2026-04-27 design, slice 3) — body for
+ * `POST /api/recipes/{recipeId}/reimport`.
+ *
+ * Empty body is legal (every field defaults). `aiNormalize` mirrors
+ * {@link ImportUrlRequest.aiNormalize}: the per-reimport opt-in for the
+ * LLM-normalize pass. The reimport dialog pre-fills it from the most
+ * recent import's persisted `aiNormalizeActive` flag so a repeated
+ * reimport reproduces the same opt-in shape.
+ */
+export interface ReimportRequest {
+  aiNormalize?: boolean
 }
 
 /**
@@ -388,6 +410,17 @@ export interface RecipeImportDto {
    * back to detail page" (set) on the terminal-state redirect.
    */
   targetRecipeId?: string | null
+  /**
+   * AI-Normalize toggle (2026-04-27 design, slice 3) — captured user
+   * intent for LLM-based JSON-LD normalisation on this import. Mirrors
+   * the persisted `RecipeImport.AiNormalizeActive` column on the .NET
+   * side. The reimport-dialog reads this off `GET /api/imports/{id}` to
+   * pre-fill its checkbox so the user's last opt-in survives across
+   * reimport rounds. Optional with `?` so legacy server builds (pre-
+   * slice-3) that omit the field continue to type-check; the API client
+   * normalises absent → `false` at the wire mapper edge.
+   */
+  aiNormalizeActive?: boolean
 }
 
 /**
