@@ -166,6 +166,10 @@ async def extract_from_photos(
         "max_completion_tokens": max_completion_tokens,
         "deployment": deployment,
         "prompt_version": config.version_of("llm.vision.system_prompt") if config else None,
+        # AI-normalize toggle (2026-04-27) is URL-blog-only — the photo
+        # path never opts in, so the audit field is stamped ``False``
+        # to keep the wire shape symmetric.
+        "ai_normalize_active": False,
     }
     return post_process(
         llm_output,

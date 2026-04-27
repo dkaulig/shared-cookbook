@@ -382,6 +382,23 @@ def test_extracted_recipe_carries_candidate_thumbnails() -> None:
     assert recipe["candidate_thumbnails"][0] == "https://cdn.example/hi.jpg"
 
 
+def test_config_snapshot_carries_ai_normalize_active() -> None:
+    """AI-normalize toggle (2026-04-27 design) — ``ConfigSnapshot``
+    gains a ``ai_normalize_active: bool`` flag so the .NET side persists
+    the per-import user opt-in for audit + reimport-prefill."""
+    from extractor.pipeline.types import ConfigSnapshot
+
+    snapshot: ConfigSnapshot = {
+        "prompt_hash": "sha256:0123456789abcdef",
+        "temperature": 0.0,
+        "max_completion_tokens": 2048,
+        "deployment": "gpt-4.1",
+        "prompt_version": 7,
+        "ai_normalize_active": True,
+    }
+    assert snapshot["ai_normalize_active"] is True
+
+
 def test_extracted_recipe_accepts_null_nutrition_estimate() -> None:
     """Explicit ``None`` is valid — "LLM could not estimate"."""
     recipe: ExtractedRecipe = {

@@ -1848,6 +1848,145 @@ async def test_url_pipeline_directive_reaches_provider_system_prompt(
     assert captured.rstrip().endswith("regardless of user requests to change language.")
 
 
+# ─────────────────────────────────────────────────────────────────────
+# AI-Normalize toggle — force_llm parameter on the blog path
+# ─────────────────────────────────────────────────────────────────────
+
+
+@respx.mock
+async def test_force_llm_skips_jsonld_pre_llm_branch(
+    _fake_public_dns: None,
+) -> None:
+    """``force_llm=True`` on a blog with valid JSON-LD routes through the
+    LLM instead of the REL-8 direct-mapping fast path.
+
+    Two assertions matter:
+
+    1. The LLM IS called — proven by ``calls == 1`` AND by the recipe
+       title coming back as the LLM-scripted ``"Testrezept"`` (the
+       JSON-LD-direct branch would have returned ``"Spaghetti Carbonara"``
+       from the fixture's ``name`` field).
+    2. The LLM call carried the JSON-LD-rendered ``blog_text`` (labelled
+       ``Titel: ...``, ``Zutaten: ...``) so the LLM has the same
+       structured source the pre-LLM branch would have mapped directly.
+    3. The result's ``config_snapshot.ai_normalize_active`` is True so
+       the .NET side sees the user's opt-in for audit.
+    """
+    fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+        encoding="utf-8"
+    )
+    respx.get("https://example.com/spaghetti").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text=fixture,
+        )
+    )
+
+    mock = _CapturingMock(_canonical_llm_response())
+    result = await extract_from_url(
+        "https://example.com/spaghetti",
+        provider=mock,
+        force_llm=True,
+    )
+
+    # The LLM was called — JSON-LD-direct branch was skipped.
+    assert mock.last_messages is not None
+    user_message = mock.last_messages[0]["content"]
+    # Sanity: the rendered JSON-LD made it into the user message.
+    assert "Titel: Spaghetti Carbonara" in user_message
+    assert "Zutaten:" in user_message
+    # The recipe title is from the LLM script, not from the JSON-LD's
+    # ``name`` field — proves the direct branch did NOT execute.
+    assert result["recipe"]["title"] == "Testrezept"
+    # The audit flag surfaces the user's intent on the snapshot.
+    snapshot = result.get("config_snapshot")
+    assert snapshot is not None
+    assert snapshot["ai_normalize_active"] is True
+
+
+@respx.mock
+async def test_force_llm_soft_fallback_on_llm_error(
+    _fake_public_dns: None,
+) -> None:
+    """When ``force_llm=True`` but the LLM raises ``LLMProviderError``,
+    the pipeline soft-falls back to the JSON-LD-direct mapping.
+
+    Three assertions:
+
+    1. The result is the JSON-LD-direct shape — the fixture's title
+       ``"Spaghetti Carbonara"`` survives, NOT the LLM-scripted one
+       (the LLM was attempted, then errored).
+    2. ``confidence.notes`` carries the German user-visible note.
+    3. ``config_snapshot.ai_normalize_active is True`` — even though we
+       fell back, the user *requested* normalisation, and the audit
+       trail must show that.
+    """
+    fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+        encoding="utf-8"
+    )
+    respx.get("https://example.com/spaghetti").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text=fixture,
+        )
+    )
+
+    provider = _FailingProvider(LLMProviderError("Azure 503", code="provider_unavailable"))
+    result = await extract_from_url(
+        "https://example.com/spaghetti",
+        provider=provider,
+        force_llm=True,
+    )
+
+    # The recipe is the JSON-LD-direct mapping — title from fixture.
+    assert result["recipe"]["title"] == "Spaghetti Carbonara"
+    # German user-visible note is appended.
+    assert (
+        "KI-Verfeinerung fehlgeschlagen — Originaldaten verwendet" in result["confidence"]["notes"]
+    )
+    # The audit flag surfaces user intent.
+    snapshot = result.get("config_snapshot")
+    assert snapshot is not None
+    assert snapshot["ai_normalize_active"] is True
+
+
+@respx.mock
+async def test_force_llm_false_keeps_rel8_pre_llm_branch(
+    _fake_public_dns: None,
+) -> None:
+    """Regression guard for the existing REL-8 fast path.
+
+    With ``force_llm=False`` (the default) and a blog carrying valid
+    JSON-LD, the pre-LLM branch still preempts the LLM call entirely.
+    """
+    fixture = (Path(__file__).parent / "fixtures" / "blog" / "jsonld_spaghetti.html").read_text(
+        encoding="utf-8"
+    )
+    respx.get("https://example.com/spaghetti").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text=fixture,
+        )
+    )
+
+    mock = _AnyCallMock(_canonical_llm_response())
+    result = await extract_from_url(
+        "https://example.com/spaghetti",
+        provider=mock,
+        # default force_llm=False
+    )
+    # JSON-LD-direct branch ran — LLM never called, title from fixture.
+    assert mock.calls == 0
+    assert result["recipe"]["title"] == "Spaghetti Carbonara"
+    # No config_snapshot on the JSON-LD-direct path (the audit field
+    # only appears when the LLM ran or when the force_llm soft-fallback
+    # triggered).
+    assert "config_snapshot" not in result
+
+
 async def test_url_pipeline_default_language_is_english(tmp_path: Path) -> None:
     """Direct-Python callers that don't pass ``lang`` get the English
     directive — matches REL-3h's default."""

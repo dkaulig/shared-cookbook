@@ -156,6 +156,10 @@ async def chat_to_recipe(
         "prompt_version": (
             config.version_of("llm.chat_to_recipe.system_prompt") if config else None
         ),
+        # AI-normalize toggle (2026-04-27) is URL-blog-only — chat
+        # pipelines never opt into JSON-LD normalisation, so the audit
+        # field is stamped ``False`` to keep the wire shape symmetric.
+        "ai_normalize_active": False,
     }
     result = post_process(
         llm_output,

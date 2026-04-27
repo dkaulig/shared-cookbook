@@ -75,7 +75,7 @@ from extractor.config_loader import (
     get_str,
 )
 from extractor.frames import FrameStore
-from extractor.llm import ChatMessage, LLMProvider, TokenUsage
+from extractor.llm import ChatMessage, LLMProvider, LLMProviderError, TokenUsage
 from extractor.pipeline.blog import (
     extract_bs4_fallback,
     extract_jsonld,
@@ -106,6 +106,7 @@ from extractor.prompts.language import SupportedLanguage, apply_language_directi
 from extractor.prompts.recipe_extraction import (
     RECIPE_SCHEMA,
     SYSTEM_PROMPT_DE,
+    SYSTEM_PROMPT_DE_NORMALIZE_ONLY,
     build_user_message,
 )
 
@@ -572,6 +573,7 @@ async def extract_from_url(
     reporter: ProgressReporter | None = None,
     config: ExtractorConfig | None = None,
     lang: SupportedLanguage = "en",
+    force_llm: bool = False,
 ) -> ExtractionResult:
     """Run the full URL → structured-recipe pipeline.
 
@@ -602,6 +604,15 @@ async def extract_from_url(
         the hardcoded defaults — tests + legacy callers stay working.
         Production wires the singleton via FastAPI dependency in
         :mod:`extractor.main`.
+    force_llm
+        AI-normalize toggle (2026-04-27 design). When ``True`` and the
+        URL classifies as a blog with valid JSON-LD, route the JSON-LD-
+        rendered text through the LLM with a strict-normalize prompt
+        instead of using the REL-8 direct-mapping fast path. Stays
+        ``False`` by default so existing callers + the bulk of imports
+        keep their zero-token fast path. On LLM failure the pipeline
+        soft-falls back to the JSON-LD-direct result and appends a
+        German user-visible note.
     """
     active_reporter: ProgressReporter = reporter or NullProgressReporter()
 
@@ -790,7 +801,15 @@ async def extract_from_url(
             # AI provider configured. Falls through to the LLM path
             # automatically when the page has no JSON-LD or fails the
             # minimum-validity gate inside ``extract_recipe_from_html``.
-            if jsonld_llm_output is not None:
+            #
+            # AI-normalize toggle (2026-04-27): when ``force_llm=True``
+            # the user has opted into LLM normalisation (translation +
+            # quantity normalisation), so we skip this fast path even
+            # when the JSON-LD is valid and feed ``blog_text`` (already
+            # the labelled JSON-LD render) to the LLM below. The
+            # soft-fallback at the LLM-call site falls back to
+            # ``jsonld_llm_output`` if the LLM call errors.
+            if jsonld_llm_output is not None and not force_llm:
                 await active_reporter.report(
                     ProgressEvent(phase="post_processing", phase_progress=0)
                 )
@@ -832,7 +851,25 @@ async def extract_from_url(
         # remain as defaults so tests + cold-start pipelines stay
         # working, and admin-UI changes surface here on the next 60 s
         # TTL tick.
-        system_prompt_base = await get_str(config, "llm.structured.system_prompt", SYSTEM_PROMPT_DE)
+        #
+        # AI-normalize toggle (2026-04-27): when ``force_llm=True`` we
+        # swap in the strict-normalize prompt (forbids inventing
+        # ingredients/steps; targets translation + quantity
+        # normalisation only). The CFG-1 key is dedicated so the admin
+        # can tweak the normalize prompt independently of the canonical
+        # extraction prompt.
+        if force_llm:
+            system_prompt_base = await get_str(
+                config,
+                "llm.structured.system_prompt_normalize_only",
+                SYSTEM_PROMPT_DE_NORMALIZE_ONLY,
+            )
+            prompt_version_key = "llm.structured.system_prompt_normalize_only"
+        else:
+            system_prompt_base = await get_str(
+                config, "llm.structured.system_prompt", SYSTEM_PROMPT_DE
+            )
+            prompt_version_key = "llm.structured.system_prompt"
         # LANG-1 — wrap the configured base prompt with the per-request
         # language directive so the LLM emits structured-field values
         # in the user's UI language. The directive lands at the end of
@@ -850,18 +887,57 @@ async def extract_from_url(
         max_completion_tokens = await get_int(config, "llm.structured.max_completion_tokens", 2048)
         deployment = await get_str(config, "llm.structured.deployment", "gpt-4.1")
 
-        llm_output, usage = await _run_llm_structuring(
-            provider=provider,
-            transcript=transcript,
-            caption=caption,
-            blog_text=blog_text,
-            thumbnail_url=thumbnail_url,
-            blog_text_untrusted=blog_text_untrusted,
-            system_prompt=system_prompt,
-            temperature=temperature,
-            max_completion_tokens=max_completion_tokens,
-            deployment=deployment,
-        )
+        # AI-normalize toggle (2026-04-27) — soft-fallback. When
+        # ``force_llm=True`` and we have a JSON-LD-direct result already
+        # in scope (``jsonld_llm_output``), wrap the LLM call so any
+        # ``LLMProviderError`` or ``json.JSONDecodeError`` (the latter
+        # is normally pre-wrapped by the Azure provider into
+        # ``LLMProviderError(code=schema_mismatch)``, kept here as
+        # defence-in-depth for non-Azure providers) degrades gracefully
+        # to the direct-mapping result + a German user-visible note. We
+        # still stamp ``ai_normalize_active=True`` on the snapshot below
+        # so the audit trail shows the user *requested* normalisation
+        # even when it fell back. When ``force_llm=False`` the
+        # try/except is bypassed entirely so the existing happy-path
+        # behaviour (LLM errors propagate to the HTTP layer) is
+        # untouched.
+        usage: TokenUsage | None
+        if force_llm and jsonld_llm_output is not None:
+            try:
+                llm_output, usage = await _run_llm_structuring(
+                    provider=provider,
+                    transcript=transcript,
+                    caption=caption,
+                    blog_text=blog_text,
+                    thumbnail_url=thumbnail_url,
+                    blog_text_untrusted=blog_text_untrusted,
+                    system_prompt=system_prompt,
+                    temperature=temperature,
+                    max_completion_tokens=max_completion_tokens,
+                    deployment=deployment,
+                )
+            except (LLMProviderError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "ai_normalize_fallback host=%s err=%s",
+                    _redact_host(url),
+                    type(exc).__name__,
+                )
+                notes.append("KI-Verfeinerung fehlgeschlagen — Originaldaten verwendet")
+                llm_output = jsonld_llm_output
+                usage = None  # JSON-LD-direct path did not consume tokens
+        else:
+            llm_output, usage = await _run_llm_structuring(
+                provider=provider,
+                transcript=transcript,
+                caption=caption,
+                blog_text=blog_text,
+                thumbnail_url=thumbnail_url,
+                blog_text_untrusted=blog_text_untrusted,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_completion_tokens=max_completion_tokens,
+                deployment=deployment,
+            )
 
         await active_reporter.report(ProgressEvent(phase="post_processing", phase_progress=0))
         signals: ExtractionSignals = {
@@ -885,13 +961,21 @@ async def extract_from_url(
         # surfaces describe the configured prompt, not the user-language
         # variant. Otherwise every DE/EN pair would surface as two
         # distinct prompt versions.
+        # AI-normalize toggle (2026-04-27): the snapshot reflects
+        # whichever prompt actually ran (canonical vs strict-normalize)
+        # via ``prompt_version_key`` and stamps ``ai_normalize_active``
+        # so the .NET side can persist user intent. The flag is True
+        # whenever the user opted in, even if the LLM call fell back
+        # to JSON-LD-direct (``llm_fell_back``) — the audit trail
+        # describes intent, not outcome.
         snapshot = _build_config_snapshot(
             config=config,
             system_prompt=system_prompt_base,
             temperature=temperature,
             max_completion_tokens=max_completion_tokens,
             deployment=deployment,
-            prompt_version_key="llm.structured.system_prompt",
+            prompt_version_key=prompt_version_key,
+            ai_normalize_active=force_llm,
         )
         return post_process(
             llm_output,
@@ -1575,12 +1659,18 @@ def _build_config_snapshot(
     max_completion_tokens: int,
     deployment: str,
     prompt_version_key: str,
+    ai_normalize_active: bool = False,
 ) -> ConfigSnapshot:
     """Build a :class:`ConfigSnapshot` for the active extraction.
 
     Hash is SHA-256 of the prompt string, truncated to the first 16 hex
     chars for compactness. ``prompt_version`` comes from the loader's
     version-table (falls back to ``None`` when the cache is cold).
+
+    ``ai_normalize_active`` is the AI-normalize toggle (2026-04-27
+    design). True iff the user opted into LLM-based JSON-LD
+    normalisation for this import; preserves user intent across the
+    soft-fallback path.
     """
     prompt_hash = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16]
     prompt_version: int | None = None
@@ -1592,6 +1682,7 @@ def _build_config_snapshot(
         "max_completion_tokens": max_completion_tokens,
         "deployment": deployment,
         "prompt_version": prompt_version,
+        "ai_normalize_active": ai_normalize_active,
     }
 
 

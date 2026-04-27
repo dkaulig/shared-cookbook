@@ -262,6 +262,14 @@ class ConfigSnapshot(TypedDict):
     - ``prompt_version`` — the ``Version`` integer the CFG-0 API
       returned for the prompt's config row. ``None`` when the loader's
       cache hasn't seen this key yet (cold-start / fetch failure).
+    - ``ai_normalize_active`` — AI-normalize toggle (2026-04-27 design).
+      Stamped ``True`` whenever the user opted into LLM-based JSON-LD
+      normalisation for a blog import (``force_llm=True``), regardless
+      of whether the LLM call succeeded or fell back to the JSON-LD-
+      direct path. Lets the .NET side persist user intent for audit +
+      reimport-dialog prefill. ``False`` for the existing REL-8 fast
+      path and for video / photo / chat imports that never reach this
+      decision point.
     """
 
     prompt_hash: str
@@ -269,6 +277,7 @@ class ConfigSnapshot(TypedDict):
     max_completion_tokens: int
     deployment: str
     prompt_version: int | None
+    ai_normalize_active: bool
 
 
 class ExtractionResult(TypedDict):

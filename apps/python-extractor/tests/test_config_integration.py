@@ -142,6 +142,7 @@ def test_post_process_accepts_config_snapshot() -> None:
         "max_completion_tokens": 2048,
         "deployment": "gpt-4.1-mini",
         "prompt_version": 7,
+        "ai_normalize_active": False,
     }
     result = post_process(
         _canonical_llm_response(),

@@ -240,10 +240,24 @@ class ExtractUrlRequest(ProgressCallbackFields):
     They default to ``None`` / ``1`` so existing callers (tests, local
     direct-Python usage) stay backward-compatible — a missing
     ``callback_url`` means the pipeline runs with a no-op reporter.
+
+    AI-normalize toggle (2026-04-27): ``force_llm`` defaults to ``False``
+    so existing callers keep the REL-8 fast path. The .NET side flips
+    it to ``True`` per-import when the user opts into LLM-based
+    JSON-LD normalisation (translation + quantity normalisation).
     """
 
     url: HttpUrl = Field(description="Source URL — video host or blog URL.")
     hint: ExtractHint
+    force_llm: bool = Field(
+        default=False,
+        description=(
+            "AI-normalize toggle: when True and the URL is a JSON-LD "
+            "blog, route the JSON-LD through the LLM with a strict-"
+            "normalize prompt instead of the REL-8 direct-mapping "
+            "fast path. Default False."
+        ),
+    )
 
 
 class ExtractPhotosRequest(ProgressCallbackFields):
@@ -824,6 +838,7 @@ def create_app() -> FastAPI:
                     reporter=reporter,
                     config=config,
                     lang=lang,
+                    force_llm=request.force_llm,
                 )
             except LLMProviderError as exc:
                 raise _http_from_llm_error(exc) from exc
