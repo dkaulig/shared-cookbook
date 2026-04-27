@@ -88,7 +88,17 @@ public static class ImportEndpoints
         /// terminal-state redirect: null → new recipe form, set →
         /// back to the detail page for the target recipe.
         /// </summary>
-        Guid? TargetRecipeId);
+        Guid? TargetRecipeId,
+        /// <summary>
+        /// AI-Normalize toggle (2026-04-27 design, slice 3) — captured
+        /// user intent for LLM-based JSON-LD normalisation. Mirrors the
+        /// persisted <see cref="RecipeImport.AiNormalizeActive"/> field
+        /// verbatim. The reimport-dialog reads this off
+        /// <c>GET /api/imports/{id}</c> to pre-fill its checkbox so the
+        /// user's previous opt-in survives across reimport rounds.
+        /// Defaults to <c>false</c> on legacy rows + non-blog imports.
+        /// </summary>
+        bool AiNormalizeActive);
 
     /// <summary>COVER-0 — one row of <c>GET /api/imports/:id/candidates</c>.
     /// <see cref="SignedUrl"/> is re-signed on each request (the stored
@@ -303,7 +313,10 @@ public static class ImportEndpoints
             // REIMPORT-0 — surface the target-recipe id so the
             // progress page's terminal-state redirect can branch to
             // the detail page instead of the new-recipe form.
-            TargetRecipeId: import.TargetRecipeId));
+            TargetRecipeId: import.TargetRecipeId,
+            // AI-Normalize toggle (slice 3) — surface persisted user
+            // intent so the reimport-dialog can pre-fill its checkbox.
+            AiNormalizeActive: import.AiNormalizeActive));
     }
 
     // ── GET /api/imports/{importId}/candidates (COVER-0) ────────────
@@ -581,7 +594,8 @@ public static class ImportEndpoints
                 SegmentsTotal: import.SegmentsTotal,
                 LastProgressAt: import.LastProgressAt,
                 CandidateStagedPhotoIds: import.CandidateStagedPhotoIds,
-                TargetRecipeId: import.TargetRecipeId));
+                TargetRecipeId: import.TargetRecipeId,
+                AiNormalizeActive: import.AiNormalizeActive));
     }
 
     // ── POST /api/recipes/import/url ─────────────────────────────────

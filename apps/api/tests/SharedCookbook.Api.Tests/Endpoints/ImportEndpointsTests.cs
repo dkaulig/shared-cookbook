@@ -1011,6 +1011,46 @@ public class ImportEndpointsTests : IClassFixture<SharedCookbookWebApplicationFa
         Assert.False(import.AiNormalizeActive);
     }
 
+    // AI-Normalize toggle (slice 3 read-side gap) — the reimport-dialog
+    // pre-fills its checkbox from the most recent import's persisted
+    // `AiNormalizeActive`. The frontend reads this via
+    // `GET /api/imports/{id}` so the wire shape MUST surface the flag.
+    [Fact]
+    public async Task Owner_Status_Response_Surfaces_AiNormalizeActive_When_True()
+    {
+        var (userId, token) = await SignupAsync("aiActive@ex.com", "AiAct");
+        var importId = await SeedImportAsync(userId, import =>
+        {
+            import.RecordAiNormalizeActive(true);
+        });
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/imports/{importId}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+        Assert.True(body.AiNormalizeActive);
+    }
+
+    [Fact]
+    public async Task Owner_Status_Response_Defaults_AiNormalizeActive_To_False()
+    {
+        // Fresh row never touched RecordAiNormalizeActive — the wire
+        // value MUST default to false (matches the persisted column
+        // default; legacy clients see no behaviour change).
+        var (userId, token) = await SignupAsync("aiInactive@ex.com", "AiInact");
+        var importId = await SeedImportAsync(userId);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/imports/{importId}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ImportEndpoints.ImportStatusResponse>())!;
+        Assert.False(body.AiNormalizeActive);
+    }
+
     // ── POST /api/imports/{importId}/retry (slice 3) ────────────────
 
     /// <summary>
