@@ -57,7 +57,7 @@ dev = [
   # P2-2: validate the RECIPE_SCHEMA JSON Schema at test time so a typo
   # in the schema fails the suite rather than at runtime against Azure.
   "jsonschema==4.26.0",
-  "types-jsonschema==4.26.0.20260408",
+  "types-jsonschema==4.26.0.20260508",
 ]
 
 [tool.hatch.build.targets.wheel]
