@@ -40,7 +40,7 @@ dependencies = [
   # (backed by CTranslate2) transcribes the audio on CPU in int8
   # quantised mode. The `large-v3` weights live in a named docker
   # volume mounted at $HF_HOME — see docker-compose*.yml.
-  "yt-dlp==2026.3.17",
+  "yt-dlp==2026.6.9",
   "faster-whisper==1.2.1",
   "ctranslate2==4.7.1",
 ]
