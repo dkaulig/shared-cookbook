@@ -15,10 +15,10 @@ authors = [{ name = "Familien-Kochbuch" }]
 # ranges; that silently upgrades on every fresh install. Bumps happen
 # deliberately in dedicated dependency-update slices.
 dependencies = [
-  "fastapi==0.136.1",
-  "uvicorn[standard]==0.46.0",
-  "pydantic==2.13.3",
-  "pydantic-settings==2.14.0",
+  "fastapi==0.138.0",
+  "uvicorn[standard]==0.49.0",
+  "pydantic==2.13.4",
+  "pydantic-settings==2.14.2",
   # P2-1: real HTTP against the Azure OpenAI Responses API. httpx was
   # dev-only in P2-0 (TestClient); promoted to runtime here because
   # `AzureOpenAIProvider` uses `httpx.AsyncClient` directly.
@@ -34,22 +34,22 @@ dependencies = [
   # dump of <article>/<main>/<body>).
   "extruct==0.18.0",
   "recipe-scrapers==15.11.0",
-  "beautifulsoup4==4.14.3",
-  "lxml==6.1.0",
+  "beautifulsoup4==4.15.0",
+  "lxml==6.1.1",
   # P2-2 video path: yt-dlp pulls the mp4 + metadata; faster-whisper
   # (backed by CTranslate2) transcribes the audio on CPU in int8
   # quantised mode. The `large-v3` weights live in a named docker
   # volume mounted at $HF_HOME — see docker-compose*.yml.
-  "yt-dlp==2026.3.17",
+  "yt-dlp==2026.6.9",
   "faster-whisper==1.2.1",
-  "ctranslate2==4.7.1",
+  "ctranslate2==4.8.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest==9.0.3",
-  "pytest-asyncio==1.3.0",
-  "ruff==0.15.12",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "ruff==0.15.18",
   "mypy==1.20.2",
   # P2-1: stub the Azure Responses API in always-on tests. MSW-style
   # route matching on httpx calls; no real network.
